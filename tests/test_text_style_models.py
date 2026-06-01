@@ -99,14 +99,20 @@ def test_default_text_style_profiles_include_caption_title_and_overlay_defaults(
         DEFAULT_OVERLAY_STYLE_ID,
     ]
     assert profiles[0].position == "bottom"
-    assert profiles[0].font_size == 42
+    assert profiles[0].font_size == 36
     assert profiles[0].font_weight == 500
-    assert profiles[0].primary_color == "#2C3E50"
+    assert profiles[0].primary_color == "#000000"
     assert profiles[0].stroke_width == 0
+    assert profiles[0].shadow_color is None
+    assert profiles[0].shadow_blur == 0
     title = profiles[1]
     assert title.name == "Title Default"
     assert title.position == "top_left"
-    assert title.font_size == 76
+    assert title.font_size == 55
+    assert title.primary_color == "#000000"
+    assert title.stroke_width == 0
+    assert title.shadow_color is None
+    assert title.shadow_blur == 0
     assert title.background_color == "#FFFFFF"
     assert title.background_opacity == 0.0
     assert profiles[2].name == "Overlay Default"
@@ -144,8 +150,10 @@ def test_text_style_profile_from_dict_preserves_defaults_for_missing_fields():
 
     assert profile.version == "text_style_profile.v1"
     assert profile.font_family == "Noto Sans CJK SC"
-    assert profile.font_size == 42
+    assert profile.font_size == 36
     assert profile.font_weight == 500
-    assert profile.primary_color == "#2C3E50"
+    assert profile.primary_color == "#000000"
     assert profile.stroke_color == "#000000"
     assert profile.stroke_width == 0
+    assert profile.shadow_color is None
+    assert profile.shadow_blur == 0

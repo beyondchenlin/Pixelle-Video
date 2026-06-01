@@ -94,9 +94,7 @@ def test_compiler_emits_static_index_without_manifest_fetch_or_remote_urls(tmp_p
     compiler.compile(project_dir=project_dir, context=context)
 
     index_html = (project_dir / "index.html").read_text(encoding="utf-8")
-    captions_html = (project_dir / "compositions" / "captions.html").read_text(
-        encoding="utf-8"
-    )
+    captions_html = (project_dir / "compositions" / "captions.html").read_text(encoding="utf-8")
 
     assert "render_manifest.json" not in index_html
     assert "https://" not in index_html
@@ -235,10 +233,7 @@ def test_compiler_exposes_clip_level_element_animation_manifest_attribute(
     )
 
     index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
-    assert (
-        'data-element-animation-manifest="data/element&quot;clip.json"'
-        in index_html
-    )
+    assert 'data-element-animation-manifest="data/element&quot;clip.json"' in index_html
     assert 'data/element"clip.json' not in index_html
 
 
@@ -318,9 +313,7 @@ def test_compiler_emits_static_text_layer_without_manifest_fetch(tmp_path: Path)
         '<div id="captions">__CAPTIONS__</div>',
         encoding="utf-8",
     )
-    (
-        template_root / "image_default" / "compositions" / "text_layer.template.html"
-    ).write_text(
+    (template_root / "image_default" / "compositions" / "text_layer.template.html").write_text(
         '<div id="text-layer">__TEXT_CUES__</div><script>__TEXT_TIMELINE__</script>',
         encoding="utf-8",
     )
@@ -364,9 +357,7 @@ def test_compiler_emits_static_text_layer_without_manifest_fetch(tmp_path: Path)
         context=context,
     )
 
-    text_layer = (project_dir / "compositions" / "text_layer.html").read_text(
-        encoding="utf-8"
-    )
+    text_layer = (project_dir / "compositions" / "text_layer.html").read_text(encoding="utf-8")
 
     assert "5 &lt; 6 &amp; text" in text_layer
     assert 'data-start="0.5"' in text_layer
@@ -445,9 +436,7 @@ def test_hyperframes_compiler_emits_text_style_variables(tmp_path: Path):
         context=context,
     )
 
-    html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(
-        encoding="utf-8"
-    )
+    html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(encoding="utf-8")
     assert 'data-style-profile="caption-yellow"' in html
     assert "--text-fill: #FFFF00" in html
     assert "Important text &amp; keep" in html
@@ -521,9 +510,7 @@ def test_hyperframes_compiler_prefers_cue_style_over_track_style(tmp_path: Path)
         context=context,
     )
 
-    html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(
-        encoding="utf-8"
-    )
+    html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(encoding="utf-8")
     assert 'data-style-profile="cue-style"' in html
     assert "--text-fill: #FFFF00" in html
     assert 'data-style-profile="track-style"' not in html
@@ -591,9 +578,7 @@ def test_hyperframes_compiler_sanitizes_css_profile_values(tmp_path: Path):
         context=context,
     )
 
-    html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(
-        encoding="utf-8"
-    )
+    html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(encoding="utf-8")
     assert "--text-fill: #FFFF00" in html
     assert "--text-stroke-color:" in html
     assert "--text-font-family: sans-serif" in html
@@ -657,9 +642,7 @@ def test_hyperframes_compiler_emits_caption_style_variables(tmp_path: Path):
         context=context,
     )
 
-    html = (tmp_path / "project" / "compositions" / "captions.html").read_text(
-        encoding="utf-8"
-    )
+    html = (tmp_path / "project" / "compositions" / "captions.html").read_text(encoding="utf-8")
     assert 'data-style-profile="caption-yellow"' in html
     assert "--text-fill: #FFFF00" in html
     assert "--text-background: rgba(0, 0, 0, 0.5)" in html
@@ -996,9 +979,7 @@ def test_hyperframes_compiler_copies_custom_font_file_and_emits_font_face(
     )
 
     copied_fonts = list((project_dir / "runtime" / "custom_fonts").glob("*.ttf"))
-    captions_html = (project_dir / "compositions" / "captions.html").read_text(
-        encoding="utf-8"
-    )
+    captions_html = (project_dir / "compositions" / "captions.html").read_text(encoding="utf-8")
 
     assert len(copied_fonts) == 1
     assert copied_fonts[0].read_bytes() == b"font bytes"
@@ -1056,9 +1037,7 @@ def test_phase1_templates_do_not_depend_on_remote_fonts_or_cdn_scripts():
         Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
         Path("resources/hyperframes/templates/image_landscape_full/index.template.html"),
         Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"),
-        Path(
-            "resources/hyperframes/templates/image_default/compositions/captions.template.html"
-        ),
+        Path("resources/hyperframes/templates/image_default/compositions/captions.template.html"),
         Path(
             "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
         ),
@@ -1082,9 +1061,7 @@ def test_phase1_templates_reference_local_font_entrypoint():
         Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
         Path("resources/hyperframes/templates/image_landscape_full/index.template.html"),
         Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"),
-        Path(
-            "resources/hyperframes/templates/image_default/compositions/captions.template.html"
-        ),
+        Path("resources/hyperframes/templates/image_default/compositions/captions.template.html"),
         Path(
             "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
         ),
@@ -1102,13 +1079,16 @@ def test_phase1_templates_reference_local_font_entrypoint():
 
 
 def test_phase1_templates_mount_static_text_layer_composition():
-    template_ids = ["image_default", "image_life_insights_light", "image_landscape_full", "image_landscape_minimal"]
+    template_ids = [
+        "image_default",
+        "image_life_insights_light",
+        "image_landscape_full",
+        "image_landscape_minimal",
+    ]
 
     for template_id in template_ids:
         template_dir = Path("resources/hyperframes/templates") / template_id
-        index_content = (template_dir / "index.template.html").read_text(
-            encoding="utf-8"
-        )
+        index_content = (template_dir / "index.template.html").read_text(encoding="utf-8")
         text_layer_template = template_dir / "compositions" / "text_layer.template.html"
 
         assert 'data-composition-id="text-layer"' in index_content
@@ -1257,10 +1237,16 @@ def test_phase1_text_layer_templates_consume_text_style_variables():
 
 def test_phase1_main_templates_apply_title_background_to_visible_box():
     wrapper_selectors = {
-        Path("resources/hyperframes/templates/image_default/index.template.html"): ".video-title-wrapper",
-        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"): ".header",
+        Path(
+            "resources/hyperframes/templates/image_default/index.template.html"
+        ): ".video-title-wrapper",
+        Path(
+            "resources/hyperframes/templates/image_life_insights_light/index.template.html"
+        ): ".header",
         Path("resources/hyperframes/templates/image_landscape_full/index.template.html"): ".title",
-        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"): ".header",
+        Path(
+            "resources/hyperframes/templates/image_landscape_minimal/index.template.html"
+        ): ".header",
     }
 
     for path, selector in wrapper_selectors.items():
@@ -1353,9 +1339,7 @@ def test_phase1_templates_reference_local_gsap_vendor_and_register_timelines():
             "./runtime/vendor/gsap.min.js",
             'window.__timelines["main-comp"]',
         ),
-        Path(
-            "resources/hyperframes/templates/image_life_insights_light/index.template.html"
-        ): (
+        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"): (
             "./runtime/vendor/gsap.min.js",
             'window.__timelines["main-comp"]',
         ),
@@ -1363,15 +1347,11 @@ def test_phase1_templates_reference_local_gsap_vendor_and_register_timelines():
             "./runtime/vendor/gsap.min.js",
             'window.__timelines["main-comp"]',
         ),
-        Path(
-            "resources/hyperframes/templates/image_landscape_minimal/index.template.html"
-        ): (
+        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"): (
             "./runtime/vendor/gsap.min.js",
             'window.__timelines["main-comp"]',
         ),
-        Path(
-            "resources/hyperframes/templates/image_default/compositions/captions.template.html"
-        ): (
+        Path("resources/hyperframes/templates/image_default/compositions/captions.template.html"): (
             "../runtime/vendor/gsap.min.js",
             'window.__timelines["captions"]',
         ),
@@ -1412,8 +1392,8 @@ def test_phase1_main_templates_keep_visual_materials_as_hard_cuts():
     for path in template_paths:
         content = path.read_text(encoding="utf-8")
         assert "visualClips.forEach" not in content
-        assert 'tl.fromTo(\n            clip,' not in content
-        assert 'tl.to(\n            clip,' not in content
+        assert "tl.fromTo(\n            clip," not in content
+        assert "tl.to(\n            clip," not in content
 
 
 def test_phase1_main_templates_show_shell_immediately_without_fade_motion():
@@ -1435,9 +1415,7 @@ def test_phase1_main_templates_show_shell_immediately_without_fade_motion():
 
 def test_phase1_caption_templates_use_hard_visibility_switches_without_fades():
     template_paths = [
-        Path(
-            "resources/hyperframes/templates/image_default/compositions/captions.template.html"
-        ),
+        Path("resources/hyperframes/templates/image_default/compositions/captions.template.html"),
         Path(
             "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
         ),
@@ -1458,7 +1436,12 @@ def test_phase1_caption_templates_use_hard_visibility_switches_without_fades():
 
 @pytest.mark.parametrize(
     "template_id",
-    ["image_default", "image_life_insights_light", "image_landscape_full", "image_landscape_minimal"],
+    [
+        "image_default",
+        "image_life_insights_light",
+        "image_landscape_full",
+        "image_landscape_minimal",
+    ],
 )
 def test_phase1_caption_templates_compile_with_context_canvas_dimensions(
     tmp_path: Path,
@@ -1503,9 +1486,7 @@ def test_phase1_caption_templates_compile_with_context_canvas_dimensions(
     project_dir = tmp_path / "task" / "hyperframes"
     compiler.compile(project_dir=project_dir, context=context)
 
-    captions_html = (project_dir / "compositions" / "captions.html").read_text(
-        encoding="utf-8"
-    )
+    captions_html = (project_dir / "compositions" / "captions.html").read_text(encoding="utf-8")
 
     assert 'data-width="720"' in captions_html
     assert 'data-height="1280"' in captions_html
@@ -1530,8 +1511,12 @@ def test_landscape_template_assets_and_inventory_exist():
     assert Path("templates/1920x1080/image_landscape_minimal.html").exists()
     assert "image_landscape_full" in PHASE1_TEMPLATE_FIELD_INVENTORY
     assert "image_landscape_minimal" in PHASE1_TEMPLATE_FIELD_INVENTORY
-    assert Path("resources/hyperframes/templates/image_landscape_full/text_capabilities.json").exists()
-    assert Path("resources/hyperframes/templates/image_landscape_minimal/text_capabilities.json").exists()
+    assert Path(
+        "resources/hyperframes/templates/image_landscape_full/text_capabilities.json"
+    ).exists()
+    assert Path(
+        "resources/hyperframes/templates/image_landscape_minimal/text_capabilities.json"
+    ).exists()
 
 
 def test_landscape_entry_templates_use_repo_local_font_assets():
@@ -1545,16 +1530,11 @@ def test_landscape_entry_templates_use_repo_local_font_assets():
     assert "@font-face" in full_template
     assert "@font-face" in minimal_template
     assert (
-        "../../resources/hyperframes/runtime/fonts/assets/MaShanZheng-Regular.ttf"
-        in full_template
+        "../../resources/hyperframes/runtime/fonts/assets/MaShanZheng-Regular.ttf" in full_template
     )
+    assert "../../resources/hyperframes/runtime/fonts/assets/NotoSansSC-wght.ttf" in full_template
     assert (
-        "../../resources/hyperframes/runtime/fonts/assets/NotoSansSC-wght.ttf"
-        in full_template
-    )
-    assert (
-        "../../resources/hyperframes/runtime/fonts/assets/NotoSansSC-wght.ttf"
-        in minimal_template
+        "../../resources/hyperframes/runtime/fonts/assets/NotoSansSC-wght.ttf" in minimal_template
     )
     assert "fonts.googleapis.com" not in full_template
     assert "fonts.gstatic.com" not in full_template
@@ -1699,14 +1679,36 @@ def test_image_landscape_full_template_compiles_with_1920x1080_canvas(tmp_path: 
         theme=None,
         style_profile="image_landscape_full",
         template_params={"author_desc": "Landscape"},
-        visuals=[VisualClip(id="v1", frame_index=0, start=0.0, end=6.0, media_path="assets/images/01.png", media_type="image")],
-        captions=[CaptionCue(id="c1", text="横屏字幕", start=0.0, end=2.0, frame_indices=[0], style_profile="image_landscape_full")],
+        visuals=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0.0,
+                end=6.0,
+                media_path="assets/images/01.png",
+                media_type="image",
+            )
+        ],
+        captions=[
+            CaptionCue(
+                id="c1",
+                text="横屏字幕",
+                start=0.0,
+                end=2.0,
+                frame_indices=[0],
+                style_profile="image_landscape_full",
+            )
+        ],
     )
 
     compiler.compile(project_dir=tmp_path / "project", context=context)
 
-    captions_html = (tmp_path / "project" / "compositions" / "captions.html").read_text(encoding="utf-8")
-    text_layer_html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(encoding="utf-8")
+    captions_html = (tmp_path / "project" / "compositions" / "captions.html").read_text(
+        encoding="utf-8"
+    )
+    text_layer_html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(
+        encoding="utf-8"
+    )
     assert 'data-width="1920"' in captions_html
     assert 'data-height="1080"' in captions_html
     assert "width: 1920px;" in text_layer_html
@@ -1727,14 +1729,36 @@ def test_image_landscape_minimal_template_compiles_with_1920x1080_canvas(tmp_pat
         theme=None,
         style_profile="image_landscape_minimal",
         template_params={"author_desc": "Landscape"},
-        visuals=[VisualClip(id="v1", frame_index=0, start=0.0, end=6.0, media_path="assets/images/01.png", media_type="image")],
-        captions=[CaptionCue(id="c1", text="横屏字幕", start=0.0, end=2.0, frame_indices=[0], style_profile="image_landscape_minimal")],
+        visuals=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0.0,
+                end=6.0,
+                media_path="assets/images/01.png",
+                media_type="image",
+            )
+        ],
+        captions=[
+            CaptionCue(
+                id="c1",
+                text="横屏字幕",
+                start=0.0,
+                end=2.0,
+                frame_indices=[0],
+                style_profile="image_landscape_minimal",
+            )
+        ],
     )
 
     compiler.compile(project_dir=tmp_path / "project", context=context)
 
-    captions_html = (tmp_path / "project" / "compositions" / "captions.html").read_text(encoding="utf-8")
-    text_layer_html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(encoding="utf-8")
+    captions_html = (tmp_path / "project" / "compositions" / "captions.html").read_text(
+        encoding="utf-8"
+    )
+    text_layer_html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(
+        encoding="utf-8"
+    )
     assert 'data-width="1920"' in captions_html
     assert 'data-height="1080"' in captions_html
     assert "width: 1920px;" in text_layer_html
@@ -1874,10 +1898,7 @@ def test_hyperframes_compiler_ignores_empty_layered_template_spec(
         encoding="utf-8",
     )
     (
-        template_root
-        / "image_landscape_minimal"
-        / "compositions"
-        / "captions.template.html"
+        template_root / "image_landscape_minimal" / "compositions" / "captions.template.html"
     ).write_text(
         '<div class="caption-root">__CAPTIONS__</div>',
         encoding="utf-8",
@@ -2051,13 +2072,57 @@ def test_hyperframes_compiler_uses_layer_text_style_without_global_text_renderin
 
     index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
     assert "Independent text" in index_html
-    assert "font-family:SimHei;" in index_html
+    assert 'font-family:"SimHei";' in index_html
     assert "font-size:54px;" in index_html
     assert "color:#112233;" in index_html
     assert "-webkit-text-stroke:3px #445566;" in index_html
     assert "background:rgba(248, 250, 252, 1);" in index_html
     assert "text-align:right;justify-content:flex-end;" in index_html
     assert "Runtime Title" not in index_html
+
+
+def test_hyperframes_compiler_uses_role_font_defaults_for_empty_layered_styles(
+    tmp_path: Path,
+):
+    compiler = HyperFramesCompiler()
+    spec = _layered_template_spec_payload()
+    for layer in spec["layers"]:
+        if layer["id"] in {"title", "caption"}:
+            layer["style"] = {}
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=720,
+        canvas_height=1280,
+        duration=3.0,
+        fps=30,
+        title="Runtime Title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        layered_template_spec=spec,
+        captions=[
+            CaptionCue(
+                id="caption-1",
+                text="Runtime Caption",
+                start=0.0,
+                end=3.0,
+                frame_indices=[0],
+                style_profile="caption-default",
+            )
+        ],
+    )
+
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    captions_html = (tmp_path / "project" / "compositions" / "captions.html").read_text(
+        encoding="utf-8"
+    )
+    assert "Runtime Title" in index_html
+    assert "Runtime Caption" in captions_html
+    assert "font-size:55px;" in index_html
+    assert "font-size:36px;" in captions_html
 
 
 def test_hyperframes_compiler_skips_disabled_layered_template_layers(

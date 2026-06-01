@@ -54,8 +54,8 @@ class _WidgetDefaultRecordingUI:
     def __init__(self):
         self.session_state = {
             "caption_style_font_family": "SimHei",
-            "caption_style_font_size": 42,
-            "caption_style_primary_color": "#2C3E50",
+            "caption_style_font_size": 36,
+            "caption_style_primary_color": "#000000",
             "image_text_suppress_embedded_text": True,
             "image_text_positive_prompt": "avoid embedded text",
             "text_layer_enabled": False,
@@ -296,8 +296,8 @@ def test_build_text_rendering_payload_keeps_title_style_and_drops_preview_demo_f
 def test_caption_style_ui_defaults_match_template_dark_text():
     from web.components.text_rendering_config import CAPTION_STYLE_DEFAULTS, OVERLAY_STYLE_DEFAULTS
 
-    assert CAPTION_STYLE_DEFAULTS["font_size"] == 42
-    assert CAPTION_STYLE_DEFAULTS["primary_color"] == "#2C3E50"
+    assert CAPTION_STYLE_DEFAULTS["font_size"] == 36
+    assert CAPTION_STYLE_DEFAULTS["primary_color"] == "#000000"
     assert CAPTION_STYLE_DEFAULTS["stroke_width"] == 0
     assert OVERLAY_STYLE_DEFAULTS["font_size"] == 76
     assert OVERLAY_STYLE_DEFAULTS["primary_color"] == "#FFFFFF"
@@ -529,7 +529,25 @@ def test_text_style_font_family_dropdown_preserves_duplicate_family_by_font_file
     assert style["font_file"] == "fonts/STHeitiMedium.ttc"
 
 
-def test_caption_style_control_migrates_legacy_hollow_caption_defaults(monkeypatch):
+@pytest.mark.parametrize(
+    "legacy_defaults",
+    [
+        {
+            "caption_style_font_size": 64,
+            "caption_style_primary_color": "#FFFFFF",
+            "caption_style_stroke_width": 2,
+        },
+        {
+            "caption_style_font_size": 42,
+            "caption_style_primary_color": "#2C3E50",
+            "caption_style_stroke_width": 0,
+        },
+    ],
+)
+def test_caption_style_control_migrates_legacy_caption_defaults(
+    legacy_defaults,
+    monkeypatch,
+):
     from web.components import text_rendering_config
     from web.components.text_rendering_config import (
         CAPTION_STYLE_DEFAULTS,
@@ -537,11 +555,7 @@ def test_caption_style_control_migrates_legacy_hollow_caption_defaults(monkeypat
     )
 
     fake_ui = _TextStyleFakeUI()
-    fake_ui.session_state = {
-        "caption_style_font_size": 64,
-        "caption_style_primary_color": "#FFFFFF",
-        "caption_style_stroke_width": 2,
-    }
+    fake_ui.session_state = dict(legacy_defaults)
     monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
 
     style = _render_text_style_controls(
@@ -551,11 +565,11 @@ def test_caption_style_control_migrates_legacy_hollow_caption_defaults(monkeypat
         translate=lambda key: f"translated:{key}",
     )
 
-    assert style["font_size"] == 42
-    assert style["primary_color"] == "#2C3E50"
+    assert style["font_size"] == 36
+    assert style["primary_color"] == "#000000"
     assert style["stroke_width"] == 0
-    assert fake_ui.session_state["caption_style_font_size"] == 42
-    assert fake_ui.session_state["caption_style_primary_color"] == "#2C3E50"
+    assert fake_ui.session_state["caption_style_font_size"] == 36
+    assert fake_ui.session_state["caption_style_primary_color"] == "#000000"
     assert fake_ui.session_state["caption_style_stroke_width"] == 0
 
 
@@ -598,8 +612,8 @@ def test_text_rendering_controls_render_caption_and_title_tabs(monkeypatch):
     fake_ui = _WidgetDefaultRecordingUI()
     fake_ui.session_state.update(
         {
-            "title_style_font_size": 76,
-            "title_style_primary_color": "#171410",
+            "title_style_font_size": 55,
+            "title_style_primary_color": "#000000",
             "title_style_background_opacity": 0.88,
             "title_style_position": "top_left",
             "title_style_alignment": "right",
@@ -617,9 +631,7 @@ def test_text_rendering_controls_render_caption_and_title_tabs(monkeypatch):
         template_id="image_landscape_minimal",
     )
 
-    assert fake_ui.tabs_calls == [
-        ["translated:caption_style.tab", "translated:title_style.tab"]
-    ]
+    assert fake_ui.tabs_calls == [["translated:caption_style.tab", "translated:title_style.tab"]]
     text_input_by_key = {call["key"]: call for call in fake_ui.text_input_calls}
     assert text_input_by_key["caption_style_font_family"]["label"] == (
         "translated:caption_style.font_family"
@@ -627,7 +639,7 @@ def test_text_rendering_controls_render_caption_and_title_tabs(monkeypatch):
     assert text_input_by_key["title_style_font_family"]["label"] == (
         "translated:title_style.font_family"
     )
-    assert payload["title_style"]["font_size"] == 76
+    assert payload["title_style"]["font_size"] == 55
     assert payload["title_style"]["position"] == "top_left"
     assert payload["title_style"]["alignment"] == "right"
     assert payload["title_style"]["margin_x"] == 110
@@ -656,6 +668,47 @@ def test_title_style_control_migrates_historical_template_background_defaults(mo
 
     assert payload["title_style"]["background_opacity"] == 0.0
     assert fake_ui.session_state["title_style_background_opacity"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "legacy_defaults",
+    [
+        {
+            "title_style_font_size": 76,
+            "title_style_primary_color": "#171410",
+            "title_style_stroke_width": 0,
+        },
+        {
+            "title_style_font_size": 55,
+            "title_style_primary_color": "#171410",
+            "title_style_stroke_width": 0,
+        },
+    ],
+)
+def test_title_style_control_migrates_legacy_title_defaults(
+    legacy_defaults,
+    monkeypatch,
+):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import render_text_rendering_controls
+
+    fake_ui = _WidgetDefaultRecordingUI()
+    fake_ui.session_state.update(legacy_defaults)
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
+
+    payload = render_text_rendering_controls(
+        "hyperframes",
+        ui=fake_ui,
+        translate=lambda key: key,
+        template_id="image_landscape_minimal",
+    )
+
+    assert payload["title_style"]["font_size"] == 55
+    assert payload["title_style"]["primary_color"] == "#000000"
+    assert payload["title_style"]["stroke_width"] == 0
+    assert fake_ui.session_state["title_style_font_size"] == 55
+    assert fake_ui.session_state["title_style_primary_color"] == "#000000"
+    assert fake_ui.session_state["title_style_stroke_width"] == 0
 
 
 def test_text_style_controls_return_full_layout_fields(monkeypatch):
@@ -700,7 +753,7 @@ def test_text_rendering_preview_helper_remains_separate_from_text_controls(monke
             "text_rendering_generate_real_preview": True,
             "api_base_url": "http://localhost:8000/api",
             "workspace_id": "ws",
-            "title_style_font_size": 76,
+            "title_style_font_size": 55,
         }
     )
     monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])

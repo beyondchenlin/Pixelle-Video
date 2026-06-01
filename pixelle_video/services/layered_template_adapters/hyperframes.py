@@ -10,7 +10,10 @@ from loguru import logger
 from pixelle_video.models.layered_template import LayeredTemplateSpec, TemplateLayer
 from pixelle_video.models.render_package import CaptionCue, VisualClip
 from pixelle_video.models.template_render_context import TemplateRenderContext
-from pixelle_video.models.text_style import TextStyleProfile
+from pixelle_video.models.text_style import (
+    DEFAULT_CAPTION_FONT_SIZE,
+    DEFAULT_TITLE_FONT_SIZE,
+)
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
@@ -349,8 +352,7 @@ class LayeredTemplateHyperFramesAdapter:
     ) -> str:
         object_fit = self._object_fit(layer)
         media_items = "\n".join(
-            self._render_visual_clip(clip=clip, object_fit=object_fit)
-            for clip in visuals
+            self._render_visual_clip(clip=clip, object_fit=object_fit) for clip in visuals
         )
         return (
             f'      <div class="pixelle-layer pixelle-generated-media-slot" '
@@ -394,15 +396,20 @@ class LayeredTemplateHyperFramesAdapter:
             layer=layer,
             context=context,
         )
-        css = self._layer_css(layer, include_rect=False) + self._text_css_from_style(
-            style=effective_style,
-            layer=layer,
-            canvas_width=canvas_width,
-            canvas_height=canvas_height,
-        ) if layer is not None else (
-            "left:0;top:0;width:100%;height:100%;z-index:0;opacity:1;"
-            "transform:rotate(0deg);font-size:32px;color:#ffffff;"
-            "justify-content:center;text-align:center;"
+        css = (
+            self._layer_css(layer, include_rect=False)
+            + self._text_css_from_style(
+                style=effective_style,
+                layer=layer,
+                canvas_width=canvas_width,
+                canvas_height=canvas_height,
+            )
+            if layer is not None
+            else (
+                "left:0;top:0;width:100%;height:100%;z-index:0;opacity:1;"
+                "transform:rotate(0deg);font-size:32px;color:#ffffff;"
+                "justify-content:center;text-align:center;"
+            )
         )
         text = self.text_sanitizer.sanitize(cue.text).display_text
         return (
@@ -481,6 +488,9 @@ class LayeredTemplateHyperFramesAdapter:
     ) -> str:
         if layer is None:
             return ""
+        default_font_size = (
+            DEFAULT_TITLE_FONT_SIZE if layer.role == "title" else DEFAULT_CAPTION_FONT_SIZE
+        )
         return render_text_style_css(
             style,
             canvas_width=canvas_width,
@@ -492,7 +502,7 @@ class LayeredTemplateHyperFramesAdapter:
                 height=float(layer.rect.height),
             ),
             units="px",
-            default_font_size=42,
+            default_font_size=default_font_size,
             rotation_degrees=float(layer.rotation),
         )
 

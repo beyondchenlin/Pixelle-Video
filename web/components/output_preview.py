@@ -14,7 +14,6 @@
 Output preview components for web UI (right column)
 """
 
-import base64
 import os
 import re
 from datetime import datetime, timezone
@@ -33,6 +32,12 @@ from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.render_package import resolve_media_layout_mode
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.template_preset import TemplatePreset
+from pixelle_video.models.text_style import (
+    DEFAULT_CAPTION_FONT_FAMILY,
+    DEFAULT_CAPTION_FONT_SIZE,
+    DEFAULT_CAPTION_PRIMARY_COLOR,
+    DEFAULT_CAPTION_STROKE_WIDTH,
+)
 from pixelle_video.models.video_generation_contract import (
     STORYBOARD_GENERATION_OPTION_KEYS as CONTRACT_STORYBOARD_GENERATION_OPTION_KEYS,
 )
@@ -44,13 +49,13 @@ from pixelle_video.models.video_generation_contract import (
 from pixelle_video.platform_context import resolve_business_context
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.repositories.template_presets import TemplatePresetRepository
+from pixelle_video.services.font_discovery import build_font_face_css
 from pixelle_video.services.frame_html import HTMLFrameGenerator
 from pixelle_video.services.layered_template_service import (
     LayeredTemplatePreviewFrameRequest,
     LayeredTemplateService,
 )
 from pixelle_video.services.template_registry import TemplateRegistry
-from pixelle_video.services.font_discovery import build_font_face_css
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
     resolve_text_style_layout,
@@ -274,13 +279,13 @@ def _build_layout_preview_html(video_params) -> TrustedPreviewHTML | None:
             # 因为 session_state 是文字样式组件更新后立即保存的位置
             # 作为备用，也从 video_params 获取（用于数据流一致性）
             text_rendering = (
-                st.session_state.get("text_rendering")
-                or video_params.get("text_rendering")
-                or {}
+                st.session_state.get("text_rendering") or video_params.get("text_rendering") or {}
             )
             html = LayeredTemplateService().render_preview_html(
                 spec=spec,
-                title_text=video_params.get("title") or video_params.get("layout_preview_title_text") or "",
+                title_text=video_params.get("title")
+                or video_params.get("layout_preview_title_text")
+                or "",
                 caption_text=video_params.get("layout_preview_caption_text") or "",
                 text_rendering=text_rendering,
             )
@@ -451,13 +456,18 @@ def _build_text_rendering_css_legacy(text_rendering: dict | None) -> str:
 
     title_style = text_rendering.get("title_style") or {}
     if title_style:
-        title_css = _build_single_text_style_css_legacy(title_style, ".pixelle-title, .title, .topic, h1, [class*='title']")
+        title_css = _build_single_text_style_css_legacy(
+            title_style, ".pixelle-title, .title, .topic, h1, [class*='title']"
+        )
         if title_css:
             css_parts.append(title_css)
 
     caption_style = text_rendering.get("caption_style") or {}
     if caption_style:
-        caption_css = _build_single_text_style_css_legacy(caption_style, ".pixelle-caption, .caption, .subtitle, .text, .excerpt, [class*='caption'], [class*='subtitle'], [class*='text']")
+        caption_css = _build_single_text_style_css_legacy(
+            caption_style,
+            ".pixelle-caption, .caption, .subtitle, .text, .excerpt, [class*='caption'], [class*='subtitle'], [class*='text']",
+        )
         if caption_css:
             css_parts.append(caption_css)
 
@@ -534,7 +544,7 @@ def _build_single_text_style_css_legacy(style: dict, selector: str) -> str:
     if max_chars_per_line == 0:
         rules.append("  max-width: none !important;")
     elif max_chars_per_line is not None and max_chars_per_line > 0:
-        font_size_val = style.get("font_size", 42)
+        font_size_val = style.get("font_size", DEFAULT_CAPTION_FONT_SIZE)
         rules.append(f"  max-width: {int(font_size_val) * max_chars_per_line}px !important;")
     elif max_width_ratio is not None:
         rules.append(f"  max-width: {float(max_width_ratio) * 100}% !important;")
@@ -669,11 +679,7 @@ def _build_text_overlay_blocks(
     if not css_parts and not div_parts:
         return "", ""
 
-    css_block = (
-        "<style data-pixelle-text-overlay>\n"
-        + "\n".join(css_parts)
-        + "\n</style>"
-    )
+    css_block = "<style data-pixelle-text-overlay>\n" + "\n".join(css_parts) + "\n</style>"
     overlay_html = "\n".join(div_parts) if div_parts else ""
     return css_block, overlay_html
 
@@ -686,16 +692,16 @@ def _build_single_text_overlay(
     prefix: str,
 ) -> str:
     """Build a single absolutely-positioned text overlay div."""
-    font_size = int(style.get("font_size", 42))
+    font_size = int(style.get("font_size", DEFAULT_CAPTION_FONT_SIZE))
     margin_x = int(style.get("margin_x", 80))
     margin_y = int(style.get("margin_y", 140))
     position = str(style.get("position", "bottom"))
     alignment = str(style.get("alignment", "center"))
     max_width_ratio_val = float(style.get("max_width_ratio", 0.86))
-    font_family = style.get("font_family", "")
-    primary_color = style.get("primary_color", "#FFFFFF")
+    font_family = style.get("font_family", DEFAULT_CAPTION_FONT_FAMILY)
+    primary_color = style.get("primary_color", DEFAULT_CAPTION_PRIMARY_COLOR)
     stroke_color = style.get("stroke_color", "#000000")
-    stroke_width_val = int(style.get("stroke_width", 0))
+    stroke_width_val = int(style.get("stroke_width", DEFAULT_CAPTION_STROKE_WIDTH))
     bg_color = style.get("background_color")
     bg_opacity = style.get("background_opacity")
     max_chars_per_line = style.get("max_chars_per_line")
@@ -719,10 +725,10 @@ def _build_single_text_overlay(
         f"font-size: {scaled_font_size}px",
         f"color: {primary_color}",
         f"text-align: {alignment}",
-        f"position: absolute",
-        f"z-index: 10",
-        f"display: flex",
-        f"flex-direction: column",
+        "position: absolute",
+        "z-index: 10",
+        "display: flex",
+        "flex-direction: column",
         f"justify-content: {_flex_justify(position, alignment)}",
         f"align-items: {_flex_align_items(position, alignment)}",
         f"left: {_px_or_auto(layout.left)}",
@@ -731,8 +737,8 @@ def _build_single_text_overlay(
         f"bottom: {_px_or_auto(layout.bottom)}",
         f"transform: {layout.transform}",
         f"width: {int(round(layout.width))}px",
-        f"overflow-wrap: break-word",
-        f"word-break: break-word",
+        "overflow-wrap: break-word",
+        "word-break: break-word",
         f"line-height: {float(style.get('line_height', 1.18))}",
     ]
 
@@ -783,12 +789,7 @@ def _build_single_text_overlay(
         for line in str(text).split("\n")
     ]
     inner = "<br>".join(escaped_lines)
-    return (
-        f'<div class="pixelle-overlay-{prefix}"'
-        f' style="{style_attr}">'
-        f"{inner}"
-        f"</div>"
-    )
+    return f'<div class="pixelle-overlay-{prefix}" style="{style_attr}">{inner}</div>'
 
 
 def _chars_limit_css(scaled_font_size: int, max_chars_per_line: object) -> str | None:
@@ -857,9 +858,7 @@ def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | Non
         )
 
         text_rendering = (
-            st.session_state.get("text_rendering")
-            or video_params.get("text_rendering")
-            or {}
+            st.session_state.get("text_rendering") or video_params.get("text_rendering") or {}
         )
 
         css_block, overlay_divs = _build_text_overlay_blocks(
@@ -994,9 +993,7 @@ def _build_layout_preview_frame_request(
     return LayeredTemplatePreviewFrameRequest(
         workspace_id=business_context["workspace_id"],
         spec=spec,
-        title_text=video_params.get("title")
-        or video_params.get("layout_preview_title_text")
-        or "",
+        title_text=video_params.get("title") or video_params.get("layout_preview_title_text") or "",
         caption_text=video_params.get("layout_preview_caption_text") or "",
         text_rendering=video_params.get("text_rendering") or {},
     )
@@ -1071,10 +1068,10 @@ def _build_user_template_spec(spec: LayeredTemplateSpec) -> LayeredTemplateSpec:
     metadata["source_kind"] = "user"
     metadata["source_template_id"] = spec.template_id
     template_name = str(spec.template_name).strip() or "Layer Design"
-    slug = "".join(
-        char.lower() if char.isalnum() else "_"
-        for char in template_name
-    ).strip("_") or "layer_design"
+    slug = (
+        "".join(char.lower() if char.isalnum() else "_" for char in template_name).strip("_")
+        or "layer_design"
+    )
     if slug.startswith("system_"):
         slug = slug.removeprefix("system_") or "layer_design"
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
@@ -1275,9 +1272,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "frame_template": video_params.get("frame_template"),
         "prompt_prefix": video_params.get("prompt_prefix", ""),
         "bgm_path": video_params.get("bgm_path"),
-        "bgm_volume": video_params.get("bgm_volume", 0.2)
-        if video_params.get("bgm_path")
-        else 0.2,
+        "bgm_volume": video_params.get("bgm_volume", 0.2) if video_params.get("bgm_path") else 0.2,
         "progress_callback": progress_callback,
         **size_contract.to_params(),
         "media_placement": _media_placement_payload(
@@ -1341,9 +1336,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     if layered_template_spec is not None:
         request["layered_template_spec"] = layered_template_spec
     if video_params.get("selected_template_preset_id") and layered_template_spec is not None:
-        request["selected_template_preset_id"] = video_params[
-            "selected_template_preset_id"
-        ]
+        request["selected_template_preset_id"] = video_params["selected_template_preset_id"]
 
     if video_params.get("request_id"):
         request["request_id"] = video_params["request_id"]
@@ -1429,9 +1422,7 @@ def build_batch_shared_config(video_params):
     if layered_template_spec is not None:
         shared_config["layered_template_spec"] = layered_template_spec
     if video_params.get("selected_template_preset_id") and layered_template_spec is not None:
-        shared_config["selected_template_preset_id"] = video_params[
-            "selected_template_preset_id"
-        ]
+        shared_config["selected_template_preset_id"] = video_params["selected_template_preset_id"]
     return shared_config
 
 
@@ -1443,9 +1434,7 @@ def render_single_output(pixelle_video, video_params):
 def _render_single_output_sections(pixelle_video, video_params):
     generation_runner = _render_generation_section(pixelle_video, video_params)
     if generation_runner is None:
-        _render_layout_preview_workbench_section(
-            {**video_params, "pixelle_video": pixelle_video}
-        )
+        _render_layout_preview_workbench_section({**video_params, "pixelle_video": pixelle_video})
         render_recent_video_gallery(pixelle_video)
         return
 
@@ -1600,9 +1589,7 @@ def _render_generation_section(pixelle_video, video_params):
                                     message = f"{message} - {localized_extra_info}"
 
                             status_text.text(message)
-                            progress_bar.progress(
-                                min(int(event.progress * 100), 99)
-                            )
+                            progress_bar.progress(min(int(event.progress * 100), 99))
 
                         storyboard_contract = _storyboard_controls_contract(video_params)
                         generation_request = build_single_generation_request(
@@ -1612,12 +1599,8 @@ def _render_generation_section(pixelle_video, video_params):
                                 "mode": mode,
                                 "title": title,
                                 **storyboard_contract.to_generation_dict(),
-                                "script_length_mode": video_params.get(
-                                    "script_length_mode"
-                                ),
-                                "script_target_words": video_params.get(
-                                    "script_target_words"
-                                ),
+                                "script_length_mode": video_params.get("script_length_mode"),
+                                "script_target_words": video_params.get("script_target_words"),
                                 "media_workflow": workflow_key,
                                 "frame_template": frame_template,
                                 "prompt_prefix": prompt_prefix,
@@ -1634,26 +1617,17 @@ def _render_generation_section(pixelle_video, video_params):
                                 "request_id": request_id,
                                 "session_id": session_id,
                                 "render_backend": video_params.get("render_backend"),
-                                "tts_audio_strategy": video_params.get(
-                                    "tts_audio_strategy"
-                                ),
-                                "layered_template_spec": video_params.get(
-                                    "layered_template_spec"
-                                ),
+                                "tts_audio_strategy": video_params.get("tts_audio_strategy"),
+                                "layered_template_spec": video_params.get("layered_template_spec"),
                                 "selected_template_preset_id": video_params.get(
                                     "selected_template_preset_id"
                                 ),
                                 "ip_enabled": video_params.get("ip_enabled"),
-                                "ip_asset_bible_id": video_params.get(
-                                    "ip_asset_bible_id"
-                                ),
+                                "ip_asset_bible_id": video_params.get("ip_asset_bible_id"),
                                 "ip_profile_id": video_params.get("ip_profile_id"),
                                 **storyboard_contract.to_planning_dict(),
                                 "text_rendering": video_params.get("text_rendering"),
-                                **{
-                                    key: video_params.get(key)
-                                    for key in TTS_SPLIT_SETTING_KEYS
-                                },
+                                **{key: video_params.get(key) for key in TTS_SPLIT_SETTING_KEYS},
                                 **{
                                     key: video_params.get(key)
                                     for key in ELEMENT_ANIMATION_OPTION_KEYS
@@ -1664,7 +1638,9 @@ def _render_generation_section(pixelle_video, video_params):
                         )
 
                         result = run_async(pixelle_video.generate_video(**generation_request))
-                        storyboard_snapshot_changed = capture_snapshot_from_result(result, st.session_state)
+                        storyboard_snapshot_changed = capture_snapshot_from_result(
+                            result, st.session_state
+                        )
 
                         # Calculate total generation time
                         total_generation_time = time.time() - start_time
@@ -1739,7 +1715,7 @@ def render_batch_output(pixelle_video, video_params):
             tr("batch.generate_button", count=batch_count),
             type="primary",
             width="stretch",
-            help=tr("batch.generate_help")
+            help=tr("batch.generate_help"),
         ):
             session_id = _get_or_create_log_session_id(st.session_state)
             video_params = {**video_params, "session_id": session_id}
@@ -1771,7 +1747,9 @@ def render_batch_output(pixelle_video, video_params):
             def make_task_progress_callback(task_idx, topic):
                 def callback(event: ProgressEvent):
                     # Display current task title
-                    current_task_title.markdown(f"🎬 **{tr('batch.current_task')} {task_idx}**: {topic}")
+                    current_task_title.markdown(
+                        f"🎬 **{tr('batch.current_task')} {task_idx}**: {topic}"
+                    )
 
                     message = format_progress_event_message(event)
 
@@ -1798,7 +1776,7 @@ def render_batch_output(pixelle_video, video_params):
                 topics=topics,
                 shared_config=shared_config,
                 overall_progress_callback=update_overall_progress,
-                task_progress_callback_factory=make_task_progress_callback
+                task_progress_callback_factory=make_task_progress_callback,
             )
 
             latest_planning_snapshot = None
@@ -1833,7 +1811,9 @@ def render_batch_output(pixelle_video, video_params):
             # Display total time
             minutes = int(total_time / 60)
             seconds = int(total_time % 60)
-            st.caption(f"⏱️ {tr('batch.total_time')}: {minutes}{tr('batch.minutes')}{seconds}{tr('batch.seconds')}")
+            st.caption(
+                f"⏱️ {tr('batch.total_time')}: {minutes}{tr('batch.minutes')}{seconds}{tr('batch.seconds')}"
+            )
 
             # Redirect to History page
             st.markdown("---")
@@ -1856,11 +1836,11 @@ def render_batch_output(pixelle_video, video_params):
                         font-weight: 400;
                         text-align: center;
                     ">
-                        📚 {tr('batch.goto_history')}
+                        📚 {tr("batch.goto_history")}
                     </button>
                 </a>
                 """,
-                unsafe_allow_html=True
+                unsafe_allow_html=True,
             )
 
             # Show failed tasks if any
@@ -1869,9 +1849,11 @@ def render_batch_output(pixelle_video, video_params):
                 st.markdown(f"#### {tr('batch.failed_list')}")
 
                 for item in batch_result["errors"]:
-                    with st.expander(f"🔴 {tr('batch.task')} {item['index']}: {item['topic']}", expanded=False):
+                    with st.expander(
+                        f"🔴 {tr('batch.task')} {item['index']}: {item['topic']}", expanded=False
+                    ):
                         st.error(f"**{tr('batch.error')}**: {item['error']}")
 
                         # Detailed error (collapsed)
                         with st.expander(tr("batch.error_detail")):
-                            st.code(item['traceback'], language="python")
+                            st.code(item["traceback"], language="python")

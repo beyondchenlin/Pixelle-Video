@@ -14,6 +14,7 @@ from pixelle_video.models.media_placement import calculate_media_box
 from pixelle_video.models.template_text_style_presets import (
     resolve_template_text_style_preset,
 )
+from pixelle_video.models.text_style import DEFAULT_CAPTION_FONT_SIZE, DEFAULT_TITLE_FONT_SIZE
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
     render_text_style_css,
@@ -104,7 +105,9 @@ def build_text_rendering_preview_spec(
         template_title_region=preset.title_region_dict(),
         template_caption_safe_area=preset.caption_safe_area_dict(),
     )
-    return TextRenderingPreviewSpec(**{**spec.__dict__, "fingerprint": preview_spec_fingerprint(spec)})
+    return TextRenderingPreviewSpec(
+        **{**spec.__dict__, "fingerprint": preview_spec_fingerprint(spec)}
+    )
 
 
 def _safe_media_ref(value: str | None) -> str | None:
@@ -124,6 +127,7 @@ def _style_css(
     *,
     canvas_width: int,
     canvas_height: int,
+    default_font_size: int,
 ) -> str:
     return render_text_style_css(
         style,
@@ -135,7 +139,7 @@ def _style_css(
             canvas_height=canvas_height,
         ),
         units="percent",
-        default_font_size=42,
+        default_font_size=default_font_size,
     )
 
 
@@ -176,11 +180,11 @@ def render_preview_html(spec: TextRenderingPreviewSpec) -> str:
     {media_layer}
   </div>
   <div class="text-rendering-preview__layer text-rendering-preview__title" data-layer="title"
-       style="{_style_css(spec.title_style, spec.template_title_region, canvas_width=spec.canvas_width, canvas_height=spec.canvas_height)}">
+       style="{_style_css(spec.title_style, spec.template_title_region, canvas_width=spec.canvas_width, canvas_height=spec.canvas_height, default_font_size=DEFAULT_TITLE_FONT_SIZE)}">
     {escape(spec.title_text)}
   </div>
   <div class="text-rendering-preview__layer text-rendering-preview__caption" data-layer="caption"
-       style="{_style_css(spec.caption_style, spec.template_caption_safe_area, canvas_width=spec.canvas_width, canvas_height=spec.canvas_height)}">
+       style="{_style_css(spec.caption_style, spec.template_caption_safe_area, canvas_width=spec.canvas_width, canvas_height=spec.canvas_height, default_font_size=DEFAULT_CAPTION_FONT_SIZE)}">
     {escape(spec.caption_text)}
   </div>
 </div>

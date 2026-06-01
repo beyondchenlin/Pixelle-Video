@@ -87,7 +87,7 @@ In the middle panel:
 
 **Visual Settings**
 - Select image generation workflow (default works well)
-- Set image dimensions (default 768x768)
+- Set image dimensions (default landscape 1280x720)
 - Choose video template (recommend portrait 1080x1920)
 
 ---

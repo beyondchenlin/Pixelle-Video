@@ -64,11 +64,7 @@ VIDEO_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
 }
 
 VALID_VIDEO_RESOLUTION_PRESETS = tuple(
-    dict.fromkeys(
-        preset
-        for presets in VIDEO_SIZE_PRESETS.values()
-        for preset in presets
-    )
+    dict.fromkeys(preset for presets in VIDEO_SIZE_PRESETS.values() for preset in presets)
 )
 
 VALID_MEDIA_RESOLUTION_PRESETS = ("768", "1k", "2k", "4k")
@@ -82,8 +78,8 @@ DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION = {
 DEFAULT_VIDEO_RESOLUTION_PRESET = DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION[
     DEFAULT_VIDEO_ORIENTATION
 ]
-DEFAULT_MEDIA_ORIENTATION = "square"
-DEFAULT_MEDIA_RESOLUTION_PRESET = "768"
+DEFAULT_MEDIA_ORIENTATION = "landscape"
+DEFAULT_MEDIA_RESOLUTION_PRESET = "1k"
 
 MEDIA_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
     "landscape": LEGACY_VIDEO_SIZE_PRESETS["landscape"],
@@ -207,8 +203,7 @@ def normalize_media_resolution_preset(
         raise ValueError(f"unsupported media resolution preset: {preset}")
     if preset not in MEDIA_SIZE_PRESETS[normalized_orientation]:
         raise ValueError(
-            "unsupported media resolution preset "
-            f"{preset!r} for {normalized_orientation!r}"
+            f"unsupported media resolution preset {preset!r} for {normalized_orientation!r}"
         )
     return preset
 
@@ -314,16 +309,12 @@ class GenerationSizeContract:
     @classmethod
     def from_params(cls, params: Mapping[str, Any] | None) -> GenerationSizeContract:
         source = dict(params or {})
-        video_orientation = normalize_video_orientation(
-            source.get("video_orientation")
-        )
+        video_orientation = normalize_video_orientation(source.get("video_orientation"))
         video_preset = normalize_video_resolution_preset(
             source.get("video_resolution_preset"),
             orientation=video_orientation,
         )
-        media_orientation = normalize_media_orientation(
-            source.get("media_orientation")
-        )
+        media_orientation = normalize_media_orientation(source.get("media_orientation"))
         media_preset = normalize_media_resolution_preset(
             source.get("media_resolution_preset"),
             orientation=media_orientation,
@@ -340,9 +331,7 @@ class GenerationSizeContract:
                     canvas.width,
                     canvas.height,
                 )
-                video_preset = _VIDEO_PRESET_ALIASES_BY_ORIENTATION[
-                    video_orientation
-                ].get(
+                video_preset = _VIDEO_PRESET_ALIASES_BY_ORIENTATION[video_orientation].get(
                     f"{canvas.width}x{canvas.height}",
                     DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION[video_orientation],
                 )

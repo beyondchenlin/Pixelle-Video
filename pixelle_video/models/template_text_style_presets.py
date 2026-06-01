@@ -5,7 +5,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID
+from pixelle_video.models.text_style import (
+    DEFAULT_TITLE_FONT_FAMILY,
+    DEFAULT_TITLE_FONT_SIZE,
+    DEFAULT_TITLE_PRIMARY_COLOR,
+    DEFAULT_TITLE_STROKE_WIDTH,
+    DEFAULT_TITLE_STYLE_ID,
+)
 
 
 @dataclass(frozen=True)
@@ -49,12 +55,12 @@ GENERIC_TEMPLATE_TEXT_STYLE_PRESET = TemplateTextStylePreset(
     title_style={
         "id": DEFAULT_TITLE_STYLE_ID,
         "name": "Title Default",
-        "font_family": "Noto Sans CJK SC",
-        "font_size": 72,
+        "font_family": DEFAULT_TITLE_FONT_FAMILY,
+        "font_size": DEFAULT_TITLE_FONT_SIZE,
         "font_weight": 700,
-        "primary_color": "#FFFFFF",
+        "primary_color": DEFAULT_TITLE_PRIMARY_COLOR,
         "stroke_color": "#000000",
-        "stroke_width": 2,
+        "stroke_width": DEFAULT_TITLE_STROKE_WIDTH,
         "background_color": None,
         "background_opacity": 0.0,
         "position": "top",
@@ -134,10 +140,10 @@ TEMPLATE_TEXT_STYLE_PRESETS: dict[str, TemplateTextStylePreset] = {
         has_title_region=True,
         title_style={
             **GENERIC_TEMPLATE_TEXT_STYLE_PRESET.title_style,
-            "font_size": 55,
+            "font_size": DEFAULT_TITLE_FONT_SIZE,
             "font_weight": 900,
-            "primary_color": "#171410",
-            "stroke_width": 0,
+            "primary_color": DEFAULT_TITLE_PRIMARY_COLOR,
+            "stroke_width": DEFAULT_TITLE_STROKE_WIDTH,
             "background_color": "#FFFFFF",
             "background_opacity": 0.0,
             "position": "top_left",

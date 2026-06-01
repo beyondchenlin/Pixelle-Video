@@ -2,11 +2,11 @@
 
 ## 0. Revision: Independent Image Generation Size
 
-2026-04-28 user clarification: generated image/media size must also be user-selectable. The default remains `768x768`, but the user can independently choose image orientation and image resolution:
+2026-06-01 product clarification: generated image/media size must default to landscape `1280x720` / `1k`, and users can independently choose image orientation and image resolution:
 
 - Image orientation: `landscape`, `portrait`, `square`.
 - Image resolution: `1k`, `2k`, `4k` for all orientations.
-- Square image size additionally has the default preset `768`, resolved to `768x768`.
+- Square image size additionally has the preset `768`, resolved to `768x768`.
 - Image size selection is independent from the final video canvas selection.
 - When `sync_media_size_to_canvas` is enabled, the effective generated image/media size follows `canvas_width` / `canvas_height`, while the independent image controls remain part of the request contract.
 
@@ -28,7 +28,7 @@ The size contract therefore includes both video controls and media controls:
 - 最终视频尺寸使用 `canvas_width` / `canvas_height` 表达。
 - 图片或视频素材生成尺寸继续使用 `media_width` / `media_height` 表达。
 - UI 通过统一尺寸预设表选择画幅和分辨率，不再让模板目录或模板 meta 成为最终视频尺寸的业务源头。
-- 图片生成尺寸默认固定为 `768x768`。
+- 图片生成尺寸默认固定为横屏 `1280x720`（`landscape` / `1k`）；方图 `768x768` 仅保留为显式 square preset。
 - 只有用户显式开启“同步到最终视频尺寸”时，`media_width` / `media_height` 才等于当前 `canvas_width` / `canvas_height`。
 - 旧参数和旧模板仍保持兼容，但新逻辑必须围绕显式合同运行。
 
@@ -45,7 +45,7 @@ The size contract therefore includes both video controls and media controls:
 - `RenderManifest` 和部分 HyperFrames/FFmpeg manifest 路径也把 `media_width` / `media_height` 当作画布尺寸使用。
 - `HTMLFrameGenerator` 通过模板路径解析固定尺寸，例如 `1920x1080` 或 `1080x1920`，模板 HTML 内部也常有写死的像素尺寸。
 
-结果是“最终视频尺寸”和“素材尺寸”被耦合在一起。用户想选择横版 `1280x720` 的最终视频，同时保持图片默认 `768x768` 时，当前模型无法自然表达，只能靠补丁式覆盖。
+结果是“最终视频尺寸”和“素材尺寸”被耦合在一起。用户想选择横版 `1280x720` 的最终视频，同时保持图片生成尺寸独立可选时，当前模型无法自然表达，只能靠补丁式覆盖。
 
 ## 3. 目标
 
@@ -59,7 +59,7 @@ The size contract therefore includes both video controls and media controls:
    - 横版：`1280x720`、`1920x1080`、`3840x2160`
    - 竖版：`720x1280`、`1080x1920`、`2160x3840`
    - 方形：`1024x1024`、`2048x2048`、`4096x4096`
-5. 图片生成尺寸默认保持 `768x768`。
+5. 图片生成尺寸默认保持横屏 `1280x720`（`landscape` / `1k`），并保留 `768x768` 作为显式方图 preset。
 6. 提供显式同步选项：开启后素材尺寸跟随最终视频尺寸。
 7. 让最终渲染、字幕布局、manifest、HyperFrames canvas 使用 `canvas_width` / `canvas_height`。
 8. 让图片/视频素材生成工作流使用 `media_width` / `media_height`。
@@ -108,7 +108,7 @@ The size contract therefore includes both video controls and media controls:
 
 缺点：
 
-- 图片默认 `768x768` 会被破坏。
+- 仍然无法保留独立的图片生成尺寸契约。
 - 仍然混淆素材尺寸和最终画布尺寸。
 - 方形图片放进横版视频、素材视频放进竖版视频等场景无法清楚表达。
 
@@ -128,7 +128,7 @@ The size contract therefore includes both video controls and media controls:
 
 - 源头语义清楚。
 - 后续新增尺寸预设、API 参数、批量生成和测试都能围绕同一模型扩展。
-- 保留图片默认 `768x768`，同时支持显式同步。
+- 保留独立的图片生成尺寸默认值和显式同步能力。
 - 可以逐步治理模板固定尺寸问题。
 
 缺点：
@@ -189,7 +189,9 @@ The size contract therefore includes both video controls and media controls:
 - `orientation = landscape`
 - `video_resolution_preset = 1K`
 - `canvas_size = 1280x720`
-- `media_size = 768x768`
+- `media_orientation = landscape`
+- `media_resolution_preset = 1k`
+- `media_size = 1280x720`
 - `sync_media_size_to_canvas = false`
 
 兼容约束：
@@ -197,7 +199,7 @@ The size contract therefore includes both video controls and media controls:
 - `GenerationSizeContract` 是新链路的唯一尺寸解析入口。
 - `StoryboardConfig` 可以继续被旧测试和旧调用只用 `media_width` / `media_height` 构造。
 - 当 `StoryboardConfig` 未收到 `canvas_width` / `canvas_height` 时，`__post_init__` 必须把它们解析为 `media_width` / `media_height`，保持旧行为。
-- 当请求入口同时缺少 canvas 和 media 尺寸时，必须通过 `GenerationSizeContract.default()` 得到 `canvas=1280x720`、`media=768x768`，而不是散落在 UI 或 pipeline 中各自写默认值。
+- 当请求入口同时缺少 canvas 和 media 尺寸时，必须通过 `GenerationSizeContract.default()` 得到 `canvas=1280x720`、`media=1280x720`，而不是散落在 UI 或 pipeline 中各自写默认值。
 
 ### 6.2 UI 行为
 
@@ -210,7 +212,7 @@ The size contract therefore includes both video controls and media controls:
 
 在图片/视频素材生成区域显示素材尺寸：
 
-- 默认显示 `768x768`。
+- 默认显示横屏 `1280x720`。
 - 同步开启时显示当前最终视频尺寸。
 - 文案必须区分“最终视频尺寸”和“图片生成尺寸”，不再使用“由模板自动决定”的表达。
 
@@ -247,7 +249,7 @@ API schema 可新增可选字段：
 兼容规则：
 
 - 如果请求没有 `canvas_width` / `canvas_height`，但有 `media_width` / `media_height`，旧调用继续使用媒体尺寸作为画布尺寸。
-- 如果两者都没有，使用默认合同：最终视频 `1280x720`，素材 `768x768`。
+- 如果两者都没有，使用默认合同：最终视频 `1280x720`，素材 `1280x720`。
 
 ### 6.4 Pipeline 和 StoryboardConfig
 
@@ -293,7 +295,7 @@ API schema 可新增可选字段：
 
 1. 尺寸合同默认值：
    - 默认 canvas 为 `1280x720`
-   - 默认 media 为 `768x768`
+   - 默认 media 为 `1280x720`
    - 默认不同步
 
 2. 横版/竖版/方形预设解析：
@@ -302,7 +304,7 @@ API schema 可新增可选字段：
    - 方形 4K 为 `4096x4096`
 
 3. 同步规则：
-   - 同步关闭时 media 保持 `768x768`
+   - 同步关闭时 media 保持独立默认值 `1280x720`
    - 同步开启时 media 等于 canvas
 
 4. 请求构建：
@@ -328,9 +330,9 @@ API schema 可新增可选字段：
 
 ## 8. 成功标准
 
-- 新建任务默认最终视频为 `1280x720`，图片生成尺寸为 `768x768`。
+- 新建任务默认最终视频为 `1280x720`，图片生成尺寸为 `1280x720`。
 - 用户选择竖版 2K 时，最终视频尺寸为 `1080x1920`。
-- 用户选择横版 4K 且不开同步时，图片生成仍为 `768x768`。
+- 用户选择横版 4K 且不开同步时，图片生成仍为独立默认横屏 `1280x720`。
 - 用户开启同步时，图片生成尺寸与最终视频尺寸一致。
 - 单视频和批量生成尺寸行为一致。
 - 测试覆盖默认值、预设解析、同步规则、请求构建、pipeline 初始化和 manifest 输出。

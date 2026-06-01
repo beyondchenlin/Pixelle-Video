@@ -26,12 +26,16 @@ from pixelle_video.models.template_text_style_presets import (
 )
 from pixelle_video.models.text_overlay import DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
 from pixelle_video.models.text_style import (
+    DEFAULT_CAPTION_FONT_FAMILY,
     DEFAULT_CAPTION_FONT_SIZE,
     DEFAULT_CAPTION_PRIMARY_COLOR,
     DEFAULT_CAPTION_STROKE_WIDTH,
     DEFAULT_OVERLAY_FONT_SIZE,
     DEFAULT_OVERLAY_PRIMARY_COLOR,
     DEFAULT_OVERLAY_STROKE_WIDTH,
+    DEFAULT_TITLE_FONT_SIZE,
+    DEFAULT_TITLE_PRIMARY_COLOR,
+    DEFAULT_TITLE_STROKE_WIDTH,
 )
 from pixelle_video.render_backend import LEGACY_RENDER_BACKEND
 from pixelle_video.services.font_discovery import (
@@ -49,7 +53,7 @@ from web.utils.streamlit_helpers import (
 )
 
 CAPTION_STYLE_DEFAULTS: dict[str, Any] = {
-    "font_family": "Noto Sans CJK SC",
+    "font_family": DEFAULT_CAPTION_FONT_FAMILY,
     "font_size": DEFAULT_CAPTION_FONT_SIZE,
     "primary_color": DEFAULT_CAPTION_PRIMARY_COLOR,
     "stroke_color": "#000000",
@@ -90,16 +94,34 @@ FONT_SEARCH_DIRS = (
     Path("font"),
     Path("resource/fonts"),
 )
-LEGACY_CAPTION_STYLE_DEFAULTS = {
-    "font_size": 64,
-    "primary_color": "#FFFFFF",
-    "stroke_width": 2,
-}
-CAPTION_DEFAULTS_MIGRATION_KEY = "caption_style_template_defaults_migrated_v2"
-LEGACY_TITLE_BACKGROUND_OPACITY_DEFAULTS = {0.92, 0.82, 0.24, 0.88}
-TITLE_BACKGROUND_OPACITY_MIGRATION_KEY = (
-    "title_style_background_opacity_defaults_migrated_v1"
+LEGACY_CAPTION_STYLE_DEFAULT_SETS = (
+    {
+        "font_size": 64,
+        "primary_color": "#FFFFFF",
+        "stroke_width": 2,
+    },
+    {
+        "font_size": 42,
+        "primary_color": "#2C3E50",
+        "stroke_width": 0,
+    },
 )
+CAPTION_DEFAULTS_MIGRATION_KEY = "caption_style_template_defaults_migrated_v3"
+LEGACY_TITLE_STYLE_DEFAULT_SETS = (
+    {
+        "font_size": 76,
+        "primary_color": "#171410",
+        "stroke_width": 0,
+    },
+    {
+        "font_size": 55,
+        "primary_color": "#171410",
+        "stroke_width": 0,
+    },
+)
+TITLE_DEFAULTS_MIGRATION_KEY = "title_style_template_defaults_migrated_v2"
+LEGACY_TITLE_BACKGROUND_OPACITY_DEFAULTS = {0.92, 0.82, 0.24, 0.88}
+TITLE_BACKGROUND_OPACITY_MIGRATION_KEY = "title_style_background_opacity_defaults_migrated_v1"
 TEXT_STYLE_PREVIEW_ONLY_KEYS = {
     "preview_title_text",
     "preview_caption_text",
@@ -144,9 +166,12 @@ def _migrate_legacy_caption_style_defaults(ui: Any) -> None:
     if session_state.get(CAPTION_DEFAULTS_MIGRATION_KEY):
         return
 
-    has_legacy_caption_defaults = all(
-        session_state.get(f"caption_style_{key}") == value
-        for key, value in LEGACY_CAPTION_STYLE_DEFAULTS.items()
+    has_legacy_caption_defaults = any(
+        all(
+            session_state.get(f"caption_style_{key}") == value
+            for key, value in legacy_defaults.items()
+        )
+        for legacy_defaults in LEGACY_CAPTION_STYLE_DEFAULT_SETS
     )
     if has_legacy_caption_defaults:
         _set_session_value(ui, "caption_style_font_size", DEFAULT_CAPTION_FONT_SIZE)
@@ -159,6 +184,21 @@ def _migrate_legacy_title_style_defaults(ui: Any) -> None:
     session_state = getattr(ui, "session_state", None)
     if session_state is None or not hasattr(session_state, "get"):
         return
+
+    if not session_state.get(TITLE_DEFAULTS_MIGRATION_KEY):
+        has_legacy_title_defaults = any(
+            all(
+                session_state.get(f"title_style_{key}") == value
+                for key, value in legacy_defaults.items()
+            )
+            for legacy_defaults in LEGACY_TITLE_STYLE_DEFAULT_SETS
+        )
+        if has_legacy_title_defaults:
+            _set_session_value(ui, "title_style_font_size", DEFAULT_TITLE_FONT_SIZE)
+            _set_session_value(ui, "title_style_primary_color", DEFAULT_TITLE_PRIMARY_COLOR)
+            _set_session_value(ui, "title_style_stroke_width", DEFAULT_TITLE_STROKE_WIDTH)
+        _set_session_value(ui, TITLE_DEFAULTS_MIGRATION_KEY, True)
+
     if session_state.get(TITLE_BACKGROUND_OPACITY_MIGRATION_KEY):
         return
 
@@ -318,9 +358,7 @@ def _render_text_style_controls(
         configured_font_option = str(
             _session_value(ui, f"{prefix}_font_option", configured_font_family)
         ).strip()
-        configured_font_file = str(
-            _session_value(ui, f"{prefix}_font_file", "")
-        ).strip()
+        configured_font_file = str(_session_value(ui, f"{prefix}_font_file", "")).strip()
         selected_font_option = (
             _font_option_for_current_value(configured_font_file, labels_by_option)
             or _font_option_for_current_value(configured_font_option, labels_by_option)
@@ -328,9 +366,7 @@ def _render_text_style_controls(
             or labels_by_option[font_option_labels[0]]
         )
         selected_font_label = next(
-            label
-            for label, option in labels_by_option.items()
-            if option == selected_font_option
+            label for label, option in labels_by_option.items() if option == selected_font_option
         )
         _set_session_value(ui, f"{prefix}_font_family", selected_font_option.family)
         _set_session_value(
@@ -701,8 +737,8 @@ def render_text_rendering_controls(
                         "image_text_positive_prompt",
                         DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
                     ),
-                    ),
-                )
+                ),
+            )
 
         text_rendering_payload = build_text_rendering_payload(
             caption_style=caption_style,

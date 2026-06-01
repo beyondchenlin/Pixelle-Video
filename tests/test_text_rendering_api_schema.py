@@ -81,8 +81,8 @@ def test_empty_api_text_style_overrides_keep_role_defaults():
 
     result = TextRenderingOrchestrator().build(text_rendering=payload)
 
-    assert result.caption_style.font_size == 42
-    assert result.caption_style.primary_color == "#2C3E50"
+    assert result.caption_style.font_size == 36
+    assert result.caption_style.primary_color == "#000000"
     assert result.caption_style.stroke_width == 0
     assert result.overlay_style.font_size == 76
     assert result.overlay_style.primary_color == "#FFFFFF"

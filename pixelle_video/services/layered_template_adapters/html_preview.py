@@ -5,6 +5,10 @@ from html import escape
 from typing import Any, Mapping
 
 from pixelle_video.models.layered_template import LayeredTemplateSpec, TemplateLayer
+from pixelle_video.models.text_style import (
+    DEFAULT_CAPTION_FONT_SIZE,
+    DEFAULT_TITLE_FONT_SIZE,
+)
 from pixelle_video.services.font_discovery import build_font_face_css
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
@@ -247,6 +251,9 @@ def _text_style_css(
     if isinstance(configured_style, Mapping):
         style.update(configured_style)
     style.update(layer.style)
+    default_font_size = (
+        DEFAULT_TITLE_FONT_SIZE if layer.role == "title" else DEFAULT_CAPTION_FONT_SIZE
+    )
 
     return render_text_style_css(
         style,
@@ -259,7 +266,7 @@ def _text_style_css(
             height=float(layer.rect.height),
         ),
         units="px",
-        default_font_size=42,
+        default_font_size=default_font_size,
         rotation_degrees=float(layer.rotation),
     )
 

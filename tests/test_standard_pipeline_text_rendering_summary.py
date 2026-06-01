@@ -177,7 +177,7 @@ def test_text_rendering_result_passes_template_id_to_title_style_defaults(tmp_pa
 
     assert result.title_style.id == DEFAULT_TITLE_STYLE_ID
     assert result.title_style.position == "top_left"
-    assert result.title_style.font_size == 76
+    assert result.title_style.font_size == 55
 
 
 def test_text_rendering_result_logs_template_resolution_fallback(monkeypatch, tmp_path):
@@ -244,12 +244,10 @@ def test_text_rendering_result_attaches_contract_to_creation_package(tmp_path):
     result = pipeline._get_text_rendering_result(ctx)
 
     assert ctx.creation_package.text_overlay_plan is result.overlay_plan
-    assert ctx.creation_package.prompt_plan["text_render_package"] == (
-        "text_render_package.json"
-    )
-    assert list(
-        ctx.creation_package.prompt_plan["text_rendering_policy"]["enabled_targets"]
-    ) == ["ass"]
+    assert ctx.creation_package.prompt_plan["text_render_package"] == ("text_render_package.json")
+    assert list(ctx.creation_package.prompt_plan["text_rendering_policy"]["enabled_targets"]) == [
+        "ass"
+    ]
     assert len(ctx.creation_package.text_overlay_plan.candidates) == 1
 
 
@@ -344,16 +342,22 @@ def test_caption_cues_are_filtered_by_renderer_targets(tmp_path):
 
     cues = pipeline._build_caption_cues_for_render(ctx, rebuild=True)
 
-    assert pipeline._caption_cues_for_renderer(
-        ctx,
-        caption_cues=cues,
-        renderer="hyperframes",
-    ) == []
-    assert pipeline._caption_cues_for_renderer(
-        ctx,
-        caption_cues=cues,
-        renderer="ass",
-    ) == cues
+    assert (
+        pipeline._caption_cues_for_renderer(
+            ctx,
+            caption_cues=cues,
+            renderer="hyperframes",
+        )
+        == []
+    )
+    assert (
+        pipeline._caption_cues_for_renderer(
+            ctx,
+            caption_cues=cues,
+            renderer="ass",
+        )
+        == cues
+    )
 
 
 def test_record_text_layer_summary_only_describes_overlay_text_layer():
@@ -497,9 +501,7 @@ async def test_legacy_ass_manifest_receives_text_style_profiles_from_package(
     ctx.storyboard = Storyboard(
         title="Demo",
         config=ctx.config,
-        frames=[
-            StoryboardFrame(index=0, narration="scene 1", image_prompt="prompt 1")
-        ],
+        frames=[StoryboardFrame(index=0, narration="scene 1", image_prompt="prompt 1")],
     )
     ctx.storyboard.frames[0].video_segment_path = "segment-0.mp4"
     ctx.timing_plan = SimpleNamespace(
@@ -539,9 +541,7 @@ async def test_legacy_ass_manifest_receives_text_style_profiles_from_package(
         DEFAULT_OVERLAY_STYLE_ID,
     ]
     assert manifest.text_style_profiles[0].primary_color == "#FFFF00"
-    assert ctx.observability["caption_rendering_summary"]["style_profile_id"] == (
-        "caption-default"
-    )
+    assert ctx.observability["caption_rendering_summary"]["style_profile_id"] == ("caption-default")
 
 
 @pytest.mark.asyncio
@@ -585,9 +585,7 @@ async def test_legacy_ass_exports_caption_only_when_overlay_disabled(
     ctx.storyboard = Storyboard(
         title="Demo",
         config=ctx.config,
-        frames=[
-            StoryboardFrame(index=0, narration="caption only", image_prompt="prompt")
-        ],
+        frames=[StoryboardFrame(index=0, narration="caption only", image_prompt="prompt")],
     )
     ctx.storyboard.frames[0].video_segment_path = "segment-0.mp4"
     ctx.timing_plan = SimpleNamespace(
@@ -662,9 +660,7 @@ async def test_legacy_ass_does_not_render_caption_when_ass_not_targeted(
     ctx.storyboard = Storyboard(
         title="Demo",
         config=ctx.config,
-        frames=[
-            StoryboardFrame(index=0, narration="caption only", image_prompt="prompt")
-        ],
+        frames=[StoryboardFrame(index=0, narration="caption only", image_prompt="prompt")],
     )
     ctx.storyboard.frames[0].video_segment_path = "segment-0.mp4"
     ctx.timing_plan = SimpleNamespace(
@@ -740,9 +736,7 @@ async def test_hyperframes_summary_omits_caption_artifact_when_not_targeted(
     ctx.storyboard = Storyboard(
         title="Demo",
         config=ctx.config,
-        frames=[
-            StoryboardFrame(index=0, narration="caption only", image_prompt="prompt")
-        ],
+        frames=[StoryboardFrame(index=0, narration="caption only", image_prompt="prompt")],
     )
     ctx.storyboard.frames[0].image_path = "frame.png"
     ctx.storyboard.frames[0].composed_image_path = "frame.png"

@@ -110,6 +110,50 @@ def test_render_preview_html_orders_layers_and_escapes_text():
     assert "position:absolute" in html
 
 
+def test_render_preview_html_uses_role_font_defaults_when_layer_style_is_empty():
+    base = _preview_spec()
+    spec = LayeredTemplateSpec(
+        version=base.version,
+        template_id=base.template_id,
+        template_name=base.template_name,
+        template_type=base.template_type,
+        canvas_width=base.canvas_width,
+        canvas_height=base.canvas_height,
+        media_width=base.media_width,
+        media_height=base.media_height,
+        safe_area=base.safe_area,
+        layers=(
+            *base.layers,
+            TemplateLayer(
+                id="caption",
+                type="text",
+                name="Caption",
+                rect=RectSpec(x=96, y=1500, width=888, height=160),
+                z_index=30,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=None,
+                style={},
+                role="caption",
+            ),
+        ),
+        metadata=base.metadata,
+    )
+
+    html = LayeredTemplateService().render_preview_html(
+        spec=spec,
+        title_text="Runtime Title",
+        caption_text="Runtime Caption",
+        text_rendering={},
+    )
+
+    assert "Runtime Title" in html
+    assert "Runtime Caption" in html
+    assert "font-size:55px;" in html
+    assert "font-size:36px;" in html
+
+
 def test_render_preview_html_skips_disabled_layers():
     base = _preview_spec()
     spec = LayeredTemplateSpec(
@@ -259,7 +303,7 @@ def test_render_preview_html_uses_text_layer_style_without_global_text_rendering
     )
 
     assert "Independent text" in html
-    assert "font-family:SimHei;" in html
+    assert 'font-family:"SimHei";' in html
     assert "font-size:54px;" in html
     assert "color:#112233;" in html
     assert "-webkit-text-stroke:3px #445566;" in html

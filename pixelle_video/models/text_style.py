@@ -7,10 +7,17 @@ from typing import Any, Mapping
 DEFAULT_CAPTION_STYLE_ID = "caption-default"
 DEFAULT_TITLE_STYLE_ID = "title-default"
 DEFAULT_OVERLAY_STYLE_ID = "overlay-default"
-DEFAULT_CAPTION_FONT_SIZE = 42
+DEFAULT_TEXT_FONT_FAMILY = "Noto Sans CJK SC"
+DEFAULT_CAPTION_FONT_FAMILY = DEFAULT_TEXT_FONT_FAMILY
+DEFAULT_CAPTION_FONT_SIZE = 36
 DEFAULT_CAPTION_FONT_WEIGHT = 500
-DEFAULT_CAPTION_PRIMARY_COLOR = "#2C3E50"
+DEFAULT_CAPTION_PRIMARY_COLOR = "#000000"
 DEFAULT_CAPTION_STROKE_WIDTH = 0
+DEFAULT_TITLE_FONT_FAMILY = DEFAULT_TEXT_FONT_FAMILY
+DEFAULT_TITLE_FONT_SIZE = 55
+DEFAULT_TITLE_PRIMARY_COLOR = "#000000"
+DEFAULT_TITLE_STROKE_WIDTH = 0
+DEFAULT_OVERLAY_FONT_FAMILY = DEFAULT_TEXT_FONT_FAMILY
 DEFAULT_OVERLAY_FONT_SIZE = 76
 DEFAULT_OVERLAY_PRIMARY_COLOR = "#FFFFFF"
 DEFAULT_OVERLAY_STROKE_WIDTH = 2
@@ -30,9 +37,7 @@ _ALIGNMENTS = {"left", "center", "right"}
 _PUNCTUATION_MODES = {"strip_all", "strip_terminal", "preserve"}
 
 
-def normalize_hex_color(
-    value: str | None, field_name: str = "color"
-) -> str | None:
+def normalize_hex_color(value: str | None, field_name: str = "color") -> str | None:
     if value is None:
         return None
     cleaned = str(value).strip()
@@ -69,7 +74,7 @@ class TextStyleProfile:
     id: str
     name: str
     version: str = "text_style_profile.v1"
-    font_family: str = "Noto Sans CJK SC"
+    font_family: str = DEFAULT_CAPTION_FONT_FAMILY
     font_file: str | None = None
     font_size: int = DEFAULT_CAPTION_FONT_SIZE
     font_weight: int = DEFAULT_CAPTION_FONT_WEIGHT
@@ -110,11 +115,9 @@ class TextStyleProfile:
             raise ValueError(f"Unsupported text alignment: {self.alignment}")
         if self.punctuation_mode not in _PUNCTUATION_MODES:
             raise ValueError(f"Unsupported punctuation_mode: {self.punctuation_mode}")
-        resolved_scale_basis_width, resolved_scale_basis_height = (
-            resolve_text_style_scale_basis(
-                canvas_width=self.scale_basis_width,
-                canvas_height=self.scale_basis_height,
-            )
+        resolved_scale_basis_width, resolved_scale_basis_height = resolve_text_style_scale_basis(
+            canvas_width=self.scale_basis_width,
+            canvas_height=self.scale_basis_height,
         )
         object.__setattr__(self, "scale_basis_width", resolved_scale_basis_width)
         object.__setattr__(self, "scale_basis_height", resolved_scale_basis_height)
@@ -184,13 +187,11 @@ class TextStyleProfile:
             version=str(data.get("version", "text_style_profile.v1")),
             id=str(data["id"]),
             name=str(data.get("name", data["id"])),
-            font_family=str(data.get("font_family", "Noto Sans CJK SC")),
+            font_family=str(data.get("font_family", DEFAULT_CAPTION_FONT_FAMILY)),
             font_file=data.get("font_file"),
             font_size=int(data.get("font_size", DEFAULT_CAPTION_FONT_SIZE)),
             font_weight=int(data.get("font_weight", DEFAULT_CAPTION_FONT_WEIGHT)),
-            primary_color=str(
-                data.get("primary_color", DEFAULT_CAPTION_PRIMARY_COLOR)
-            ),
+            primary_color=str(data.get("primary_color", DEFAULT_CAPTION_PRIMARY_COLOR)),
             background_color=data.get("background_color"),
             background_opacity=float(data.get("background_opacity", 0.0)),
             stroke_color=str(data.get("stroke_color", "#000000")),
@@ -233,12 +234,10 @@ def build_default_text_style_profiles(
         resolve_template_text_style_preset,
     )
 
-    resolved_scale_basis_width, resolved_scale_basis_height = (
-        resolve_text_style_scale_basis(
-            config=config,
-            canvas_width=canvas_width,
-            canvas_height=canvas_height,
-        )
+    resolved_scale_basis_width, resolved_scale_basis_height = resolve_text_style_scale_basis(
+        config=config,
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
     )
     scale_basis_kwargs: dict[str, int] = {}
     if resolved_scale_basis_width is not None and resolved_scale_basis_height is not None:

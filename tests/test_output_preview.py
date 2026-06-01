@@ -66,6 +66,22 @@ def _disable_layout_preview_recent_presets(monkeypatch):
     )
 
 
+def test_build_single_text_overlay_uses_caption_contract_defaults_for_partial_style():
+    html = output_preview._build_single_text_overlay(
+        style={"font_size": 36},
+        text="Caption",
+        region=output_preview.TextStyleRegion(x=0, y=0, width=1280, height=720),
+        scale_factor=1.0,
+        prefix="caption",
+    )
+
+    assert "Caption" in html
+    assert "color: #000000" in html
+    assert 'font-family: "Noto Sans CJK SC", sans-serif' in html
+    assert "-webkit-text-stroke" not in html
+    assert "text-shadow:" not in html
+
+
 def test_refreshable_slot_uses_stable_initial_suffix_and_refresh_suffix():
     captured = {"emptied": 0, "entered": 0, "suffixes": []}
 
@@ -99,7 +115,7 @@ def test_refreshable_slot_uses_stable_initial_suffix_and_refresh_suffix():
 def test_build_video_preview_css_overrides_streamlit_inline_width():
     css = output_preview.build_video_preview_css("output_preview_media", width="50%")
 
-    assert ".st-key-output_preview_media [data-testid=\"stVideo\"]" in css
+    assert '.st-key-output_preview_media [data-testid="stVideo"]' in css
     assert "width: 50% !important;" in css
     assert "max-width: 100% !important;" in css
     assert "margin-inline: auto;" in css
@@ -155,23 +171,21 @@ def test_render_scaled_video_preview_uses_scoped_container(monkeypatch):
 
     css, unsafe = captured["markdown"]
     assert unsafe is True
-    assert ".st-key-output_video_preview [data-testid=\"stVideo\"]" in css
+    assert '.st-key-output_video_preview [data-testid="stVideo"]' in css
     assert captured["container_key"] == "output_video_preview"
     assert captured["video"] == ("final.mp4", "stretch")
 
 
 def test_single_generation_runner_initializes_rerun_flag_before_try_block():
-    source = (PROJECT_ROOT / "web" / "components" / "output_preview.py").read_text(
-        encoding="utf-8"
-    )
+    source = (PROJECT_ROOT / "web" / "components" / "output_preview.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     run_generation = next(
-        node for node in ast.walk(tree)
+        node
+        for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef) and node.name == "run_generation"
     )
     first_try_index = next(
-        index for index, node in enumerate(run_generation.body)
-        if isinstance(node, ast.Try)
+        index for index, node in enumerate(run_generation.body) if isinstance(node, ast.Try)
     )
     assigned_before_try = {
         target.id
@@ -195,7 +209,9 @@ def test_video_generation_pipelines_use_shared_scaled_preview_renderer():
 
     for path in files:
         source = path.read_text(encoding="utf-8")
-        assert "render_scaled_video_preview(" in source, f"{path.name} should use shared preview renderer"
+        assert "render_scaled_video_preview(" in source, (
+            f"{path.name} should use shared preview renderer"
+        )
 
 
 def test_single_video_result_summary_uses_canvas_contract_dimensions():
@@ -1467,7 +1483,9 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "render_scaled_video_preview", lambda _path: None)
-    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(
+        output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None
+    )
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
 
     output_preview.render_single_output(
@@ -1671,8 +1689,12 @@ def test_render_single_output_reruns_after_storyboard_snapshot_updates(
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
-    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
-    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(
+        output_preview, "store_recent_generated_video", lambda _result, _state: None
+    )
+    monkeypatch.setattr(
+        output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None
+    )
     monkeypatch.setattr(output_preview, "safe_rerun", _safe_rerun, raising=False)
 
     try:
@@ -1798,6 +1820,7 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
     _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+
     def fake_tr(key, **kwargs):
         return {
             "section.video_generation": "section.video_generation",
@@ -1813,7 +1836,9 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
     monkeypatch.setattr(output_preview, "tr", fake_tr)
     monkeypatch.setattr(progress_i18n, "tr", fake_tr)
     monkeypatch.setattr(output_preview, "render_scaled_video_preview", lambda _path: None)
-    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(
+        output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None
+    )
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
 
     output_preview.render_single_output(
@@ -1833,7 +1858,9 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
     assert "Generating image prompts... - resolving style profile" in captured["status_messages"]
 
 
-def test_render_single_output_stores_recent_generated_video_and_renders_gallery(monkeypatch, tmp_path):
+def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
+    monkeypatch, tmp_path
+):
     captured = {"events": []}
     video_path = tmp_path / "final.mp4"
     video_path.write_bytes(b"video")
@@ -2070,8 +2097,16 @@ def test_render_single_output_renders_workbench_between_generation_and_recent(
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
-    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: captured["events"].append("store"))
-    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: captured["events"].append("gallery"))
+    monkeypatch.setattr(
+        output_preview,
+        "store_recent_generated_video",
+        lambda _result, _state: captured["events"].append("store"),
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "render_recent_video_gallery",
+        lambda _pixelle_video, **_kwargs: captured["events"].append("gallery"),
+    )
     monkeypatch.setattr(
         output_preview,
         "render_layout_preview_workbench",
@@ -2207,8 +2242,12 @@ def test_render_single_output_passes_key_suffix_to_workbench_refresh(
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
-    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
-    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(
+        output_preview, "store_recent_generated_video", lambda _result, _state: None
+    )
+    monkeypatch.setattr(
+        output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None
+    )
     monkeypatch.setattr(
         output_preview,
         "_render_layout_preview_workbench_section",
@@ -2284,18 +2323,13 @@ def test_render_layout_preview_workbench_section_uses_registry_recent_and_marks_
         SimpleNamespace(session_state={}, rerun=lambda: reruns.append(True)),
     )
 
-    output_preview._render_layout_preview_workbench_section(
-        {"layered_template_spec": spec_payload}
-    )
+    output_preview._render_layout_preview_workbench_section({"layered_template_spec": spec_payload})
 
     assert captured["list_recent"] == [5]
     assert captured["recent_presets"][0]["preset_id"] == "user:portrait_news"
     assert captured["mark_used"] == ["user:portrait_news"]
     assert output_preview.st.session_state["loaded_spec"] == spec_payload
-    assert (
-        output_preview.st.session_state["selected_template_preset_id"]
-        == "user:portrait_news"
-    )
+    assert output_preview.st.session_state["selected_template_preset_id"] == "user:portrait_news"
     assert reruns == [True]
 
 
@@ -2332,8 +2366,8 @@ def test_render_layout_preview_workbench_section_renders_empty_state_without_spe
     default_summary = captured["default_layout_summary"]
     assert default_summary.canvas_width == 1280
     assert default_summary.canvas_height == 720
-    assert default_summary.media_width == 768
-    assert default_summary.media_height == 768
+    assert default_summary.media_width == 1280
+    assert default_summary.media_height == 720
     assert default_summary.media_placement.to_dict() == {
         "scale_percent": 100,
         "offset_x": 0,
@@ -2904,7 +2938,9 @@ def test_build_layout_preview_html_uses_layered_template_service():
     assert "must not be trusted" not in html.html
 
 
-def test_build_layout_preview_html_uses_default_frame_template_without_layered_spec(tmp_path, monkeypatch):
+def test_build_layout_preview_html_uses_default_frame_template_without_layered_spec(
+    tmp_path, monkeypatch
+):
     template = tmp_path / "image_sample.html"
     template.write_text(
         """
@@ -2982,10 +3018,7 @@ def test_build_layout_preview_html_uses_default_frame_template_without_layered_s
     assert captured["render_kwargs"]["media_placement"]["scale_percent"] == 90
     assert captured["render_kwargs"]["media_width"] == 768
     assert captured["render_kwargs"]["media_height"] == 768
-    assert (
-        captured["render_kwargs"]["image"]
-        == Path("resources/example.png").resolve().as_uri()
-    )
+    assert captured["render_kwargs"]["image"] == Path("resources/example.png").resolve().as_uri()
     assert captured["render_kwargs"]["ext"]["media_layout_mode"] == "template"
 
 
@@ -3081,8 +3114,12 @@ def test_render_single_output_preserves_ui_size_contract_when_generating(
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
-    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
-    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(
+        output_preview, "store_recent_generated_video", lambda _result, _state: None
+    )
+    monkeypatch.setattr(
+        output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None
+    )
 
     output_preview.render_single_output(
         _FakePixelleVideo(),
@@ -3234,7 +3271,9 @@ def test_render_single_output_places_success_summary_before_recent_gallery(
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
-    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
+    monkeypatch.setattr(
+        output_preview, "store_recent_generated_video", lambda _result, _state: None
+    )
     monkeypatch.setattr(output_preview, "render_recent_video_gallery", _render_recent_gallery)
 
     output_preview.render_single_output(
@@ -3266,9 +3305,7 @@ def test_render_single_output_places_success_summary_before_recent_gallery(
     assert captured["slot_order"].index(summary_event[1]) < captured["slot_order"].index(
         refreshed_gallery_event[1]
     )
-    assert captured["events"].index(success_status_event) < captured["events"].index(
-        summary_event
-    )
+    assert captured["events"].index(success_status_event) < captured["events"].index(summary_event)
     assert captured["events"].index(summary_event) < captured["events"].index(
         refreshed_gallery_event
     )
@@ -3365,7 +3402,9 @@ def test_render_single_output_shows_gallery_before_blocking_generation(monkeypat
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
-    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
+    monkeypatch.setattr(
+        output_preview, "store_recent_generated_video", lambda _result, _state: None
+    )
     monkeypatch.setattr(
         output_preview,
         "render_recent_video_gallery",
@@ -3488,7 +3527,9 @@ def test_render_single_output_keeps_existing_recent_video_during_generation(
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
-    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
+    monkeypatch.setattr(
+        output_preview, "store_recent_generated_video", lambda _result, _state: None
+    )
     monkeypatch.setattr(output_preview, "render_recent_video_gallery", _render_gallery)
 
     output_preview.render_single_output(
@@ -3597,8 +3638,12 @@ def test_render_single_output_reenables_button_after_generation_finishes(
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
-    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
-    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(
+        output_preview, "store_recent_generated_video", lambda _result, _state: None
+    )
+    monkeypatch.setattr(
+        output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None
+    )
 
     output_preview.render_single_output(
         _FakePixelleVideo(),
@@ -3692,7 +3737,9 @@ def test_render_single_output_marks_button_disabled_while_generation_runs(monkey
     class _FakePixelleVideo:
         async def generate_video(self, **_kwargs):
             captured["generated"] = True
-            assert output_preview.st.session_state[output_preview.SINGLE_VIDEO_GENERATING_KEY] is True
+            assert (
+                output_preview.st.session_state[output_preview.SINGLE_VIDEO_GENERATING_KEY] is True
+            )
             return SimpleNamespace(
                 video_path=str(video_path),
                 duration=8.5,
@@ -3719,7 +3766,9 @@ def test_render_single_output_marks_button_disabled_while_generation_runs(monkey
         lambda result, session_state: captured.update(store=True),
         raising=False,
     )
-    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(
+        output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None
+    )
 
     output_preview.render_single_output(
         _FakePixelleVideo(),
@@ -3799,7 +3848,9 @@ def test_render_single_output_ignores_duplicate_click_while_generation_active(mo
     _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
-    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(
+        output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None
+    )
 
     output_preview.render_single_output(
         _FakePixelleVideo(),
@@ -3812,7 +3863,9 @@ def test_render_single_output_ignores_duplicate_click_while_generation_active(mo
     )
 
     assert captured["generated"] is False
-    assert output_preview.st.session_state.get(output_preview.SINGLE_VIDEO_REQUESTED_KEY) is not True
+    assert (
+        output_preview.st.session_state.get(output_preview.SINGLE_VIDEO_REQUESTED_KEY) is not True
+    )
     assert captured["info_messages"] == ["status.generation_in_progress"]
 
 
@@ -3888,8 +3941,12 @@ def test_render_single_output_consumes_request_before_long_generation(monkeypatc
     class _FakePixelleVideo:
         async def generate_video(self, **_kwargs):
             captured["generated"] = True
-            assert output_preview.st.session_state[output_preview.SINGLE_VIDEO_GENERATING_KEY] is True
-            assert output_preview.st.session_state[output_preview.SINGLE_VIDEO_REQUESTED_KEY] is False
+            assert (
+                output_preview.st.session_state[output_preview.SINGLE_VIDEO_GENERATING_KEY] is True
+            )
+            assert (
+                output_preview.st.session_state[output_preview.SINGLE_VIDEO_REQUESTED_KEY] is False
+            )
             return SimpleNamespace(
                 video_path=str(video_path),
                 duration=8.5,
@@ -3910,8 +3967,12 @@ def test_render_single_output_consumes_request_before_long_generation(monkeypatc
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
-    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
-    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(
+        output_preview, "store_recent_generated_video", lambda _result, _state: None
+    )
+    monkeypatch.setattr(
+        output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None
+    )
 
     output_preview.render_single_output(
         _FakePixelleVideo(),

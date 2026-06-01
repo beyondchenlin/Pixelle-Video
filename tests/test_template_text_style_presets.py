@@ -7,7 +7,12 @@ from pixelle_video.models.template_text_style_presets import (
     require_template_text_style_preset,
     resolve_template_text_style_preset,
 )
-from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID
+from pixelle_video.models.text_style import (
+    DEFAULT_TITLE_FONT_SIZE,
+    DEFAULT_TITLE_PRIMARY_COLOR,
+    DEFAULT_TITLE_STROKE_WIDTH,
+    DEFAULT_TITLE_STYLE_ID,
+)
 
 
 def test_template_text_style_presets_cover_phase1_title_templates():
@@ -41,6 +46,18 @@ def test_resolve_template_text_style_preset_returns_generic_for_missing_template
     assert isinstance(preset, TemplateTextStylePreset)
     assert preset.template_id == "generic"
     assert preset.title_style["id"] == DEFAULT_TITLE_STYLE_ID
+    assert preset.title_style["font_size"] == DEFAULT_TITLE_FONT_SIZE
+    assert preset.title_style["primary_color"] == DEFAULT_TITLE_PRIMARY_COLOR
+    assert preset.title_style["stroke_width"] == DEFAULT_TITLE_STROKE_WIDTH
+
+
+def test_landscape_minimal_title_default_font_size_is_55():
+    preset = resolve_template_text_style_preset("image_landscape_minimal")
+
+    assert preset.title_style["font_size"] == 55
+    assert preset.title_style["primary_color"] == "#000000"
+    assert preset.title_style["stroke_width"] == 0
+    assert preset.title_style["background_opacity"] == 0.0
 
 
 def test_require_template_text_style_preset_fails_for_missing_title_region_preset():

@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement an explicit size contract so final video canvas dimensions and generated media dimensions are independently controlled, with image generation defaulting to `768x768` and optional sync to the final canvas.
+**Goal:** Implement an explicit size contract so final video canvas dimensions and generated media dimensions are independently controlled, with image generation defaulting to landscape `1280x720` and optional sync to the final canvas.
 
 **Architecture:** Add a domain-level size contract module, then thread it through Web UI request construction, API request construction, `StoryboardConfig`, standard pipeline rendering, template rendering, and element animation. Templates remain layout assets with their own base coordinate system; rendered frames are normalized to the requested output canvas.
 
-**Revision after user clarification:** Generated image/media size has its own independent controls, not only a fixed `768x768` default. The contract must support `media_orientation` and `media_resolution_preset`; default media is `square` + `768`, while landscape/portrait/square media presets support `1k`, `2k`, and `4k`. `sync_media_size_to_canvas` still overrides the effective `media_width` / `media_height` to the final video canvas size.
+**Revision after user clarification:** Generated image/media size has its own independent controls, not only a fixed default. The contract must support `media_orientation` and `media_resolution_preset`; default media is `landscape` + `1k`, while landscape/portrait/square media presets support `1k`, `2k`, and `4k`; square media also keeps an explicit `768` preset. `sync_media_size_to_canvas` still overrides the effective `media_width` / `media_height` to the final video canvas size.
 
 **Tech Stack:** Python 3.11, dataclasses, Pydantic v2, Streamlit, FastAPI, pytest, Pillow, Playwright-backed HTML rendering.
 
@@ -1161,7 +1161,7 @@ git commit -m "feat: 模板渲染归一化到目标画布"
 - Create or modify: `tests/test_template_util.py`
 - Extend: `tests/test_style_config_template_gallery.py`
 
-**Revision requirement:** The UI must render two independent control groups: final video size (`video_orientation` / `video_resolution_preset`) and generated image size (`media_orientation` / `media_resolution_preset`). The generated image group defaults to square `768x768`, supports landscape/portrait/square `1k` / `2k` / `4k`, and is disabled or visually subordinate when sync is enabled because the effective media size follows the final canvas.
+**Revision requirement:** The UI must render two independent control groups: final video size (`video_orientation` / `video_resolution_preset`) and generated image size (`media_orientation` / `media_resolution_preset`). The generated image group defaults to landscape `1280x720`, supports landscape/portrait/square `1k` / `2k` / `4k`, keeps square `768x768` as an explicit preset, and is disabled or visually subordinate when sync is enabled because the effective media size follows the final canvas.
 
 - [ ] **Step 1: Write failing template orientation resolver tests**
 
@@ -1250,7 +1250,7 @@ Add to `web/i18n/locales/zh_CN.json`:
 "size.orientation": "画幅",
 "size.resolution": "分辨率",
 "size.sync_media_to_canvas": "同步到图片生成尺寸",
-"size.sync_media_to_canvas_help": "开启后，图片/素材生成尺寸会跟随最终视频尺寸；关闭时默认使用 768x768。",
+"size.sync_media_to_canvas_help": "开启后，图片/素材生成尺寸会跟随最终视频尺寸；关闭时默认使用横屏 1280x720。",
 "size.final_video_info": "最终视频尺寸：{width} × {height}",
 "size.media_generation_info": "图片生成尺寸：{width} × {height}",
 "size.template_orientation_mismatch": "当前模板画幅与最终视频画幅不一致，系统会按最终视频尺寸归一化输出。"
@@ -1263,7 +1263,7 @@ Add to `web/i18n/locales/en_US.json`:
 "size.orientation": "Aspect",
 "size.resolution": "Resolution",
 "size.sync_media_to_canvas": "Sync to image generation size",
-"size.sync_media_to_canvas_help": "When enabled, generated image/media dimensions follow the final video size. When disabled, image generation defaults to 768x768.",
+"size.sync_media_to_canvas_help": "When enabled, generated image/media dimensions follow the final video size. When disabled, image generation defaults to landscape 1280x720.",
 "size.final_video_info": "Final video size: {width} × {height}",
 "size.media_generation_info": "Image generation size: {width} × {height}",
 "size.template_orientation_mismatch": "The selected template aspect differs from the final video aspect, so output will be normalized to the final video size."

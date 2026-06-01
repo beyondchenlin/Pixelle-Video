@@ -18,13 +18,13 @@ def test_build_text_rendering_preview_spec_derives_from_contracts_only():
         title_text="契约标题",
         caption_text="契约字幕",
         title_style={
-            "font_size": 76,
-            "primary_color": "#171410",
+            "font_size": 55,
+            "primary_color": "#000000",
             "preview_title_text": "不应进入规格",
         },
         caption_style={
-            "font_size": 42,
-            "primary_color": "#2C3E50",
+            "font_size": 36,
+            "primary_color": "#000000",
             "preview_caption_text": "不应进入规格",
         },
         text_rendering={"preview_media_ref": "ignored", "raw": {"leak": True}},
@@ -41,8 +41,8 @@ def test_build_text_rendering_preview_spec_derives_from_contracts_only():
     assert spec.placeholder_media is False
     assert spec.title_text == "契约标题"
     assert spec.caption_text == "契约字幕"
-    assert spec.title_style["font_size"] == 76
-    assert spec.caption_style["font_size"] == 42
+    assert spec.title_style["font_size"] == 55
+    assert spec.caption_style["font_size"] == 36
     assert "preview_title_text" not in spec.title_style
     assert "preview_caption_text" not in spec.caption_style
     assert spec.template_title_region["width"] == 0.44
@@ -371,7 +371,7 @@ def test_render_preview_html_sanitizes_style_values():
     assert "expression(alert(1))" not in html
     assert "red;left:0" not in html
     assert "font-size:240px;" in html
-    assert "font-size:42px;" in html
+    assert "font-size:36px;" in html
     assert "color:#FFFFFF;" in html
     assert "color:#123456;" not in html
     assert "background:transparent;" in html
@@ -697,6 +697,7 @@ def test_render_real_preview_status_reports_current_stale_and_error():
         title_style={},
         caption_style={},
     )
+
     def translate(key, **kwargs):
         return f"{key}:{kwargs}" if kwargs else key
 
