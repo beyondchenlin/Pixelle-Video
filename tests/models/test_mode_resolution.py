@@ -118,6 +118,63 @@ def test_route_decision_serializes_normalized_values():
     json.dumps(payload, allow_nan=False)
 
 
+@pytest.mark.parametrize(
+    "resolution_status",
+    ["resolved", "low_confidence", "planner_failed", "fallback_used"],
+)
+def test_route_decision_accepts_stable_resolution_statuses(resolution_status):
+    decision = VisualPlanningRouteDecision(
+        route_decision_id=f"route_{resolution_status}",
+        frame_id="frame_1",
+        preflight_id="preflight_v44_001",
+        requested_article_understanding_mode="auto",
+        requested_visual_planning_mode="auto",
+        requested_visual_role_strategy="auto",
+        resolved_primary_lens="thesis_argument",
+        resolved_secondary_lenses=(),
+        resolved_visual_planning_mode="auto",
+        resolved_visual_role_strategy="auto",
+        primary_visual_task="cognitive_explanation",
+        secondary_visual_tasks=(),
+        confidence=0.7,
+        decision_reason="status contract check",
+        resolution_status=resolution_status,
+        fallback_eligible=False,
+        fallback_used=resolution_status == "fallback_used",
+        fallback_target=None,
+        fallback_reason=None,
+    )
+
+    assert decision.resolution_status == resolution_status
+    assert decision.to_dict()["resolution_status"] == resolution_status
+
+
+@pytest.mark.parametrize("resolution_status", ["not_a_valid_status", "", "   ", None])
+def test_route_decision_rejects_invalid_resolution_statuses(resolution_status):
+    with pytest.raises((TypeError, ValueError), match="resolution_status"):
+        VisualPlanningRouteDecision(
+            route_decision_id="route_invalid_status",
+            frame_id="frame_1",
+            preflight_id="preflight_v44_001",
+            requested_article_understanding_mode="auto",
+            requested_visual_planning_mode="auto",
+            requested_visual_role_strategy="auto",
+            resolved_primary_lens="thesis_argument",
+            resolved_secondary_lenses=(),
+            resolved_visual_planning_mode="auto",
+            resolved_visual_role_strategy="auto",
+            primary_visual_task="cognitive_explanation",
+            secondary_visual_tasks=(),
+            confidence=0.7,
+            decision_reason="status contract check",
+            resolution_status=resolution_status,
+            fallback_eligible=False,
+            fallback_used=False,
+            fallback_target=None,
+            fallback_reason=None,
+        )
+
+
 def test_fallback_helper_allows_low_confidence_planner_failed_decisions():
     request = ArticleVisualPlanningRequest.from_mapping({})
     preflight = ArticleVisualPlanningPreflight.from_request(

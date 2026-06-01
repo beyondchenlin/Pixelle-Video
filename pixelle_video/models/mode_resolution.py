@@ -19,6 +19,10 @@ from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
 
+_ALLOWED_RESOLUTION_STATUSES = frozenset(
+    {"resolved", "low_confidence", "planner_failed", "fallback_used"}
+)
+
 
 @dataclass(frozen=True)
 class ArticleVisualPlanningRequest:
@@ -253,7 +257,7 @@ class VisualPlanningRouteDecision:
         object.__setattr__(
             self,
             "resolution_status",
-            _require_text("resolution_status", self.resolution_status),
+            _resolution_status_value(self.resolution_status),
         )
         object.__setattr__(self, "fallback_eligible", _bool_value(self.fallback_eligible))
         object.__setattr__(self, "fallback_used", _bool_value(self.fallback_used))
@@ -359,6 +363,14 @@ def _confidence_value(value: Any) -> float:
     if not math.isfinite(number) or number < 0 or number > 1:
         raise ValueError("confidence must be a finite number between 0 and 1")
     return number
+
+
+def _resolution_status_value(value: Any) -> str:
+    status = _require_text("resolution_status", value).lower()
+    if status not in _ALLOWED_RESOLUTION_STATUSES:
+        allowed = ", ".join(sorted(_ALLOWED_RESOLUTION_STATUSES))
+        raise ValueError(f"resolution_status must be one of: {allowed}")
+    return status
 
 
 def _normalize_lens_tuple(values: Any) -> tuple[ArticleUnderstandingLens, ...]:
