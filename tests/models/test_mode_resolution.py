@@ -51,6 +51,31 @@ def test_request_normalizes_invalid_and_visual_role_terms():
     }
 
 
+@pytest.mark.parametrize("field_name", ["strict_user_mode", "force_v44_planning"])
+def test_request_rejects_unknown_boolean_strings(field_name):
+    with pytest.raises(ValueError, match=field_name):
+        ArticleVisualPlanningRequest.from_mapping({field_name: "maybe"})
+
+
+@pytest.mark.parametrize("field_name", ["strict_user_mode", "force_v44_planning"])
+def test_preflight_rejects_unknown_boolean_strings(field_name):
+    kwargs = {
+        "preflight_id": "preflight_v44_001",
+        "requested": ArticleVisualPlanningRequest.from_mapping({}),
+        "normalized_article_mode": "auto",
+        "normalized_visual_mode": "auto",
+        "normalized_visual_role_strategy": "auto",
+        "strict_user_mode": False,
+        "force_v44_planning": False,
+        "explicit_fields": (),
+        "legacy_fallback_candidate": True,
+    }
+    kwargs[field_name] = "maybe"
+
+    with pytest.raises(ValueError, match=field_name):
+        ArticleVisualPlanningPreflight(**kwargs)
+
+
 def test_preflight_serializes_trimmed_explicit_fields_and_legacy_flag():
     request = ArticleVisualPlanningRequest.from_mapping(
         {
@@ -81,8 +106,8 @@ def test_route_decision_serializes_normalized_values():
         route_decision_id="route_frame_1",
         frame_id="frame_1",
         preflight_id="preflight_v44_001",
-        requested_article_understanding_mode="process_method",
-        requested_visual_planning_mode="process_walkthrough",
+        requested_article_mode="process_method",
+        requested_visual_mode="process_walkthrough",
         requested_visual_role_strategy="host_explainer",
         resolved_primary_lens="process_method",
         resolved_secondary_lenses=[ArticleUnderstandingLens.CAUSAL_MECHANISM],
@@ -105,9 +130,13 @@ def test_route_decision_serializes_normalized_values():
     assert payload["route_decision_id"] == "route_frame_1"
     assert payload["resolution_status"] == "resolved"
     assert payload["fallback_target"] is None
-    assert payload["requested_article_understanding_mode"] == "process_method"
-    assert payload["requested_visual_planning_mode"] == "process_walkthrough"
+    assert payload["requested_article_mode"] == "process_method"
+    assert payload["requested_visual_mode"] == "process_walkthrough"
     assert payload["requested_visual_role_strategy"] == "host_explainer"
+    assert "requested_article_understanding_mode" not in payload
+    assert "requested_visual_planning_mode" not in payload
+    assert decision.requested_article_understanding_mode is ArticleUnderstandingMode.PROCESS_METHOD
+    assert decision.requested_visual_planning_mode is VisualPlanningMode.PROCESS_WALKTHROUGH
     assert payload["resolved_primary_lens"] == "process_method"
     assert payload["resolved_secondary_lenses"] == ["causal_mechanism"]
     assert payload["resolved_visual_planning_mode"] == "process_walkthrough"
@@ -127,8 +156,8 @@ def test_route_decision_accepts_stable_resolution_statuses(resolution_status):
         route_decision_id=f"route_{resolution_status}",
         frame_id="frame_1",
         preflight_id="preflight_v44_001",
-        requested_article_understanding_mode="auto",
-        requested_visual_planning_mode="auto",
+        requested_article_mode="auto",
+        requested_visual_mode="auto",
         requested_visual_role_strategy="auto",
         resolved_primary_lens="thesis_argument",
         resolved_secondary_lenses=(),
@@ -156,8 +185,8 @@ def test_route_decision_rejects_invalid_resolution_statuses(resolution_status):
             route_decision_id="route_invalid_status",
             frame_id="frame_1",
             preflight_id="preflight_v44_001",
-            requested_article_understanding_mode="auto",
-            requested_visual_planning_mode="auto",
+            requested_article_mode="auto",
+            requested_visual_mode="auto",
             requested_visual_role_strategy="auto",
             resolved_primary_lens="thesis_argument",
             resolved_secondary_lenses=(),
@@ -186,8 +215,8 @@ def test_fallback_helper_allows_low_confidence_planner_failed_decisions():
         route_decision_id="route_frame_1",
         frame_id="frame_1",
         preflight_id=preflight.preflight_id,
-        requested_article_understanding_mode=ArticleUnderstandingMode.AUTO,
-        requested_visual_planning_mode=VisualPlanningMode.AUTO,
+        requested_article_mode=ArticleUnderstandingMode.AUTO,
+        requested_visual_mode=VisualPlanningMode.AUTO,
         requested_visual_role_strategy=VisualRoleStrategy.AUTO,
         resolved_primary_lens="thesis_argument",
         resolved_secondary_lenses=(),
@@ -207,6 +236,22 @@ def test_fallback_helper_allows_low_confidence_planner_failed_decisions():
     assert should_use_v42_compatibility_path(
         preflight,
         [decision],
+        article_context_insufficient=True,
+        legacy_visual_role_request_present=True,
+    )
+
+
+def test_fallback_helper_false_when_legacy_fallback_not_candidate():
+    request = ArticleVisualPlanningRequest.from_mapping({})
+    preflight = ArticleVisualPlanningPreflight.from_request(
+        request,
+        explicit_fields=(),
+        legacy_fallback_candidate=False,
+    )
+
+    assert not should_use_v42_compatibility_path(
+        preflight,
+        [],
         article_context_insufficient=True,
         legacy_visual_role_request_present=True,
     )
@@ -252,8 +297,8 @@ def test_route_decision_rejects_invalid_confidence(confidence):
             route_decision_id="route_frame_1",
             frame_id="frame_1",
             preflight_id="preflight_v44_001",
-            requested_article_understanding_mode="auto",
-            requested_visual_planning_mode="auto",
+            requested_article_mode="auto",
+            requested_visual_mode="auto",
             requested_visual_role_strategy="auto",
             resolved_primary_lens="thesis_argument",
             resolved_secondary_lenses=(),
@@ -271,10 +316,75 @@ def test_route_decision_rejects_invalid_confidence(confidence):
         )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("requested_article_mode", "not_a_mode"),
+        ("requested_visual_mode", "not_a_mode"),
+        ("requested_visual_role_strategy", "not_a_strategy"),
+    ],
+)
+def test_route_decision_rejects_invalid_requested_modes_and_strategy(
+    field_name,
+    value,
+):
+    kwargs = _route_decision_kwargs()
+    kwargs[field_name] = value
+
+    with pytest.raises(ValueError, match=field_name):
+        VisualPlanningRouteDecision(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("resolved_primary_lens", "not_a_lens"),
+        ("resolved_secondary_lenses", ["not_a_lens"]),
+        ("resolved_visual_planning_mode", "not_a_mode"),
+        ("resolved_visual_role_strategy", "not_a_strategy"),
+        ("primary_visual_task", "not_a_task"),
+        ("secondary_visual_tasks", ["not_a_task"]),
+    ],
+)
+def test_route_decision_rejects_invalid_resolved_modes_lenses_and_tasks(
+    field_name,
+    value,
+):
+    kwargs = _route_decision_kwargs()
+    kwargs[field_name] = value
+
+    with pytest.raises(ValueError, match=field_name):
+        VisualPlanningRouteDecision(**kwargs)
+
+
 def test_mode_resolution_exports_public_contracts():
     assert set(mode_resolution.__all__) == {
         "ArticleVisualPlanningPreflight",
         "ArticleVisualPlanningRequest",
         "VisualPlanningRouteDecision",
         "should_use_v42_compatibility_path",
+    }
+
+
+def _route_decision_kwargs():
+    return {
+        "route_decision_id": "route_frame_1",
+        "frame_id": "frame_1",
+        "preflight_id": "preflight_v44_001",
+        "requested_article_mode": "auto",
+        "requested_visual_mode": "auto",
+        "requested_visual_role_strategy": "auto",
+        "resolved_primary_lens": "thesis_argument",
+        "resolved_secondary_lenses": (),
+        "resolved_visual_planning_mode": "auto",
+        "resolved_visual_role_strategy": "auto",
+        "primary_visual_task": "cognitive_explanation",
+        "secondary_visual_tasks": (),
+        "confidence": 0.7,
+        "decision_reason": "planner check",
+        "resolution_status": "resolved",
+        "fallback_eligible": False,
+        "fallback_used": False,
+        "fallback_target": None,
+        "fallback_reason": None,
     }

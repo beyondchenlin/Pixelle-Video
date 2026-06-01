@@ -51,9 +51,21 @@ class ArticleVisualPlanningRequest:
             VisualRoleStrategy.from_value(self.visual_role_strategy),
         )
         object.__setattr__(self, "user_intent_hint", _optional_text(self.user_intent_hint))
-        object.__setattr__(self, "allow_mixed_lenses", _bool_value(self.allow_mixed_lenses))
-        object.__setattr__(self, "strict_user_mode", _bool_value(self.strict_user_mode))
-        object.__setattr__(self, "force_v44_planning", _bool_value(self.force_v44_planning))
+        object.__setattr__(
+            self,
+            "allow_mixed_lenses",
+            _bool_value(self.allow_mixed_lenses, "allow_mixed_lenses"),
+        )
+        object.__setattr__(
+            self,
+            "strict_user_mode",
+            _bool_value(self.strict_user_mode, "strict_user_mode"),
+        )
+        object.__setattr__(
+            self,
+            "force_v44_planning",
+            _bool_value(self.force_v44_planning, "force_v44_planning"),
+        )
 
     @classmethod
     def from_mapping(
@@ -117,8 +129,16 @@ class ArticleVisualPlanningPreflight:
             "normalized_visual_role_strategy",
             VisualRoleStrategy.from_value(self.normalized_visual_role_strategy),
         )
-        object.__setattr__(self, "strict_user_mode", _bool_value(self.strict_user_mode))
-        object.__setattr__(self, "force_v44_planning", _bool_value(self.force_v44_planning))
+        object.__setattr__(
+            self,
+            "strict_user_mode",
+            _bool_value(self.strict_user_mode, "strict_user_mode"),
+        )
+        object.__setattr__(
+            self,
+            "force_v44_planning",
+            _bool_value(self.force_v44_planning, "force_v44_planning"),
+        )
         object.__setattr__(
             self,
             "explicit_fields",
@@ -127,7 +147,7 @@ class ArticleVisualPlanningPreflight:
         object.__setattr__(
             self,
             "legacy_fallback_candidate",
-            _bool_value(self.legacy_fallback_candidate),
+            _bool_value(self.legacy_fallback_candidate, "legacy_fallback_candidate"),
         )
         object.__setattr__(
             self,
@@ -177,8 +197,8 @@ class VisualPlanningRouteDecision:
     route_decision_id: str
     frame_id: str
     preflight_id: str
-    requested_article_understanding_mode: ArticleUnderstandingMode | str
-    requested_visual_planning_mode: VisualPlanningMode | str
+    requested_article_mode: ArticleUnderstandingMode | str
+    requested_visual_mode: VisualPlanningMode | str
     requested_visual_role_strategy: VisualRoleStrategy | str
     resolved_primary_lens: ArticleUnderstandingLens | str
     resolved_secondary_lenses: Sequence[ArticleUnderstandingLens | str]
@@ -205,23 +225,39 @@ class VisualPlanningRouteDecision:
         object.__setattr__(self, "preflight_id", _require_text("preflight_id", self.preflight_id))
         object.__setattr__(
             self,
-            "requested_article_understanding_mode",
-            ArticleUnderstandingMode.from_value(self.requested_article_understanding_mode),
+            "requested_article_mode",
+            _strict_enum_value(
+                self.requested_article_mode,
+                ArticleUnderstandingMode,
+                "requested_article_mode",
+            ),
         )
         object.__setattr__(
             self,
-            "requested_visual_planning_mode",
-            VisualPlanningMode.from_value(self.requested_visual_planning_mode),
+            "requested_visual_mode",
+            _strict_enum_value(
+                self.requested_visual_mode,
+                VisualPlanningMode,
+                "requested_visual_mode",
+            ),
         )
         object.__setattr__(
             self,
             "requested_visual_role_strategy",
-            VisualRoleStrategy.from_value(self.requested_visual_role_strategy),
+            _strict_enum_value(
+                self.requested_visual_role_strategy,
+                VisualRoleStrategy,
+                "requested_visual_role_strategy",
+            ),
         )
         object.__setattr__(
             self,
             "resolved_primary_lens",
-            ArticleUnderstandingLens.from_value(self.resolved_primary_lens),
+            _strict_enum_value(
+                self.resolved_primary_lens,
+                ArticleUnderstandingLens,
+                "resolved_primary_lens",
+            ),
         )
         object.__setattr__(
             self,
@@ -231,17 +267,29 @@ class VisualPlanningRouteDecision:
         object.__setattr__(
             self,
             "resolved_visual_planning_mode",
-            VisualPlanningMode.from_value(self.resolved_visual_planning_mode),
+            _strict_enum_value(
+                self.resolved_visual_planning_mode,
+                VisualPlanningMode,
+                "resolved_visual_planning_mode",
+            ),
         )
         object.__setattr__(
             self,
             "resolved_visual_role_strategy",
-            VisualRoleStrategy.from_value(self.resolved_visual_role_strategy),
+            _strict_enum_value(
+                self.resolved_visual_role_strategy,
+                VisualRoleStrategy,
+                "resolved_visual_role_strategy",
+            ),
         )
         object.__setattr__(
             self,
             "primary_visual_task",
-            PrimaryVisualTask.from_value(self.primary_visual_task),
+            _strict_enum_value(
+                self.primary_visual_task,
+                PrimaryVisualTask,
+                "primary_visual_task",
+            ),
         )
         object.__setattr__(
             self,
@@ -259,8 +307,16 @@ class VisualPlanningRouteDecision:
             "resolution_status",
             _resolution_status_value(self.resolution_status),
         )
-        object.__setattr__(self, "fallback_eligible", _bool_value(self.fallback_eligible))
-        object.__setattr__(self, "fallback_used", _bool_value(self.fallback_used))
+        object.__setattr__(
+            self,
+            "fallback_eligible",
+            _bool_value(self.fallback_eligible, "fallback_eligible"),
+        )
+        object.__setattr__(
+            self,
+            "fallback_used",
+            _bool_value(self.fallback_used, "fallback_used"),
+        )
         object.__setattr__(self, "fallback_target", _optional_text(self.fallback_target))
         object.__setattr__(self, "fallback_reason", _optional_text(self.fallback_reason))
         object.__setattr__(
@@ -269,15 +325,21 @@ class VisualPlanningRouteDecision:
             _normalize_string_tuple(self.mismatch_warnings, "mismatch_warnings"),
         )
 
+    @property
+    def requested_article_understanding_mode(self) -> ArticleUnderstandingMode:
+        return self.requested_article_mode
+
+    @property
+    def requested_visual_planning_mode(self) -> VisualPlanningMode:
+        return self.requested_visual_mode
+
     def to_dict(self) -> dict[str, JSONValue]:
         return {
             "route_decision_id": self.route_decision_id,
             "frame_id": self.frame_id,
             "preflight_id": self.preflight_id,
-            "requested_article_understanding_mode": (
-                self.requested_article_understanding_mode.value
-            ),
-            "requested_visual_planning_mode": self.requested_visual_planning_mode.value,
+            "requested_article_mode": self.requested_article_mode.value,
+            "requested_visual_mode": self.requested_visual_mode.value,
             "requested_visual_role_strategy": self.requested_visual_role_strategy.value,
             "resolved_primary_lens": self.resolved_primary_lens.value,
             "resolved_secondary_lenses": [
@@ -312,6 +374,8 @@ def should_use_v42_compatibility_path(
         return False
     if preflight.force_v44_planning:
         return False
+    if not preflight.legacy_fallback_candidate:
+        return False
     if not article_context_insufficient or not legacy_visual_role_request_present:
         return False
     if not route_decisions:
@@ -344,7 +408,7 @@ def _optional_text(value: Any) -> str | None:
     return text or None
 
 
-def _bool_value(value: Any) -> bool:
+def _bool_value(value: Any, field_name: str) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -353,6 +417,7 @@ def _bool_value(value: Any) -> bool:
             return True
         if text in {"0", "false", "no", "n", "off", ""}:
             return False
+        raise ValueError(f"{field_name} must be a boolean value")
     return bool(value)
 
 
@@ -375,16 +440,28 @@ def _resolution_status_value(value: Any) -> str:
 
 def _normalize_lens_tuple(values: Any) -> tuple[ArticleUnderstandingLens, ...]:
     return tuple(
-        ArticleUnderstandingLens.from_value(value)
+        _strict_enum_value(value, ArticleUnderstandingLens, "resolved_secondary_lenses")
         for value in _require_sequence(values, "resolved_secondary_lenses")
     )
 
 
 def _normalize_visual_task_tuple(values: Any) -> tuple[PrimaryVisualTask, ...]:
     return tuple(
-        PrimaryVisualTask.from_value(value)
+        _strict_enum_value(value, PrimaryVisualTask, "secondary_visual_tasks")
         for value in _require_sequence(values, "secondary_visual_tasks")
     )
+
+
+def _strict_enum_value(value: Any, enum_cls: type[Enum], field_name: str) -> Any:
+    if isinstance(value, enum_cls):
+        return value
+    text = str(value.value if isinstance(value, Enum) else value or "").strip()
+    if not text:
+        raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
+    for item in enum_cls:
+        if text.lower() == str(item.value).lower() or text.lower() == item.name.lower():
+            return item
+    raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
 
 
 def _normalize_string_tuple(values: Any, field_name: str) -> tuple[str, ...]:
