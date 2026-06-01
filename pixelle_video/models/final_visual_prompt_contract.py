@@ -176,7 +176,7 @@ class FinalVisualPromptContract:
             "version": self.version,
             **self.prompt_sections(),
             "negative_rules": list(self.negative_rules),
-            "metadata": dict(self.metadata),
+            "metadata": _detach_metadata(self.metadata),
         }
 
 
