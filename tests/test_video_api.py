@@ -220,6 +220,21 @@ def test_video_generate_request_rejects_invalid_v44_literal_values(
         VideoGenerateRequest(text="demo", **{field_name: value})
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("visual_role_mode", "unknown"),
+        ("visual_consistency_mode", "unknown"),
+    ],
+)
+def test_video_generate_request_rejects_invalid_visual_role_strategy_controls(
+    field_name: str,
+    value: str,
+):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="demo", **{field_name: value})
+
+
 def test_video_generate_request_accepts_generation_world_hint():
     request = VideoGenerateRequest(
         text="demo",
@@ -358,6 +373,19 @@ def test_standard_video_generation_contract_rejects_invalid_v44_enum_values(
 ):
     with pytest.raises(ValueError, match=field_name):
         normalize_standard_video_generation_params({field_name: "unknown"})
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["visual_role_mode", "visual_consistency_mode"],
+)
+def test_standard_video_generation_contract_rejects_invalid_visual_role_strategy_controls(
+    field_name: str,
+):
+    with pytest.raises(ValueError, match=field_name):
+        normalize_standard_video_generation_params({field_name: "unknown"})
+    with pytest.raises(ValueError, match=field_name):
+        validate_standard_video_generation_params({"text": "demo", field_name: "unknown"})
 
 
 @pytest.mark.parametrize(

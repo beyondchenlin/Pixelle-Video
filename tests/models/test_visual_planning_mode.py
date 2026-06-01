@@ -1,3 +1,5 @@
+import pytest
+
 from pixelle_video.models.visual_planning_mode import (
     PrimaryVisualTask,
     VisibleTextPolicy,
@@ -20,7 +22,17 @@ def test_visual_planning_mode_rejects_visual_role_terms():
 def test_visible_text_policy_defaults_and_known_values():
     assert VisibleTextPolicy.from_value(None) is VisibleTextPolicy.NO_VISIBLE_TEXT
     assert VisibleTextPolicy.from_value("source_text_only") is VisibleTextPolicy.SOURCE_TEXT_ONLY
-    assert VisibleTextPolicy.from_value("free_text") is VisibleTextPolicy.NO_VISIBLE_TEXT
+
+
+def test_visible_text_policy_rejects_unknown_values():
+    with pytest.raises(ValueError, match="visible_text_policy"):
+        VisibleTextPolicy.from_value("free_text")
+
+
+@pytest.mark.parametrize("value", [False, 0, [], object()])
+def test_visible_text_policy_rejects_non_string_default_like_values(value):
+    with pytest.raises(ValueError, match="visible_text_policy"):
+        VisibleTextPolicy.from_value(value)
 
 
 def test_primary_visual_task_defaults_and_known_values():

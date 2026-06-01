@@ -39,7 +39,7 @@ class VisibleTextPolicy(str, Enum):
 
     @classmethod
     def from_value(cls, value: Any) -> "VisibleTextPolicy":
-        return _enum_from_value(value, cls, cls.NO_VISIBLE_TEXT)
+        return _strict_enum_from_value(value, cls, cls.NO_VISIBLE_TEXT, "visible_text_policy")
 
 
 def _enum_from_value(value: Any, enum_cls: type[Enum], default: Any) -> Any:
@@ -52,6 +52,22 @@ def _enum_from_value(value: Any, enum_cls: type[Enum], default: Any) -> Any:
         if text == item.value or text.lower() == item.name.lower():
             return item
     return default
+
+
+def _strict_enum_from_value(value: Any, enum_cls: type[Enum], default: Any, field_name: str) -> Any:
+    if isinstance(value, enum_cls):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, Enum) or not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
+    text = value.strip()
+    if not text:
+        return default
+    for item in enum_cls:
+        if text == item.value or text.lower() == item.name.lower():
+            return item
+    raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
 
 
 __all__ = [

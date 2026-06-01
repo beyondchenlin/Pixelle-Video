@@ -366,6 +366,7 @@ def validate_standard_video_generation_params(
         )
 
     ArticleVisualPlanningRequest.from_mapping(params)
+    VisualRoleControlsContract.from_mapping(params)
 
     mode = params.get("mode", "generate")
     if mode not in VIDEO_GENERATION_MODES:

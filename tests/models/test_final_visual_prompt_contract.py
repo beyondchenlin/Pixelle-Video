@@ -330,7 +330,36 @@ def test_rendered_media_prompt_metadata_exposes_v44_trace_keys():
     json.dumps(rendered.to_dict(), allow_nan=False)
 
 
-def test_rendered_media_prompt_metadata_preserves_matching_trace_keys():
+def test_rendered_media_prompt_with_prompt_rehydrates_v44_trace_from_contract():
+    contract = attach_v44_contract_metadata(
+        FinalVisualPromptContract(
+            scene="scene",
+            composition="composition",
+            style_assignment="style",
+            character_layer_style="character",
+            world_layer_style="world",
+            integration_priority="priority",
+        ),
+        _v44_contract(),
+    )
+    rendered = RenderedMediaPrompt(
+        prompt="rendered prompt",
+        negative_prompt=None,
+        prompt_contract=contract,
+        renderer_id="renderer",
+        renderer_version="v1",
+        metadata={"provider_prompt_mode": "test"},
+    )
+
+    updated = rendered.with_prompt("updated prompt")
+
+    assert updated.prompt == "updated prompt"
+    assert updated.metadata["provider_prompt_mode"] == "test"
+    assert updated.metadata["contract_id"] == "contract-1"
+    assert updated.metadata["v44_contract"] == rendered.metadata["v44_contract"]
+
+
+def test_rendered_media_prompt_metadata_rejects_matching_caller_trace_keys():
     contract = attach_v44_contract_metadata(
         FinalVisualPromptContract(
             scene="scene",
@@ -343,36 +372,27 @@ def test_rendered_media_prompt_metadata_preserves_matching_trace_keys():
         _v44_contract(),
     )
 
-    rendered = RenderedMediaPrompt(
-        prompt="rendered prompt",
-        negative_prompt=None,
-        prompt_contract=contract,
-        renderer_id="renderer",
-        renderer_version="v1",
-        metadata={
-            "contract_schema_version": "final_visual_prompt_contract.v4_4",
-            "contract_id": "contract-1",
-            "frame_id": "frame-1",
-            "route_decision_id": "route-1",
-            "v44_contract": {
+    with pytest.raises(ValueError, match="contract_id"):
+        RenderedMediaPrompt(
+            prompt="rendered prompt",
+            negative_prompt=None,
+            prompt_contract=contract,
+            renderer_id="renderer",
+            renderer_version="v1",
+            metadata={
                 "contract_schema_version": "final_visual_prompt_contract.v4_4",
                 "contract_id": "contract-1",
                 "frame_id": "frame-1",
                 "route_decision_id": "route-1",
-                "extra_call_site_field": "discarded",
+                "v44_contract": {
+                    "contract_schema_version": "final_visual_prompt_contract.v4_4",
+                    "contract_id": "contract-1",
+                    "frame_id": "frame-1",
+                    "route_decision_id": "route-1",
+                    "extra_call_site_field": "discarded",
+                },
             },
-        },
-    )
-
-    assert rendered.metadata["contract_id"] == "contract-1"
-    assert rendered.metadata["frame_id"] == "frame-1"
-    assert rendered.metadata["route_decision_id"] == "route-1"
-    assert rendered.metadata["v44_contract"] == {
-        "contract_schema_version": "final_visual_prompt_contract.v4_4",
-        "contract_id": "contract-1",
-        "frame_id": "frame-1",
-        "route_decision_id": "route-1",
-    }
+        )
 
 
 @pytest.mark.parametrize(
@@ -389,7 +409,7 @@ def test_rendered_media_prompt_metadata_preserves_matching_trace_keys():
                     "route_decision_id": "route-1",
                 }
             },
-            "frame_id",
+            "v44_contract",
         ),
         (
             {
@@ -400,7 +420,7 @@ def test_rendered_media_prompt_metadata_preserves_matching_trace_keys():
                     "route_decision_id": "route-1",
                 }
             },
-            "contract_schema_version",
+            "v44_contract",
         ),
     ],
 )
@@ -484,6 +504,10 @@ def test_attach_v44_contract_metadata_rejects_conflicting_existing_contract():
 @pytest.mark.parametrize(
     ("metadata", "match"),
     [
+        ({"contract_schema_version": "final_visual_prompt_contract.v4_4"}, "contract_schema_version"),
+        ({"contract_id": "contract-1"}, "contract_id"),
+        ({"frame_id": "frame-1"}, "frame_id"),
+        ({"route_decision_id": "route-1"}, "route_decision_id"),
         ({"v44_contract": object()}, "v44_contract"),
         (
             {

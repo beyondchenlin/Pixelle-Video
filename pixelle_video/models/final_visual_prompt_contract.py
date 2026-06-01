@@ -203,11 +203,14 @@ class RenderedMediaPrompt:
         object.__setattr__(
             self,
             "metadata",
-            _freeze_metadata(_rendered_prompt_metadata(self.metadata or {}, self.prompt_contract)),
+            _freeze_metadata(
+                _rendered_prompt_metadata(self.metadata or {}, self.prompt_contract),
+                allow_trace_keys=True,
+            ),
         )
 
     def with_prompt(self, prompt: str) -> "RenderedMediaPrompt":
-        return replace(self, prompt=prompt)
+        return replace(self, prompt=prompt, metadata=_caller_metadata_from_rendered_metadata(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -216,7 +219,7 @@ class RenderedMediaPrompt:
             "prompt_contract": self.prompt_contract.to_dict(),
             "renderer_id": self.renderer_id,
             "renderer_version": self.renderer_version,
-            "metadata": _detach_metadata(self.metadata),
+            "metadata": _detach_metadata(self.metadata, allow_trace_keys=True),
         }
 
 
@@ -347,24 +350,31 @@ def _freeze_json_value(field_name: str, value: Any) -> Any:
     raise ValueError(f"{field_name} must be JSON-safe")
 
 
-def _detach_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
-    detached = _sanitize_metadata_mapping(metadata)
+def _detach_metadata(metadata: Mapping[str, Any], *, allow_trace_keys: bool = False) -> dict[str, Any]:
+    detached = _sanitize_metadata_mapping(metadata, allow_trace_keys=allow_trace_keys, root=True)
     return detached if isinstance(detached, dict) else {}
 
 
-def _freeze_metadata(metadata: Mapping[str, Any]) -> Mapping[str, Any]:
-    frozen = _freeze_json_value("metadata", _detach_metadata(metadata))
+def _freeze_metadata(metadata: Mapping[str, Any], *, allow_trace_keys: bool = False) -> Mapping[str, Any]:
+    frozen = _freeze_json_value("metadata", _detach_metadata(metadata, allow_trace_keys=allow_trace_keys))
     if not isinstance(frozen, Mapping):
         return MappingProxyType({})
     return frozen
 
 
-def _sanitize_metadata_mapping(metadata: Mapping[str, Any]) -> dict[str, Any]:
+def _sanitize_metadata_mapping(
+    metadata: Mapping[str, Any],
+    *,
+    allow_trace_keys: bool = False,
+    root: bool = False,
+) -> dict[str, Any]:
     sanitized: dict[str, Any] = {}
     for key, value in dict(metadata).items():
         if not isinstance(key, str):
             continue
-        if key == "v44_contract":
+        if root and key in V44_TRACE_METADATA_KEYS and not allow_trace_keys:
+            raise ValueError(f"metadata {key} is reserved for V4.4 trace metadata")
+        if root and key == "v44_contract":
             sanitized[key] = _sanitize_v44_contract_metadata(value)
             continue
         safe_value = _sanitize_metadata_value(value)
@@ -418,29 +428,27 @@ def _rendered_prompt_metadata(
     metadata: Mapping[str, Any],
     prompt_contract: FinalVisualPromptContract,
 ) -> dict[str, Any]:
+    _reject_rendered_trace_metadata(metadata)
     rendered_metadata = _detach_metadata(metadata)
     trace_metadata = _v44_trace_metadata(prompt_contract.metadata)
     trace_summary = trace_metadata.get("v44_contract")
-    if not trace_metadata:
-        _reject_rendered_trace_without_contract(rendered_metadata)
     for key in V44_TRACE_METADATA_KEYS:
         if key not in trace_metadata:
             continue
-        if key in rendered_metadata and rendered_metadata[key] != trace_metadata[key]:
-            raise ValueError(f"metadata {key} conflicts with prompt_contract v44_contract")
         rendered_metadata[key] = trace_metadata[key]
-    if isinstance(rendered_metadata.get("v44_contract"), Mapping):
-        for key in V44_TRACE_METADATA_KEYS:
-            if key not in trace_metadata:
-                continue
-            if rendered_metadata["v44_contract"].get(key) not in (None, trace_metadata[key]):
-                raise ValueError(f"metadata v44_contract.{key} conflicts with prompt_contract v44_contract")
     if isinstance(trace_summary, Mapping):
         rendered_metadata["v44_contract"] = trace_summary
     return rendered_metadata
 
 
-def _reject_rendered_trace_without_contract(metadata: Mapping[str, Any]) -> None:
+def _caller_metadata_from_rendered_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    caller_metadata = _detach_metadata(metadata, allow_trace_keys=True)
+    for key in (*V44_TRACE_METADATA_KEYS, "v44_contract"):
+        caller_metadata.pop(key, None)
+    return caller_metadata
+
+
+def _reject_rendered_trace_metadata(metadata: Mapping[str, Any]) -> None:
     reserved_keys = [key for key in (*V44_TRACE_METADATA_KEYS, "v44_contract") if key in metadata]
     if reserved_keys:
         raise ValueError(

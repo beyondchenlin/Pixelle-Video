@@ -52,6 +52,7 @@ from pixelle_video.models.storyboard_planning import (
     ShotOverridePolicy,
 )
 from pixelle_video.models.visual_planning_mode import VisualPlanningMode
+from pixelle_video.models.visual_role_request import VisualRoleControlsContract
 from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 from pixelle_video.render_backend import RenderBackend
 from pixelle_video.tts_split_strategy import TtsSplitMode
@@ -560,6 +561,13 @@ class VideoGenerateRequest(BaseModel):
                 raise ValueError("ip_asset_bible_id is required when ip_enabled=True")
             if self.ip_profile_id is None:
                 raise ValueError("ip_profile_id is required when ip_enabled=True")
+
+        VisualRoleControlsContract.from_mapping(
+            {
+                "visual_role_mode": self.visual_role_mode,
+                "visual_consistency_mode": self.visual_consistency_mode,
+            }
+        )
 
         size_params = {
             "canvas_width": self.canvas_width,
