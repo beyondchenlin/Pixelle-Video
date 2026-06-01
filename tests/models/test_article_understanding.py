@@ -46,6 +46,28 @@ def test_subject_anchor_requires_evidence_span_ids_and_serializes_them_as_list()
     assert anchor.to_dict()["evidence_span_ids"] == ["evidence-1", "evidence-2"]
 
 
+def test_source_evidence_span_allows_omitting_optional_location_fields():
+    evidence = SourceEvidenceSpan(
+        evidence_id="evidence-1",
+        source_id="article-1",
+        quote="markets reprice risk",
+        evidence_role="core_claim",
+    )
+
+    assert evidence.frame_id is None
+    assert evidence.start_char is None
+    assert evidence.end_char is None
+    assert evidence.to_dict() == {
+        "evidence_id": "evidence-1",
+        "source_id": "article-1",
+        "frame_id": None,
+        "start_char": None,
+        "end_char": None,
+        "quote": "markets reprice risk",
+        "evidence_role": "core_claim",
+    }
+
+
 def test_article_understanding_plan_serializes_json_safe_values():
     evidence = SourceEvidenceSpan(
         evidence_id="evidence-1",

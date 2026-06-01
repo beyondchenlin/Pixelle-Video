@@ -52,20 +52,20 @@ class ArticleUnderstandingLens(str, Enum):
 class SourceEvidenceSpan:
     evidence_id: str
     source_id: str
-    frame_id: str | None
-    start_char: int
-    end_char: int
     quote: str
     evidence_role: str
+    frame_id: str | None = None
+    start_char: int | None = None
+    end_char: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "evidence_id", _require_text("evidence_id", self.evidence_id))
         object.__setattr__(self, "source_id", _require_text("source_id", self.source_id))
-        object.__setattr__(self, "frame_id", _optional_text(self.frame_id))
-        object.__setattr__(self, "start_char", int(self.start_char))
-        object.__setattr__(self, "end_char", int(self.end_char))
         object.__setattr__(self, "quote", _require_text("quote", self.quote))
         object.__setattr__(self, "evidence_role", _require_text("evidence_role", self.evidence_role))
+        object.__setattr__(self, "frame_id", _optional_text(self.frame_id))
+        object.__setattr__(self, "start_char", None if self.start_char is None else int(self.start_char))
+        object.__setattr__(self, "end_char", None if self.end_char is None else int(self.end_char))
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
