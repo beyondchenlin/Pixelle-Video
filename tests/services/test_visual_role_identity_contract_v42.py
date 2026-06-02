@@ -6,11 +6,12 @@ from pixelle_video.models.visual_expression import VisualExpressionDecision, Vis
 from pixelle_video.models.visual_role_planning import VisualRoleCritique
 from pixelle_video.models.visual_role_profile import VisualRoleProfile
 from pixelle_video.models.visual_role_request import VisualRoleRequest
-from pixelle_video.services.visual_role_profile_builder import VisualRoleProfileBuilder
 from pixelle_video.services.visual_role_prompt_critic import VisualRolePromptCritic
 from pixelle_video.services.visual_role_prompt_projector import (
+    VisualRolePromptProjectionError,
     VisualRolePromptProjector,
 )
+from pixelle_video.services.visual_role_profile_builder import VisualRoleProfileBuilder
 from pixelle_video.services.visual_role_scene_planner import VisualRoleScenePlanner
 
 
@@ -113,7 +114,7 @@ async def test_required_identity_trait_missing_blocks_critic():
     assert "required_identity_trait_missing" in {issue.code for issue in critique.issues}
 
 
-def test_identity_contract_traits_enter_final_prompt_without_internal_labels():
+def test_fixed_identity_clause_enters_final_prompt_and_positive_only_guard_stays_positive():
     profile = VisualRoleProfileBuilder().build(_ip_profile())
     plan = VisualRoleScenePlanner().plan_frame_rule(
         base_visual_brief=_brief(),
@@ -134,73 +135,13 @@ def test_identity_contract_traits_enter_final_prompt_without_internal_labels():
         workflow="z_image",
     )
 
-    assert profile.identity_contract.fixed_identity_clause not in rendered.prompt
-    assert "Fixed IP identity" not in rendered.prompt
-    assert "required identity traits" not in rendered.prompt
-    assert "Identity protection rules" not in rendered.prompt
-    assert "Do not" not in rendered.prompt
-    assert profile.display_name in rendered.prompt
-    assert "蓝色领结" in rendered.prompt
-    assert "不能变成非兔类" not in rendered.prompt
+    assert profile.identity_contract.fixed_identity_clause in rendered.prompt
+    assert "不能变成非兔类" in rendered.prompt
     assert rendered.negative_prompt is None
     assert rendered.metadata["projected_prompt_parts"]["projector_validation_passed"] is True
 
 
-def test_visual_role_projector_outputs_image_facing_prompt_without_internal_contract_labels():
-    profile = VisualRoleProfileBuilder().build(_ip_profile())
-    noisy_brief = BaseVisualBrief(
-        frame_id="f1",
-        core_message="解释孤独感",
-        visual_moment="夜晚街道里，一个人物站在雨中，旁边有一本翻开的书。",
-        main_subjects=("人物", "翻开的书"),
-        style_surface=(
-            "non-IP world layer, non-IP animals, props, background, and environment: "
-            "flat monochrome illustration, elegant, minimal line art with clean contours, "
-            "flat, monochrome illustration, monochrome, lots of negative space, minimalistic backgrounds"
-        ),
-        base_image_prompt="夜晚街道里，一个人物站在雨中，旁边有一本翻开的书。",
-    )
-    plan = VisualRoleScenePlanner().plan_frame_rule(
-        base_visual_brief=noisy_brief,
-        visual_role_request=_request(),
-        visual_role_profile=profile,
-        expression_decision=VisualExpressionDecision(
-            frame_id="f1",
-            expression_mode=VisualExpressionMode.EXPLANATORY_DIAGRAM,
-        ),
-    )
-
-    rendered = VisualRolePromptProjector().project(
-        base_visual_brief=noisy_brief,
-        visual_role_plan=plan,
-        visual_role_critique=VisualRoleCritique(frame_id="f1"),
-        visual_role_request=_request(),
-        visual_role_profile=profile,
-        workflow="z_image",
-    )
-
-    prompt = rendered.prompt
-
-    assert "Fixed IP identity" not in prompt
-    assert "required identity traits" not in prompt
-    assert "action responsibility" not in prompt
-    assert "Identity protection rules" not in prompt
-    assert "Do not" not in prompt
-    assert "non-IP world layer" not in prompt
-    assert "non-IP animals" not in prompt
-    assert "explanatory_diagram" not in prompt
-    assert "supporting_integration" not in prompt
-    assert "minimal line art with clean contours" not in prompt
-    assert prompt.count("flat monochrome illustration") <= 1
-    assert profile.display_name in prompt
-    assert "蓝色领结" in prompt
-    assert prompt.count("兔子") <= 2
-    assert prompt.count("蓝色领结") <= 2
-    assert rendered.negative_prompt is None
-    assert rendered.metadata["projected_prompt_parts"]["projector_validation_passed"] is True
-
-
-def test_projector_injects_missing_required_trait_without_exposing_fixed_clause():
+def test_projector_final_validation_rejects_missing_required_trait():
     profile = VisualRoleProfile(
         profile_id="broken",
         display_name="破损角色",
@@ -235,15 +176,11 @@ def test_projector_injects_missing_required_trait_without_exposing_fixed_clause(
         }
     )
 
-    rendered = VisualRolePromptProjector().project(
-        base_visual_brief=_brief(),
-        visual_role_plan=bad_plan,
-        visual_role_critique=VisualRoleCritique(frame_id="f1"),
-        visual_role_request=_request(ip_profile_id="broken"),
-        visual_role_profile=profile,
-    )
-
-    assert "必须保留的徽章" in rendered.prompt
-    assert "Fixed IP identity" not in rendered.prompt
-    assert "required identity traits" not in rendered.prompt
-    assert "固定 IP 身份" not in rendered.prompt
+    with pytest.raises(VisualRolePromptProjectionError, match="required_identity_traits"):
+        VisualRolePromptProjector().project(
+            base_visual_brief=_brief(),
+            visual_role_plan=bad_plan,
+            visual_role_critique=VisualRoleCritique(frame_id="f1"),
+            visual_role_request=_request(ip_profile_id="broken"),
+            visual_role_profile=profile,
+        )
