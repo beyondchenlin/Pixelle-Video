@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -11,6 +12,13 @@ from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, Visible
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
 _MISSING = object()
+_XIAOHEI_FIXED_ROLE_PATTERNS = (
+    re.compile(r"\bsignature\b", re.IGNORECASE),
+    re.compile(r"\bcharacter\b", re.IGNORECASE),
+    re.compile(r"\bmascot\b", re.IGNORECASE),
+    re.compile(r"\bfixed\s+recurring\s+figure\b", re.IGNORECASE),
+    re.compile(r"\bxiaohei\s+character\b", re.IGNORECASE),
+)
 
 
 class CognitiveAnchorKind(str, Enum):
@@ -505,12 +513,11 @@ class CognitiveAnchorPlan:
             "required_subjects",
             _normalize_contract_text_tuple(self.required_subjects, "required_subjects"),
         )
-        source_text_excerpt = _optional_text(self.source_text_excerpt) or ""
+        source_text_excerpt = _require_text(
+            self.source_text_excerpt,
+            "source_text_excerpt",
+        )
         object.__setattr__(self, "source_text_excerpt", source_text_excerpt)
-        if not self.source_evidence_ids and not source_text_excerpt:
-            raise ValueError(
-                "source_evidence_ids or source_text_excerpt must not be empty"
-            )
         object.__setattr__(
             self,
             "confidence",
@@ -752,6 +759,11 @@ class DiagramRenderContract:
                 "negative_style_rules",
             ),
         )
+        _validate_xiaohei_surface_style_rules(
+            self.render_style,
+            self.style_rules,
+            self.negative_style_rules,
+        )
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -972,6 +984,26 @@ def _normalize_approved_labels(value: Any) -> tuple[str, ...]:
         normalized.append(text)
         seen.add(text)
     return tuple(normalized)
+
+
+def _validate_xiaohei_surface_style_rules(
+    render_style: DiagramRenderStyle,
+    style_rules: Sequence[str],
+    negative_style_rules: Sequence[str],
+) -> None:
+    if render_style is not DiagramRenderStyle.XIAOHEI_HANDDRAWN:
+        return
+    for field_name, rules in (
+        ("style_rules", style_rules),
+        ("negative_style_rules", negative_style_rules),
+    ):
+        for rule in rules:
+            if any(pattern.search(rule) for pattern in _XIAOHEI_FIXED_ROLE_PATTERNS):
+                raise ValueError(
+                    f"{field_name} for XIAOHEI_HANDDRAWN must describe surface "
+                    "style only; fixed character/signature semantics belong in "
+                    "SeriesVisualSignatureContract"
+                )
 
 
 def _zero_to_one_float(value: Any, field_name: str) -> float:

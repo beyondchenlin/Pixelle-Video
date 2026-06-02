@@ -401,6 +401,36 @@ def test_xiaohei_render_style_does_not_insert_signature_when_role_none():
     assert "character" not in " ".join(render_payload["style_rules"]).lower()
 
 
+@pytest.mark.parametrize(
+    ("field_name", "rules"),
+    [
+        ("style_rules", ["include fixed mascot character signature"]),
+        ("negative_style_rules", ["do not include Xiaohei character as recurring figure"]),
+    ],
+)
+def test_xiaohei_render_style_rejects_fixed_signature_semantics(
+    field_name,
+    rules,
+):
+    kwargs = {
+        "render_style": DiagramRenderStyle.XIAOHEI_HANDDRAWN,
+        "canvas_aspect_ratio": DiagramAspectRatio.LANDSCAPE_16_9,
+        "diagram_panel_aspect_ratio": DiagramAspectRatio.LANDSCAPE_16_9,
+        "panel_inside_canvas": False,
+        "style_rules": [
+            "hand-drawn explanatory panel style",
+            "simple black linework",
+            "limited red orange blue annotation marks",
+            "plain paper texture",
+        ],
+        "negative_style_rules": ["no photorealistic shading"],
+    }
+    kwargs[field_name] = rules
+
+    with pytest.raises(ValueError, match=field_name):
+        ac.DiagramRenderContract(**kwargs)
+
+
 def test_signature_enabled_requires_non_none_role():
     for role in (SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO):
         with pytest.raises(ValueError, match="role"):
@@ -452,7 +482,7 @@ def test_diagram_render_contract_serializes_canvas_and_panel_ratio():
 
 
 def test_cognitive_anchor_plan_requires_source_evidence_or_source_text_fallback():
-    with pytest.raises(ValueError, match="source_evidence_ids or source_text_excerpt"):
+    with pytest.raises(ValueError, match="source_text_excerpt"):
         ac.CognitiveAnchorPlan(
             anchor_id="anchor-blank",
             anchor_kind="judgment",
@@ -479,3 +509,18 @@ def test_cognitive_anchor_plan_requires_source_evidence_or_source_text_fallback(
 
     assert fallback_anchor.source_evidence_ids == ()
     assert fallback_anchor.source_text_excerpt == "Fallback source sentence."
+
+
+def test_cognitive_anchor_plan_rejects_blank_source_text_excerpt_even_with_evidence():
+    with pytest.raises(ValueError, match="source_text_excerpt"):
+        ac.CognitiveAnchorPlan(
+            anchor_id="anchor-evidence",
+            anchor_kind="judgment",
+            anchor_claim="A concrete claim is present.",
+            anchor_question="What question does the claim answer?",
+            source_evidence_ids=["ev-1"],
+            main_entities=["claimant"],
+            required_subjects=["claimant"],
+            source_text_excerpt=" ",
+            confidence=0.5,
+        )
