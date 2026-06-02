@@ -443,6 +443,150 @@ async def test_subject_replacement_critic_rejects_side_observer_prompt_even_with
 
 
 @pytest.mark.asyncio
+async def test_subject_replacement_critic_allows_primary_subject_side_view_framing():
+    profile = _dog_profile()
+    request = _request(
+        visual_role_mode="subject_replacement",
+        visual_consistency_mode="off",
+    )
+    plan = VisualRoleScenePlanner().plan_frame_rule(
+        base_visual_brief=_brief(),
+        visual_role_request=request,
+        visual_role_profile=profile,
+        expression_decision=VisualExpressionDecision(
+            frame_id="f1",
+            expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+        ),
+    )
+    side_view_plan = plan.__class__(
+        **{
+            **plan.to_dict(),
+            "role_assignment": "primary protagonist",
+            "role_location": "primary focus area",
+            "integrated_scene_prompt": (
+                "Dalmatian guide is the primary protagonist and central visual subject, "
+                "viewed from the side as it carries the main scene action with black "
+                "sunglasses and dalmatian spots."
+            ),
+            "metadata": {},
+        }
+    )
+
+    critique = await VisualRolePromptCritic().critique(
+        plan=side_view_plan,
+        visual_role_profile=profile,
+        visual_role_request=request,
+        base_visual_brief=_brief(),
+    )
+
+    assert critique.passed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "primary_action_clause",
+    (
+        "observes the solar workflow, viewed from the side",
+        "stands by the console, viewed from the side",
+    ),
+)
+async def test_subject_replacement_critic_allows_primary_action_with_side_view_framing(
+    primary_action_clause,
+):
+    profile = _dog_profile()
+    request = _request(
+        visual_role_mode="subject_replacement",
+        visual_consistency_mode="off",
+    )
+    plan = VisualRoleScenePlanner().plan_frame_rule(
+        base_visual_brief=_brief(),
+        visual_role_request=request,
+        visual_role_profile=profile,
+        expression_decision=VisualExpressionDecision(
+            frame_id="f1",
+            expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+        ),
+    )
+    side_view_plan = plan.__class__(
+        **{
+            **plan.to_dict(),
+            "role_assignment": "primary protagonist",
+            "role_location": "primary focus area",
+            "integrated_scene_prompt": (
+                "Dalmatian guide is the primary protagonist and central visual subject; "
+                f"it {primary_action_clause} with black sunglasses and dalmatian spots."
+            ),
+            "metadata": {},
+        }
+    )
+
+    critique = await VisualRolePromptCritic().critique(
+        plan=side_view_plan,
+        visual_role_profile=profile,
+        visual_role_request=request,
+        base_visual_brief=_brief(),
+    )
+
+    assert critique.passed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "observer_clause",
+    (
+        "observes from the side",
+        "observing from the side",
+        "watches from the side",
+        "watching from the side",
+        "looks on from the side",
+        "looking on from the side",
+        "stands by from the side",
+        "standing by from the side",
+        "guides quietly from the side",
+        "guiding quietly from the side",
+    ),
+)
+async def test_subject_replacement_critic_rejects_observer_action_from_side(observer_clause):
+    profile = _dog_profile()
+    request = _request(
+        visual_role_mode="subject_replacement",
+        visual_consistency_mode="off",
+    )
+    plan = VisualRoleScenePlanner().plan_frame_rule(
+        base_visual_brief=_brief(),
+        visual_role_request=request,
+        visual_role_profile=profile,
+        expression_decision=VisualExpressionDecision(
+            frame_id="f1",
+            expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+        ),
+    )
+    bad_plan = plan.__class__(
+        **{
+            **plan.to_dict(),
+            "role_assignment": "primary protagonist",
+            "role_location": "primary focus area",
+            "integrated_scene_prompt": (
+                f"Dalmatian guide is the primary protagonist, but it {observer_clause} "
+                "while the original reader carries the scene, with black sunglasses "
+                "and dalmatian spots."
+            ),
+            "metadata": {},
+        }
+    )
+
+    critique = await VisualRolePromptCritic().critique(
+        plan=bad_plan,
+        visual_role_profile=profile,
+        visual_role_request=request,
+        base_visual_brief=_brief(),
+    )
+
+    assert not critique.passed
+    assert "subject_replacement_not_primary" in {issue.code for issue in critique.issues}
+
+
+@pytest.mark.asyncio
 async def test_subject_replacement_critic_rejects_negated_central_subject_language():
     profile = _dog_profile()
     request = _request(

@@ -53,12 +53,16 @@ NON_PRIMARY_SUBJECT_SIGNALS = (
     "background subject",
     "beside the original",
     "beside the reader",
-    "from the side",
     "watches from the side",
     "side observer",
     "\u65c1\u89c2",
     "\u8f85\u52a9\u89d2\u8272",
     "\u80cc\u666f\u89d2\u8272",
+)
+
+NON_PRIMARY_SUBJECT_PATTERNS = (
+    r"\b(observes?|observing|watches?|watching)\s+from\s+the\s+side\b",
+    r"\b(looks?\s+on|looking\s+on|stands?\s+by|standing\s+by|guides?\s+quietly|guiding\s+quietly)\s+from\s+the\s+side\b",
 )
 
 
@@ -75,7 +79,10 @@ def has_non_primary_subject_signal(*values: Any) -> bool:
     text = " ".join(str(value or "") for value in values).lower()
     if not text.strip():
         return False
-    return any(signal.lower() in text for signal in NON_PRIMARY_SUBJECT_SIGNALS)
+    return any(signal.lower() in text for signal in NON_PRIMARY_SUBJECT_SIGNALS) or any(
+        re.search(pattern, text, flags=re.IGNORECASE)
+        for pattern in NON_PRIMARY_SUBJECT_PATTERNS
+    )
 
 
 def repair_primary_subject_negations(value: Any) -> str:
@@ -89,6 +96,7 @@ def repair_primary_subject_negations(value: Any) -> str:
 
 __all__ = [
     "NON_PRIMARY_SUBJECT_SIGNALS",
+    "NON_PRIMARY_SUBJECT_PATTERNS",
     "PRIMARY_SUBJECT_NEGATION_REPAIRS",
     "PRIMARY_SUBJECT_NEGATIONS",
     "PRIMARY_SUBJECT_SIGNALS",
