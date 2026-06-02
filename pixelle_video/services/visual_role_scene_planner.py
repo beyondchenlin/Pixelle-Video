@@ -15,6 +15,11 @@ from pixelle_video.models.visual_role_planning import VisualRoleIntegratedPrompt
 from pixelle_video.models.visual_role_profile import VisualRoleProfile
 from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.models.visual_role_strategy import VisualRoleMode
+from pixelle_video.services.visual_role_primary_contract import (
+    has_non_primary_subject_signal,
+    has_primary_subject_signal,
+    repair_primary_subject_negations,
+)
 
 
 class VisualRolePlanningError(ValueError):
@@ -200,6 +205,28 @@ def _plan_from_payload(
     role_assignment = _text(payload.get("role_assignment")) or (
         "primary visual role" if role_mode is VisualRoleMode.SUBJECT_REPLACEMENT else "supporting visual role"
     )
+    subject_replacement_primary_contract_enforced = False
+    if role_mode is VisualRoleMode.SUBJECT_REPLACEMENT:
+        (
+            role_assignment,
+            role_action,
+            role_manifestation,
+            role_location,
+            integrated_prompt,
+            subject_replacement_primary_contract_enforced,
+        ) = _normalize_subject_replacement_primary_contract(
+            identity=identity,
+            original_intent=original_intent,
+            role_assignment=role_assignment,
+            role_action=role_action,
+            role_manifestation=role_manifestation,
+            role_location=role_location,
+            integrated_prompt=integrated_prompt,
+        )
+        integrated_prompt = _ensure_identity_presence_in_prompt(
+            integrated_prompt,
+            visual_role_profile,
+        )
     metadata = {
         "planner": "VisualRoleScenePlanner",
         "planner_version": "v4_2_identity_contract",
@@ -207,6 +234,8 @@ def _plan_from_payload(
         "expression_decision": expression_decision.to_dict(),
         "visual_role_request": visual_role_request.to_dict(),
     }
+    if subject_replacement_primary_contract_enforced:
+        metadata["subject_replacement_primary_contract_enforced"] = True
     if repair_context:
         metadata["repair_context"] = repair_context
 
@@ -346,6 +375,96 @@ def _ensure_identity_presence_in_prompt(
     if prompt.endswith((".", "。", "!", "！", "?", "？")):
         return f"{prompt} {identity_clause}"
     return f"{prompt}. {identity_clause}"
+
+
+def _normalize_subject_replacement_primary_contract(
+    *,
+    identity: str,
+    original_intent: str,
+    role_assignment: str,
+    role_action: str,
+    role_manifestation: str,
+    role_location: str,
+    integrated_prompt: str,
+) -> tuple[str, str, str, str, str, bool]:
+    changed = False
+    role_action, repaired = _repair_primary_subject_negations(role_action)
+    changed = changed or repaired
+    role_manifestation, repaired = _repair_primary_subject_negations(role_manifestation)
+    changed = changed or repaired
+    role_location, repaired = _repair_primary_subject_negations(role_location)
+    changed = changed or repaired
+    integrated_prompt, repaired = _repair_primary_subject_negations(integrated_prompt)
+    changed = changed or repaired
+    if not has_primary_subject_signal(role_assignment) or has_non_primary_subject_signal(role_assignment):
+        role_assignment = f"{identity} as primary protagonist and central visual subject"
+        changed = True
+    if not has_primary_subject_signal(role_manifestation) or has_non_primary_subject_signal(role_manifestation):
+        role_manifestation = "primary in-scene protagonist"
+        changed = True
+    if not has_primary_subject_signal(role_location) or has_non_primary_subject_signal(role_location):
+        role_location = "primary focus area"
+        changed = True
+    if not has_primary_subject_signal(role_action) or has_non_primary_subject_signal(role_action):
+        role_action = "carries the primary scene action"
+        changed = True
+    if has_non_primary_subject_signal(integrated_prompt):
+        integrated_prompt = _subject_replacement_primary_prompt(
+            identity=identity,
+            original_intent=original_intent,
+            role_action=role_action,
+            role_manifestation=role_manifestation,
+            role_location=role_location,
+        )
+        changed = True
+    elif not has_primary_subject_signal(integrated_prompt):
+        primary_clause = (
+            f"{identity} is the primary protagonist and central visual subject of the frame, "
+            "carrying the main scene action while preserving the source intent."
+        )
+        integrated_prompt = _join_sentence_prefix(primary_clause, integrated_prompt)
+        changed = True
+    return (
+        role_assignment,
+        role_action,
+        role_manifestation,
+        role_location,
+        integrated_prompt,
+        changed,
+    )
+
+
+def _join_sentence_prefix(prefix: str, body: str) -> str:
+    prefix_text = _text(prefix)
+    body_text = _text(body)
+    if not prefix_text:
+        return body_text
+    if not body_text:
+        return prefix_text
+    if prefix_text.endswith((".", "。", "!", "！", "?", "？")):
+        return f"{prefix_text} {body_text}"
+    return f"{prefix_text}. {body_text}"
+
+
+def _subject_replacement_primary_prompt(
+    *,
+    identity: str,
+    original_intent: str,
+    role_action: str,
+    role_manifestation: str,
+    role_location: str,
+) -> str:
+    return (
+        f"{identity} is the primary protagonist and central visual subject of the frame, "
+        f"{role_action}. The composition is built around {identity} in the {role_location}; "
+        f"{role_manifestation}. Preserve the source intent: {original_intent}."
+    )
+
+
+def _repair_primary_subject_negations(value: str) -> tuple[str, bool]:
+    original = _text(value)
+    repaired = repair_primary_subject_negations(original)
+    return repaired, repaired != original
 
 
 def _identity_presence_scene_clause(

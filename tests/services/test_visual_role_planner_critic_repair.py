@@ -37,6 +37,23 @@ def _profile() -> VisualRoleProfile:
     )
 
 
+def _dog_profile() -> VisualRoleProfile:
+    return VisualRoleProfile(
+        profile_id="dog_1",
+        display_name="Dalmatian guide",
+        identity_kernel=("Dalmatian guide",),
+        appearance_traits=("black sunglasses", "dalmatian spots"),
+        action_affordances=("guide",),
+        primary_role_affordances=("protagonist",),
+        supporting_role_affordances=("guide",),
+        forbidden_role_forms=("corner badge", "watermark", "overlay"),
+        identity_contract=VisualRoleIdentityContract(
+            canonical_identity_name="Dalmatian guide",
+            required_identity_traits=("black sunglasses", "dalmatian spots"),
+        ),
+    )
+
+
 def _request(**overrides) -> VisualRoleRequest:
     payload = {
         "ip_enabled": True,
@@ -142,6 +159,46 @@ async def test_repair_loop_retries_planner_exceptions_without_silent_success():
     assert "planner_error" in attempts["attempt_1"]
     assert critiques[0].passed
     assert "红嘴麻雀" in plans[0].integrated_scene_prompt
+
+
+@pytest.mark.asyncio
+async def test_repair_loop_normalizes_subject_replacement_before_failure():
+    async def llm_service(**_kwargs):
+        return {
+            "role_assignment": "supporting observer",
+            "role_location": "beside the original reader",
+            "integrated_scene_prompt": (
+                "A lonely reader stands near an open book while a Dalmatian guide "
+                "watches from the side."
+            ),
+            "role_action": "observe the scene",
+            "role_manifestation": "in-scene guide",
+        }
+
+    request = _request(
+        visual_expression_mode="auto",
+        visual_role_mode="auto",
+        visual_consistency_mode="primary_character",
+    )
+
+    plans, critiques, attempts = await VisualRoleRepairLoop(max_repair_attempts=1).run_batch(
+        planner=VisualRoleScenePlanner(llm_service=llm_service),
+        critic=VisualRolePromptCritic(),
+        base_visual_briefs=(_brief(),),
+        visual_role_request=request,
+        visual_role_profile=_dog_profile(),
+        expression_decisions=(
+            VisualExpressionDecision(
+                frame_id="f1",
+                expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+            ),
+        ),
+    )
+
+    assert attempts["attempt_1"]["critiques"][0]["passed"]
+    assert critiques[0].passed
+    assert "subject_replacement_not_primary" not in {issue.code for issue in critiques[0].issues}
+    assert "watches from the side" not in plans[0].integrated_scene_prompt.lower()
 
 
 @pytest.mark.asyncio
@@ -251,5 +308,263 @@ async def test_llm_planner_preserves_identity_terms_without_internal_contract_la
         plan=plans[0],
         visual_role_profile=profile,
         visual_role_request=request,
+    )
+    assert critique.passed
+
+
+@pytest.mark.asyncio
+async def test_subject_replacement_llm_payload_is_normalized_to_primary_contract():
+    async def llm_service(**_kwargs):
+        return {
+            "role_assignment": "supporting observer",
+            "role_location": "beside the original reader",
+            "integrated_scene_prompt": (
+                "A lonely reader stands near an open book while a Dalmatian guide "
+                "watches from the side."
+            ),
+            "role_action": "observe the scene",
+            "role_manifestation": "in-scene guide",
+        }
+
+    profile = _dog_profile()
+    request = _request(
+        visual_expression_mode="auto",
+        visual_role_mode="auto",
+        visual_consistency_mode="primary_character",
+    )
+
+    plans = await VisualRoleScenePlanner(llm_service=llm_service).plan_batch(
+        base_visual_briefs=(_brief(),),
+        visual_role_request=request,
+        visual_role_profile=profile,
+        expression_decisions=(
+            VisualExpressionDecision(
+                frame_id="f1",
+                expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+            ),
+        ),
+    )
+
+    assert plans[0].role_mode is VisualRoleMode.SUBJECT_REPLACEMENT
+    assert "primary" in plans[0].role_assignment.lower()
+    assert "primary" in plans[0].role_location.lower()
+    assert "beside" not in plans[0].role_location.lower()
+    assert "primary" in plans[0].integrated_scene_prompt.lower()
+    assert "watches from the side" not in plans[0].integrated_scene_prompt.lower()
+    critique = await VisualRolePromptCritic().critique(
+        plan=plans[0],
+        visual_role_profile=profile,
+        visual_role_request=request,
+        base_visual_brief=_brief(),
+    )
+    assert critique.passed
+    assert "subject_replacement_not_primary" not in {issue.code for issue in critique.issues}
+
+
+@pytest.mark.asyncio
+async def test_subject_replacement_critic_rejects_negated_primary_language():
+    profile = _dog_profile()
+    request = _request(
+        visual_role_mode="subject_replacement",
+        visual_consistency_mode="off",
+    )
+    plan = VisualRoleScenePlanner().plan_frame_rule(
+        base_visual_brief=_brief(),
+        visual_role_request=request,
+        visual_role_profile=profile,
+        expression_decision=VisualExpressionDecision(
+            frame_id="f1",
+            expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+        ),
+    )
+    bad_plan = plan.__class__(
+        **{
+            **plan.to_dict(),
+            "role_assignment": "not the primary subject",
+            "role_location": "beside the original reader",
+            "integrated_scene_prompt": (
+                "Dalmatian guide is not the primary subject; it stays beside the "
+                "reader with black sunglasses and dalmatian spots."
+            ),
+            "metadata": {},
+        }
+    )
+
+    critique = await VisualRolePromptCritic().critique(
+        plan=bad_plan,
+        visual_role_profile=profile,
+        visual_role_request=request,
+        base_visual_brief=_brief(),
+    )
+
+    assert not critique.passed
+    assert "subject_replacement_not_primary" in {issue.code for issue in critique.issues}
+
+
+@pytest.mark.asyncio
+async def test_subject_replacement_critic_rejects_side_observer_prompt_even_with_primary_fields():
+    profile = _dog_profile()
+    request = _request(
+        visual_role_mode="subject_replacement",
+        visual_consistency_mode="off",
+    )
+    plan = VisualRoleScenePlanner().plan_frame_rule(
+        base_visual_brief=_brief(),
+        visual_role_request=request,
+        visual_role_profile=profile,
+        expression_decision=VisualExpressionDecision(
+            frame_id="f1",
+            expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+        ),
+    )
+    bad_plan = plan.__class__(
+        **{
+            **plan.to_dict(),
+            "role_assignment": "primary protagonist",
+            "role_location": "primary focus area",
+            "integrated_scene_prompt": (
+                "Dalmatian guide is the primary protagonist, but it watches from "
+                "the side beside the original reader with black sunglasses and "
+                "dalmatian spots."
+            ),
+            "metadata": {},
+        }
+    )
+
+    critique = await VisualRolePromptCritic().critique(
+        plan=bad_plan,
+        visual_role_profile=profile,
+        visual_role_request=request,
+        base_visual_brief=_brief(),
+    )
+
+    assert not critique.passed
+    assert "subject_replacement_not_primary" in {issue.code for issue in critique.issues}
+
+
+@pytest.mark.asyncio
+async def test_subject_replacement_critic_rejects_negated_central_subject_language():
+    profile = _dog_profile()
+    request = _request(
+        visual_role_mode="subject_replacement",
+        visual_consistency_mode="off",
+    )
+    plan = VisualRoleScenePlanner().plan_frame_rule(
+        base_visual_brief=_brief(),
+        visual_role_request=request,
+        visual_role_profile=profile,
+        expression_decision=VisualExpressionDecision(
+            frame_id="f1",
+            expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+        ),
+    )
+    bad_plan = plan.__class__(
+        **{
+            **plan.to_dict(),
+            "role_assignment": "not the central visual subject",
+            "role_location": "beside the original reader",
+            "integrated_scene_prompt": (
+                "Dalmatian guide is not the central visual subject; it remains "
+                "beside the reader with black sunglasses and dalmatian spots."
+            ),
+            "metadata": {},
+        }
+    )
+
+    critique = await VisualRolePromptCritic().critique(
+        plan=bad_plan,
+        visual_role_profile=profile,
+        visual_role_request=request,
+        base_visual_brief=_brief(),
+    )
+
+    assert not critique.passed
+    assert "subject_replacement_not_primary" in {issue.code for issue in critique.issues}
+
+
+@pytest.mark.asyncio
+async def test_subject_replacement_planner_repairs_negated_primary_prompt():
+    async def llm_service(**_kwargs):
+        return {
+            "role_assignment": "not the primary subject",
+            "role_location": "beside the original reader",
+            "integrated_scene_prompt": (
+                "Dalmatian guide is not the primary subject; it stays beside the "
+                "reader with black sunglasses and dalmatian spots."
+            ),
+            "role_action": "observe the scene",
+            "role_manifestation": "in-scene guide",
+        }
+
+    profile = _dog_profile()
+    request = _request(
+        visual_expression_mode="auto",
+        visual_role_mode="auto",
+        visual_consistency_mode="primary_character",
+    )
+
+    plans = await VisualRoleScenePlanner(llm_service=llm_service).plan_batch(
+        base_visual_briefs=(_brief(),),
+        visual_role_request=request,
+        visual_role_profile=profile,
+        expression_decisions=(
+            VisualExpressionDecision(
+                frame_id="f1",
+                expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+            ),
+        ),
+    )
+
+    prompt = plans[0].integrated_scene_prompt.lower()
+    assert "not the primary" not in prompt
+    critique = await VisualRolePromptCritic().critique(
+        plan=plans[0],
+        visual_role_profile=profile,
+        visual_role_request=request,
+        base_visual_brief=_brief(),
+    )
+    assert critique.passed
+
+
+@pytest.mark.asyncio
+async def test_subject_replacement_planner_repairs_short_negated_primary_prompt():
+    async def llm_service(**_kwargs):
+        return {
+            "role_assignment": "not the primary",
+            "role_location": "primary focus area",
+            "integrated_scene_prompt": (
+                "Dalmatian guide is not the primary; it carries black sunglasses "
+                "and dalmatian spots into the main scene."
+            ),
+            "role_action": "observe the scene",
+            "role_manifestation": "in-scene guide",
+        }
+
+    profile = _dog_profile()
+    request = _request(
+        visual_expression_mode="auto",
+        visual_role_mode="auto",
+        visual_consistency_mode="primary_character",
+    )
+
+    plans = await VisualRoleScenePlanner(llm_service=llm_service).plan_batch(
+        base_visual_briefs=(_brief(),),
+        visual_role_request=request,
+        visual_role_profile=profile,
+        expression_decisions=(
+            VisualExpressionDecision(
+                frame_id="f1",
+                expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+            ),
+        ),
+    )
+
+    prompt = plans[0].integrated_scene_prompt.lower()
+    assert "not the primary" not in prompt
+    critique = await VisualRolePromptCritic().critique(
+        plan=plans[0],
+        visual_role_profile=profile,
+        visual_role_request=request,
+        base_visual_brief=_brief(),
     )
     assert critique.passed

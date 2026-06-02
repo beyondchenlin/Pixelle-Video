@@ -14,6 +14,10 @@ from pixelle_video.models.visual_role_planning import (
 from pixelle_video.models.visual_role_profile import VisualRoleProfile
 from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.models.visual_role_strategy import VisualRoleMode
+from pixelle_video.services.visual_role_primary_contract import (
+    has_non_primary_subject_signal,
+    has_primary_subject_signal,
+)
 
 _FORBIDDEN_TERMS = (
     "角标",
@@ -184,8 +188,15 @@ def _missing_required_identity_traits(
 
 
 def _looks_primary(plan: VisualRoleIntegratedPromptPlan, prompt: str) -> bool:
-    text = f"{plan.role_assignment} {plan.role_location} {prompt}"
-    return any(token in text for token in ("核心主体", "主角", "画面中心", "主要行动者", "primary", "protagonist"))
+    return has_primary_subject_signal(
+        plan.role_assignment,
+        plan.role_location,
+        prompt,
+    ) and not has_non_primary_subject_signal(
+        plan.role_assignment,
+        plan.role_location,
+        prompt,
+    )
 
 
 def _looks_like_overlay_only(prompt: str) -> bool:
