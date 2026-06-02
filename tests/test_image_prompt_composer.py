@@ -1,8 +1,32 @@
+from dataclasses import replace
+
 import pytest
 
+from pixelle_video.models.article_concretization import (
+    ArticleConcretizationRequest,
+    DiagramAspectRatio,
+)
+from pixelle_video.models.article_understanding import (
+    ArticleUnderstandingLens,
+    ArticleUnderstandingPlan,
+    FrameUnderstandingPlan,
+    SourceEvidenceSpan,
+    SubjectAnchor,
+)
 from pixelle_video.models.asset_bible import IPProfile
+from pixelle_video.models.final_visual_prompt_contract import (
+    FinalVisualPromptContract,
+    RenderedMediaPrompt,
+)
 from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+from pixelle_video.models.style_resolution import StyledImagePromptBatch
+from pixelle_video.services.article_concretization_planner import (
+    ArticleConcretizationPlanner,
+)
+from pixelle_video.services.article_concretization_resolution import (
+    resolve_article_concretization,
+)
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 
 
@@ -48,28 +72,134 @@ def _ip_profile():
     )
 
 
+def _evidence(evidence_id: str, quote: str) -> SourceEvidenceSpan:
+    return SourceEvidenceSpan(
+        evidence_id=evidence_id,
+        source_id="article-1",
+        quote=quote,
+        evidence_role="core_claim",
+    )
+
+
+def _subject(subject_id: str, label: str, evidence_id: str) -> SubjectAnchor:
+    return SubjectAnchor(
+        subject_id=subject_id,
+        label=label,
+        source_phrase=label,
+        evidence_span_ids=(evidence_id,),
+        importance="primary",
+        visual_presence="required",
+        loss_policy="forbidden",
+    )
+
+
+def _article_concretization_plans(plan: StoryboardPlan):
+    request = ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "cognitive_anchor_kind": "causal_mechanism",
+            "explanation_diagram_grammar": "process_flow",
+            "diagram_render_style": "editorial_diagram",
+            "diagram_visible_text_policy": "approved_labels_only",
+            "diagram_approved_labels": ["Cause", "Effect"],
+            "diagram_user_intent_hint": "make the feedback loop visible",
+        }
+    )
+    article_evidence = _evidence("article-evidence-1", plan.source_text)
+    article_plan = ArticleUnderstandingPlan(
+        article_id=plan.plan_id,
+        primary_lens=ArticleUnderstandingLens.CAUSAL_MECHANISM,
+        core_claim=plan.source_text,
+        main_entities=("Cause", "Effect"),
+        required_subjects=(
+            _subject("article-subject-1", "Cause", article_evidence.evidence_id),
+            _subject("article-subject-2", "Effect", article_evidence.evidence_id),
+        ),
+        source_evidence=(article_evidence,),
+    )
+    plans = []
+    for frame in plan.frames:
+        frame_evidence = _evidence(f"{frame.frame_id}-evidence", frame.source_text)
+        frame_plan = FrameUnderstandingPlan(
+            frame_id=frame.frame_id,
+            source_text=frame.source_text,
+            frame_claim=frame.visual_goal,
+            frame_question=frame.prompt_intent,
+            primary_lens=ArticleUnderstandingLens.CAUSAL_MECHANISM,
+            required_subjects=(
+                _subject(f"{frame.frame_id}-subject-1", "Cause", frame_evidence.evidence_id),
+                _subject(f"{frame.frame_id}-subject-2", "Effect", frame_evidence.evidence_id),
+            ),
+            source_evidence=(frame_evidence,),
+            visible_text_policy="free_text_allowed",
+        )
+        resolution = resolve_article_concretization(
+            request=request,
+            article_plan=article_plan,
+            frame_plan=frame_plan,
+            ip_profile_id=None,
+            template_aspect_ratio=DiagramAspectRatio.VERTICAL_9_16,
+            strict_user_mode=False,
+        )
+        plans.append(
+            ArticleConcretizationPlanner().plan(
+                resolution=resolution,
+                article_plan=article_plan,
+                frame_plan=frame_plan,
+                source_text=plan.source_text,
+            )
+        )
+    return tuple(plans)
+
+
+def _styled_batch(
+    *,
+    prompts: list[str],
+    planning_snapshot: dict | None = None,
+) -> StyledImagePromptBatch:
+    return StyledImagePromptBatch(
+        prompts=prompts,
+        resolved_style=None,
+        negative_prompt=None,
+        planning_snapshot=planning_snapshot,
+        rendered_prompts=[_rendered_prompt(prompt) for prompt in prompts],
+    )
+
+
+def _rendered_prompt(prompt: str) -> RenderedMediaPrompt:
+    contract = FinalVisualPromptContract(
+        scene="scene",
+        composition="composition",
+        style_assignment="style assignment",
+        character_layer_style="character layer",
+        world_layer_style="world layer",
+        integration_priority="priority",
+    )
+    return RenderedMediaPrompt(
+        prompt=prompt,
+        negative_prompt=None,
+        prompt_contract=contract,
+        renderer_id="test",
+        renderer_version="v1",
+    )
+
+
 @pytest.mark.asyncio
 async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
     captured = {}
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured.update(kwargs)
-        return type(
-            "Batch",
-            (),
-            {
-                "prompts": ["prompt one", "prompt two"],
-                "resolved_style": None,
-                "negative_prompt": None,
-                "planning_snapshot": {
-                    "frames": [{"scene_id": "1"}, {"scene_id": "2"}],
-                    "prompt_generation_trace_refs_by_index": [
-                        {"prompt_index": 0, "trace_id": "trace_prompt_batch_1"},
-                        {"prompt_index": 1, "trace_id": "trace_prompt_batch_1"},
-                    ],
-                },
+        return _styled_batch(
+            prompts=["prompt one", "prompt two"],
+            planning_snapshot={
+                "frames": [{"scene_id": "1"}, {"scene_id": "2"}],
+                "prompt_generation_trace_refs_by_index": [
+                    {"prompt_index": 0, "trace_id": "trace_prompt_batch_1"},
+                    {"prompt_index": 1, "trace_id": "trace_prompt_batch_1"},
+                ],
             },
-        )()
+        )
 
     monkeypatch.setattr(
         "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
@@ -118,31 +248,86 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_composer_injects_article_concretization_plans_into_prompt_contexts_and_snapshot(
+    monkeypatch,
+):
+    captured = {}
+    plan = _plan()
+    article_plans = _article_concretization_plans(plan)
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured.update(kwargs)
+        return _styled_batch(prompts=["prompt one", "prompt two"], planning_snapshot={})
+
+    monkeypatch.setattr(
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await ImagePromptComposer().compose(
+        llm_service=object(),
+        storyboard_plan=plan,
+        image_config={},
+        article_concretization_plans=article_plans,
+    )
+
+    prompt_contexts = captured["prompt_contexts"]
+    first_context = prompt_contexts.frame_contexts[0]
+    assert first_context["article_concretization_plan"]["plan_id"] == (
+        article_plans[0].plan_id
+    )
+    assert first_context["article_concretization_plan"]["diagram"]["visible_text"][
+        "allowed_visible_text"
+    ] == ["Cause", "Effect"]
+    assert result.planning_snapshot["article_concretization_by_frame"] == {
+        plan.frames[0].frame_id: article_plans[0].to_dict(),
+        plan.frames[1].frame_id: article_plans[1].to_dict(),
+    }
+
+
+@pytest.mark.asyncio
+async def test_composer_rejects_article_concretization_plan_frame_mismatch(monkeypatch):
+    plan = _plan()
+    article_plans = list(_article_concretization_plans(plan))
+    article_plans[0] = replace(article_plans[0], frame_id="wrong-frame")
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        raise AssertionError("frame mismatch should fail before prompt generation")
+
+    monkeypatch.setattr(
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    with pytest.raises(ValueError, match="article_concretization_plans must match storyboard frame ids"):
+        await ImagePromptComposer().compose(
+            llm_service=object(),
+            storyboard_plan=plan,
+            image_config={},
+            article_concretization_plans=tuple(article_plans),
+        )
+
+
+@pytest.mark.asyncio
 async def test_composer_carries_all_upstream_llm_trace_ids_into_prompt_plan_metadata(monkeypatch):
     plan = _plan()
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
-        return type(
-            "Batch",
-            (),
-            {
-                "prompts": ["prompt one", "prompt two"],
-                "resolved_style": None,
-                "negative_prompt": None,
-                "planning_snapshot": {
-                    "llm_trace_refs": [
-                        {"trace_id": "trace_world", "stage": "content_world_planning"},
-                        {"trace_id": "trace_style", "stage": "style_resolution"},
-                        {"trace_id": "trace_storyboard", "stage": "storyboard_planning"},
-                        {"trace_id": "trace_ip", "stage": "ip_role_selection"},
-                    ],
-                    "prompt_generation_trace_refs_by_index": [
-                        {"prompt_index": 0, "trace_id": "trace_prompt_batch_1", "stage": "image_prompt_batch"},
-                        {"prompt_index": 1, "trace_id": "trace_prompt_batch_1", "stage": "image_prompt_batch"},
-                    ],
-                },
+        return _styled_batch(
+            prompts=["prompt one", "prompt two"],
+            planning_snapshot={
+                "llm_trace_refs": [
+                    {"trace_id": "trace_world", "stage": "content_world_planning"},
+                    {"trace_id": "trace_style", "stage": "style_resolution"},
+                    {"trace_id": "trace_storyboard", "stage": "storyboard_planning"},
+                    {"trace_id": "trace_ip", "stage": "ip_role_selection"},
+                ],
+                "prompt_generation_trace_refs_by_index": [
+                    {"prompt_index": 0, "trace_id": "trace_prompt_batch_1", "stage": "image_prompt_batch"},
+                    {"prompt_index": 1, "trace_id": "trace_prompt_batch_1", "stage": "image_prompt_batch"},
+                ],
             },
-        )()
+        )
 
     monkeypatch.setattr(
         "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
@@ -178,16 +363,7 @@ async def test_composer_passes_generation_world_hint_to_styled_batch(monkeypatch
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured.update(kwargs)
-        return type(
-            "Batch",
-            (),
-            {
-                "prompts": ["prompt one", "prompt two"],
-                "resolved_style": None,
-                "negative_prompt": None,
-                "planning_snapshot": None,
-            },
-        )()
+        return _styled_batch(prompts=["prompt one", "prompt two"])
 
     monkeypatch.setattr(
         "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
@@ -213,26 +389,20 @@ async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkey
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured.update(kwargs)
-        return type(
-            "Batch",
-            (),
-            {
-                "prompts": ["prompt one", "prompt two"],
-                "resolved_style": None,
-                "negative_prompt": None,
-                "planning_snapshot": {
-                    "ip_adaptations_by_frame": {
-                        plan.frames[0].frame_id: {
-                            "ip_presence_type": "scene_integrated",
-                            "image_text_plan": {
-                                "summary_text": "Changle Gate",
-                                "visible_text_whitelist": ["Changle Gate"],
-                            },
-                        }
+        return _styled_batch(
+            prompts=["prompt one", "prompt two"],
+            planning_snapshot={
+                "ip_adaptations_by_frame": {
+                    plan.frames[0].frame_id: {
+                        "ip_presence_type": "scene_integrated",
+                        "image_text_plan": {
+                            "summary_text": "Changle Gate",
+                            "visible_text_whitelist": ["Changle Gate"],
+                        },
                     }
-                },
+                }
             },
-        )()
+        )
 
     monkeypatch.setattr(
         "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
@@ -261,16 +431,7 @@ async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkey
 @pytest.mark.asyncio
 async def test_composer_rejects_ip_enabled_prompt_count_mismatch(monkeypatch):
     async def fake_generate_styled_image_prompt_batch(**kwargs):
-        return type(
-            "Batch",
-            (),
-            {
-                "prompts": ["prompt one"],
-                "resolved_style": None,
-                "negative_prompt": None,
-                "planning_snapshot": None,
-            },
-        )()
+        return _styled_batch(prompts=["prompt one"])
 
     monkeypatch.setattr(
         "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
@@ -294,16 +455,7 @@ async def test_composer_projects_text_rendering_to_prompt_payload(monkeypatch):
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured.update(kwargs)
-        return type(
-            "Batch",
-            (),
-            {
-                "prompts": ["prompt one", "prompt two"],
-                "resolved_style": None,
-                "negative_prompt": None,
-                "planning_snapshot": None,
-            },
-        )()
+        return _styled_batch(prompts=["prompt one", "prompt two"])
 
     monkeypatch.setattr(
         "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
@@ -332,16 +484,7 @@ async def test_composer_projects_text_rendering_to_prompt_payload(monkeypatch):
 @pytest.mark.asyncio
 async def test_composer_rejects_prompt_count_mismatch(monkeypatch):
     async def fake_generate_styled_image_prompt_batch(**kwargs):
-        return type(
-            "Batch",
-            (),
-            {
-                "prompts": ["prompt one"],
-                "resolved_style": None,
-                "negative_prompt": None,
-                "planning_snapshot": None,
-            },
-        )()
+        return _styled_batch(prompts=["prompt one"])
 
     monkeypatch.setattr(
         "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
@@ -420,18 +563,12 @@ async def test_composer_applies_new_frame_override_identity_to_prompt_context(mo
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured.update(kwargs)
-        return type(
-            "Batch",
-            (),
-            {
-                "prompts": ["prompt one", "prompt two"],
-                "resolved_style": None,
-                "negative_prompt": None,
-                "planning_snapshot": {
-                    "frame_overrides": list(kwargs["frame_overrides"] or []),
-                },
+        return _styled_batch(
+            prompts=["prompt one", "prompt two"],
+            planning_snapshot={
+                "frame_overrides": list(kwargs["frame_overrides"] or []),
             },
-        )()
+        )
 
     monkeypatch.setattr(
         "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
@@ -480,16 +617,7 @@ async def test_composer_applies_source_text_override_to_frame_source_text(monkey
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured.update(kwargs)
-        return type(
-            "Batch",
-            (),
-            {
-                "prompts": ["prompt one", "prompt two"],
-                "resolved_style": None,
-                "negative_prompt": None,
-                "planning_snapshot": {},
-            },
-        )()
+        return _styled_batch(prompts=["prompt one", "prompt two"], planning_snapshot={})
 
     monkeypatch.setattr(
         "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",

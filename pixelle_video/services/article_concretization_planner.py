@@ -34,6 +34,7 @@ class ArticleConcretizationPlanner:
         article_plan: ArticleUnderstandingPlan,
         frame_plan: FrameUnderstandingPlan,
         source_text: str,
+        identity_profile_id: str | None = None,
     ) -> ArticleConcretizationPlan | None:
         if not resolution.enabled:
             return None
@@ -69,11 +70,15 @@ class ArticleConcretizationPlanner:
             selected_subjects=selected_subjects,
             source_evidence_ids=source_evidence_ids,
         )
-        signature = _build_signature_contract(resolution.effective_signature_role)
+        signature = _build_signature_contract(
+            resolution.effective_signature_role,
+            identity_profile_id=identity_profile_id,
+        )
         render = _build_render_contract(resolution)
 
         return ArticleConcretizationPlan(
             plan_id=f"{frame_plan.frame_id}-article-concretization-plan",
+            frame_id=frame_plan.frame_id,
             request=resolution.request,
             resolution=resolution,
             anchor=anchor,
@@ -104,6 +109,7 @@ def _build_diagram_brief(
             subjects=selected_subjects,
             evidence_ids=source_evidence_ids,
             panel_inside_canvas=resolution.layout.panel_inside_canvas,
+            user_intent_hint=resolution.request.diagram_user_intent_hint,
         ),
         panel_plan=_panel_plan(grammar, selected_subjects),
         forbidden_losses=_forbidden_losses(
@@ -117,6 +123,8 @@ def _build_diagram_brief(
 
 def _build_signature_contract(
     role: SeriesVisualSignatureRole,
+    *,
+    identity_profile_id: str | None,
 ) -> SeriesVisualSignatureContract:
     if role in {SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO}:
         return SeriesVisualSignatureContract(
@@ -131,14 +139,16 @@ def _build_signature_contract(
                 "do not add a recurring signature subject",
             ),
         )
+    if not identity_profile_id:
+        raise ValueError("identity_profile_id is required for enabled series signature")
 
     return SeriesVisualSignatureContract(
         enabled=True,
         role=role,
-        identity_profile_id=None,
+        identity_profile_id=identity_profile_id,
         participation_rule=(
-            f"Series signature participates as {role.value} role only; "
-            "no identity_profile_id is available to the planner."
+            f"Series signature identity {identity_profile_id} participates as "
+            f"{role.value} role only; it must not replace article subjects."
         ),
         replacement_policy="no_subject_replacement",
         visual_weight=_signature_visual_weight(role),
@@ -222,6 +232,7 @@ def _composition_rules(
     subjects: tuple[str, ...],
     evidence_ids: tuple[str, ...],
     panel_inside_canvas: bool,
+    user_intent_hint: str | None,
 ) -> tuple[str, ...]:
     subject_rule = "preserve required subjects: " + ", ".join(subjects)
     evidence_rule = (
@@ -234,12 +245,15 @@ def _composition_rules(
         if panel_inside_canvas
         else "use the full canvas for the diagram"
     )
-    return (
+    rules = [
         f"use {grammar.value} grammar",
         subject_rule,
         evidence_rule,
         layout_rule,
-    )
+    ]
+    if user_intent_hint:
+        rules.append(f"user intent: {user_intent_hint}")
+    return tuple(rules)
 
 
 def _panel_plan(

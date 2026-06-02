@@ -274,9 +274,21 @@ def test_request_parses_approved_labels_from_list_and_csv():
     from_csv = ArticleConcretizationRequest.from_mapping(
         {"diagram_approved_labels": "Alpha, Beta,, Alpha ,7"}
     )
+    from_multilingual_delimiters = ArticleConcretizationRequest.from_mapping(
+        {
+            "diagram_approved_labels": " 增长, 风险\n成本，效率、收益 ,, \n ",
+        }
+    )
 
     assert from_list.diagram_approved_labels == ("Alpha", "Beta", "7")
     assert from_csv.diagram_approved_labels == ("Alpha", "Beta", "7")
+    assert from_multilingual_delimiters.diagram_approved_labels == (
+        "增长",
+        "风险",
+        "成本",
+        "效率",
+        "收益",
+    )
 
 
 def test_disabled_request_serializes_noop_defaults():
@@ -312,6 +324,7 @@ def test_full_plan_serializes_request_resolution_anchor_diagram_signature_render
     request = _request()
     plan = ac.ArticleConcretizationPlan(
         plan_id=" plan-1 ",
+        frame_id=" frame-1 ",
         request=request,
         resolution=_resolution(request),
         anchor=_anchor(),
@@ -321,6 +334,7 @@ def test_full_plan_serializes_request_resolution_anchor_diagram_signature_render
     )
 
     assert plan.plan_id == "plan-1"
+    assert plan.frame_id == "frame-1"
     assert plan.anchor.anchor_id == "anchor-1"
     assert plan.anchor.source_evidence_ids == ("ev-1", "ev-2")
     assert plan.anchor.main_entities == ("Policy", "Market")
@@ -345,6 +359,7 @@ def test_full_plan_serializes_request_resolution_anchor_diagram_signature_render
     payload = plan.to_dict()
 
     assert payload["plan_id"] == "plan-1"
+    assert payload["frame_id"] == "frame-1"
     assert payload["request"] == request.to_dict()
     assert payload["resolution"] == plan.resolution.to_dict()
     assert payload["anchor"] == {

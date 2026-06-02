@@ -4,6 +4,7 @@ import pytest
 
 from pixelle_video.models import mode_resolution
 from pixelle_video.models.article_concretization import (
+    ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
     ArticleConcretizationRequest,
     CognitiveAnchorKind,
     DiagramAspectRatio,
@@ -21,6 +22,9 @@ from pixelle_video.models.mode_resolution import (
     ArticleVisualPlanningRequest,
     VisualPlanningRouteDecision,
     should_use_v42_compatibility_path,
+)
+from pixelle_video.models.video_generation_contract import (
+    ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS as GENERATION_ARTICLE_CONCRETIZATION_KEYS,
 )
 from pixelle_video.models.visual_planning_mode import (
     PrimaryVisualTask,
@@ -70,6 +74,13 @@ def test_request_normalizes_known_modes_and_control_fields():
             "diagram_user_intent_hint": None,
         },
     }
+
+
+def test_article_concretization_flat_keys_share_model_contract_source():
+    assert mode_resolution.ARTICLE_CONCRETIZATION_FLAT_REQUEST_KEYS is (
+        ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS
+    )
+    assert GENERATION_ARTICLE_CONCRETIZATION_KEYS is ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS
 
 
 @pytest.mark.parametrize(

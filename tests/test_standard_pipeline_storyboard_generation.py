@@ -681,6 +681,56 @@ async def test_plan_visuals_defaults_template_to_canvas_orientation(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_plan_visuals_builds_article_concretization_plans_for_prompt_composer(
+    monkeypatch,
+):
+    captured = {}
+
+    async def fake_compose(self, **kwargs):
+        captured.update(kwargs)
+        return StyledImagePromptBatch(
+            prompts=["prompt one", "prompt two"],
+            negative_prompt=None,
+            resolved_style=None,
+            planning_snapshot={"storyboard_generation": kwargs["storyboard_plan"].to_dict()},
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ImagePromptComposer.compose",
+        fake_compose,
+    )
+
+    ctx = PipelineContext(
+        input_text="第一句。第二句。",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "article_concretization_enabled": True,
+            "cognitive_anchor_kind": "causal_mechanism",
+            "explanation_diagram_grammar": "process_flow",
+            "diagram_visible_text_policy": "approved_labels_only",
+            "diagram_approved_labels": ["Cause", "Effect"],
+            "diagram_user_intent_hint": "make the feedback loop visible",
+        },
+    )
+    ctx.task_id = "task-article-concretization-plan-visuals"
+    ctx.storyboard_plan = _plan()
+
+    await StandardPipeline(_DummyCore()).plan_visuals(ctx)
+
+    article_plans = captured["article_concretization_plans"]
+    assert len(article_plans) == 2
+    assert article_plans[0].request.enabled is True
+    assert article_plans[0].diagram.visible_text.allowed_visible_text == (
+        "Cause",
+        "Effect",
+    )
+    assert any(
+        "make the feedback loop visible" in rule
+        for rule in article_plans[0].diagram.composition_rules
+    )
+
+
+@pytest.mark.asyncio
 async def test_static_template_skips_media_but_keeps_storyboard_plan(monkeypatch):
     monkeypatch.setattr("pixelle_video.pipelines.standard.get_template_type", lambda template_name: "static")
 

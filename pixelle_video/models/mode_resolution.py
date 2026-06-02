@@ -6,7 +6,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from pixelle_video.models.article_concretization import ArticleConcretizationRequest
+from pixelle_video.models.article_concretization import (
+    ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
+    ArticleConcretizationRequest,
+)
 from pixelle_video.models.article_understanding import (
     ArticleUnderstandingLens,
     ArticleUnderstandingMode,
@@ -19,17 +22,7 @@ from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
-ARTICLE_CONCRETIZATION_FLAT_REQUEST_KEYS = (
-    "article_concretization_enabled",
-    "cognitive_anchor_kind",
-    "explanation_diagram_grammar",
-    "series_visual_signature_role",
-    "diagram_render_style",
-    "diagram_aspect_ratio",
-    "diagram_visible_text_policy",
-    "diagram_approved_labels",
-    "diagram_user_intent_hint",
-)
+ARTICLE_CONCRETIZATION_FLAT_REQUEST_KEYS = ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS
 
 _ALLOWED_RESOLUTION_STATUSES = frozenset(
     {"resolved", "low_confidence", "planner_failed", "fallback_used"}

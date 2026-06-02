@@ -11,7 +11,19 @@ from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, Visible
 
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
+ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS = (
+    "article_concretization_enabled",
+    "cognitive_anchor_kind",
+    "explanation_diagram_grammar",
+    "series_visual_signature_role",
+    "diagram_render_style",
+    "diagram_aspect_ratio",
+    "diagram_visible_text_policy",
+    "diagram_approved_labels",
+    "diagram_user_intent_hint",
+)
 _MISSING = object()
+_LABEL_SPLIT_PATTERN = re.compile(r"[,，、\r\n]+")
 _XIAOHEI_DIRECT_IDENTITY_TERMS = frozenset(
     {
         "signature",
@@ -815,6 +827,7 @@ class DiagramRenderContract:
 @dataclass(frozen=True)
 class ArticleConcretizationPlan:
     plan_id: str
+    frame_id: str
     request: ArticleConcretizationRequest
     resolution: ArticleConcretizationResolution
     anchor: CognitiveAnchorPlan
@@ -824,6 +837,7 @@ class ArticleConcretizationPlan:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "plan_id", _require_text(self.plan_id, "plan_id"))
+        object.__setattr__(self, "frame_id", _require_text(self.frame_id, "frame_id"))
         if not isinstance(self.request, ArticleConcretizationRequest):
             raise TypeError("request must be an ArticleConcretizationRequest")
         if not isinstance(self.resolution, ArticleConcretizationResolution):
@@ -842,6 +856,7 @@ class ArticleConcretizationPlan:
     def to_dict(self) -> dict[str, JSONValue]:
         return {
             "plan_id": self.plan_id,
+            "frame_id": self.frame_id,
             "request": self.request.to_dict(),
             "resolution": self.resolution.to_dict(),
             "anchor": self.anchor.to_dict(),
@@ -1003,7 +1018,7 @@ def _normalize_approved_labels(value: Any) -> tuple[str, ...]:
     if value is None:
         return ()
     if isinstance(value, str):
-        values = value.split(",")
+        values = _LABEL_SPLIT_PATTERN.split(value)
     elif isinstance(value, Sequence):
         values = value
     else:
@@ -1098,6 +1113,7 @@ def _text_value(value: Any) -> str:
 __all__ = [
     "ArticleConcretizationRequest",
     "ArticleConcretizationPlan",
+    "ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS",
     "ArticleConcretizationResolution",
     "CognitiveAnchorPlan",
     "CognitiveAnchorKind",

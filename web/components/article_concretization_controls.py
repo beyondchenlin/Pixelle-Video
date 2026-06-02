@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Sequence
 from enum import Enum
 from typing import Any
@@ -19,8 +18,6 @@ from pixelle_video.models.article_concretization import (
 from web.i18n import tr
 
 Translate = Callable[..., str]
-
-_LABEL_SPLIT_PATTERN = re.compile(r"[,，、\r\n]+")
 
 _OPTION_FALLBACK_LABELS = {
     "auto": "自动",
@@ -92,7 +89,7 @@ def build_article_concretization_payload(
         series_visual_signature_role=series_visual_signature_role,
         diagram_aspect_ratio=diagram_aspect_ratio,
         diagram_visible_text_policy=diagram_visible_text_policy,
-        diagram_approved_labels=_normalize_approved_labels(diagram_approved_labels),
+        diagram_approved_labels=diagram_approved_labels,
         diagram_user_intent_hint=diagram_user_intent_hint,
     )
     normalized = request.to_dict()
@@ -268,24 +265,6 @@ def render_article_concretization_controls(
         diagram_approved_labels=diagram_approved_labels,
         diagram_user_intent_hint=diagram_user_intent_hint,
     )
-
-
-def _normalize_approved_labels(value: Sequence[str] | str | None) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        raw_values = _LABEL_SPLIT_PATTERN.split(value)
-    else:
-        raw_values = value
-
-    normalized: list[str] = []
-    for item in raw_values:
-        if item is None:
-            continue
-        text = str(item.value if isinstance(item, Enum) else item).strip()
-        if text:
-            normalized.append(text)
-    return normalized
 
 
 def _enum_selectbox(

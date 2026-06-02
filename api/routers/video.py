@@ -30,6 +30,9 @@ from api.schemas.video import (
 )
 from api.tasks import TaskType, task_manager
 from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
+from pixelle_video.models.article_concretization import (
+    ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
+)
 from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.services.generation_coordinator import build_generation_fingerprint
@@ -150,15 +153,7 @@ def build_video_generation_params(
         "allow_mixed_lenses": request_body.allow_mixed_lenses,
         "strict_user_mode": request_body.strict_user_mode,
         "force_v44_planning": request_body.force_v44_planning,
-        "article_concretization_enabled": request_body.article_concretization_enabled,
-        "cognitive_anchor_kind": request_body.cognitive_anchor_kind,
-        "explanation_diagram_grammar": request_body.explanation_diagram_grammar,
-        "series_visual_signature_role": request_body.series_visual_signature_role,
-        "diagram_render_style": request_body.diagram_render_style,
-        "diagram_aspect_ratio": request_body.diagram_aspect_ratio,
-        "diagram_visible_text_policy": request_body.diagram_visible_text_policy,
-        "diagram_approved_labels": request_body.diagram_approved_labels,
-        "diagram_user_intent_hint": request_body.diagram_user_intent_hint,
+        **_article_concretization_params_from_request(request_body),
         "bgm_path": raw_resource_params.get("bgm_path"),
         "bgm_volume": request_body.bgm_volume,
         "request_id": request_id,
@@ -217,6 +212,15 @@ def build_video_generation_params(
     _copy_tts_text_policy_params(request_body, video_params)
     copy_prompt_generation_performance_params(request_body, video_params)
     return video_params
+
+
+def _article_concretization_params_from_request(
+    request_body: VideoGenerateRequest,
+) -> dict[str, object]:
+    return {
+        key: getattr(request_body, key)
+        for key in ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS
+    }
 
 
 def _build_raw_resource_params(

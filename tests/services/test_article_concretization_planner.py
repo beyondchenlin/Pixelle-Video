@@ -204,6 +204,7 @@ def test_planner_consumes_resolution_not_raw_request():
         article_plan=_article_plan(),
         frame_plan=_frame_plan(),
         source_text="Source text fallback should not alter resolved fields.",
+        identity_profile_id="ip_main",
     )
 
     assert plan is not None
@@ -294,15 +295,16 @@ def test_planner_builds_signature_contract_from_resolved_role():
         article_plan=_article_plan(),
         frame_plan=_frame_plan(),
         source_text="Policy changes market incentives.",
+        identity_profile_id="ip_main",
     )
 
     assert plan is not None
     assert plan.series_signature.enabled is True
     assert plan.series_signature.role is SeriesVisualSignatureRole.GUIDE
-    assert plan.series_signature.identity_profile_id is None
+    assert plan.series_signature.identity_profile_id == "ip_main"
     assert plan.series_signature.replacement_policy == "no_subject_replacement"
     assert plan.series_signature.visual_weight == 0.35
-    assert "role only" in plan.series_signature.participation_rule.casefold()
+    assert "ip_main" in plan.series_signature.participation_rule
     assert any(
         "replace article subjects" in behavior
         for behavior in plan.series_signature.forbidden_behaviors

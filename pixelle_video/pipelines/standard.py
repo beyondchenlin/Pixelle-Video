@@ -73,11 +73,11 @@ from pixelle_video.models.storyboard import (
 )
 from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
 from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID
-from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.models.video_generation_contract import (
     IPControlsContract,
     StoryboardControlsContract,
 )
+from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.platform_context import resolve_project_id, resolve_workspace_id
@@ -86,6 +86,11 @@ from pixelle_video.render_backend import (
     FFMPEG_MANIFEST_RENDER_BACKEND,
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
     LEGACY_RENDER_BACKEND,
+)
+from pixelle_video.services.article_concretization_pipeline import (
+    article_concretization_snapshot,
+    build_article_concretization_plans,
+    diagram_aspect_ratio_from_canvas,
 )
 from pixelle_video.services.ass_text_adapter import AssTextAdapter
 from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences
@@ -630,6 +635,29 @@ class StandardPipeline(LinearVideoPipeline):
             logger.info("   💡 Benefits: Faster generation + Lower cost + No ComfyUI dependency")
         
         # Only generate image prompts if template requires media
+        if ctx.storyboard_plan is None:
+            raise ValueError("storyboard_plan must be generated before visual planning")
+        ip_controls = IPControlsContract.from_mapping(ctx.params)
+        needs_ip_prompt_inputs = template_requires_media or (
+            bool(ctx.params.get("article_concretization_enabled"))
+            and ip_controls.ip_enabled
+        )
+        ip_profile, scene_casts_by_frame = (
+            await self._resolve_ip_prompt_chain_inputs(ctx)
+            if needs_ip_prompt_inputs
+            else (None, None)
+        )
+        article_concretization_plans = build_article_concretization_plans(
+            storyboard_plan=ctx.storyboard_plan,
+            params=ctx.params,
+            ip_profile_id=getattr(ip_profile, "ip_profile_id", None)
+            or ip_controls.ip_profile_id,
+            template_aspect_ratio=diagram_aspect_ratio_from_canvas(
+                size_contract.canvas_width,
+                size_contract.canvas_height,
+            ),
+        )
+
         if template_requires_media:
             trace_recorder = self._llm_trace_recorder(ctx)
             self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_IMAGE_PROMPTS, 0.15)
@@ -665,10 +693,6 @@ class StandardPipeline(LinearVideoPipeline):
                 plan=text_rendering_result.overlay_plan,
                 policy=text_rendering_result.overlay_policy,
             )
-            if ctx.storyboard_plan is None:
-                raise ValueError("storyboard_plan must be generated before visual planning")
-            ip_profile, scene_casts_by_frame = await self._resolve_ip_prompt_chain_inputs(ctx)
-            ip_controls = IPControlsContract.from_mapping(ctx.params)
             visual_role_request = VisualRoleRequest.from_mapping(
                 ctx.params,
                 profile_id=getattr(ip_profile, "ip_profile_id", None) or ip_controls.ip_profile_id,
@@ -708,6 +732,7 @@ class StandardPipeline(LinearVideoPipeline):
                 visual_role_mode=visual_role_request.strategy.role_mode.value,
                 visual_consistency_mode=visual_role_request.strategy.consistency_mode.value,
                 visual_role_request=visual_role_request,
+                article_concretization_plans=article_concretization_plans,
                 scene_casts_by_frame=scene_casts_by_frame,
                 stage_callback=stage_callback,
                 upstream_llm_trace_refs=ctx.llm_trace_refs,
@@ -733,11 +758,17 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.planning_snapshot = (
                 {
                     "storyboard_generation": ctx.storyboard_plan.to_dict(),
+                    "article_concretization_by_frame": article_concretization_snapshot(
+                        storyboard_plan=ctx.storyboard_plan,
+                        plans=article_concretization_plans,
+                    ),
                     "llm_trace_refs": ctx.llm_trace_refs,
                 }
                 if ctx.storyboard_plan is not None
                 else None
             )
+            if ctx.planning_snapshot is not None and not article_concretization_plans:
+                ctx.planning_snapshot.pop("article_concretization_by_frame", None)
             ctx.prompt_plan_bundle = None
             emit_stage_event(
                 channel="ai_creation",

@@ -4,7 +4,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from pixelle_video.models.article_concretization import ArticleConcretizationRequest
+from pixelle_video.models.article_concretization import (
+    ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
+    ArticleConcretizationRequest,
+)
 from pixelle_video.models.mode_resolution import (
     ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,
     ArticleVisualPlanningRequest,
@@ -109,17 +112,6 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "visual_participation_mode",
     "visual_role_mode",
     "visual_consistency_mode",
-)
-ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS = (
-    "article_concretization_enabled",
-    "cognitive_anchor_kind",
-    "explanation_diagram_grammar",
-    "series_visual_signature_role",
-    "diagram_render_style",
-    "diagram_aspect_ratio",
-    "diagram_visible_text_policy",
-    "diagram_approved_labels",
-    "diagram_user_intent_hint",
 )
 ARTICLE_VISUAL_PLANNING_OPTION_KEYS = (
     *ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,

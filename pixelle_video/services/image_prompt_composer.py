@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 
+from pixelle_video.models.article_concretization import ArticleConcretizationPlan
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
@@ -10,13 +11,17 @@ from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
-from pixelle_video.models.visual_role_profile import VisualRoleProfile
-from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.models.video_generation_contract import (
     PLAN_FRAME_OVERRIDE_VALUE_FIELDS,
     normalize_plan_frame_overrides,
 )
+from pixelle_video.models.visual_role_profile import VisualRoleProfile
+from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
+from pixelle_video.services.article_concretization_pipeline import (
+    article_concretization_plans_by_frame,
+    article_concretization_snapshot,
+)
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import merge_llm_trace_refs
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
@@ -65,6 +70,7 @@ class ImagePromptComposer:
         visual_role_profile: VisualRoleProfile | None = None,
         visual_role_mode: str | None = None,
         visual_consistency_mode: str | None = None,
+        article_concretization_plans: Sequence[ArticleConcretizationPlan] = (),
         scene_casts_by_frame=None,
         stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
         upstream_llm_trace_refs: Optional[Sequence[Mapping[str, str]]] = None,
@@ -78,6 +84,7 @@ class ImagePromptComposer:
         prompt_contexts = _build_prompt_contexts(
             storyboard_plan=storyboard_plan,
             frame_overrides=normalized_overrides,
+            article_concretization_plans=article_concretization_plans,
         )
         batch = await generate_styled_image_prompt_batch(
             llm_service=llm_service,
@@ -143,6 +150,14 @@ class ImagePromptComposer:
             final_visual_prompt_clause_template_metadata(),
         )
         planning_snapshot["storyboard_generation"] = storyboard_plan.to_dict()
+        article_concretization_by_frame = article_concretization_snapshot(
+            storyboard_plan=storyboard_plan,
+            plans=article_concretization_plans,
+        )
+        if article_concretization_by_frame:
+            planning_snapshot["article_concretization_by_frame"] = (
+                article_concretization_by_frame
+            )
         prompt_plan_bundle = build_prompt_plan_bundle(
             storyboard_plan=storyboard_plan,
             rendered_prompts=batch.rendered_prompts,
@@ -171,8 +186,13 @@ def _build_prompt_contexts(
     *,
     storyboard_plan: StoryboardPlan,
     frame_overrides: list[dict[str, Any]],
+    article_concretization_plans: Sequence[ArticleConcretizationPlan],
 ) -> PromptContextEnvelope:
     overrides_by_frame_id = {override["frame_id"]: override for override in frame_overrides}
+    article_plans_by_frame_id = article_concretization_plans_by_frame(
+        storyboard_plan=storyboard_plan,
+        plans=article_concretization_plans,
+    )
     plan_context = {
         "plan_id": storyboard_plan.plan_id,
         "plan_revision": storyboard_plan.revision,
@@ -209,6 +229,9 @@ def _build_prompt_contexts(
                     context[field_name] = override[field_name]
                     if field_name == "source_text":
                         context["frame_source_text"] = override[field_name]
+        article_plan = article_plans_by_frame_id.get(frame.frame_id)
+        if article_plan is not None:
+            context["article_concretization_plan"] = article_plan.to_dict()
         frame_contexts.append(context)
     return PromptContextEnvelope(
         plan_context=plan_context,
