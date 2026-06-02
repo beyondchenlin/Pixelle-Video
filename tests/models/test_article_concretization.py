@@ -405,7 +405,9 @@ def test_xiaohei_render_style_does_not_insert_signature_when_role_none():
     ("field_name", "rules"),
     [
         ("style_rules", ["include fixed mascot character signature"]),
+        ("style_rules", ["use a recurring figure in each panel"]),
         ("negative_style_rules", ["do not include Xiaohei character as recurring figure"]),
+        ("negative_style_rules", ["do not add recurring figure"]),
     ],
 )
 def test_xiaohei_render_style_rejects_fixed_signature_semantics(

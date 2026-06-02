@@ -16,6 +16,7 @@ _XIAOHEI_FIXED_ROLE_PATTERNS = (
     re.compile(r"\bsignature\b", re.IGNORECASE),
     re.compile(r"\bcharacter\b", re.IGNORECASE),
     re.compile(r"\bmascot\b", re.IGNORECASE),
+    re.compile(r"\brecurring\s+figure\b", re.IGNORECASE),
     re.compile(r"\bfixed\s+recurring\s+figure\b", re.IGNORECASE),
     re.compile(r"\bxiaohei\s+character\b", re.IGNORECASE),
 )
