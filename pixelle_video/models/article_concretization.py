@@ -12,13 +12,25 @@ from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, Visible
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
 _MISSING = object()
-_XIAOHEI_FIXED_ROLE_PATTERNS = (
-    re.compile(r"\bsignature\b", re.IGNORECASE),
-    re.compile(r"\bcharacter\b", re.IGNORECASE),
-    re.compile(r"\bmascot\b", re.IGNORECASE),
-    re.compile(r"\brecurring\s+figure\b", re.IGNORECASE),
-    re.compile(r"\bfixed\s+recurring\s+figure\b", re.IGNORECASE),
-    re.compile(r"\bxiaohei\s+character\b", re.IGNORECASE),
+_XIAOHEI_FIXED_ROLE_PATTERN_SPECS = (
+    ("signature", re.compile(r"\bsignature\b", re.IGNORECASE)),
+    ("character", re.compile(r"\bcharacter\b", re.IGNORECASE)),
+    ("mascot", re.compile(r"\bmascot\b", re.IGNORECASE)),
+    ("recurring figure", re.compile(r"\brecurring[-\s]+figure\b", re.IGNORECASE)),
+    (
+        "fixed figure",
+        re.compile(r"\bfixed[-\s]+(?:recurring[-\s]+)?figure\b", re.IGNORECASE),
+    ),
+    ("xiaohei figure", re.compile(r"\bxiaohei[-\s]+figure\b", re.IGNORECASE)),
+    (
+        "figure repeated across panels",
+        re.compile(
+            r"\bfigure\b[^\n\r]*"
+            r"(?:\b(?:appears?|appearing|in|marker|markers)\b[^\n\r]*)?"
+            r"\b(?:every|each)\s+(?:frame|panel)\b",
+            re.IGNORECASE,
+        ),
+    ),
 )
 
 
@@ -647,11 +659,6 @@ class SeriesVisualSignatureContract:
                 "role",
             ),
         )
-        if self.enabled and self.role in {
-            SeriesVisualSignatureRole.NONE,
-            SeriesVisualSignatureRole.AUTO,
-        }:
-            raise ValueError("role must not be none or auto when enabled is true")
         object.__setattr__(
             self,
             "identity_profile_id",
@@ -679,6 +686,12 @@ class SeriesVisualSignatureContract:
             self,
             "visual_weight",
             _zero_to_one_float(self.visual_weight, "visual_weight"),
+        )
+        _validate_signature_enabled_state(
+            self.enabled,
+            self.role,
+            self.identity_profile_id,
+            self.visual_weight,
         )
         object.__setattr__(
             self,
@@ -999,12 +1012,37 @@ def _validate_xiaohei_surface_style_rules(
         ("negative_style_rules", negative_style_rules),
     ):
         for rule in rules:
-            if any(pattern.search(rule) for pattern in _XIAOHEI_FIXED_ROLE_PATTERNS):
+            if _xiaohei_fixed_role_match(rule):
                 raise ValueError(
                     f"{field_name} for XIAOHEI_HANDDRAWN must describe surface "
                     "style only; fixed character/signature semantics belong in "
                     "SeriesVisualSignatureContract"
                 )
+
+
+def _xiaohei_fixed_role_match(rule: str) -> bool:
+    return any(
+        pattern.search(rule)
+        for _, pattern in _XIAOHEI_FIXED_ROLE_PATTERN_SPECS
+    )
+
+
+def _validate_signature_enabled_state(
+    enabled: bool,
+    role: SeriesVisualSignatureRole,
+    identity_profile_id: str | None,
+    visual_weight: float,
+) -> None:
+    if enabled:
+        if role in {SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO}:
+            raise ValueError("role must not be none or auto when enabled is true")
+        return
+    if role is not SeriesVisualSignatureRole.NONE:
+        raise ValueError("role must be none when enabled is false")
+    if identity_profile_id is not None:
+        raise ValueError("identity_profile_id must be empty when enabled is false")
+    if visual_weight != 0:
+        raise ValueError("visual_weight must be 0 when enabled is false")
 
 
 def _zero_to_one_float(value: Any, field_name: str) -> float:

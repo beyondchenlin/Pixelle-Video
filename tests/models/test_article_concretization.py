@@ -406,8 +406,12 @@ def test_xiaohei_render_style_does_not_insert_signature_when_role_none():
     [
         ("style_rules", ["include fixed mascot character signature"]),
         ("style_rules", ["use a recurring figure in each panel"]),
+        ("style_rules", ["black solid figure appears in every frame"]),
+        ("style_rules", ["recurring-figure marker in every panel"]),
         ("negative_style_rules", ["do not include Xiaohei character as recurring figure"]),
         ("negative_style_rules", ["do not add recurring figure"]),
+        ("negative_style_rules", ["do not use black solid figure in every frame"]),
+        ("negative_style_rules", ["no recurring-figure marker"]),
     ],
 )
 def test_xiaohei_render_style_rejects_fixed_signature_semantics(
@@ -433,6 +437,29 @@ def test_xiaohei_render_style_rejects_fixed_signature_semantics(
         ac.DiagramRenderContract(**kwargs)
 
 
+def test_xiaohei_render_style_allows_surface_style_rules():
+    render = ac.DiagramRenderContract(
+        render_style=DiagramRenderStyle.XIAOHEI_HANDDRAWN,
+        canvas_aspect_ratio=DiagramAspectRatio.LANDSCAPE_16_9,
+        diagram_panel_aspect_ratio=DiagramAspectRatio.LANDSCAPE_16_9,
+        panel_inside_canvas=False,
+        style_rules=[
+            "hand-drawn explanatory panel style",
+            "simple black linework",
+            "limited red orange blue annotation marks",
+            "plain paper texture",
+        ],
+        negative_style_rules=["no photorealistic shading"],
+    )
+
+    assert render.style_rules == (
+        "hand-drawn explanatory panel style",
+        "simple black linework",
+        "limited red orange blue annotation marks",
+        "plain paper texture",
+    )
+
+
 def test_signature_enabled_requires_non_none_role():
     for role in (SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO):
         with pytest.raises(ValueError, match="role"):
@@ -450,6 +477,33 @@ def test_signature_enabled_requires_non_none_role():
 
     assert disabled.role is SeriesVisualSignatureRole.NONE
     assert disabled.identity_profile_id is None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"role": SeriesVisualSignatureRole.GUIDE}, "role"),
+        ({"identity_profile_id": "ip-1"}, "identity_profile_id"),
+        ({"visual_weight": 0.1}, "visual_weight"),
+    ],
+)
+def test_signature_disabled_rejects_contradictory_presence_fields(
+    overrides,
+    message,
+):
+    kwargs = {
+        "enabled": False,
+        "role": SeriesVisualSignatureRole.NONE,
+        "identity_profile_id": None,
+        "participation_rule": "Disabled signature stays out of the frame.",
+        "replacement_policy": "no_subject_replacement",
+        "visual_weight": 0.0,
+        "forbidden_behaviors": [],
+    }
+    kwargs.update(overrides)
+
+    with pytest.raises(ValueError, match=message):
+        ac.SeriesVisualSignatureContract(**kwargs)
 
 
 def test_signature_visual_weight_range_validation():
