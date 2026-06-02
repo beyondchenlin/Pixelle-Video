@@ -20,6 +20,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from loguru import logger
 
@@ -155,8 +156,7 @@ class PersistenceService:
             if "completed_at" in metadata and isinstance(metadata["completed_at"], datetime):
                 metadata["completed_at"] = metadata["completed_at"].isoformat()
             
-            with open(metadata_path, "w", encoding="utf-8") as f:
-                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            self._write_json_atomic(metadata_path, metadata)
             
             logger.debug(f"Saved task metadata: {task_id}")
             
@@ -250,8 +250,7 @@ class PersistenceService:
             # Convert storyboard to dict
             storyboard_dict = self._storyboard_to_dict(storyboard)
             
-            with open(storyboard_path, "w", encoding="utf-8") as f:
-                json.dump(storyboard_dict, f, indent=2, ensure_ascii=False)
+            self._write_json_atomic(storyboard_path, storyboard_dict)
             
             logger.debug(f"Saved storyboard: {task_id}")
             
@@ -630,6 +629,18 @@ class PersistenceService:
         """Ensure index file exists, create if not"""
         if not self.index_file.exists():
             self._save_index({"version": "1.0", "tasks": []})
+
+    def _write_json_atomic(self, path: Path, payload: Any) -> None:
+        """Write JSON only after serialization succeeds, then atomically replace."""
+        encoded = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            temp_path.write_text(encoded, encoding="utf-8")
+            temp_path.replace(path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
     
     def _load_index(self) -> Dict[str, Any]:
         """Load index from file"""
@@ -644,8 +655,7 @@ class PersistenceService:
         """Save index to file"""
         try:
             index_data["last_updated"] = datetime.now().isoformat()
-            with open(self.index_file, "w", encoding="utf-8") as f:
-                json.dump(index_data, f, ensure_ascii=False, indent=2)
+            self._write_json_atomic(self.index_file, index_data)
         except Exception as e:
             logger.error(f"Failed to save index: {e}")
     

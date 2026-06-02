@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from types import MappingProxyType
 
@@ -135,6 +136,61 @@ async def test_storyboard_persistence_detaches_mappingproxy_in_planning_snapshot
             "frame_0001": {"projector_validation_passed": True}
         }
     }
+
+
+@pytest.mark.asyncio
+async def test_storyboard_save_failure_preserves_existing_storyboard_json(tmp_path):
+    persistence = PersistenceService(output_dir=str(tmp_path))
+    storyboard = Storyboard(
+        title="Original Storyboard",
+        config=StoryboardConfig(task_id="task-atomic", media_width=768, media_height=768),
+        frames=[
+            StoryboardFrame(
+                index=0,
+                narration="scene one",
+                image_prompt="styled prompt",
+            )
+        ],
+        planning_snapshot={"safe": True},
+    )
+    await persistence.save_storyboard("task-atomic", storyboard)
+    storyboard_path = persistence.get_storyboard_path("task-atomic")
+    original_payload = json.loads(storyboard_path.read_text(encoding="utf-8"))
+
+    storyboard.planning_snapshot = {"unsafe": object()}
+    with pytest.raises(TypeError, match="JSON-compatible"):
+        await persistence.save_storyboard("task-atomic", storyboard)
+
+    assert json.loads(storyboard_path.read_text(encoding="utf-8")) == original_payload
+
+
+@pytest.mark.asyncio
+async def test_metadata_save_failure_preserves_existing_metadata_json(tmp_path):
+    persistence = PersistenceService(output_dir=str(tmp_path))
+    await persistence.save_task_metadata(
+        "task-atomic",
+        {
+            "created_at": datetime.now(),
+            "status": "completed",
+            "input": {"text": "safe"},
+            "config": {},
+        },
+    )
+    metadata_path = persistence.get_metadata_path("task-atomic")
+    original_payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    with pytest.raises(TypeError):
+        await persistence.save_task_metadata(
+            "task-atomic",
+            {
+                "created_at": datetime.now(),
+                "status": "completed",
+                "input": {"unsafe": object()},
+                "config": {},
+            },
+        )
+
+    assert json.loads(metadata_path.read_text(encoding="utf-8")) == original_payload
 
 
 @pytest.mark.asyncio
