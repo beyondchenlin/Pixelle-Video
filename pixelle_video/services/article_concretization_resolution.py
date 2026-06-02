@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from enum import Enum
 from types import MappingProxyType
@@ -50,7 +51,7 @@ DEFAULT_GRAMMAR_BY_ANCHOR: Mapping[CognitiveAnchorKind, ExplanationDiagramGramma
         CognitiveAnchorKind.CAUSAL_MECHANISM: ExplanationDiagramGrammar.PROCESS_FLOW,
         CognitiveAnchorKind.PROCESS: ExplanationDiagramGrammar.PROCESS_FLOW,
         CognitiveAnchorKind.STRUCTURE: ExplanationDiagramGrammar.STRUCTURE_MAP,
-        CognitiveAnchorKind.STATE: ExplanationDiagramGrammar.SINGLE_EXPLANATION_IMAGE,
+        CognitiveAnchorKind.STATE: ExplanationDiagramGrammar.METAPHOR_SCENE,
         CognitiveAnchorKind.METAPHOR: ExplanationDiagramGrammar.METAPHOR_SCENE,
         CognitiveAnchorKind.CONTRAST: ExplanationDiagramGrammar.CONTRAST_BOARD,
         CognitiveAnchorKind.RELATIONSHIP: ExplanationDiagramGrammar.RELATIONSHIP_MAP,
@@ -64,9 +65,54 @@ COMPATIBLE_GRAMMARS_BY_ANCHOR: Mapping[
     CognitiveAnchorKind, tuple[ExplanationDiagramGrammar, ...]
 ] = MappingProxyType(
     {
-        anchor: (grammar,)
-        for anchor, grammar in DEFAULT_GRAMMAR_BY_ANCHOR.items()
-        if grammar is not ExplanationDiagramGrammar.AUTO
+        CognitiveAnchorKind.JUDGMENT: (
+            ExplanationDiagramGrammar.SINGLE_EXPLANATION_IMAGE,
+            ExplanationDiagramGrammar.CONTRAST_BOARD,
+            ExplanationDiagramGrammar.METAPHOR_SCENE,
+        ),
+        CognitiveAnchorKind.CAUSAL_MECHANISM: (
+            ExplanationDiagramGrammar.PROCESS_FLOW,
+            ExplanationDiagramGrammar.STRUCTURE_MAP,
+            ExplanationDiagramGrammar.METAPHOR_SCENE,
+        ),
+        CognitiveAnchorKind.PROCESS: (
+            ExplanationDiagramGrammar.PROCESS_FLOW,
+            ExplanationDiagramGrammar.MULTI_PANEL_COMIC,
+            ExplanationDiagramGrammar.STATE_MACHINE,
+        ),
+        CognitiveAnchorKind.STRUCTURE: (
+            ExplanationDiagramGrammar.STRUCTURE_MAP,
+            ExplanationDiagramGrammar.RELATIONSHIP_MAP,
+        ),
+        CognitiveAnchorKind.STATE: (
+            ExplanationDiagramGrammar.METAPHOR_SCENE,
+            ExplanationDiagramGrammar.STATE_MACHINE,
+            ExplanationDiagramGrammar.SINGLE_EXPLANATION_IMAGE,
+        ),
+        CognitiveAnchorKind.METAPHOR: (
+            ExplanationDiagramGrammar.METAPHOR_SCENE,
+            ExplanationDiagramGrammar.SINGLE_EXPLANATION_IMAGE,
+        ),
+        CognitiveAnchorKind.CONTRAST: (
+            ExplanationDiagramGrammar.CONTRAST_BOARD,
+            ExplanationDiagramGrammar.SINGLE_EXPLANATION_IMAGE,
+        ),
+        CognitiveAnchorKind.RELATIONSHIP: (
+            ExplanationDiagramGrammar.RELATIONSHIP_MAP,
+            ExplanationDiagramGrammar.STRUCTURE_MAP,
+        ),
+        CognitiveAnchorKind.EVIDENCE: (
+            ExplanationDiagramGrammar.EVIDENCE_MAP,
+            ExplanationDiagramGrammar.STRUCTURE_MAP,
+        ),
+        CognitiveAnchorKind.DECISION_PATH: (
+            ExplanationDiagramGrammar.DECISION_TREE,
+            ExplanationDiagramGrammar.PROCESS_FLOW,
+        ),
+        CognitiveAnchorKind.STATE_MACHINE: (
+            ExplanationDiagramGrammar.STATE_MACHINE,
+            ExplanationDiagramGrammar.PROCESS_FLOW,
+        ),
     }
 )
 
@@ -474,7 +520,7 @@ def _source_allows_label(
     source_terms = {term.casefold() for term in _source_terms(frame_plan=frame_plan)}
     if needle in source_terms:
         return True
-    return any(needle in text.casefold() for text in _source_texts(frame_plan=frame_plan))
+    return any(_quote_contains_label(text, label) for text in _source_texts(frame_plan=frame_plan))
 
 
 def _source_terms(
@@ -493,6 +539,34 @@ def _source_texts(
     texts: list[str] = []
     _extend_unique(texts, (evidence.quote for evidence in frame_plan.source_evidence))
     return tuple(texts)
+
+
+def _quote_contains_label(quote: str, label: str) -> bool:
+    if _requires_token_boundary(label):
+        return _contains_ascii_token_sequence(quote, label)
+    return label.casefold() in quote.casefold()
+
+
+def _requires_token_boundary(label: str) -> bool:
+    return label.isascii() and bool(re.search(r"[A-Za-z0-9]", label))
+
+
+def _contains_ascii_token_sequence(quote: str, label: str) -> bool:
+    label_tokens = _ascii_tokens(label)
+    if not label_tokens:
+        return False
+    quote_tokens = _ascii_tokens(quote)
+    if len(label_tokens) > len(quote_tokens):
+        return False
+    window_size = len(label_tokens)
+    return any(
+        tuple(quote_tokens[index : index + window_size]) == tuple(label_tokens)
+        for index in range(len(quote_tokens) - window_size + 1)
+    )
+
+
+def _ascii_tokens(text: str) -> list[str]:
+    return [match.group(0).casefold() for match in re.finditer(r"[A-Za-z0-9]+", text)]
 
 
 def _extend_unique(target: list[str], values: Sequence[Any]) -> None:

@@ -159,6 +159,24 @@ def test_explicit_anchor_with_auto_grammar_uses_anchor_default():
     assert resolution.warnings == ()
 
 
+def test_compatible_anchor_grammar_matrix_allows_structure_relationship_map_in_strict_mode():
+    request = ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "cognitive_anchor_kind": "structure",
+            "explanation_diagram_grammar": "relationship_map",
+        }
+    )
+
+    resolution = _resolve(request, strict_user_mode=True)
+
+    assert resolution.effective_anchor_kind is CognitiveAnchorKind.STRUCTURE
+    assert resolution.effective_diagram_grammar is ExplanationDiagramGrammar.RELATIONSHIP_MAP
+    assert resolution.fallback_used is False
+    assert resolution.fallback_reason is None
+    assert resolution.warnings == ()
+
+
 def test_non_strict_incompatible_anchor_grammar_warns_and_repairs():
     request = ArticleConcretizationRequest.from_mapping(
         {
@@ -189,6 +207,26 @@ def test_strict_incompatible_anchor_grammar_raises():
         _resolve(request, strict_user_mode=True)
 
 
+def test_incompatible_anchor_grammar_still_raises_and_repairs_after_matrix_expansion():
+    request = ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "cognitive_anchor_kind": "relationship",
+            "explanation_diagram_grammar": "contrast_board",
+        }
+    )
+
+    with pytest.raises(ArticleConcretizationResolutionConflict, match="contrast_board"):
+        _resolve(request, strict_user_mode=True)
+
+    resolution = _resolve(request, strict_user_mode=False)
+
+    assert resolution.effective_anchor_kind is CognitiveAnchorKind.RELATIONSHIP
+    assert resolution.effective_diagram_grammar is ExplanationDiagramGrammar.RELATIONSHIP_MAP
+    assert resolution.fallback_used is True
+    assert resolution.fallback_reason == "incompatible_anchor_grammar"
+
+
 def test_causal_mechanism_anchor_defaults_to_process_flow():
     request = ArticleConcretizationRequest.from_mapping({"enabled": True})
 
@@ -199,6 +237,18 @@ def test_causal_mechanism_anchor_defaults_to_process_flow():
 
     assert resolution.effective_anchor_kind is CognitiveAnchorKind.CAUSAL_MECHANISM
     assert resolution.effective_diagram_grammar is ExplanationDiagramGrammar.PROCESS_FLOW
+
+
+def test_state_anchor_defaults_to_metaphor_scene():
+    request = ArticleConcretizationRequest.from_mapping({"enabled": True})
+
+    resolution = _resolve(
+        request,
+        frame_plan=_frame_plan(primary_lens=ArticleUnderstandingLens.COGNITIVE_STATE),
+    )
+
+    assert resolution.effective_anchor_kind is CognitiveAnchorKind.STATE
+    assert resolution.effective_diagram_grammar is ExplanationDiagramGrammar.METAPHOR_SCENE
 
 
 def test_approved_labels_only_requires_labels():
@@ -231,6 +281,31 @@ def test_visible_text_intersection_source_and_approved():
     assert resolution.visible_text.allowed_visible_text == ("Cause", "Effect")
     assert resolution.visible_text.text_origin == "intersection"
     assert resolution.approved_labels == ("Cause", "Outside", "Effect")
+
+
+def test_visible_text_intersection_uses_token_boundary_for_ascii_labels():
+    request = ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "diagram_visible_text_policy": "approved_labels_only",
+            "diagram_approved_labels": ["AI"],
+        }
+    )
+
+    resolution = _resolve(
+        request,
+        frame_plan=_frame_plan(
+            visible_text_policy=VisibleTextPolicy.SOURCE_TEXT_ONLY,
+            quote="A chair remains beside the table.",
+        ),
+        strict_user_mode=False,
+    )
+
+    assert resolution.visible_text.effective_policy is VisibleTextPolicy.NO_VISIBLE_TEXT
+    assert resolution.visible_text.allowed_visible_text == ()
+    assert resolution.fallback_used is True
+    assert resolution.fallback_reason == "visible_text_intersection_empty"
+    assert any("visible text" in warning for warning in resolution.warnings)
 
 
 def test_empty_visible_text_intersection_non_strict_downgrades_to_no_visible_text():
