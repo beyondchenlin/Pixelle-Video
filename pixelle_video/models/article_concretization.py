@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pixelle_video.models.visual_planning_mode import VisibleTextPolicy
 
@@ -220,6 +220,242 @@ class ArticleConcretizationRequest:
         }
 
 
+VisibleTextOrigin = Literal[
+    "none",
+    "source",
+    "approved",
+    "intersection",
+    "symbolic_controlled",
+    "free",
+]
+LayoutIntent = Literal["match_canvas", "panel_inside_canvas", "template_default"]
+
+
+@dataclass(frozen=True)
+class VisibleTextResolution:
+    effective_policy: VisibleTextPolicy | str
+    allowed_visible_text: Sequence[Any] = ()
+    text_origin: VisibleTextOrigin = "none"
+    warnings: Sequence[Any] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "effective_policy",
+            _strict_enum_value(
+                self.effective_policy,
+                VisibleTextPolicy,
+                VisibleTextPolicy.NO_VISIBLE_TEXT,
+                "effective_policy",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "allowed_visible_text",
+            _normalize_string_tuple(self.allowed_visible_text, "allowed_visible_text"),
+        )
+        object.__setattr__(
+            self,
+            "text_origin",
+            _literal_value(
+                self.text_origin,
+                {
+                    "none",
+                    "source",
+                    "approved",
+                    "intersection",
+                    "symbolic_controlled",
+                    "free",
+                },
+                "text_origin",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "warnings",
+            _normalize_string_tuple(self.warnings, "warnings"),
+        )
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "effective_policy": self.effective_policy.value,
+            "allowed_visible_text": list(self.allowed_visible_text),
+            "text_origin": self.text_origin,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
+class DiagramLayoutResolution:
+    canvas_aspect_ratio: DiagramAspectRatio | str
+    diagram_panel_aspect_ratio: DiagramAspectRatio | str
+    panel_inside_canvas: bool
+    layout_intent: LayoutIntent
+    warnings: Sequence[Any] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "canvas_aspect_ratio",
+            _strict_enum_value(
+                self.canvas_aspect_ratio,
+                DiagramAspectRatio,
+                DiagramAspectRatio.AUTO,
+                "canvas_aspect_ratio",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "diagram_panel_aspect_ratio",
+            _strict_enum_value(
+                self.diagram_panel_aspect_ratio,
+                DiagramAspectRatio,
+                DiagramAspectRatio.AUTO,
+                "diagram_panel_aspect_ratio",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "panel_inside_canvas",
+            _bool_value(self.panel_inside_canvas, "panel_inside_canvas"),
+        )
+        object.__setattr__(
+            self,
+            "layout_intent",
+            _literal_value(
+                self.layout_intent,
+                {"match_canvas", "panel_inside_canvas", "template_default"},
+                "layout_intent",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "warnings",
+            _normalize_string_tuple(self.warnings, "warnings"),
+        )
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "canvas_aspect_ratio": self.canvas_aspect_ratio.value,
+            "diagram_panel_aspect_ratio": self.diagram_panel_aspect_ratio.value,
+            "panel_inside_canvas": self.panel_inside_canvas,
+            "layout_intent": self.layout_intent,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
+class ArticleConcretizationResolution:
+    request: ArticleConcretizationRequest
+    enabled: bool
+    effective_anchor_kind: CognitiveAnchorKind | str
+    effective_diagram_grammar: ExplanationDiagramGrammar | str
+    effective_signature_role: SeriesVisualSignatureRole | str
+    effective_render_style: DiagramRenderStyle | str
+    layout: DiagramLayoutResolution
+    visible_text: VisibleTextResolution
+    approved_labels: Sequence[Any]
+    warnings: Sequence[Any]
+    errors: Sequence[Any]
+    fallback_used: bool
+    fallback_reason: Any = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.request, ArticleConcretizationRequest):
+            raise TypeError("request must be an ArticleConcretizationRequest")
+        if not isinstance(self.layout, DiagramLayoutResolution):
+            raise TypeError("layout must be a DiagramLayoutResolution")
+        if not isinstance(self.visible_text, VisibleTextResolution):
+            raise TypeError("visible_text must be a VisibleTextResolution")
+        object.__setattr__(self, "enabled", _bool_value(self.enabled, "enabled"))
+        object.__setattr__(
+            self,
+            "effective_anchor_kind",
+            _strict_enum_value(
+                self.effective_anchor_kind,
+                CognitiveAnchorKind,
+                CognitiveAnchorKind.AUTO,
+                "effective_anchor_kind",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "effective_diagram_grammar",
+            _strict_enum_value(
+                self.effective_diagram_grammar,
+                ExplanationDiagramGrammar,
+                ExplanationDiagramGrammar.AUTO,
+                "effective_diagram_grammar",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "effective_signature_role",
+            _strict_enum_value(
+                self.effective_signature_role,
+                SeriesVisualSignatureRole,
+                SeriesVisualSignatureRole.NONE,
+                "effective_signature_role",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "effective_render_style",
+            _strict_enum_value(
+                self.effective_render_style,
+                DiagramRenderStyle,
+                DiagramRenderStyle.AUTO,
+                "effective_render_style",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "approved_labels",
+            _normalize_string_tuple(self.approved_labels, "approved_labels"),
+        )
+        object.__setattr__(
+            self,
+            "warnings",
+            _normalize_string_tuple(self.warnings, "warnings"),
+        )
+        object.__setattr__(
+            self,
+            "errors",
+            _normalize_string_tuple(self.errors, "errors"),
+        )
+        object.__setattr__(
+            self,
+            "fallback_used",
+            _bool_value(self.fallback_used, "fallback_used"),
+        )
+        object.__setattr__(
+            self,
+            "fallback_reason",
+            _optional_limited_text(
+                self.fallback_reason,
+                "fallback_reason",
+                max_length=500,
+            ),
+        )
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "request": self.request.to_dict(),
+            "enabled": self.enabled,
+            "effective_anchor_kind": self.effective_anchor_kind.value,
+            "effective_diagram_grammar": self.effective_diagram_grammar.value,
+            "effective_signature_role": self.effective_signature_role.value,
+            "effective_render_style": self.effective_render_style.value,
+            "layout": self.layout.to_dict(),
+            "visible_text": self.visible_text.to_dict(),
+            "approved_labels": list(self.approved_labels),
+            "warnings": list(self.warnings),
+            "errors": list(self.errors),
+            "fallback_used": self.fallback_used,
+            "fallback_reason": self.fallback_reason,
+        }
+
+
 def _merged_enabled_value(
     flat: Mapping[str, Any],
     nested: Mapping[str, Any] | None,
@@ -280,6 +516,36 @@ def _optional_limited_text(value: Any, field_name: str, *, max_length: int) -> s
     return text
 
 
+def _literal_value(value: Any, allowed_values: set[str], field_name: str) -> str:
+    text = str(value.value if isinstance(value, Enum) else value or "").strip()
+    if text in allowed_values:
+        return text
+    raise ValueError(f"{field_name} must be one of: {', '.join(sorted(allowed_values))}")
+
+
+def _normalize_string_tuple(value: Any, field_name: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        values = (value,)
+    elif isinstance(value, Sequence):
+        values = value
+    else:
+        raise ValueError(f"{field_name} must be a list or tuple")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        if item is None:
+            continue
+        text = str(item.value if isinstance(item, Enum) else item).strip()
+        if not text or text in seen:
+            continue
+        normalized.append(text)
+        seen.add(text)
+    return tuple(normalized)
+
+
 def _normalize_approved_labels(value: Any) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -305,9 +571,12 @@ def _normalize_approved_labels(value: Any) -> tuple[str, ...]:
 
 __all__ = [
     "ArticleConcretizationRequest",
+    "ArticleConcretizationResolution",
     "CognitiveAnchorKind",
     "DiagramAspectRatio",
+    "DiagramLayoutResolution",
     "DiagramRenderStyle",
     "ExplanationDiagramGrammar",
     "SeriesVisualSignatureRole",
+    "VisibleTextResolution",
 ]
