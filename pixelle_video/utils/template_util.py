@@ -34,6 +34,14 @@ logger = logging.getLogger(__name__)
 
 TemplateOrientation = Literal["portrait", "landscape", "square"]
 TemplateType = Literal["static", "image", "video"]
+TEMPLATE_TYPE_PREFIXES: tuple[tuple[str, TemplateType], ...] = (
+    ("static_", "static"),
+    ("image_", "image"),
+    ("video_", "video"),
+    # Asset templates are composed from uploaded media but share the image
+    # template pipeline for sizing, previews, and layout controls.
+    ("asset_", "image"),
+)
 
 DEFAULT_STATIC_TEMPLATE = "1080x1920/static_default.html"
 DEFAULT_IMAGE_TEMPLATE = "1080x1920/image_default.html"
@@ -517,6 +525,7 @@ def get_template_type(template_name: str) -> TemplateType:
     - static_*.html: Static style templates (no AI-generated media)
     - image_*.html: Templates requiring AI-generated images
     - video_*.html: Templates requiring AI-generated videos
+    - asset_*.html: Asset composition templates, handled through the image path
     
     Args:
         template_name: Template filename like "image_default.html" or "video_simple.html"
@@ -533,20 +542,17 @@ def get_template_type(template_name: str) -> TemplateType:
         'video'
     """
     name = Path(template_name).name
-    
-    if name.startswith("static_"):
-        return "static"
-    elif name.startswith("video_"):
-        return "video"
-    elif name.startswith("image_"):
-        return "image"
-    else:
-        # Fallback: try to detect from legacy names
-        logger.warning(
-            f"Template '{template_name}' doesn't follow naming convention (static_/image_/video_). "
-            f"Defaulting to 'image' type."
-        )
-        return "image"
+    for prefix, template_type in TEMPLATE_TYPE_PREFIXES:
+        if name.startswith(prefix):
+            return template_type
+
+    # Fallback: try to detect from legacy names
+    logger.warning(
+        f"Template '{template_name}' doesn't follow naming convention "
+        f"({', '.join(prefix + '*' for prefix, _ in TEMPLATE_TYPE_PREFIXES)}). "
+        f"Defaulting to 'image' type."
+    )
+    return "image"
 
 
 def filter_templates_by_type(

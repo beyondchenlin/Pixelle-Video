@@ -53,6 +53,19 @@ _MEDIA_PROMPT_ALIAS_PARAM_KEYS = frozenset(
         "text_prompt",
     }
 )
+SELFHOST_MEDIA_WORKFLOW_PREFIXES = ("image_", "video_")
+
+
+def _is_selfhost_media_workflow_filename(filename: str) -> bool:
+    return filename.endswith(".json") and filename.startswith(SELFHOST_MEDIA_WORKFLOW_PREFIXES)
+
+
+def _workflow_content_contract_is_non_media(workflow_info: dict) -> bool:
+    content_contract = workflow_info.get("workflow_content_contract")
+    return isinstance(content_contract, dict) and (
+        bool(content_contract.get("contains_tts_nodes"))
+        or bool(content_contract.get("contains_analysis_nodes"))
+    )
 _MEDIA_NEGATIVE_PROMPT_ALIAS_PARAM_KEYS = frozenset(
     {
         "negative",
@@ -220,25 +233,20 @@ class MediaService(ComfyBaseService):
                 filename = file_path.name
                 if not filename.endswith('.json'):
                     continue
+                if source_name != RUNNINGHUB_SOURCE and not _is_selfhost_media_workflow_filename(filename):
+                    logger.debug(f"Skipping non-media selfhost workflow: {source_name}/{filename}")
+                    continue
                 try:
                     workflow_info = self._parse_workflow_file(file_path, source_name)
                     if source_name == RUNNINGHUB_SOURCE:
                         if workflow_info.get("media_type") not in {"image", "video"}:
                             continue
                     else:
-                        content_contract = workflow_info.get("workflow_content_contract")
-                        if isinstance(content_contract, dict) and (
-                            content_contract.get("contains_tts_nodes")
-                            or content_contract.get("contains_analysis_nodes")
-                        ):
+                        if _workflow_content_contract_is_non_media(workflow_info):
                             logger.warning(
-                                "Skipping non-media selfhost workflow with media-looking "
+                                "Skipping selfhost media-prefixed workflow with non-media "
                                 f"name: {workflow_info['key']}"
                             )
-                            continue
-                        if not (
-                            filename.startswith("image_") or filename.startswith("video_")
-                        ):
                             continue
                     workflows.append(workflow_info)
                     logger.debug(f"Found workflow: {workflow_info['key']}")

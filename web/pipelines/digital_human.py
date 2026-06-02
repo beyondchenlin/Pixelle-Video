@@ -342,14 +342,6 @@ class DigitalHumanPipelineUI(PipelineUI):
             goods_title = video_params.get("goods_title", "")
             goods_text = video_params.get("goods_text", "")
             mode = video_params.get("mode")
-            tts_voice = video_params.get("tts_voice", "zh-CN-YunjianNeural")
-            tts_speed = video_params.get("tts_speed", 1.2)
-            
-            logger.info("🔧 The obtained TTS parameters:")
-            logger.info(f"  - tts_voice: {tts_voice}")
-            logger.info(f"  - tts_speed: {tts_speed}")
-            logger.info(f"  - video_params中的tts_voice: {video_params.get('tts_voice', 'NOT_FOUND')}")
-            logger.info(f"  - video_params: {video_params}")
             
             # Validation
             if not character_assets:

@@ -1,6 +1,9 @@
+import logging
+
 import pytest
 
 from pixelle_video.utils.template_util import (
+    get_template_type,
     get_supported_template_orientations,
     get_template_orientation,
     get_template_preview_path,
@@ -78,6 +81,14 @@ def test_resolve_default_template_uses_type_and_orientation_registry():
         resolve_default_template_for_type_and_orientation("image", "square")
         == "1080x1080/image_minimal_framed.html"
     )
+
+
+def test_get_template_type_accepts_asset_composition_templates_without_warning(caplog):
+    caplog.set_level(logging.WARNING, logger="pixelle_video.utils.template_util")
+
+    assert get_template_type("asset_default.html") == "image"
+
+    assert caplog.records == []
 
 
 def test_resolve_compatible_template_switches_type_even_when_orientation_matches():

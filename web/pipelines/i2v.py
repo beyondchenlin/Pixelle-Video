@@ -169,8 +169,6 @@ class ImageToVideoPipelineUI(PipelineUI):
             prompt_text = video_params.get("prompt_text", "")
             workflow_key = video_params.get("workflow_key")
 
-            logger.info(f"  - video_params: {video_params}")
-
             if not audio_assets:
                 st.info(tr("i2v.assets.image_warning"))
                 st.button(

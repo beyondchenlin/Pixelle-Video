@@ -42,6 +42,31 @@ def test_redact_mapping_masks_sensitive_keys_by_substring_and_suffix():
     assert redacted["nested"]["model"] == "qwen-max"
 
 
+def test_redact_mapping_summarizes_raw_generation_params():
+    payload = {
+        "video_params": {
+            "prompt_text": "总有人问我，正定的浪漫藏在哪里？",
+            "ref_audio_text": "今天我带着你，走过七处印记。",
+            "ref_audio": "data/reference_audio/omnivoice/妮-omnivoice.wav",
+            "character_assets": ["uploads/person.png"],
+            "workflow_key": "runninghub/i2v_LTX2.json",
+        }
+    }
+
+    redacted = redact_mapping(payload)
+    raw = json.dumps(redacted, ensure_ascii=False)
+    params = redacted["video_params"]
+
+    assert "正定的浪漫" not in raw
+    assert "七处印记" not in raw
+    assert "妮-omnivoice" not in raw
+    assert params["prompt_text"]["redacted"] is True
+    assert params["ref_audio_text"]["input_length"] > 0
+    assert params["ref_audio"]["suffix"] == ".wav"
+    assert params["character_assets"]["count"] == 1
+    assert params["workflow_key"] == "runninghub/i2v_LTX2.json"
+
+
 def test_redact_text_masks_secret_bearing_message_fragments():
     message = "ComfyKit config: {'runninghub_api_key': 'rh-secret', 'model': 'x'}"
 
@@ -50,6 +75,24 @@ def test_redact_text_masks_secret_bearing_message_fragments():
     assert "rh-secret" not in redacted
     assert "***" in redacted
     assert "model" in redacted
+
+
+def test_redact_text_masks_private_generation_param_fragments():
+    message = (
+        "video_params: {'prompt_text': '总有人问我，正定的浪漫藏在哪里？', "
+        "'ref_audio_text': '今天我带着你，走过七处印记。', "
+        "'ref_audio': 'data/reference_audio/omnivoice/妮-omnivoice.wav', "
+        "'audio_assets': ['input.wav']}"
+    )
+
+    redacted = redact_text(message)
+
+    assert "正定的浪漫" not in redacted
+    assert "七处印记" not in redacted
+    assert "妮-omnivoice" not in redacted
+    assert "input.wav" not in redacted
+    assert "'prompt_text': '***'" in redacted
+    assert "'audio_assets': [***]" in redacted
 
 
 def test_setup_logging_writes_complete_flat_jsonl_record(tmp_path):

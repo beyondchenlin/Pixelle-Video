@@ -241,8 +241,6 @@ class ActionTransferPipelineUI(PipelineUI):
             duration = video_params.get("duration")
             workflow_key = video_params.get("workflow_key")
 
-            logger.info(f"  - video_params: {video_params}")
-
             if not video_assets:
                 st.info(tr("action_transfer.assets.video_warning"))
                 st.button(

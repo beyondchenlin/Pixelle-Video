@@ -15,6 +15,46 @@ from loguru import logger
 from pixelle_video.utils.os_util import get_runtime_path
 
 _SENSITIVE_TOKENS = ("api_key", "authorization", "bearer", "token", "secret", "password")
+_PRIVATE_TEXT_KEYS = frozenset(
+    {
+        "caption_text",
+        "content",
+        "goods_text",
+        "goods_title",
+        "narration",
+        "prompt",
+        "prompt_text",
+        "ref_audio_text",
+        "reference_audio_text",
+        "script",
+        "source_text",
+        "text",
+        "title",
+        "transcript",
+    }
+)
+_PRIVATE_PATH_KEYS = frozenset(
+    {
+        "audio_path",
+        "bgm_path",
+        "file_path",
+        "image_path",
+        "path",
+        "ref_audio",
+        "reference_audio",
+        "video_path",
+    }
+)
+_PRIVATE_ASSET_COLLECTION_KEYS = frozenset(
+    {
+        "assets",
+        "audio_assets",
+        "character_assets",
+        "goods_assets",
+        "image_assets",
+        "video_assets",
+    }
+)
 _REQUIRED_FIELDS = (
     "timestamp",
     "level",
@@ -48,12 +88,65 @@ def is_sensitive_key(key: Any) -> bool:
     return any(token in lowered for token in _SENSITIVE_TOKENS)
 
 
+def _normalized_log_key(key: Any) -> str:
+    return re.sub(r"[^a-z0-9_]+", "_", str(key).strip().lower())
+
+
+def _is_private_text_key(key: Any) -> bool:
+    return _normalized_log_key(key) in _PRIVATE_TEXT_KEYS
+
+
+def _is_private_path_key(key: Any) -> bool:
+    return _normalized_log_key(key) in _PRIVATE_PATH_KEYS
+
+
+def _is_private_asset_collection_key(key: Any) -> bool:
+    return _normalized_log_key(key) in _PRIVATE_ASSET_COLLECTION_KEYS
+
+
+def _private_text_observability(value: Any) -> dict[str, Any]:
+    text = str(value or "")
+    return {
+        "input_length": len(text),
+        "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest()[:16],
+        "redacted": True,
+    }
+
+
+def _private_path_observability(value: Any) -> dict[str, Any]:
+    text = str(value or "")
+    return {
+        "path_present": bool(text),
+        "suffix": Path(text).suffix.lower() if text else "",
+        "redacted": True,
+    }
+
+
+def _private_asset_collection_observability(value: Any) -> dict[str, Any]:
+    if isinstance(value, (list, tuple, set)):
+        count = len(value)
+    elif value:
+        count = 1
+    else:
+        count = 0
+    return {"count": count, "redacted": True}
+
+
 def redact_mapping(payload: Any) -> Any:
     if isinstance(payload, dict):
-        return {
-            key: ("***" if is_sensitive_key(key) else redact_mapping(value))
-            for key, value in payload.items()
-        }
+        redacted = {}
+        for key, value in payload.items():
+            if is_sensitive_key(key):
+                redacted[key] = "***"
+            elif _is_private_text_key(key) and isinstance(value, str):
+                redacted[key] = _private_text_observability(value)
+            elif _is_private_path_key(key) and isinstance(value, (str, Path)):
+                redacted[key] = _private_path_observability(value)
+            elif _is_private_asset_collection_key(key):
+                redacted[key] = _private_asset_collection_observability(value)
+            else:
+                redacted[key] = redact_mapping(value)
+        return redacted
     if isinstance(payload, list):
         return [redact_mapping(item) for item in payload]
     return payload
@@ -68,6 +161,23 @@ def redact_text(message: str) -> str:
         re.IGNORECASE,
     )
     redacted = assignment_pattern.sub(r"\1***", redacted)
+
+    private_keys = sorted(
+        _PRIVATE_TEXT_KEYS | _PRIVATE_PATH_KEYS | _PRIVATE_ASSET_COLLECTION_KEYS,
+        key=len,
+        reverse=True,
+    )
+    private_key_pattern = "|".join(re.escape(key) for key in private_keys)
+    quoted_private_assignment_pattern = re.compile(
+        rf"((?<![A-Za-z0-9_])['\"]?(?:{private_key_pattern})['\"]?\s*[:=]\s*)(['\"])(.*?)(\2)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    collection_private_assignment_pattern = re.compile(
+        rf"((?<![A-Za-z0-9_])['\"]?(?:{private_key_pattern})['\"]?\s*[:=]\s*)\[[^\]]*\]",
+        re.IGNORECASE | re.DOTALL,
+    )
+    redacted = quoted_private_assignment_pattern.sub(r"\1\2***\4", redacted)
+    redacted = collection_private_assignment_pattern.sub(r"\1[***]", redacted)
     return re.sub(r"Bearer\s+[A-Za-z0-9._\-]+", "Bearer ***", redacted, flags=re.IGNORECASE)
 
 
@@ -132,6 +242,7 @@ def _patch_record(service_name: str) -> Any:
     def _patch(record: dict[str, Any]) -> None:
         payload = build_log_payload(record, service_name=service_name)
         record["extra"]["jsonl_payload"] = json.dumps(payload, ensure_ascii=False, default=str)
+        record["extra"]["redacted_message"] = payload["message"]
 
     return _patch
 
@@ -158,7 +269,16 @@ def setup_logging(service_name: str, config: dict[str, Any] | None = None) -> li
 
     logger.remove()
     logger.configure(extra={"service": service_name}, patcher=_patch_record(service_name))
-    console_sink = logger.add(sys.stderr, level=resolved["level"])
+    console_sink = logger.add(
+        sys.stderr,
+        level=resolved["level"],
+        format=(
+            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{extra[redacted_message]}</level>"
+        ),
+    )
     file_sink = logger.add(
         log_dir / f"{service_name}.jsonl",
         level=resolved["level"],

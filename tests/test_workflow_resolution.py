@@ -118,16 +118,49 @@ def test_media_service_skips_selfhost_media_prefixed_tts_workflow(monkeypatch, t
         core=object(),
     )
     monkeypatch.setattr(
-        "pixelle_video.utils.os_util.list_resource_dirs",
+        "pixelle_video.services.media.list_resource_dirs",
         lambda _kind: ["selfhost"],
     )
     monkeypatch.setattr(
-        "pixelle_video.utils.os_util.list_resource_files",
+        "pixelle_video.services.media.list_resource_files",
         lambda _kind, _source: ["image_voice_spoof.json"],
     )
     monkeypatch.setattr(
-        "pixelle_video.utils.os_util.get_resource_path",
+        "pixelle_video.services.media.get_resource_path",
         lambda _kind, _source, _filename: str(workflow_path),
+    )
+
+    assert service._scan_workflows() == []
+
+
+def test_media_service_ignores_non_media_selfhost_workflows_before_parse(
+    monkeypatch,
+    tmp_path,
+):
+    workflow_dir = tmp_path / "workflows" / "selfhost"
+    workflow_dir.mkdir(parents=True)
+    workflow_path = workflow_dir / "tts_omnivoice_longform_bf16.json"
+    workflow_path.write_text("{not valid json", encoding="utf-8")
+    service = MediaService(
+        {"comfyui": {"image": {"default_workflow": None}}},
+        core=object(),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.media.list_resource_dirs",
+        lambda _kind: ["selfhost"],
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.media.list_resource_files",
+        lambda _kind, _source: ["tts_omnivoice_longform_bf16.json"],
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.media.get_resource_path",
+        lambda _kind, _source, _filename: str(workflow_path),
+    )
+    monkeypatch.setattr(
+        service,
+        "_parse_workflow_file",
+        lambda *_args, **_kwargs: pytest.fail("non-media workflow should not be parsed"),
     )
 
     assert service._scan_workflows() == []
@@ -166,6 +199,14 @@ def test_media_service_ignores_data_runninghub_descriptor_overrides(
     service = MediaService(
         {"comfyui": {"image": {"default_workflow": None}}},
         core=object(),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.media.list_resource_dirs",
+        lambda _kind: ["runninghub"],
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.media.runninghub_registry_root",
+        lambda: builtin_dir,
     )
 
     assert [workflow["key"] for workflow in service._scan_workflows()] == [
