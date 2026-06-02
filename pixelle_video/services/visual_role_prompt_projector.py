@@ -15,6 +15,9 @@ from pixelle_video.models.visual_role_planning import (
 )
 from pixelle_video.models.visual_role_profile import VisualRoleProfile
 from pixelle_video.models.visual_role_request import VisualRoleRequest
+from pixelle_video.services.visual_role_image_prompt_compiler import (
+    compile_visual_role_image_prompt,
+)
 
 
 class VisualRolePromptProjectionError(ValueError):
@@ -24,7 +27,7 @@ class VisualRolePromptProjectionError(ValueError):
 @dataclass(frozen=True)
 class VisualRolePromptProjector:
     renderer_id: str = "visual_role_prompt_projector"
-    renderer_version: str = "v4_2_identity_contract"
+    renderer_version: str = "v4_3_image_prompt_compiler"
 
     def project(
         self,
@@ -56,29 +59,19 @@ class VisualRolePromptProjector:
             if visual_role_request.enabled
             else ()
         )
-        identity_guard_clause = _identity_guard_clause(identity_guard_rules) if positive_only else ""
-        prompt_parts = {
-            "identity_contract_clause": (
-                identity_contract.fixed_identity_clause if visual_role_request.enabled else ""
-            ),
-            "content_structure_clause": visual_role_plan.integrated_scene_prompt,
-            "participation_clause": (
-                (
-                    f"{visual_role_profile.display_name}: {visual_role_plan.role_manifestation}; "
-                    f"action responsibility: {visual_role_plan.role_action}."
-                )
-                if visual_role_request.enabled
-                else ""
-            ),
-            "style_clause": base_visual_brief.style_surface
-            or "Keep the original visual style and intent consistent.",
-            "negative_guard_clause": identity_guard_clause,
-        }
-        prompt = _sanitize_prompt(_join_prompt_parts(prompt_parts.values()))
+        compiled_prompt = compile_visual_role_image_prompt(
+            base_visual_brief=base_visual_brief,
+            visual_role_plan=visual_role_plan,
+            visual_role_profile=visual_role_profile,
+            visual_role_enabled=visual_role_request.enabled,
+            positive_only=positive_only,
+        )
+        prompt_parts = dict(compiled_prompt.prompt_parts)
+        prompt = compiled_prompt.prompt
         missing_traits = (
             _missing_required_traits(
                 prompt,
-                identity_contract.required_identity_traits,
+                compiled_prompt.required_identity_traits,
             )
             if visual_role_request.enabled
             else ()
@@ -95,7 +88,7 @@ class VisualRolePromptProjector:
             **prompt_parts,
             "projector_validation_passed": True,
             "positive_only_workflow": positive_only,
-            "required_identity_traits": list(identity_contract.required_identity_traits),
+            "required_identity_traits": list(compiled_prompt.required_identity_traits),
         }
         contract = FinalVisualPromptContract(
             scene=prompt,
@@ -105,12 +98,12 @@ class VisualRolePromptProjector:
                 base_visual_brief.composition_rules,
             )
             or "Complete image composition with the visual role participating in the scene.",
-            style_assignment=prompt_parts["style_clause"],
-            character_layer_style=prompt_parts["participation_clause"]
+            style_assignment=prompt_parts.get("style_clause") or "Keep the original visual style and intent consistent.",
+            character_layer_style=prompt_parts.get("role_clause")
             or "No visual role identity projection requested.",
             world_layer_style=visual_role_plan.transformed_scene_logic,
             integration_priority=(
-                "The final prompt must be projected from integrated_scene_prompt and the identity contract."
+                "The final prompt is compiled from structured visual-role plan fields and visible identity traits."
             ),
             negative_rules=all_negative_rules,
             metadata={
@@ -132,7 +125,7 @@ class VisualRolePromptProjector:
             renderer_id=self.renderer_id,
             renderer_version=self.renderer_version,
             metadata={
-                "provider_prompt_mode": "image_facing_visual_role_identity_contract_v4_2",
+                "provider_prompt_mode": "image_facing_visual_role_prompt_compiler_v4_3",
                 "visual_role_enabled": visual_role_request.enabled,
                 "visual_role_critic_passed": visual_role_critique.passed,
                 "visual_role_identity_contract": identity_contract.to_dict(),
@@ -151,12 +144,6 @@ def _join_non_empty(*values: str) -> str:
 
 def _join_prompt_parts(values: Sequence[str]) -> str:
     return "; ".join(str(value).strip() for value in values if str(value or "").strip())
-
-
-def _identity_guard_clause(rules: Sequence[str]) -> str:
-    if not rules:
-        return ""
-    return "Identity protection rules: " + "; ".join(_dedupe(rules))
 
 
 def _join_rules(rules: Sequence[str]) -> str | None:

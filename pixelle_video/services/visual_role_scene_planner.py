@@ -154,7 +154,7 @@ def _plan_from_payload(
     if not isinstance(payload, Mapping):
         raise VisualRolePlanningError("visual role planner response must be a mapping")
     role_mode = _effective_role_mode(visual_role_request)
-    identity = "; ".join(visual_role_profile.identity_contract.required_identity_traits)
+    identity = visual_role_profile.display_name
     original_intent = _original_intent(base_visual_brief, frame_context)
     role_action = _text(payload.get("role_action")) or _select_action(visual_role_profile, role_mode=role_mode)
     role_manifestation = _text(payload.get("role_manifestation")) or _select_manifestation(visual_role_profile, role_mode=role_mode)
@@ -192,7 +192,7 @@ def _plan_from_payload(
             participation_decision=participation_decision,
             base_visual_brief=base_visual_brief,
         )
-    integrated_prompt = _ensure_identity_contract_in_prompt(
+    integrated_prompt = _ensure_identity_presence_in_prompt(
         integrated_prompt,
         visual_role_profile,
     )
@@ -304,7 +304,7 @@ def _rule_integrated_prompt(
             f"保留原始意图：{original_intent}；"
             f"画面构图围绕{identity}展开，{role_manifestation}，位置：{role_location}；"
             f"结构决策：{structure_decision}；参与决策：{participation_decision}；"
-            f"风格与原始画面保持一致：{base_visual_brief.style_surface or '清晰统一的视觉风格'}。"
+            "风格与原始画面保持一致，画面清晰统一。"
         )
     main_subjects = "、".join(base_visual_brief.main_subjects) or "原始画面主体"
     return (
@@ -324,7 +324,7 @@ def _effective_role_mode(request: VisualRoleRequest) -> VisualRoleMode:
     return VisualRoleMode.SUPPORTING_INTEGRATION
 
 
-def _ensure_identity_contract_in_prompt(
+def _ensure_identity_presence_in_prompt(
     prompt: str,
     profile: VisualRoleProfile,
 ) -> str:
@@ -336,8 +336,9 @@ def _ensure_identity_contract_in_prompt(
     if not missing_required and identity_kernel_present:
         return prompt
 
-    identity_clause = _identity_contract_scene_clause(
+    identity_clause = _identity_presence_scene_clause(
         profile,
+        missing_required=missing_required,
         include_identity_kernel=not identity_kernel_present,
     )
     if not identity_clause:
@@ -347,18 +348,22 @@ def _ensure_identity_contract_in_prompt(
     return f"{prompt}. {identity_clause}"
 
 
-def _identity_contract_scene_clause(
+def _identity_presence_scene_clause(
     profile: VisualRoleProfile,
     *,
+    missing_required: Sequence[str],
     include_identity_kernel: bool,
 ) -> str:
-    parts = [_text(profile.identity_contract.fixed_identity_clause)]
+    parts = [profile.display_name]
     if include_identity_kernel:
         identity_kernel = ", ".join(_dedupe(profile.identity_kernel))
         if identity_kernel:
-            parts.append(f"Identity kernel: {identity_kernel}.")
-    parts.append("Scene responsibility: show these identity signals through visible in-scene action.")
-    return " ".join(part for part in parts if part)
+            parts.append(identity_kernel)
+    parts.extend(_dedupe(missing_required))
+    visible_traits = "、".join(_dedupe(parts))
+    if not visible_traits:
+        return ""
+    return f"{visible_traits}作为真实场景内角色出现，身份特征通过可见动作和场景互动自然呈现。"
 
 
 def _missing_terms(prompt: str, required_terms: Sequence[str]) -> tuple[str, ...]:

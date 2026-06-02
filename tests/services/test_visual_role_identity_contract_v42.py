@@ -6,12 +6,9 @@ from pixelle_video.models.visual_expression import VisualExpressionDecision, Vis
 from pixelle_video.models.visual_role_planning import VisualRoleCritique
 from pixelle_video.models.visual_role_profile import VisualRoleProfile
 from pixelle_video.models.visual_role_request import VisualRoleRequest
-from pixelle_video.services.visual_role_prompt_critic import VisualRolePromptCritic
-from pixelle_video.services.visual_role_prompt_projector import (
-    VisualRolePromptProjectionError,
-    VisualRolePromptProjector,
-)
 from pixelle_video.services.visual_role_profile_builder import VisualRoleProfileBuilder
+from pixelle_video.services.visual_role_prompt_critic import VisualRolePromptCritic
+from pixelle_video.services.visual_role_prompt_projector import VisualRolePromptProjector
 from pixelle_video.services.visual_role_scene_planner import VisualRoleScenePlanner
 
 
@@ -41,6 +38,48 @@ def _brief() -> BaseVisualBrief:
     )
 
 
+def _leaky_style_brief() -> BaseVisualBrief:
+    return BaseVisualBrief(
+        frame_id="f2",
+        core_message="Explain how solitude changes self-understanding",
+        visual_moment="A reader studies an open book beside a rainy city window",
+        main_subjects=("reader", "open book"),
+        base_image_prompt="A reader studies an open book beside a rainy city window.",
+        style_surface=(
+            "flat monochrome illustration, non-IP world layer, non-IP animals, props, "
+            "background, and environment: flat monochrome illustration, elegant, "
+            "minimal line art with clean contours, lots of negative space"
+        ),
+    )
+
+
+def _dalmatian_profile(**contract_overrides) -> VisualRoleProfile:
+    identity_contract = {
+        "canonical_identity_name": "Dalmatian guide",
+        "required_identity_traits": ["black sunglasses", "dalmatian spots"],
+        "fixed_identity_clause": (
+            "Fixed IP identity: Dalmatian guide; required identity traits: "
+            "black sunglasses, dalmatian spots."
+        ),
+        "forbidden_identity_loss_rules": [
+            "Do not turn the IP into a logo, watermark, sticker, corner badge, floating icon, or UI overlay.",
+            "Do not hide, suppress, replace, or genericize the configured IP identity.",
+        ],
+    }
+    identity_contract.update(contract_overrides)
+    return VisualRoleProfile(
+        profile_id="dalmatian",
+        display_name="Dalmatian guide",
+        identity_kernel=("Dalmatian guide",),
+        appearance_traits=("black sunglasses", "dalmatian spots"),
+        action_affordances=("observe and guide",),
+        primary_role_affordances=("protagonist",),
+        supporting_role_affordances=("in-scene guide",),
+        forbidden_role_forms=("logo", "watermark", "sticker", "corner badge", "UI overlay"),
+        metadata={"identity_contract": identity_contract},
+    )
+
+
 def _request(**overrides) -> VisualRoleRequest:
     payload = {
         "ip_enabled": True,
@@ -51,6 +90,25 @@ def _request(**overrides) -> VisualRoleRequest:
     }
     payload.update(overrides)
     return VisualRoleRequest.from_mapping(payload)
+
+
+def _assert_no_internal_prompt_tokens(prompt: str) -> None:
+    forbidden_tokens = (
+        "Fixed IP identity",
+        "required identity traits",
+        "Identity kernel",
+        "Scene responsibility",
+        "Identity protection rules",
+        "action responsibility",
+        "non-IP world layer",
+        "non-IP animals",
+        "non-IP",
+        "Do not",
+        "forbidden_identity_loss_rules",
+        "identity_contract_clause",
+    )
+    for token in forbidden_tokens:
+        assert token not in prompt
 
 
 def test_identity_contract_required_traits_from_ip_profile():
@@ -114,73 +172,66 @@ async def test_required_identity_trait_missing_blocks_critic():
     assert "required_identity_trait_missing" in {issue.code for issue in critique.issues}
 
 
-def test_fixed_identity_clause_enters_final_prompt_and_positive_only_guard_stays_positive():
-    profile = VisualRoleProfileBuilder().build(_ip_profile())
+def test_projector_compiles_image_facing_prompt_without_internal_contract_labels():
+    profile = _dalmatian_profile()
+    brief = _leaky_style_brief()
     plan = VisualRoleScenePlanner().plan_frame_rule(
-        base_visual_brief=_brief(),
-        visual_role_request=_request(),
+        base_visual_brief=brief,
+        visual_role_request=_request(ip_profile_id="dalmatian"),
         visual_role_profile=profile,
         expression_decision=VisualExpressionDecision(
-            frame_id="f1",
+            frame_id="f2",
             expression_mode=VisualExpressionMode.EXPLANATORY_DIAGRAM,
         ),
     )
 
     rendered = VisualRolePromptProjector().project(
-        base_visual_brief=_brief(),
+        base_visual_brief=brief,
         visual_role_plan=plan,
-        visual_role_critique=VisualRoleCritique(frame_id="f1"),
-        visual_role_request=_request(),
+        visual_role_critique=VisualRoleCritique(frame_id="f2"),
+        visual_role_request=_request(ip_profile_id="dalmatian"),
         visual_role_profile=profile,
         workflow="z_image",
     )
 
-    assert profile.identity_contract.fixed_identity_clause in rendered.prompt
-    assert "不能变成非兔类" in rendered.prompt
+    assert profile.display_name in rendered.prompt
+    assert "black sunglasses" in rendered.prompt
+    assert "dalmatian spots" in rendered.prompt
+    _assert_no_internal_prompt_tokens(rendered.prompt)
+    assert rendered.prompt.count("flat monochrome illustration") <= 1
     assert rendered.negative_prompt is None
     assert rendered.metadata["projected_prompt_parts"]["projector_validation_passed"] is True
 
 
-def test_projector_final_validation_rejects_missing_required_trait():
-    profile = VisualRoleProfile(
-        profile_id="broken",
-        display_name="破损角色",
-        identity_kernel=("破损角色",),
-        appearance_traits=(),
-        action_affordances=("指示",),
-        primary_role_affordances=("主角",),
-        supporting_role_affordances=("讲解者",),
-        forbidden_role_forms=(),
-        metadata={
-            "identity_contract": {
-                "canonical_identity_name": "破损角色",
-                "required_identity_traits": ["必须保留的徽章"],
-                "fixed_identity_clause": "固定 IP 身份：破损角色。",
-            }
-        },
-    )
+def test_projector_injects_structured_required_traits_without_raw_fixed_clause():
+    profile = _dalmatian_profile(required_identity_traits=["black sunglasses", "single ear patch"])
+    brief = _leaky_style_brief()
     plan = VisualRoleScenePlanner().plan_frame_rule(
-        base_visual_brief=_brief(),
-        visual_role_request=_request(ip_profile_id="broken"),
+        base_visual_brief=brief,
+        visual_role_request=_request(ip_profile_id="dalmatian"),
         visual_role_profile=profile,
         expression_decision=VisualExpressionDecision(
-            frame_id="f1",
+            frame_id="f2",
             expression_mode=VisualExpressionMode.EXPLANATORY_DIAGRAM,
         ),
     )
-    bad_plan = plan.__class__(
+    plan_without_required_trait = plan.__class__(
         **{
             **plan.to_dict(),
-            "integrated_scene_prompt": "The broken role points beside the diagram, but the mandatory trait is absent.",
+            "integrated_scene_prompt": "A guide points beside the diagram, but the specific visual trait is absent.",
             "metadata": {},
         }
     )
 
-    with pytest.raises(VisualRolePromptProjectionError, match="required_identity_traits"):
-        VisualRolePromptProjector().project(
-            base_visual_brief=_brief(),
-            visual_role_plan=bad_plan,
-            visual_role_critique=VisualRoleCritique(frame_id="f1"),
-            visual_role_request=_request(ip_profile_id="broken"),
-            visual_role_profile=profile,
-        )
+    rendered = VisualRolePromptProjector().project(
+        base_visual_brief=brief,
+        visual_role_plan=plan_without_required_trait,
+        visual_role_critique=VisualRoleCritique(frame_id="f2"),
+        visual_role_request=_request(ip_profile_id="dalmatian"),
+        visual_role_profile=profile,
+    )
+
+    assert "black sunglasses" in rendered.prompt
+    assert "single ear patch" in rendered.prompt
+    assert profile.identity_contract.fixed_identity_clause not in rendered.prompt
+    _assert_no_internal_prompt_tokens(rendered.prompt)

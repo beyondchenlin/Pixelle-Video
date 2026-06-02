@@ -199,7 +199,7 @@ async def test_explicit_subject_replacement_still_requires_primary_role():
 
 
 @pytest.mark.asyncio
-async def test_llm_planner_preserves_required_identity_terms_before_critique():
+async def test_llm_planner_preserves_identity_terms_without_internal_contract_labels():
     async def llm_service(**_kwargs):
         return {
             "integrated_scene_prompt": "An engineer explains the solar workflow with a visible guide beside the panel.",
@@ -240,7 +240,10 @@ async def test_llm_planner_preserves_required_identity_terms_before_critique():
     )
 
     prompt = plans[0].integrated_scene_prompt
-    assert "Fixed IP identity: Dalmatian guide" in prompt
+    assert "Fixed IP identity" not in prompt
+    assert "required identity traits" not in prompt
+    assert "Identity kernel" not in prompt
+    assert "Scene responsibility" not in prompt
     assert "black sunglasses" in prompt
     assert "dalmatian" in prompt
     assert "dalmatian in black sunglasses" in prompt
