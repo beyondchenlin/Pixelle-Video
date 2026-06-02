@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from pixelle_video.models.article_concretization import ArticleConcretizationRequest
 from pixelle_video.models.mode_resolution import (
     ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,
     ArticleVisualPlanningRequest,
@@ -109,7 +110,23 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "visual_role_mode",
     "visual_consistency_mode",
 )
-ARTICLE_VISUAL_PLANNING_OPTION_KEYS = ARTICLE_VISUAL_PLANNING_REQUEST_KEYS
+ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS = (
+    "article_concretization_enabled",
+    "cognitive_anchor_kind",
+    "explanation_diagram_grammar",
+    "series_visual_signature_role",
+    "diagram_render_style",
+    "diagram_aspect_ratio",
+    "diagram_visible_text_policy",
+    "diagram_approved_labels",
+    "diagram_user_intent_hint",
+)
+ARTICLE_CONCRETIZATION_INPUT_ALIAS_KEYS = ("enabled",)
+ARTICLE_VISUAL_PLANNING_OPTION_KEYS = (
+    *ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,
+    *ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
+    *ARTICLE_CONCRETIZATION_INPUT_ALIAS_KEYS,
+)
 
 
 def _normalize_optional_contract_string(value: Any) -> str | None:
@@ -311,11 +328,11 @@ def normalize_standard_video_generation_params(
     normalized.update(ip_contract.to_dict())
     normalized.update(visual_role_contract.to_generation_dict())
     article_visual_planning_params = article_visual_planning_request.to_dict()
+    normalized.update(article_visual_planning_params)
     normalized.update(
-        {
-            key: article_visual_planning_params[key]
-            for key in ARTICLE_VISUAL_PLANNING_OPTION_KEYS
-        }
+        _article_concretization_generation_params(
+            article_visual_planning_request.article_concretization
+        )
     )
     _apply_v44_visual_role_strategy_effective_mode(
         normalized,
@@ -323,6 +340,23 @@ def normalize_standard_video_generation_params(
         article_visual_planning_request=article_visual_planning_request,
     )
     return normalized
+
+
+def _article_concretization_generation_params(
+    request: ArticleConcretizationRequest,
+) -> dict[str, Any]:
+    payload = request.to_dict()
+    return {
+        "article_concretization_enabled": payload["enabled"],
+        "cognitive_anchor_kind": payload["cognitive_anchor_kind"],
+        "explanation_diagram_grammar": payload["explanation_diagram_grammar"],
+        "series_visual_signature_role": payload["series_visual_signature_role"],
+        "diagram_render_style": payload["diagram_render_style"],
+        "diagram_aspect_ratio": payload["diagram_aspect_ratio"],
+        "diagram_visible_text_policy": payload["diagram_visible_text_policy"],
+        "diagram_approved_labels": payload["diagram_approved_labels"],
+        "diagram_user_intent_hint": payload["diagram_user_intent_hint"],
+    }
 
 
 def _apply_v44_visual_role_strategy_effective_mode(

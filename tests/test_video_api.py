@@ -18,6 +18,13 @@ from api.schemas.video import (
     VideoResolutionPreset,
 )
 from api.schemas.video_internal import VideoGenerateInternalRequest
+from pixelle_video.models.article_concretization import (
+    CognitiveAnchorKind,
+    DiagramAspectRatio,
+    DiagramRenderStyle,
+    ExplanationDiagramGrammar,
+    SeriesVisualSignatureRole,
+)
 from pixelle_video.models.article_understanding import ArticleUnderstandingMode
 from pixelle_video.models.layered_template import (
     LayeredTemplateSpec,
@@ -36,7 +43,7 @@ from pixelle_video.models.video_generation_contract import (
     normalize_standard_video_generation_params,
     validate_standard_video_generation_params,
 )
-from pixelle_video.models.visual_planning_mode import VisualPlanningMode
+from pixelle_video.models.visual_planning_mode import VisibleTextPolicy, VisualPlanningMode
 from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 from pixelle_video.services.resource_resolver import ResolvedResource, StaticResourceResolver
 
@@ -128,6 +135,13 @@ def test_v44_api_planning_fields_use_model_enum_fact_sources():
     assert video_schema_module.ArticleUnderstandingModeRequest is ArticleUnderstandingMode
     assert video_schema_module.VisualPlanningModeRequest is VisualPlanningMode
     assert video_schema_module.VisualRoleStrategyRequest is VisualRoleStrategy
+    assert video_schema_module.CognitiveAnchorKindRequest is CognitiveAnchorKind
+    assert video_schema_module.ExplanationDiagramGrammarRequest is ExplanationDiagramGrammar
+    assert video_schema_module.SeriesVisualSignatureRoleRequest is SeriesVisualSignatureRole
+    assert video_schema_module.DiagramRenderStyleRequest is DiagramRenderStyle
+    assert video_schema_module.DiagramAspectRatioRequest is DiagramAspectRatio
+    assert video_schema_module.VisibleTextPolicyRequest is VisibleTextPolicy
+    assert VisibleTextPolicy.FREE_TEXT_ALLOWED.value == "free_text_allowed"
     assert (
         VideoGenerateRequest.model_fields["article_understanding_mode"].annotation
         is ArticleUnderstandingMode
@@ -139,6 +153,30 @@ def test_v44_api_planning_fields_use_model_enum_fact_sources():
     assert (
         VideoGenerateRequest.model_fields["visual_role_strategy"].annotation
         is VisualRoleStrategy
+    )
+    assert (
+        VideoGenerateRequest.model_fields["cognitive_anchor_kind"].annotation
+        is CognitiveAnchorKind
+    )
+    assert (
+        VideoGenerateRequest.model_fields["explanation_diagram_grammar"].annotation
+        is ExplanationDiagramGrammar
+    )
+    assert (
+        VideoGenerateRequest.model_fields["series_visual_signature_role"].annotation
+        is SeriesVisualSignatureRole
+    )
+    assert (
+        VideoGenerateRequest.model_fields["diagram_render_style"].annotation
+        is DiagramRenderStyle
+    )
+    assert (
+        VideoGenerateRequest.model_fields["diagram_aspect_ratio"].annotation
+        is DiagramAspectRatio
+    )
+    assert (
+        VideoGenerateRequest.model_fields["diagram_visible_text_policy"].annotation
+        is VisibleTextPolicy
     )
 
 
@@ -202,6 +240,55 @@ def test_video_generate_request_accepts_v44_planning_controls():
     assert request.visual_role_strategy == "observer_guide"
     assert request.strict_user_mode is True
     assert request.force_v44_planning is True
+
+
+def test_video_generate_request_accepts_article_concretization_fields():
+    request = VideoGenerateRequest(
+        text="demo",
+        article_concretization_enabled=True,
+        cognitive_anchor_kind="causal_mechanism",
+        explanation_diagram_grammar="process_flow",
+        series_visual_signature_role="guide",
+        diagram_render_style="editorial_diagram",
+        diagram_aspect_ratio="landscape_16_9",
+        diagram_visible_text_policy="free_text_allowed",
+        diagram_approved_labels=["Cause", "Effect"],
+        diagram_user_intent_hint="show the feedback loop",
+    )
+
+    assert request.article_concretization_enabled is True
+    assert request.cognitive_anchor_kind is CognitiveAnchorKind.CAUSAL_MECHANISM
+    assert request.explanation_diagram_grammar is ExplanationDiagramGrammar.PROCESS_FLOW
+    assert request.series_visual_signature_role is SeriesVisualSignatureRole.GUIDE
+    assert request.diagram_render_style is DiagramRenderStyle.EDITORIAL_DIAGRAM
+    assert request.diagram_aspect_ratio is DiagramAspectRatio.LANDSCAPE_16_9
+    assert request.diagram_visible_text_policy is VisibleTextPolicy.FREE_TEXT_ALLOWED
+    assert request.diagram_approved_labels == ["Cause", "Effect"]
+    assert request.diagram_user_intent_hint == "show the feedback loop"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("cognitive_anchor_kind", "unknown"),
+        ("explanation_diagram_grammar", "unknown"),
+        ("series_visual_signature_role", "unknown"),
+        ("diagram_render_style", "unknown"),
+        ("diagram_aspect_ratio", "unknown"),
+        ("diagram_visible_text_policy", "unknown"),
+    ],
+)
+def test_video_generate_request_rejects_invalid_article_concretization_values(
+    field_name: str,
+    value: str,
+):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="demo", **{field_name: value})
+
+
+def test_video_generate_request_rejects_too_long_diagram_hint():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="demo", diagram_user_intent_hint="x" * 501)
 
 
 @pytest.mark.parametrize(
@@ -311,6 +398,34 @@ def test_build_video_generation_params_copies_v44_planning_controls():
     assert params["force_v44_planning"] is True
 
 
+def test_router_passes_article_concretization_fields_to_video_params():
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            article_concretization_enabled=True,
+            cognitive_anchor_kind="judgment",
+            explanation_diagram_grammar="single_explanation_image",
+            series_visual_signature_role="silent_witness",
+            diagram_render_style="clean_vector",
+            diagram_aspect_ratio="square_1_1",
+            diagram_visible_text_policy="approved_labels_only",
+            diagram_approved_labels=["Risk", "Reward"],
+            diagram_user_intent_hint="compare the tradeoff",
+        ),
+        request_id="req_article_concretization",
+    )
+
+    assert params["article_concretization_enabled"] is True
+    assert params["cognitive_anchor_kind"] == "judgment"
+    assert params["explanation_diagram_grammar"] == "single_explanation_image"
+    assert params["series_visual_signature_role"] == "silent_witness"
+    assert params["diagram_render_style"] == "clean_vector"
+    assert params["diagram_aspect_ratio"] == "square_1_1"
+    assert params["diagram_visible_text_policy"] == "approved_labels_only"
+    assert params["diagram_approved_labels"] == ["Risk", "Reward"]
+    assert params["diagram_user_intent_hint"] == "compare the tradeoff"
+
+
 def test_build_video_generation_params_copies_generation_world_hint():
     params = build_video_generation_params(
         VideoGenerateRequest(
@@ -349,6 +464,50 @@ def test_standard_video_generation_contract_provides_v44_planning_defaults():
     assert params["allow_mixed_lenses"] is True
     assert params["strict_user_mode"] is False
     assert params["force_v44_planning"] is False
+
+
+def test_disabled_article_concretization_has_no_prompt_side_effects_in_generation_contract():
+    params = normalize_standard_video_generation_params(
+        {
+            "text": "demo",
+            "article_concretization_enabled": False,
+            "cognitive_anchor_kind": "process",
+            "explanation_diagram_grammar": "process_flow",
+            "series_visual_signature_role": "none",
+            "diagram_render_style": "editorial_diagram",
+            "diagram_aspect_ratio": "landscape_16_9",
+            "diagram_visible_text_policy": "no_visible_text",
+            "diagram_approved_labels": ["Draft"],
+            "diagram_user_intent_hint": "  keep this as request metadata only  ",
+        }
+    )
+
+    assert params["article_concretization_enabled"] is False
+    assert params["cognitive_anchor_kind"] == "process"
+    assert params["explanation_diagram_grammar"] == "process_flow"
+    assert params["series_visual_signature_role"] == "none"
+    assert params["diagram_render_style"] == "editorial_diagram"
+    assert params["diagram_aspect_ratio"] == "landscape_16_9"
+    assert params["diagram_visible_text_policy"] == "no_visible_text"
+    assert params["diagram_approved_labels"] == ["Draft"]
+    assert params["diagram_user_intent_hint"] == "keep this as request metadata only"
+    assert params["article_concretization"] == {
+        "enabled": False,
+        "cognitive_anchor_kind": "process",
+        "explanation_diagram_grammar": "process_flow",
+        "series_visual_signature_role": "none",
+        "diagram_render_style": "editorial_diagram",
+        "diagram_aspect_ratio": "landscape_16_9",
+        "diagram_visible_text_policy": "no_visible_text",
+        "diagram_approved_labels": ["Draft"],
+        "diagram_user_intent_hint": "keep this as request metadata only",
+    }
+    for side_effect_key in (
+        "article_concretization_plan",
+        "article_concretization_prompt",
+        "projected_prompt_parts",
+    ):
+        assert side_effect_key not in params
 
 
 def test_standard_video_generation_contract_normalizes_all_v44_request_fields():
@@ -1267,6 +1426,15 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "allow_mixed_lenses": True,
             "strict_user_mode": False,
             "force_v44_planning": False,
+            "article_concretization_enabled": False,
+            "cognitive_anchor_kind": "auto",
+            "explanation_diagram_grammar": "auto",
+            "series_visual_signature_role": "none",
+            "diagram_render_style": "auto",
+            "diagram_aspect_ratio": "auto",
+            "diagram_visible_text_policy": "no_visible_text",
+            "diagram_approved_labels": [],
+            "diagram_user_intent_hint": None,
             "text_rendering": {
                 "overlay": {
                     "enabled": True,

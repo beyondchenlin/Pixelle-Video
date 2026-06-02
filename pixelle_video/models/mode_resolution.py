@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from pixelle_video.models.article_concretization import ArticleConcretizationRequest
 from pixelle_video.models.article_understanding import (
     ArticleUnderstandingLens,
     ArticleUnderstandingMode,
@@ -33,6 +34,9 @@ class ArticleVisualPlanningRequest:
     allow_mixed_lenses: bool = True
     strict_user_mode: bool = False
     force_v44_planning: bool = False
+    article_concretization: ArticleConcretizationRequest = field(
+        default_factory=ArticleConcretizationRequest
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -78,6 +82,11 @@ class ArticleVisualPlanningRequest:
             "force_v44_planning",
             _bool_value(self.force_v44_planning, "force_v44_planning"),
         )
+        object.__setattr__(
+            self,
+            "article_concretization",
+            _article_concretization_request_value(self.article_concretization),
+        )
 
     @classmethod
     def from_mapping(
@@ -96,6 +105,7 @@ class ArticleVisualPlanningRequest:
             allow_mixed_lenses=source.get("allow_mixed_lenses", True),
             strict_user_mode=source.get("strict_user_mode", False),
             force_v44_planning=source.get("force_v44_planning", False),
+            article_concretization=ArticleConcretizationRequest.from_mapping(source),
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -107,6 +117,7 @@ class ArticleVisualPlanningRequest:
             "allow_mixed_lenses": self.allow_mixed_lenses,
             "strict_user_mode": self.strict_user_mode,
             "force_v44_planning": self.force_v44_planning,
+            "article_concretization": self.article_concretization.to_dict(),
         }
 
 
@@ -417,6 +428,14 @@ def _request_value(value: Any) -> ArticleVisualPlanningRequest:
     if isinstance(value, Mapping):
         return ArticleVisualPlanningRequest.from_mapping(value)
     raise TypeError("requested must be an ArticleVisualPlanningRequest")
+
+
+def _article_concretization_request_value(value: Any) -> ArticleConcretizationRequest:
+    if isinstance(value, ArticleConcretizationRequest):
+        return value
+    if isinstance(value, Mapping):
+        return ArticleConcretizationRequest.from_mapping(value)
+    raise TypeError("article_concretization must be an ArticleConcretizationRequest")
 
 
 def _require_text(field_name: str, value: Any) -> str:

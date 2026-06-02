@@ -31,6 +31,13 @@ from api.schemas.storyboard_contract import (
     StoryboardPromptLanguage,
 )
 from api.schemas.text_rendering import TextRenderingRequest
+from pixelle_video.models.article_concretization import (
+    CognitiveAnchorKind,
+    DiagramAspectRatio,
+    DiagramRenderStyle,
+    ExplanationDiagramGrammar,
+    SeriesVisualSignatureRole,
+)
 from pixelle_video.models.article_understanding import ArticleUnderstandingMode
 from pixelle_video.models.media_placement import MediaPlacement
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
@@ -51,7 +58,7 @@ from pixelle_video.models.storyboard_planning import (
     RoleStrategy,
     ShotOverridePolicy,
 )
-from pixelle_video.models.visual_planning_mode import VisualPlanningMode
+from pixelle_video.models.visual_planning_mode import VisibleTextPolicy, VisualPlanningMode
 from pixelle_video.models.visual_role_request import VisualRoleControlsContract
 from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 from pixelle_video.render_backend import RenderBackend
@@ -72,6 +79,12 @@ StandardTtsAudioStrategy = Literal["auto", "master_track"]
 ArticleUnderstandingModeRequest = ArticleUnderstandingMode
 VisualPlanningModeRequest = VisualPlanningMode
 VisualRoleStrategyRequest = VisualRoleStrategy
+CognitiveAnchorKindRequest = CognitiveAnchorKind
+ExplanationDiagramGrammarRequest = ExplanationDiagramGrammar
+SeriesVisualSignatureRoleRequest = SeriesVisualSignatureRole
+DiagramRenderStyleRequest = DiagramRenderStyle
+DiagramAspectRatioRequest = DiagramAspectRatio
+VisibleTextPolicyRequest = VisibleTextPolicy
 VideoOrientation = Literal["landscape", "portrait", "square"]
 VideoResolutionPreset = Literal[
     "landscape_hd",
@@ -303,6 +316,43 @@ class VideoGenerateRequest(BaseModel):
     force_v44_planning: bool = Field(
         False,
         description="Force V4.4 planning path for eligible generation.",
+    )
+    article_concretization_enabled: bool = Field(
+        False,
+        description="Enable article concretization request metadata for V4.4 planning.",
+    )
+    cognitive_anchor_kind: CognitiveAnchorKindRequest = Field(
+        "auto",
+        description="Requested cognitive anchor kind for article concretization.",
+    )
+    explanation_diagram_grammar: ExplanationDiagramGrammarRequest = Field(
+        "auto",
+        description="Requested explanation diagram grammar for article concretization.",
+    )
+    series_visual_signature_role: SeriesVisualSignatureRoleRequest = Field(
+        "none",
+        description="Requested series visual signature role for article concretization.",
+    )
+    diagram_render_style: DiagramRenderStyleRequest = Field(
+        "auto",
+        description="Requested diagram render style for article concretization.",
+    )
+    diagram_aspect_ratio: DiagramAspectRatioRequest = Field(
+        "auto",
+        description="Requested diagram aspect ratio for article concretization.",
+    )
+    diagram_visible_text_policy: VisibleTextPolicyRequest = Field(
+        "no_visible_text",
+        description="Requested visible text policy for article concretization diagrams.",
+    )
+    diagram_approved_labels: List[str] = Field(
+        default_factory=list,
+        description="Approved visible diagram labels for article concretization.",
+    )
+    diagram_user_intent_hint: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Optional user intent hint for article concretization diagrams.",
     )
     tts_audio_strategy: Optional[StandardTtsAudioStrategy] = Field(
         None,

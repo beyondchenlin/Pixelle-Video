@@ -3,6 +3,14 @@ import json
 import pytest
 
 from pixelle_video.models import mode_resolution
+from pixelle_video.models.article_concretization import (
+    ArticleConcretizationRequest,
+    CognitiveAnchorKind,
+    DiagramAspectRatio,
+    DiagramRenderStyle,
+    ExplanationDiagramGrammar,
+    SeriesVisualSignatureRole,
+)
 from pixelle_video.models.article_understanding import (
     ArticleUnderstandingLens,
     ArticleUnderstandingMode,
@@ -16,6 +24,7 @@ from pixelle_video.models.mode_resolution import (
 )
 from pixelle_video.models.visual_planning_mode import (
     PrimaryVisualTask,
+    VisibleTextPolicy,
     VisualPlanningMode,
 )
 from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
@@ -49,6 +58,17 @@ def test_request_normalizes_known_modes_and_control_fields():
         "allow_mixed_lenses": False,
         "strict_user_mode": True,
         "force_v44_planning": True,
+        "article_concretization": {
+            "enabled": False,
+            "cognitive_anchor_kind": "auto",
+            "explanation_diagram_grammar": "auto",
+            "series_visual_signature_role": "none",
+            "diagram_render_style": "auto",
+            "diagram_aspect_ratio": "auto",
+            "diagram_visible_text_policy": "no_visible_text",
+            "diagram_approved_labels": [],
+            "diagram_user_intent_hint": None,
+        },
     }
 
 
@@ -65,12 +85,69 @@ def test_request_rejects_invalid_provided_v44_enum_fields(field_name, bad_value)
         ArticleVisualPlanningRequest.from_mapping({field_name: bad_value})
 
 
+def test_article_visual_planning_request_carries_nested_concretization_request():
+    request = ArticleVisualPlanningRequest.from_mapping(
+        {
+            "article_concretization_enabled": False,
+            "cognitive_anchor_kind": "process",
+            "explanation_diagram_grammar": "process_flow",
+            "series_visual_signature_role": "operator",
+            "diagram_render_style": "brand_kv",
+            "diagram_aspect_ratio": "vertical_9_16",
+            "diagram_visible_text_policy": "no_visible_text",
+            "diagram_approved_labels": ["Flat"],
+            "diagram_user_intent_hint": "flat hint",
+            "article_concretization": {
+                "enabled": True,
+                "cognitive_anchor_kind": "relationship",
+                "explanation_diagram_grammar": "relationship_map",
+                "series_visual_signature_role": "silent_witness",
+                "diagram_render_style": "ink_collage",
+                "diagram_aspect_ratio": "portrait_4_5",
+                "diagram_visible_text_policy": "free_text_allowed",
+                "diagram_approved_labels": ["Nested", "Flat"],
+                "diagram_user_intent_hint": "nested hint",
+            },
+        }
+    )
+
+    assert isinstance(request.article_concretization, ArticleConcretizationRequest)
+    assert request.article_concretization.enabled is True
+    assert request.article_concretization.cognitive_anchor_kind is CognitiveAnchorKind.RELATIONSHIP
+    assert (
+        request.article_concretization.explanation_diagram_grammar
+        is ExplanationDiagramGrammar.RELATIONSHIP_MAP
+    )
+    assert (
+        request.article_concretization.series_visual_signature_role
+        is SeriesVisualSignatureRole.SILENT_WITNESS
+    )
+    assert request.article_concretization.diagram_render_style is DiagramRenderStyle.INK_COLLAGE
+    assert request.article_concretization.diagram_aspect_ratio is DiagramAspectRatio.PORTRAIT_4_5
+    assert (
+        request.article_concretization.diagram_visible_text_policy
+        is VisibleTextPolicy.FREE_TEXT_ALLOWED
+    )
+    assert request.to_dict()["article_concretization"] == {
+        "enabled": True,
+        "cognitive_anchor_kind": "relationship",
+        "explanation_diagram_grammar": "relationship_map",
+        "series_visual_signature_role": "silent_witness",
+        "diagram_render_style": "ink_collage",
+        "diagram_aspect_ratio": "portrait_4_5",
+        "diagram_visible_text_policy": "free_text_allowed",
+        "diagram_approved_labels": ["Nested", "Flat"],
+        "diagram_user_intent_hint": "nested hint",
+    }
+
+
 def test_article_visual_planning_request_keys_match_serialized_contract():
     assert ARTICLE_VISUAL_PLANNING_REQUEST_KEYS == tuple(
         ArticleVisualPlanningRequest().to_dict()
     )
     assert "allow_mixed_lenses" in ARTICLE_VISUAL_PLANNING_REQUEST_KEYS
     assert "user_intent_hint" in ARTICLE_VISUAL_PLANNING_REQUEST_KEYS
+    assert "article_concretization" in ARTICLE_VISUAL_PLANNING_REQUEST_KEYS
 
 
 @pytest.mark.parametrize("field_name", ["strict_user_mode", "force_v44_planning"])
