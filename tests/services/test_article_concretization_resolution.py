@@ -48,12 +48,14 @@ def _subject(subject_id: str, label: str, evidence_id: str) -> SubjectAnchor:
 def _article_plan(
     *,
     primary_lens: ArticleUnderstandingLens | str = ArticleUnderstandingLens.THESIS_ARGUMENT,
+    main_entities: tuple[str, ...] = ("Cause", "Effect"),
+    quote: str = "Cause leads to Effect over time.",
 ) -> ArticleUnderstandingPlan:
-    evidence = _evidence("article-evidence-1", "Cause leads to Effect over time.")
+    evidence = _evidence("article-evidence-1", quote)
     return ArticleUnderstandingPlan(
         article_id="article-1",
         primary_lens=primary_lens,
-        main_entities=("Cause", "Effect"),
+        main_entities=main_entities,
         required_subjects=(
             _subject("article-subject-1", "Cause", "article-evidence-1"),
             _subject("article-subject-2", "Effect", "article-evidence-1"),
@@ -279,6 +281,86 @@ def test_empty_visible_text_intersection_strict_raises():
         )
 
 
+def test_visible_text_intersection_does_not_allow_article_only_source_terms():
+    request = ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "diagram_visible_text_policy": "approved_labels_only",
+            "diagram_approved_labels": ["Cause", "ArticleOnly"],
+        }
+    )
+
+    resolution = _resolve(
+        request,
+        article_plan=_article_plan(
+            main_entities=("Cause", "ArticleOnly"),
+            quote="ArticleOnly appears only in article evidence.",
+        ),
+        frame_plan=_frame_plan(
+            visible_text_policy=VisibleTextPolicy.SOURCE_TEXT_ONLY,
+            quote="Cause appears in frame evidence.",
+        ),
+        strict_user_mode=True,
+    )
+
+    assert resolution.visible_text.allowed_visible_text == ("Cause",)
+
+
+def test_article_only_visible_text_intersection_non_strict_downgrades_to_no_visible_text():
+    request = ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "diagram_visible_text_policy": "approved_labels_only",
+            "diagram_approved_labels": ["ArticleOnly"],
+        }
+    )
+
+    resolution = _resolve(
+        request,
+        article_plan=_article_plan(
+            main_entities=("ArticleOnly",),
+            quote="ArticleOnly appears only in article evidence.",
+        ),
+        frame_plan=_frame_plan(
+            visible_text_policy=VisibleTextPolicy.SOURCE_TEXT_ONLY,
+            source_text="Source text mentions ArticleOnly but frame evidence does not.",
+            quote="Frame evidence names supported terms only.",
+        ),
+        strict_user_mode=False,
+    )
+
+    assert resolution.visible_text.effective_policy is VisibleTextPolicy.NO_VISIBLE_TEXT
+    assert resolution.visible_text.allowed_visible_text == ()
+    assert resolution.fallback_used is True
+    assert resolution.fallback_reason == "visible_text_intersection_empty"
+    assert any("visible text" in warning for warning in resolution.warnings)
+
+
+def test_article_only_visible_text_intersection_strict_raises():
+    request = ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "diagram_visible_text_policy": "approved_labels_only",
+            "diagram_approved_labels": ["ArticleOnly"],
+        }
+    )
+
+    with pytest.raises(ArticleConcretizationResolutionConflict, match="visible text"):
+        _resolve(
+            request,
+            article_plan=_article_plan(
+                main_entities=("ArticleOnly",),
+                quote="ArticleOnly appears only in article evidence.",
+            ),
+            frame_plan=_frame_plan(
+                visible_text_policy=VisibleTextPolicy.SOURCE_TEXT_ONLY,
+                source_text="Source text mentions ArticleOnly but frame evidence does not.",
+                quote="Frame evidence names supported terms only.",
+            ),
+            strict_user_mode=True,
+        )
+
+
 def test_landscape_panel_inside_vertical_canvas_is_allowed_in_strict_mode():
     request = ArticleConcretizationRequest.from_mapping(
         {
@@ -336,6 +418,34 @@ def test_signature_role_without_ip_non_strict_drops_to_none_with_warning():
         {
             "enabled": True,
             "series_visual_signature_role": "operator",
+        }
+    )
+
+    resolution = _resolve(request, ip_profile_id=None, strict_user_mode=False)
+
+    assert resolution.effective_signature_role is SeriesVisualSignatureRole.NONE
+    assert resolution.fallback_used is True
+    assert resolution.fallback_reason == "signature_role_requires_ip_profile"
+    assert any("ip_profile_id" in warning for warning in resolution.warnings)
+
+
+def test_auto_signature_role_requires_ip_profile_in_strict_mode():
+    request = ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "series_visual_signature_role": "auto",
+        }
+    )
+
+    with pytest.raises(ArticleConcretizationResolutionConflict, match="ip_profile_id"):
+        _resolve(request, ip_profile_id=None, strict_user_mode=True)
+
+
+def test_auto_signature_role_without_ip_non_strict_drops_to_none_with_warning():
+    request = ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "series_visual_signature_role": "auto",
         }
     )
 

@@ -123,7 +123,6 @@ def resolve_article_concretization(
 
     visible_text, visible_text_fallback = _resolve_visible_text(
         request=request,
-        article_plan=article_plan,
         frame_plan=frame_plan,
         strict_user_mode=strict_user_mode,
     )
@@ -268,7 +267,6 @@ def _resolve_layout(
 def _resolve_visible_text(
     *,
     request: ArticleConcretizationRequest,
-    article_plan: ArticleUnderstandingPlan,
     frame_plan: FrameUnderstandingPlan,
     strict_user_mode: bool,
 ) -> tuple[VisibleTextResolution, str | None]:
@@ -305,7 +303,7 @@ def _resolve_visible_text(
         allowed = tuple(
             label
             for label in approved_labels
-            if _source_allows_label(label, article_plan=article_plan, frame_plan=frame_plan)
+            if _source_allows_label(label, frame_plan=frame_plan)
         )
         if not allowed:
             return _visible_text_conflict_or_downgrade(
@@ -336,7 +334,7 @@ def _resolve_visible_text(
         return (
             VisibleTextResolution(
                 effective_policy=VisibleTextPolicy.SOURCE_TEXT_ONLY,
-                allowed_visible_text=_source_terms(article_plan=article_plan, frame_plan=frame_plan),
+                allowed_visible_text=_source_terms(frame_plan=frame_plan),
                 text_origin="source",
             ),
             None,
@@ -396,11 +394,25 @@ def _resolve_signature_role(
         return SeriesVisualSignatureRole.NONE, (), None
     if requested_role is SeriesVisualSignatureRole.AUTO:
         if not _has_ip_profile_id(ip_profile_id):
-            return SeriesVisualSignatureRole.NONE, (), None
+            return _signature_role_requires_ip_profile_resolution(
+                requested_role=requested_role,
+                strict_user_mode=strict_user_mode,
+            )
         return _auto_signature_role(anchor=anchor, grammar=grammar), (), None
     if _has_ip_profile_id(ip_profile_id):
         return requested_role, (), None
 
+    return _signature_role_requires_ip_profile_resolution(
+        requested_role=requested_role,
+        strict_user_mode=strict_user_mode,
+    )
+
+
+def _signature_role_requires_ip_profile_resolution(
+    *,
+    requested_role: SeriesVisualSignatureRole,
+    strict_user_mode: bool,
+) -> tuple[SeriesVisualSignatureRole, tuple[str, ...], str | None]:
     warning = (
         f"Series visual signature role {requested_role.value} requires ip_profile_id; "
         "repaired to none."
@@ -454,41 +466,32 @@ def _visual_role_strategy_text(value: Any) -> str | None:
 def _source_allows_label(
     label: str,
     *,
-    article_plan: ArticleUnderstandingPlan,
     frame_plan: FrameUnderstandingPlan,
 ) -> bool:
     needle = label.casefold()
     if not needle:
         return False
-    source_terms = {term.casefold() for term in _source_terms(article_plan=article_plan, frame_plan=frame_plan)}
+    source_terms = {term.casefold() for term in _source_terms(frame_plan=frame_plan)}
     if needle in source_terms:
         return True
-    return any(needle in text.casefold() for text in _source_texts(article_plan=article_plan, frame_plan=frame_plan))
+    return any(needle in text.casefold() for text in _source_texts(frame_plan=frame_plan))
 
 
 def _source_terms(
     *,
-    article_plan: ArticleUnderstandingPlan,
     frame_plan: FrameUnderstandingPlan,
 ) -> tuple[str, ...]:
     terms: list[str] = []
-    _extend_unique(terms, getattr(article_plan, "main_entities", ()))
-    _extend_unique(terms, (subject.label for subject in article_plan.required_subjects))
     _extend_unique(terms, (subject.label for subject in frame_plan.required_subjects))
     return tuple(terms)
 
 
 def _source_texts(
     *,
-    article_plan: ArticleUnderstandingPlan,
     frame_plan: FrameUnderstandingPlan,
 ) -> tuple[str, ...]:
-    texts: list[str] = [
-        frame_plan.source_text,
-        frame_plan.frame_claim,
-    ]
+    texts: list[str] = []
     _extend_unique(texts, (evidence.quote for evidence in frame_plan.source_evidence))
-    _extend_unique(texts, (evidence.quote for evidence in article_plan.source_evidence))
     return tuple(texts)
 
 
