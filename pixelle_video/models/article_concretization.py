@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal
 
-from pixelle_video.models.visual_planning_mode import VisibleTextPolicy
+from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, VisibleTextPolicy
 
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
@@ -456,6 +457,352 @@ class ArticleConcretizationResolution:
         }
 
 
+@dataclass(frozen=True)
+class CognitiveAnchorPlan:
+    anchor_id: str
+    anchor_kind: CognitiveAnchorKind
+    anchor_claim: str
+    anchor_question: str
+    source_evidence_ids: tuple[str, ...]
+    main_entities: tuple[str, ...]
+    required_subjects: tuple[str, ...]
+    source_text_excerpt: str
+    confidence: float
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "anchor_id", _require_text(self.anchor_id, "anchor_id"))
+        object.__setattr__(
+            self,
+            "anchor_kind",
+            _required_enum_value(
+                self.anchor_kind,
+                CognitiveAnchorKind,
+                "anchor_kind",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "anchor_claim",
+            _require_text(self.anchor_claim, "anchor_claim"),
+        )
+        object.__setattr__(
+            self,
+            "anchor_question",
+            _require_text(self.anchor_question, "anchor_question"),
+        )
+        object.__setattr__(
+            self,
+            "source_evidence_ids",
+            _normalize_contract_text_tuple(self.source_evidence_ids, "source_evidence_ids"),
+        )
+        object.__setattr__(
+            self,
+            "main_entities",
+            _normalize_contract_text_tuple(self.main_entities, "main_entities"),
+        )
+        object.__setattr__(
+            self,
+            "required_subjects",
+            _normalize_contract_text_tuple(self.required_subjects, "required_subjects"),
+        )
+        source_text_excerpt = _optional_text(self.source_text_excerpt) or ""
+        object.__setattr__(self, "source_text_excerpt", source_text_excerpt)
+        if not self.source_evidence_ids and not source_text_excerpt:
+            raise ValueError(
+                "source_evidence_ids or source_text_excerpt must not be empty"
+            )
+        object.__setattr__(
+            self,
+            "confidence",
+            _zero_to_one_float(self.confidence, "confidence"),
+        )
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "anchor_id": self.anchor_id,
+            "anchor_kind": self.anchor_kind.value,
+            "anchor_claim": self.anchor_claim,
+            "anchor_question": self.anchor_question,
+            "source_evidence_ids": list(self.source_evidence_ids),
+            "main_entities": list(self.main_entities),
+            "required_subjects": list(self.required_subjects),
+            "source_text_excerpt": self.source_text_excerpt,
+            "confidence": self.confidence,
+        }
+
+
+@dataclass(frozen=True)
+class ExplanationDiagramBrief:
+    brief_id: str
+    grammar: ExplanationDiagramGrammar
+    primary_visual_task: PrimaryVisualTask
+    diagram_title: str
+    visual_metaphor: str
+    composition_rules: tuple[str, ...]
+    panel_plan: tuple[str, ...]
+    forbidden_losses: tuple[str, ...]
+    visible_text: VisibleTextResolution
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "brief_id", _require_text(self.brief_id, "brief_id"))
+        object.__setattr__(
+            self,
+            "grammar",
+            _required_enum_value(
+                self.grammar,
+                ExplanationDiagramGrammar,
+                "grammar",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "primary_visual_task",
+            _required_enum_value(
+                self.primary_visual_task,
+                PrimaryVisualTask,
+                "primary_visual_task",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "diagram_title",
+            _require_text(self.diagram_title, "diagram_title"),
+        )
+        object.__setattr__(
+            self,
+            "visual_metaphor",
+            _require_text(self.visual_metaphor, "visual_metaphor"),
+        )
+        object.__setattr__(
+            self,
+            "composition_rules",
+            _normalize_contract_text_tuple(
+                self.composition_rules,
+                "composition_rules",
+                require_non_empty=True,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "panel_plan",
+            _normalize_contract_text_tuple(
+                self.panel_plan,
+                "panel_plan",
+                require_non_empty=True,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "forbidden_losses",
+            _normalize_contract_text_tuple(self.forbidden_losses, "forbidden_losses"),
+        )
+        if not isinstance(self.visible_text, VisibleTextResolution):
+            raise TypeError("visible_text must be a VisibleTextResolution")
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "brief_id": self.brief_id,
+            "grammar": self.grammar.value,
+            "primary_visual_task": self.primary_visual_task.value,
+            "diagram_title": self.diagram_title,
+            "visual_metaphor": self.visual_metaphor,
+            "composition_rules": list(self.composition_rules),
+            "panel_plan": list(self.panel_plan),
+            "forbidden_losses": list(self.forbidden_losses),
+            "visible_text": self.visible_text.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class SeriesVisualSignatureContract:
+    enabled: bool
+    role: SeriesVisualSignatureRole
+    identity_profile_id: str | None
+    participation_rule: str
+    replacement_policy: Literal[
+        "no_subject_replacement",
+        "background_only",
+        "may_lead_without_replacement",
+    ]
+    visual_weight: float
+    forbidden_behaviors: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "enabled", _bool_value(self.enabled, "enabled"))
+        object.__setattr__(
+            self,
+            "role",
+            _strict_enum_value(
+                self.role,
+                SeriesVisualSignatureRole,
+                SeriesVisualSignatureRole.NONE,
+                "role",
+            ),
+        )
+        if self.enabled and self.role in {
+            SeriesVisualSignatureRole.NONE,
+            SeriesVisualSignatureRole.AUTO,
+        }:
+            raise ValueError("role must not be none or auto when enabled is true")
+        object.__setattr__(
+            self,
+            "identity_profile_id",
+            _optional_text(self.identity_profile_id),
+        )
+        object.__setattr__(
+            self,
+            "participation_rule",
+            _require_text(self.participation_rule, "participation_rule"),
+        )
+        object.__setattr__(
+            self,
+            "replacement_policy",
+            _literal_value(
+                self.replacement_policy,
+                {
+                    "no_subject_replacement",
+                    "background_only",
+                    "may_lead_without_replacement",
+                },
+                "replacement_policy",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "visual_weight",
+            _zero_to_one_float(self.visual_weight, "visual_weight"),
+        )
+        object.__setattr__(
+            self,
+            "forbidden_behaviors",
+            _normalize_contract_text_tuple(
+                self.forbidden_behaviors,
+                "forbidden_behaviors",
+            ),
+        )
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "enabled": self.enabled,
+            "role": self.role.value,
+            "identity_profile_id": self.identity_profile_id,
+            "participation_rule": self.participation_rule,
+            "replacement_policy": self.replacement_policy,
+            "visual_weight": self.visual_weight,
+            "forbidden_behaviors": list(self.forbidden_behaviors),
+        }
+
+
+@dataclass(frozen=True)
+class DiagramRenderContract:
+    render_style: DiagramRenderStyle
+    canvas_aspect_ratio: DiagramAspectRatio
+    diagram_panel_aspect_ratio: DiagramAspectRatio
+    panel_inside_canvas: bool
+    style_rules: tuple[str, ...]
+    negative_style_rules: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "render_style",
+            _required_enum_value(
+                self.render_style,
+                DiagramRenderStyle,
+                "render_style",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "canvas_aspect_ratio",
+            _required_enum_value(
+                self.canvas_aspect_ratio,
+                DiagramAspectRatio,
+                "canvas_aspect_ratio",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "diagram_panel_aspect_ratio",
+            _required_enum_value(
+                self.diagram_panel_aspect_ratio,
+                DiagramAspectRatio,
+                "diagram_panel_aspect_ratio",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "panel_inside_canvas",
+            _bool_value(self.panel_inside_canvas, "panel_inside_canvas"),
+        )
+        object.__setattr__(
+            self,
+            "style_rules",
+            _normalize_contract_text_tuple(
+                self.style_rules,
+                "style_rules",
+                require_non_empty=True,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "negative_style_rules",
+            _normalize_contract_text_tuple(
+                self.negative_style_rules,
+                "negative_style_rules",
+            ),
+        )
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "render_style": self.render_style.value,
+            "canvas_aspect_ratio": self.canvas_aspect_ratio.value,
+            "diagram_panel_aspect_ratio": self.diagram_panel_aspect_ratio.value,
+            "panel_inside_canvas": self.panel_inside_canvas,
+            "style_rules": list(self.style_rules),
+            "negative_style_rules": list(self.negative_style_rules),
+        }
+
+
+@dataclass(frozen=True)
+class ArticleConcretizationPlan:
+    plan_id: str
+    request: ArticleConcretizationRequest
+    resolution: ArticleConcretizationResolution
+    anchor: CognitiveAnchorPlan
+    diagram: ExplanationDiagramBrief
+    series_signature: SeriesVisualSignatureContract
+    render: DiagramRenderContract
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "plan_id", _require_text(self.plan_id, "plan_id"))
+        if not isinstance(self.request, ArticleConcretizationRequest):
+            raise TypeError("request must be an ArticleConcretizationRequest")
+        if not isinstance(self.resolution, ArticleConcretizationResolution):
+            raise TypeError("resolution must be an ArticleConcretizationResolution")
+        if not isinstance(self.anchor, CognitiveAnchorPlan):
+            raise TypeError("anchor must be a CognitiveAnchorPlan")
+        if not isinstance(self.diagram, ExplanationDiagramBrief):
+            raise TypeError("diagram must be an ExplanationDiagramBrief")
+        if not isinstance(self.series_signature, SeriesVisualSignatureContract):
+            raise TypeError(
+                "series_signature must be a SeriesVisualSignatureContract"
+            )
+        if not isinstance(self.render, DiagramRenderContract):
+            raise TypeError("render must be a DiagramRenderContract")
+
+    def to_dict(self) -> dict[str, JSONValue]:
+        return {
+            "plan_id": self.plan_id,
+            "request": self.request.to_dict(),
+            "resolution": self.resolution.to_dict(),
+            "anchor": self.anchor.to_dict(),
+            "diagram": self.diagram.to_dict(),
+            "series_signature": self.series_signature.to_dict(),
+            "render": self.render.to_dict(),
+        }
+
+
 def _merged_enabled_value(
     flat: Mapping[str, Any],
     nested: Mapping[str, Any] | None,
@@ -492,6 +839,22 @@ def _strict_enum_value(
     raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
 
 
+def _required_enum_value(
+    value: Any,
+    enum_cls: type[Enum],
+    field_name: str,
+) -> Any:
+    if isinstance(value, enum_cls):
+        return value
+    text = _text_value(value)
+    if not text:
+        raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
+    for item in enum_cls:
+        if text.lower() == str(item.value).lower() or text.lower() == item.name.lower():
+            return item
+    raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
+
+
 def _bool_value(value: Any, field_name: str) -> bool:
     if isinstance(value, bool):
         return value
@@ -514,6 +877,18 @@ def _optional_limited_text(value: Any, field_name: str, *, max_length: int) -> s
     if len(text) > max_length:
         raise ValueError(f"{field_name} must be {max_length} characters or fewer")
     return text
+
+
+def _require_text(value: Any, field_name: str) -> str:
+    text = _text_value(value)
+    if not text:
+        raise ValueError(f"{field_name} must not be empty")
+    return text
+
+
+def _optional_text(value: Any) -> str | None:
+    text = _text_value(value)
+    return text or None
 
 
 def _literal_value(value: Any, allowed_values: set[str], field_name: str) -> str:
@@ -546,6 +921,36 @@ def _normalize_string_tuple(value: Any, field_name: str) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def _normalize_contract_text_tuple(
+    value: Any,
+    field_name: str,
+    *,
+    require_non_empty: bool = False,
+) -> tuple[str, ...]:
+    if value is None:
+        values = ()
+    elif isinstance(value, str):
+        values = (value,)
+    elif isinstance(value, Sequence):
+        values = value
+    else:
+        raise ValueError(f"{field_name} must be a list or tuple")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        text = _text_value(item)
+        if not text:
+            raise ValueError(f"{field_name} must not contain blank values")
+        if text in seen:
+            continue
+        normalized.append(text)
+        seen.add(text)
+    if require_non_empty and not normalized:
+        raise ValueError(f"{field_name} must not be empty")
+    return tuple(normalized)
+
+
 def _normalize_approved_labels(value: Any) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -569,14 +974,34 @@ def _normalize_approved_labels(value: Any) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def _zero_to_one_float(value: Any, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"{field_name} must be a finite number")
+    number = float(value)
+    if not math.isfinite(number) or number < 0 or number > 1:
+        raise ValueError(f"{field_name} must be between 0 and 1")
+    return number
+
+
+def _text_value(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value.value if isinstance(value, Enum) else value).strip()
+
+
 __all__ = [
     "ArticleConcretizationRequest",
+    "ArticleConcretizationPlan",
     "ArticleConcretizationResolution",
+    "CognitiveAnchorPlan",
     "CognitiveAnchorKind",
     "DiagramAspectRatio",
     "DiagramLayoutResolution",
+    "DiagramRenderContract",
     "DiagramRenderStyle",
+    "ExplanationDiagramBrief",
     "ExplanationDiagramGrammar",
+    "SeriesVisualSignatureContract",
     "SeriesVisualSignatureRole",
     "VisibleTextResolution",
 ]

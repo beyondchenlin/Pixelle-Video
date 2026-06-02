@@ -2,15 +2,129 @@ import json
 
 import pytest
 
+import pixelle_video.models.article_concretization as ac
 from pixelle_video.models.article_concretization import (
     ArticleConcretizationRequest,
+    ArticleConcretizationResolution,
     CognitiveAnchorKind,
     DiagramAspectRatio,
+    DiagramLayoutResolution,
     DiagramRenderStyle,
     ExplanationDiagramGrammar,
     SeriesVisualSignatureRole,
+    VisibleTextResolution,
 )
-from pixelle_video.models.visual_planning_mode import VisibleTextPolicy
+from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, VisibleTextPolicy
+
+
+def _request() -> ArticleConcretizationRequest:
+    return ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "cognitive_anchor_kind": "causal_mechanism",
+            "explanation_diagram_grammar": "process_flow",
+            "series_visual_signature_role": "guide",
+            "diagram_render_style": "editorial_diagram",
+            "diagram_aspect_ratio": "landscape_16_9",
+            "diagram_visible_text_policy": "approved_labels_only",
+            "diagram_approved_labels": ["Cause", "Effect"],
+        }
+    )
+
+
+def _visible_text() -> VisibleTextResolution:
+    return VisibleTextResolution(
+        effective_policy=VisibleTextPolicy.APPROVED_LABELS_ONLY,
+        allowed_visible_text=["Cause", "Effect"],
+        text_origin="approved",
+        warnings=["trimmed to approved labels"],
+    )
+
+
+def _layout() -> DiagramLayoutResolution:
+    return DiagramLayoutResolution(
+        canvas_aspect_ratio=DiagramAspectRatio.LANDSCAPE_16_9,
+        diagram_panel_aspect_ratio=DiagramAspectRatio.SQUARE_1_1,
+        panel_inside_canvas=True,
+        layout_intent="panel_inside_canvas",
+        warnings=["panel inset for title safe area"],
+    )
+
+
+def _resolution(
+    request: ArticleConcretizationRequest | None = None,
+) -> ArticleConcretizationResolution:
+    request = request or _request()
+    return ArticleConcretizationResolution(
+        request=request,
+        enabled=True,
+        effective_anchor_kind=CognitiveAnchorKind.CAUSAL_MECHANISM,
+        effective_diagram_grammar=ExplanationDiagramGrammar.PROCESS_FLOW,
+        effective_signature_role=SeriesVisualSignatureRole.GUIDE,
+        effective_render_style=DiagramRenderStyle.EDITORIAL_DIAGRAM,
+        layout=_layout(),
+        visible_text=_visible_text(),
+        approved_labels=["Cause", "Effect"],
+        warnings=["resolved from explicit request"],
+        errors=[],
+        fallback_used=False,
+    )
+
+
+def _anchor() -> "ac.CognitiveAnchorPlan":
+    return ac.CognitiveAnchorPlan(
+        anchor_id=" anchor-1 ",
+        anchor_kind=CognitiveAnchorKind.CAUSAL_MECHANISM,
+        anchor_claim=" Policy feedback loops compound over time. ",
+        anchor_question=" Why does the feedback loop accelerate? ",
+        source_evidence_ids=["ev-1", "ev-2"],
+        main_entities=["Policy", "Market", "Policy"],
+        required_subjects=["regulator", "market signal"],
+        source_text_excerpt=" The policy change triggered a market feedback loop. ",
+        confidence=0.82,
+    )
+
+
+def _diagram() -> "ac.ExplanationDiagramBrief":
+    return ac.ExplanationDiagramBrief(
+        brief_id=" diagram-1 ",
+        grammar=ExplanationDiagramGrammar.PROCESS_FLOW,
+        primary_visual_task=PrimaryVisualTask.COGNITIVE_EXPLANATION,
+        diagram_title=" Feedback Loop ",
+        visual_metaphor="A regulator dial changes a market pressure gauge.",
+        composition_rules=["left-to-right cause chain", "show feedback arrow"],
+        panel_plan=["Panel 1: policy dial", "Panel 2: market pressure"],
+        forbidden_losses=["do not omit the regulator", "do not flatten causality"],
+        visible_text=_visible_text(),
+    )
+
+
+def _signature(
+    *,
+    enabled: bool = True,
+    role: SeriesVisualSignatureRole = SeriesVisualSignatureRole.GUIDE,
+    visual_weight: float = 0.35,
+) -> "ac.SeriesVisualSignatureContract":
+    return ac.SeriesVisualSignatureContract(
+        enabled=enabled,
+        role=role,
+        identity_profile_id=" signature-profile-7 ",
+        participation_rule="Guide appears only as an explanatory marker.",
+        replacement_policy="no_subject_replacement",
+        visual_weight=visual_weight,
+        forbidden_behaviors=["replace article subjects", "dominate the panel"],
+    )
+
+
+def _render() -> "ac.DiagramRenderContract":
+    return ac.DiagramRenderContract(
+        render_style=DiagramRenderStyle.EDITORIAL_DIAGRAM,
+        canvas_aspect_ratio=DiagramAspectRatio.LANDSCAPE_16_9,
+        diagram_panel_aspect_ratio=DiagramAspectRatio.SQUARE_1_1,
+        panel_inside_canvas=True,
+        style_rules=["clean editorial linework", "muted accent color for arrows"],
+        negative_style_rules=["no photorealistic background", "no decorative text"],
+    )
 
 
 def test_request_accepts_flat_payload():
@@ -192,3 +306,176 @@ def test_request_accepts_free_text_allowed_policy():
 
     assert request.diagram_visible_text_policy is VisibleTextPolicy.FREE_TEXT_ALLOWED
     assert request.to_dict()["diagram_visible_text_policy"] == "free_text_allowed"
+
+
+def test_full_plan_serializes_request_resolution_anchor_diagram_signature_render():
+    request = _request()
+    plan = ac.ArticleConcretizationPlan(
+        plan_id=" plan-1 ",
+        request=request,
+        resolution=_resolution(request),
+        anchor=_anchor(),
+        diagram=_diagram(),
+        series_signature=_signature(),
+        render=_render(),
+    )
+
+    assert plan.plan_id == "plan-1"
+    assert plan.anchor.anchor_id == "anchor-1"
+    assert plan.anchor.source_evidence_ids == ("ev-1", "ev-2")
+    assert plan.anchor.main_entities == ("Policy", "Market")
+    assert plan.diagram.composition_rules == (
+        "left-to-right cause chain",
+        "show feedback arrow",
+    )
+    assert plan.diagram.panel_plan == (
+        "Panel 1: policy dial",
+        "Panel 2: market pressure",
+    )
+    assert plan.series_signature.identity_profile_id == "signature-profile-7"
+    assert plan.series_signature.forbidden_behaviors == (
+        "replace article subjects",
+        "dominate the panel",
+    )
+    assert plan.render.style_rules == (
+        "clean editorial linework",
+        "muted accent color for arrows",
+    )
+
+    payload = plan.to_dict()
+
+    assert payload["plan_id"] == "plan-1"
+    assert payload["request"] == request.to_dict()
+    assert payload["resolution"] == plan.resolution.to_dict()
+    assert payload["anchor"] == {
+        "anchor_id": "anchor-1",
+        "anchor_kind": "causal_mechanism",
+        "anchor_claim": "Policy feedback loops compound over time.",
+        "anchor_question": "Why does the feedback loop accelerate?",
+        "source_evidence_ids": ["ev-1", "ev-2"],
+        "main_entities": ["Policy", "Market"],
+        "required_subjects": ["regulator", "market signal"],
+        "source_text_excerpt": "The policy change triggered a market feedback loop.",
+        "confidence": 0.82,
+    }
+    assert payload["diagram"]["primary_visual_task"] == "cognitive_explanation"
+    assert payload["diagram"]["visible_text"] == _visible_text().to_dict()
+    assert payload["series_signature"]["role"] == "guide"
+    assert payload["render"]["diagram_panel_aspect_ratio"] == "square_1_1"
+    json.dumps(payload, allow_nan=False)
+
+
+def test_xiaohei_render_style_does_not_insert_signature_when_role_none():
+    signature = ac.SeriesVisualSignatureContract(
+        enabled=False,
+        role=SeriesVisualSignatureRole.NONE,
+        identity_profile_id=None,
+        participation_rule="No recurring signature participates.",
+        replacement_policy="no_subject_replacement",
+        visual_weight=0.0,
+        forbidden_behaviors=["do not replace article subjects"],
+    )
+    render = ac.DiagramRenderContract(
+        render_style=DiagramRenderStyle.XIAOHEI_HANDDRAWN,
+        canvas_aspect_ratio=DiagramAspectRatio.LANDSCAPE_16_9,
+        diagram_panel_aspect_ratio=DiagramAspectRatio.LANDSCAPE_16_9,
+        panel_inside_canvas=False,
+        style_rules=[
+            "loose black marker linework",
+            "plain paper texture",
+        ],
+        negative_style_rules=["no photorealistic shading"],
+    )
+
+    assert signature.to_dict()["role"] == "none"
+    assert render.style_rules == (
+        "loose black marker linework",
+        "plain paper texture",
+    )
+    render_payload = render.to_dict()
+    assert render_payload["style_rules"] == [
+        "loose black marker linework",
+        "plain paper texture",
+    ]
+    assert "signature" not in " ".join(render_payload["style_rules"]).lower()
+    assert "character" not in " ".join(render_payload["style_rules"]).lower()
+
+
+def test_signature_enabled_requires_non_none_role():
+    for role in (SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO):
+        with pytest.raises(ValueError, match="role"):
+            _signature(enabled=True, role=role)
+
+    disabled = ac.SeriesVisualSignatureContract(
+        enabled=False,
+        role=SeriesVisualSignatureRole.NONE,
+        identity_profile_id=" ",
+        participation_rule="Disabled signature stays out of the frame.",
+        replacement_policy="no_subject_replacement",
+        visual_weight=0.0,
+        forbidden_behaviors=[],
+    )
+
+    assert disabled.role is SeriesVisualSignatureRole.NONE
+    assert disabled.identity_profile_id is None
+
+
+def test_signature_visual_weight_range_validation():
+    for bad_weight in (-0.01, 1.01):
+        with pytest.raises(ValueError, match="visual_weight"):
+            _signature(visual_weight=bad_weight)
+
+    assert _signature(visual_weight=0.0).visual_weight == 0.0
+    assert _signature(visual_weight=1.0).visual_weight == 1.0
+
+
+def test_diagram_render_contract_serializes_canvas_and_panel_ratio():
+    render = ac.DiagramRenderContract(
+        render_style="clean_vector",
+        canvas_aspect_ratio="landscape_16_9",
+        diagram_panel_aspect_ratio="portrait_4_5",
+        panel_inside_canvas="true",
+        style_rules=["thin vector strokes"],
+        negative_style_rules=["no texture"],
+    )
+
+    assert render.style_rules == ("thin vector strokes",)
+    assert render.negative_style_rules == ("no texture",)
+    assert render.to_dict() == {
+        "render_style": "clean_vector",
+        "canvas_aspect_ratio": "landscape_16_9",
+        "diagram_panel_aspect_ratio": "portrait_4_5",
+        "panel_inside_canvas": True,
+        "style_rules": ["thin vector strokes"],
+        "negative_style_rules": ["no texture"],
+    }
+
+
+def test_cognitive_anchor_plan_requires_source_evidence_or_source_text_fallback():
+    with pytest.raises(ValueError, match="source_evidence_ids or source_text_excerpt"):
+        ac.CognitiveAnchorPlan(
+            anchor_id="anchor-blank",
+            anchor_kind="judgment",
+            anchor_claim="A concrete claim is present.",
+            anchor_question="What question does the claim answer?",
+            source_evidence_ids=[],
+            main_entities=[],
+            required_subjects=[],
+            source_text_excerpt=" ",
+            confidence=0.5,
+        )
+
+    fallback_anchor = ac.CognitiveAnchorPlan(
+        anchor_id="anchor-fallback",
+        anchor_kind="judgment",
+        anchor_claim="A concrete claim is present.",
+        anchor_question="What question does the claim answer?",
+        source_evidence_ids=[],
+        main_entities=["claimant"],
+        required_subjects=["claimant"],
+        source_text_excerpt="Fallback source sentence.",
+        confidence=1.0,
+    )
+
+    assert fallback_anchor.source_evidence_ids == ()
+    assert fallback_anchor.source_text_excerpt == "Fallback source sentence."
