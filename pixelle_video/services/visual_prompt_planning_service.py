@@ -14,8 +14,8 @@ from pixelle_video.models.visual_role_request import (
     VisualRoleRequest,
     is_supported_visual_role_pipeline_version,
 )
-from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
+from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.models.visual_style_contract import VisualStyleLayerContract
 from pixelle_video.services.base_visual_brief_planner import BaseVisualBriefPlanner
 from pixelle_video.services.provider_prompt_projector import ProviderPromptProjector
@@ -26,6 +26,7 @@ from pixelle_video.services.visual_role_prompt_projector import VisualRolePrompt
 from pixelle_video.services.visual_role_repair_loop import VisualRoleRepairLoop
 from pixelle_video.services.visual_role_scene_planner import VisualRoleScenePlanner
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
+from pixelle_video.utils.json_safety import to_json_compatible
 
 
 @dataclass(frozen=True)
@@ -61,7 +62,7 @@ class VisualPromptPlanningResult:
             snapshot["visual_role_critique_by_frame"] = {critique.frame_id: critique.to_dict() for critique in self.visual_role_critiques}
         projected_parts_by_frame: dict[str, Any] = {}
         for index, rendered in enumerate(self.rendered_prompts):
-            parts = dict(rendered.metadata or {}).get("projected_prompt_parts")
+            parts = rendered.metadata_to_dict().get("projected_prompt_parts")
             if parts is None:
                 continue
             frame_id = (
@@ -74,7 +75,13 @@ class VisualPromptPlanningResult:
             snapshot["visual_role_projected_prompt_parts_by_frame"] = projected_parts_by_frame
         if self.visual_role_repair_attempts:
             snapshot["visual_role_repair_attempts"] = dict(self.visual_role_repair_attempts)
-        return snapshot
+        compatible_snapshot = to_json_compatible(
+            snapshot,
+            field_name="visual_prompt_planning_snapshot",
+        )
+        if not isinstance(compatible_snapshot, dict):
+            raise TypeError("visual_prompt_planning_snapshot must be a mapping")
+        return compatible_snapshot
 
 
 @dataclass(frozen=True)

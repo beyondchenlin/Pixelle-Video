@@ -41,6 +41,7 @@ from pixelle_video.render_backend import (
     DEFAULT_RENDER_BACKEND,
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
 )
+from pixelle_video.utils.json_safety import to_json_compatible
 from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
 
 
@@ -360,7 +361,10 @@ class PersistenceService:
             "content_metadata": self._content_metadata_to_dict(storyboard.content_metadata) if storyboard.content_metadata else None,
             "final_video_path": storyboard.final_video_path,
             "total_duration": storyboard.total_duration,
-            "planning_snapshot": storyboard.planning_snapshot,
+            "planning_snapshot": to_json_compatible(
+                storyboard.planning_snapshot,
+                field_name="storyboard.planning_snapshot",
+            ),
             "created_at": storyboard.created_at.isoformat() if storyboard.created_at else None,
             "completed_at": storyboard.completed_at.isoformat() if storyboard.completed_at else None,
         }

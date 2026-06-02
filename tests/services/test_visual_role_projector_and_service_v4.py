@@ -1,18 +1,22 @@
+import json
 from dataclasses import replace
 
 import pytest
 
+from pixelle_video.models.base_visual_brief import BaseVisualBrief
+from pixelle_video.models.visual_expression import VisualExpressionDecision, VisualExpressionMode
+from pixelle_video.models.visual_role_planning import VisualRoleCritique, VisualRolePromptIssue
+from pixelle_video.models.visual_role_profile import VisualRoleProfile
 from pixelle_video.models.visual_role_request import (
     VISUAL_ROLE_LEGACY_PIPELINE_VERSION,
     VisualRoleRequest,
 )
-from pixelle_video.models.visual_role_profile import VisualRoleProfile
 from pixelle_video.services.visual_prompt_planning_service import VisualPromptPlanningService
-from pixelle_video.services.visual_role_prompt_projector import VisualRolePromptProjectionError, VisualRolePromptProjector
-from pixelle_video.models.base_visual_brief import BaseVisualBrief
-from pixelle_video.models.visual_expression import VisualExpressionDecision, VisualExpressionMode
+from pixelle_video.services.visual_role_prompt_projector import (
+    VisualRolePromptProjectionError,
+    VisualRolePromptProjector,
+)
 from pixelle_video.services.visual_role_scene_planner import VisualRoleScenePlanner
-from pixelle_video.models.visual_role_planning import VisualRoleCritique, VisualRolePromptIssue
 
 
 def _request():
@@ -60,6 +64,11 @@ async def test_visual_prompt_planning_routes_v4_to_visual_role_projector():
     snapshot = result.planning_snapshot()
     assert "visual_role_request" in snapshot
     assert "visual_role_plan_by_frame" in snapshot
+    assert isinstance(
+        snapshot["visual_role_projected_prompt_parts_by_frame"]["f1"],
+        dict,
+    )
+    json.dumps(snapshot, ensure_ascii=False)
 
 
 @pytest.mark.asyncio

@@ -212,6 +212,9 @@ class RenderedMediaPrompt:
     def with_prompt(self, prompt: str) -> "RenderedMediaPrompt":
         return replace(self, prompt=prompt, metadata=_caller_metadata_from_rendered_metadata(self.metadata))
 
+    def metadata_to_dict(self) -> dict[str, Any]:
+        return _detach_metadata(self.metadata, allow_trace_keys=True)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "prompt": self.prompt,
@@ -219,7 +222,7 @@ class RenderedMediaPrompt:
             "prompt_contract": self.prompt_contract.to_dict(),
             "renderer_id": self.renderer_id,
             "renderer_version": self.renderer_version,
-            "metadata": _detach_metadata(self.metadata, allow_trace_keys=True),
+            "metadata": self.metadata_to_dict(),
         }
 
 

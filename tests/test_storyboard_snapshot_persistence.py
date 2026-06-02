@@ -1,4 +1,5 @@
 from datetime import datetime
+from types import MappingProxyType
 
 import pytest
 
@@ -103,6 +104,37 @@ async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and
     assert loaded.frames[0].shot_type == "medium_shot"
     assert loaded.frames[0].shot_purpose == "context"
     assert loaded.frames[0].frame_source == "planner_generated"
+
+
+@pytest.mark.asyncio
+async def test_storyboard_persistence_detaches_mappingproxy_in_planning_snapshot(tmp_path):
+    persistence = PersistenceService(output_dir=str(tmp_path))
+    storyboard = Storyboard(
+        title="Frozen Snapshot Storyboard",
+        config=StoryboardConfig(task_id="task-frozen", media_width=768, media_height=768),
+        frames=[
+            StoryboardFrame(
+                index=0,
+                narration="scene one",
+                image_prompt="styled prompt",
+            )
+        ],
+        planning_snapshot={
+            "visual_role_projected_prompt_parts_by_frame": {
+                "frame_0001": MappingProxyType({"projector_validation_passed": True})
+            }
+        },
+    )
+
+    await persistence.save_storyboard("task-frozen", storyboard)
+    loaded = await persistence.load_storyboard("task-frozen")
+
+    assert loaded is not None
+    assert loaded.planning_snapshot == {
+        "visual_role_projected_prompt_parts_by_frame": {
+            "frame_0001": {"projector_validation_passed": True}
+        }
+    }
 
 
 @pytest.mark.asyncio

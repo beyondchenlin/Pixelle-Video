@@ -1,3 +1,5 @@
+from types import MappingProxyType
+
 from web.state.storyboard_preview import (
     STORYBOARD_PREVIEW_SNAPSHOT_KEY,
     get_storyboard_preview_snapshot,
@@ -16,6 +18,26 @@ def test_set_storyboard_preview_snapshot_updates_state_and_reports_change():
     assert changed is True
     assert session_state[STORYBOARD_PREVIEW_SNAPSHOT_KEY] == {
         "storyboard_generation": {"plan_id": "plan_1"}
+    }
+
+
+def test_set_storyboard_preview_snapshot_detaches_mappingproxy_values():
+    session_state = {}
+
+    changed = set_storyboard_preview_snapshot(
+        session_state,
+        {
+            "visual_role_projected_prompt_parts_by_frame": {
+                "frame_0001": MappingProxyType({"projector_validation_passed": True})
+            }
+        },
+    )
+
+    assert changed is True
+    assert session_state[STORYBOARD_PREVIEW_SNAPSHOT_KEY] == {
+        "visual_role_projected_prompt_parts_by_frame": {
+            "frame_0001": {"projector_validation_passed": True}
+        }
     }
 
 
