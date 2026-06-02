@@ -103,12 +103,13 @@ def _signature(
     *,
     enabled: bool = True,
     role: SeriesVisualSignatureRole = SeriesVisualSignatureRole.GUIDE,
+    identity_profile_id: str | None = " signature-profile-7 ",
     visual_weight: float = 0.35,
 ) -> "ac.SeriesVisualSignatureContract":
     return ac.SeriesVisualSignatureContract(
         enabled=enabled,
         role=role,
-        identity_profile_id=" signature-profile-7 ",
+        identity_profile_id=identity_profile_id,
         participation_rule="Guide appears only as an explanatory marker.",
         replacement_policy="no_subject_replacement",
         visual_weight=visual_weight,
@@ -489,6 +490,9 @@ def test_signature_enabled_requires_non_none_role():
     for role in (SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO):
         with pytest.raises(ValueError, match="role"):
             _signature(enabled=True, role=role)
+
+    with pytest.raises(ValueError, match="identity_profile_id"):
+        _signature(enabled=True, identity_profile_id=None)
 
     disabled = ac.SeriesVisualSignatureContract(
         enabled=False,

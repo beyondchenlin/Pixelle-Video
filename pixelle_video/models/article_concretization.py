@@ -1086,6 +1086,8 @@ def _validate_signature_enabled_state(
     if enabled:
         if role in {SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO}:
             raise ValueError("role must not be none or auto when enabled is true")
+        if identity_profile_id is None:
+            raise ValueError("identity_profile_id is required when enabled is true")
         return
     if role is not SeriesVisualSignatureRole.NONE:
         raise ValueError("role must be none when enabled is false")

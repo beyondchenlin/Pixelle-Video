@@ -128,5 +128,43 @@ def test_image_prompt_template_explains_ip_integration():
     )
 
     assert "ip_scene_description" in prompt
-    assert "Weave" in prompt
+    assert "subject-first base image prompt" in prompt
+    assert "separate downstream visual_anchor_placement stage" in prompt
     assert "do not output field names" in prompt.lower()
+
+
+def test_image_prompt_template_carries_article_concretization_plan():
+    prompt = build_image_prompt_prompt(
+        narrations=["Cause changes the result."],
+        min_words=30,
+        max_words=60,
+        prompt_contexts=PromptContextEnvelope(
+            plan_context={"plan_source_text": "Cause changes the result."},
+            frame_contexts=[
+                {
+                    "frame_source_text": "Cause changes the result.",
+                    "article_concretization_plan": {
+                        "frame_id": "frame-0001",
+                        "anchor": {
+                            "anchor_kind": "causal_mechanism",
+                            "anchor_claim": "Cause drives effect.",
+                        },
+                        "diagram": {
+                            "grammar": "process_flow",
+                            "visible_text": {
+                                "effective_policy": "approved_labels_only",
+                                "allowed_visible_text": ["Cause", "Effect"],
+                            },
+                        },
+                    },
+                }
+            ],
+        ),
+    )
+
+    assert "article_concretization_plan" in prompt
+    assert "causal_mechanism" in prompt
+    assert "process_flow" in prompt
+    assert "approved_labels_only" in prompt
+    assert "Cause" in prompt
+    assert "Effect" in prompt
