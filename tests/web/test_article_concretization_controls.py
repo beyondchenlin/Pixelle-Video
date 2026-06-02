@@ -172,3 +172,27 @@ def test_controls_do_not_disable_entire_expander_for_static_template():
     assert any("图解面板比例" in caption for caption in fake_ui.captions)
     assert "strict_user_mode" not in {call["key"] for call in fake_ui.selectboxes}
     assert payload["article_concretization_enabled"] is True
+
+
+def test_static_template_forces_payload_to_follow_template_ratio_even_with_stale_state():
+    fake_ui = _FakeStreamlit()
+    fake_ui.checkbox_values["single_video_article_concretization_enabled"] = True
+    fake_ui.selectbox_values["single_video_diagram_aspect_ratio"] = "landscape_16_9"
+
+    payload = article_concretization_controls.render_article_concretization_controls(
+        ui=fake_ui,
+        translate=_fake_tr,
+        key_prefix="single_video",
+        selected_template_type_for_storyboard="static",
+    )
+
+    assert payload["diagram_aspect_ratio"] == "template"
+    selectbox_disabled = {
+        call["key"]: call.get("disabled", False) for call in fake_ui.selectboxes
+    }
+    assert selectbox_disabled["single_video_diagram_aspect_ratio"] is True
+    assert selectbox_disabled["single_video_cognitive_anchor_kind"] is False
+    assert selectbox_disabled["single_video_explanation_diagram_grammar"] is False
+    assert selectbox_disabled["single_video_diagram_render_style"] is False
+    assert selectbox_disabled["single_video_series_visual_signature_role"] is False
+    assert selectbox_disabled["single_video_diagram_visible_text_policy"] is False

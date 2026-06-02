@@ -6,6 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from pixelle_video.models.progress import ProgressI18nMessage
+from pixelle_video.models.video_generation_contract import (
+    ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
+)
 from web.components import output_preview
 from web.components.prompt_generation_performance import (
     LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM,
@@ -16,6 +19,17 @@ from web.utils import progress_i18n
 from web.utils.streamlit_helpers import RefreshableSlot
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_article_concretization_option_keys_match_generation_contract():
+    assert (
+        output_preview.ARTICLE_CONCRETIZATION_OPTION_KEYS
+        == ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS
+    )
+    assert (
+        output_preview.ARTICLE_CONCRETIZATION_OPTION_KEYS
+        is ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS
+    )
 
 
 def _layered_template_spec_payload(**overrides):

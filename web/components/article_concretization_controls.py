@@ -216,6 +216,7 @@ def render_article_concretization_controls(
                     ),
                 )
                 if aspect_ratio_disabled:
+                    diagram_aspect_ratio = DiagramAspectRatio.TEMPLATE.value
                     ui.caption(
                         translate(
                             "article_concretization.diagram_aspect_ratio_static_hint",

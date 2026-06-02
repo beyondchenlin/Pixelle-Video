@@ -39,12 +39,13 @@ from pixelle_video.models.text_style import (
     DEFAULT_CAPTION_STROKE_WIDTH,
 )
 from pixelle_video.models.video_generation_contract import (
-    STORYBOARD_GENERATION_OPTION_KEYS as CONTRACT_STORYBOARD_GENERATION_OPTION_KEYS,
-)
-from pixelle_video.models.video_generation_contract import (
+    ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
     IPControlsContract,
     StoryboardControlsContract,
     is_plan_frame_override_payload,
+)
+from pixelle_video.models.video_generation_contract import (
+    STORYBOARD_GENERATION_OPTION_KEYS as CONTRACT_STORYBOARD_GENERATION_OPTION_KEYS,
 )
 from pixelle_video.platform_context import resolve_business_context
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
@@ -133,17 +134,7 @@ STORYBOARD_GENERATION_OPTION_KEYS = (
     "script_length_mode",
     "script_target_words",
 )
-ARTICLE_CONCRETIZATION_OPTION_KEYS = (
-    "article_concretization_enabled",
-    "cognitive_anchor_kind",
-    "explanation_diagram_grammar",
-    "series_visual_signature_role",
-    "diagram_render_style",
-    "diagram_aspect_ratio",
-    "diagram_visible_text_policy",
-    "diagram_approved_labels",
-    "diagram_user_intent_hint",
-)
+ARTICLE_CONCRETIZATION_OPTION_KEYS = ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS
 SINGLE_VIDEO_GENERATING_KEY = "single_video_is_generating"
 SINGLE_VIDEO_REQUESTED_KEY = "single_video_generation_requested"
 SINGLE_VIDEO_DUPLICATE_CLICK_KEY = "single_video_duplicate_click"
