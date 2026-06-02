@@ -36,6 +36,7 @@ class VisibleTextPolicy(str, Enum):
     SOURCE_TEXT_ONLY = "source_text_only"
     SYMBOLIC_LABELS_ONLY = "symbolic_labels_only"
     APPROVED_LABELS_ONLY = "approved_labels_only"
+    FREE_TEXT_ALLOWED = "free_text_allowed"
 
     @classmethod
     def from_value(cls, value: Any) -> "VisibleTextPolicy":

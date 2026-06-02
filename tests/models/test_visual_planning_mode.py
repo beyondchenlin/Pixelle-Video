@@ -24,6 +24,13 @@ def test_visible_text_policy_defaults_and_known_values():
     assert VisibleTextPolicy.from_value("source_text_only") is VisibleTextPolicy.SOURCE_TEXT_ONLY
 
 
+def test_visible_text_policy_accepts_free_text_allowed():
+    assert (
+        VisibleTextPolicy.from_value("free_text_allowed")
+        is VisibleTextPolicy.FREE_TEXT_ALLOWED
+    )
+
+
 def test_visible_text_policy_rejects_unknown_values():
     with pytest.raises(ValueError, match="visible_text_policy"):
         VisibleTextPolicy.from_value("free_text")
