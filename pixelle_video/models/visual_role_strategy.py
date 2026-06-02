@@ -19,6 +19,21 @@ class VisualConsistencyMode(str, Enum):
     PRIMARY_CHARACTER = "primary_character"
 
 
+class VisualRoleStrategy(str, Enum):
+    AUTO = "auto"
+    HOST_EXPLAINER = "host_explainer"
+    SIGNATURE_PRESENCE = "signature_presence"
+    OBSERVER_GUIDE = "observer_guide"
+    PARTICIPANT = "participant"
+    BACKGROUND_SIGNATURE = "background_signature"
+
+    @classmethod
+    def from_value(cls, value: Any) -> "VisualRoleStrategy":
+        if isinstance(value, cls):
+            return value
+        return _strict_enum_value(value, cls, "visual_role_strategy", cls.AUTO)
+
+
 @dataclass(frozen=True)
 class VisualRoleStrategyControls:
     role_mode: VisualRoleMode = VisualRoleMode.AUTO
@@ -28,8 +43,18 @@ class VisualRoleStrategyControls:
     def from_mapping(cls, source: Mapping[str, Any] | None) -> "VisualRoleStrategyControls":
         source = dict(source or {})
         return cls(
-            role_mode=_enum_value(source.get("visual_role_mode") or source.get("role_mode"), VisualRoleMode, VisualRoleMode.AUTO),
-            consistency_mode=_enum_value(source.get("visual_consistency_mode") or source.get("consistency_mode"), VisualConsistencyMode, VisualConsistencyMode.OFF),
+            role_mode=_strict_enum_value(
+                _mapping_value(source, "visual_role_mode", "role_mode"),
+                VisualRoleMode,
+                "visual_role_mode",
+                VisualRoleMode.AUTO,
+            ),
+            consistency_mode=_strict_enum_value(
+                _mapping_value(source, "visual_consistency_mode", "consistency_mode"),
+                VisualConsistencyMode,
+                "visual_consistency_mode",
+                VisualConsistencyMode.OFF,
+            ),
         )
 
     @property
@@ -86,14 +111,82 @@ def build_visual_identity_kernel(anchor_profile: Any) -> tuple[str, ...]:
     return tuple(_dedupe(tokens)) or ("频道视觉签名",)
 
 
-def _enum_value(value: Any, enum_cls: type[Enum], default: Enum) -> Enum:
-    text = str(value or "").strip()
+def resolve_effective_role_mode_with_v44_context(
+    *,
+    requested_role_mode: Any,
+    consistency_mode: Any,
+    visual_role_strategy: Any,
+    subject_replacement_allowed: bool,
+) -> VisualRoleMode:
+    role_mode = _visual_role_mode_from_value(requested_role_mode)
+    consistency = _visual_consistency_mode_from_value(consistency_mode)
+    strategy = VisualRoleStrategy.from_value(visual_role_strategy)
+
+    protected_supporting_strategies = {
+        VisualRoleStrategy.SIGNATURE_PRESENCE,
+        VisualRoleStrategy.OBSERVER_GUIDE,
+        VisualRoleStrategy.BACKGROUND_SIGNATURE,
+    }
+    if strategy in protected_supporting_strategies and (
+        role_mode is VisualRoleMode.SUBJECT_REPLACEMENT
+        or consistency is VisualConsistencyMode.PRIMARY_CHARACTER
+    ):
+        return VisualRoleMode.SUPPORTING_INTEGRATION
+    if not subject_replacement_allowed and (
+        role_mode is VisualRoleMode.SUBJECT_REPLACEMENT
+        or (
+            consistency is VisualConsistencyMode.PRIMARY_CHARACTER
+            and strategy is VisualRoleStrategy.PARTICIPANT
+        )
+    ):
+        return VisualRoleMode.SUPPORTING_INTEGRATION
+    if subject_replacement_allowed and role_mode is VisualRoleMode.SUBJECT_REPLACEMENT:
+        return VisualRoleMode.SUBJECT_REPLACEMENT
+    if (
+        subject_replacement_allowed
+        and consistency is VisualConsistencyMode.PRIMARY_CHARACTER
+        and strategy is VisualRoleStrategy.PARTICIPANT
+    ):
+        return VisualRoleMode.SUBJECT_REPLACEMENT
+    if consistency is VisualConsistencyMode.SUPPORTING_CHARACTER:
+        return VisualRoleMode.SUPPORTING_INTEGRATION
+    return role_mode
+
+
+def _visual_role_mode_from_value(value: Any) -> VisualRoleMode:
+    if isinstance(value, VisualRoleMode):
+        return value
+    return _strict_enum_value(value, VisualRoleMode, "requested_role_mode", VisualRoleMode.AUTO)
+
+
+def _visual_consistency_mode_from_value(value: Any) -> VisualConsistencyMode:
+    if isinstance(value, VisualConsistencyMode):
+        return value
+    return _strict_enum_value(value, VisualConsistencyMode, "consistency_mode", VisualConsistencyMode.OFF)
+
+
+def _strict_enum_value(value: Any, enum_cls: type[Enum], field_name: str, default: Enum) -> Enum:
+    if isinstance(value, enum_cls):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, Enum) or not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
+    text = value.strip()
     if not text:
         return default
     for item in enum_cls:
         if text == item.value or text.lower() == item.name.lower():
             return item
-    return default
+    raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
+
+
+def _mapping_value(source: Mapping[str, Any], primary_key: str, legacy_key: str) -> Any:
+    if primary_key in source and source[primary_key] is not None:
+        return source[primary_key]
+    if legacy_key in source and source[legacy_key] is not None:
+        return source[legacy_key]
+    return None
 
 
 def _extend(target: list[str], value: Any) -> None:
@@ -145,6 +238,8 @@ def _dedupe(values: Sequence[str]) -> list[str]:
 __all__ = [
     "VisualRoleMode",
     "VisualConsistencyMode",
+    "VisualRoleStrategy",
     "VisualRoleStrategyControls",
     "build_visual_identity_kernel",
+    "resolve_effective_role_mode_with_v44_context",
 ]

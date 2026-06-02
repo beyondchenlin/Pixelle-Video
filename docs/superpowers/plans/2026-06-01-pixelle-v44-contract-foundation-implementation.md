@@ -78,6 +78,20 @@ Not included:
 - Do not use `git add --all`.
 - Do not commit unrelated dirty worktree changes.
 
+## Dependency-Safe Execution Order
+
+The task bodies below remain the source of implementation detail, but subagent execution must use this dependency-safe order:
+
+- Task A: create `pixelle_video/models/visual_planning_mode.py` and add the compatible `VisualRoleStrategy` extension in `pixelle_video/models/visual_role_strategy.py`.
+- Task B: implement Article Understanding contracts from Task 1.
+- Task C: implement Mode Resolution contracts from Task 2 after Task A and Task B are available.
+- Task D: implement the versioned Final Visual Prompt Contract adapter from Task 4.
+- Task E: implement API and generation parameter pass-through from Task 5.
+- Task F: implement Prompt Trace Manifest serialization from Task 6.
+- Task G: run the verification commands from Task 7.
+
+This ordering avoids two intentional contract dependencies from producing false RED failures: Article Understanding tests import `VisibleTextPolicy`, and Mode Resolution tests import `VisualRoleStrategy`.
+
 ## Task 1: Article Understanding Contracts
 
 **Files:**

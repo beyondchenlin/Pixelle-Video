@@ -12,7 +12,12 @@ from pixelle_video.models.visual_role_request import (
     VisualRoleRequest,
     is_supported_visual_role_pipeline_version,
 )
-from pixelle_video.models.visual_role_strategy import VisualRoleMode
+from pixelle_video.models.visual_role_strategy import (
+    VisualConsistencyMode,
+    VisualRoleMode,
+    VisualRoleStrategy,
+    resolve_effective_role_mode_with_v44_context,
+)
 
 
 def _enabled_params(**overrides):
@@ -57,6 +62,20 @@ def test_visual_expression_mode_invalid_defaults_auto():
     )
 
     assert controls.expression_mode is VisualExpressionMode.AUTO
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bad_value"),
+    [
+        ("visual_role_mode", "not_a_role_mode"),
+        ("visual_role_mode", False),
+        ("visual_consistency_mode", "not_a_consistency_mode"),
+        ("visual_consistency_mode", 0),
+    ],
+)
+def test_visual_role_controls_reject_invalid_strategy_facts(field_name, bad_value):
+    with pytest.raises(ValueError, match=field_name):
+        VisualRoleControlsContract.from_mapping(_enabled_params(**{field_name: bad_value}))
 
 
 def test_primary_character_forces_subject_replacement():
@@ -135,5 +154,225 @@ def test_normalize_standard_video_generation_params_preserves_v4_fields():
     assert normalized["effective_visual_role_mode"] == "supporting_integration"
 
 
+@pytest.mark.parametrize(
+    ("field_name", "bad_value"),
+    [
+        ("visual_role_mode", "not_a_role_mode"),
+        ("visual_role_mode", False),
+        ("visual_consistency_mode", "not_a_consistency_mode"),
+        ("visual_consistency_mode", 0),
+    ],
+)
+def test_normalize_standard_video_generation_params_rejects_invalid_visual_role_facts(
+    field_name,
+    bad_value,
+):
+    with pytest.raises(ValueError, match=field_name):
+        normalize_standard_video_generation_params(_enabled_params(**{field_name: bad_value}))
+
+
+@pytest.mark.parametrize("strategy", ["observer_guide", "signature_presence"])
+def test_normalize_standard_video_generation_params_constrains_v44_supporting_strategies(
+    strategy,
+):
+    normalized = normalize_standard_video_generation_params(
+        _enabled_params(
+            visual_role_mode="auto",
+            visual_consistency_mode="primary_character",
+            visual_role_strategy=strategy,
+        )
+    )
+
+    assert normalized["visual_role_strategy"] == strategy
+    assert normalized["visual_consistency_mode"] == "primary_character"
+    assert normalized["effective_visual_role_mode"] == "supporting_integration"
+
+
+def test_normalize_standard_video_generation_params_allows_participant_subject_replacement():
+    normalized = normalize_standard_video_generation_params(
+        _enabled_params(
+            visual_role_mode="auto",
+            visual_consistency_mode="primary_character",
+            visual_role_strategy="participant",
+        )
+    )
+
+    assert normalized["visual_role_strategy"] == "participant"
+    assert normalized["visual_consistency_mode"] == "primary_character"
+    assert normalized["effective_visual_role_mode"] == "subject_replacement"
+
+
+def test_normalize_standard_video_generation_params_does_not_auto_promote_host_explainer():
+    normalized = normalize_standard_video_generation_params(
+        _enabled_params(
+            visual_role_mode="auto",
+            visual_consistency_mode="primary_character",
+            visual_role_strategy="host_explainer",
+        )
+    )
+
+    assert normalized["visual_role_strategy"] == "host_explainer"
+    assert normalized["visual_consistency_mode"] == "primary_character"
+    assert normalized["effective_visual_role_mode"] == "auto"
+
+
 def test_validate_standard_video_generation_params_accepts_visual_role_controls():
     validate_standard_video_generation_params(_enabled_params())
+
+
+def test_visual_role_strategy_accepts_known_values():
+    assert VisualRoleStrategy.from_value("host_explainer") is VisualRoleStrategy.HOST_EXPLAINER
+    assert VisualRoleStrategy.from_value("observer_guide") is VisualRoleStrategy.OBSERVER_GUIDE
+    assert VisualRoleStrategy.from_value(None) is VisualRoleStrategy.AUTO
+
+
+def test_visual_role_strategy_rejects_unknown_values():
+    with pytest.raises(ValueError, match="visual_role_strategy"):
+        VisualRoleStrategy.from_value("not_a_strategy")
+
+
+@pytest.mark.parametrize("value", [False, 0, [], object()])
+def test_visual_role_strategy_rejects_non_string_default_like_values(value):
+    with pytest.raises(ValueError, match="visual_role_strategy"):
+        VisualRoleStrategy.from_value(value)
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        VisualRoleStrategy.SIGNATURE_PRESENCE,
+        VisualRoleStrategy.OBSERVER_GUIDE,
+        VisualRoleStrategy.BACKGROUND_SIGNATURE,
+    ],
+)
+def test_v44_context_downgrades_subject_replacement_for_observer_signature_strategies(
+    strategy,
+):
+    assert (
+        resolve_effective_role_mode_with_v44_context(
+            requested_role_mode=VisualRoleMode.SUBJECT_REPLACEMENT,
+            consistency_mode=VisualConsistencyMode.OFF,
+            visual_role_strategy=strategy,
+            subject_replacement_allowed=False,
+        )
+        is VisualRoleMode.SUPPORTING_INTEGRATION
+    )
+
+
+def test_v44_context_blocks_explicit_subject_replacement_when_not_allowed():
+    assert (
+        resolve_effective_role_mode_with_v44_context(
+            requested_role_mode=VisualRoleMode.SUBJECT_REPLACEMENT,
+            consistency_mode=VisualConsistencyMode.OFF,
+            visual_role_strategy=VisualRoleStrategy.HOST_EXPLAINER,
+            subject_replacement_allowed=False,
+        )
+        is VisualRoleMode.SUPPORTING_INTEGRATION
+    )
+
+
+def test_v44_context_primary_character_replacement_requires_participant_strategy():
+    assert (
+        resolve_effective_role_mode_with_v44_context(
+            requested_role_mode=VisualRoleMode.AUTO,
+            consistency_mode=VisualConsistencyMode.PRIMARY_CHARACTER,
+            visual_role_strategy=VisualRoleStrategy.PARTICIPANT,
+            subject_replacement_allowed=True,
+        )
+        is VisualRoleMode.SUBJECT_REPLACEMENT
+    )
+    assert (
+        resolve_effective_role_mode_with_v44_context(
+            requested_role_mode=VisualRoleMode.AUTO,
+            consistency_mode=VisualConsistencyMode.PRIMARY_CHARACTER,
+            visual_role_strategy=VisualRoleStrategy.PARTICIPANT,
+            subject_replacement_allowed=False,
+        )
+        is VisualRoleMode.SUPPORTING_INTEGRATION
+    )
+    assert (
+        resolve_effective_role_mode_with_v44_context(
+            requested_role_mode=VisualRoleMode.AUTO,
+            consistency_mode=VisualConsistencyMode.PRIMARY_CHARACTER,
+            visual_role_strategy=VisualRoleStrategy.HOST_EXPLAINER,
+            subject_replacement_allowed=True,
+        )
+        is VisualRoleMode.AUTO
+    )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "kwargs"),
+    [
+        (
+            "requested_role_mode",
+            {
+                "requested_role_mode": "not_a_role_mode",
+                "consistency_mode": VisualConsistencyMode.OFF,
+                "visual_role_strategy": VisualRoleStrategy.AUTO,
+            },
+        ),
+        (
+            "consistency_mode",
+            {
+                "requested_role_mode": VisualRoleMode.AUTO,
+                "consistency_mode": "not_a_consistency_mode",
+                "visual_role_strategy": VisualRoleStrategy.AUTO,
+            },
+        ),
+        (
+            "visual_role_strategy",
+            {
+                "requested_role_mode": VisualRoleMode.AUTO,
+                "consistency_mode": VisualConsistencyMode.OFF,
+                "visual_role_strategy": "not_a_strategy",
+            },
+        ),
+    ],
+)
+def test_v44_context_rejects_invalid_mode_resolution_facts(field_name, kwargs):
+    with pytest.raises(ValueError, match=field_name):
+        resolve_effective_role_mode_with_v44_context(
+            **kwargs,
+            subject_replacement_allowed=False,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "kwargs"),
+    [
+        (
+            "requested_role_mode",
+            {
+                "requested_role_mode": False,
+                "consistency_mode": VisualConsistencyMode.OFF,
+                "visual_role_strategy": VisualRoleStrategy.AUTO,
+            },
+        ),
+        (
+            "consistency_mode",
+            {
+                "requested_role_mode": VisualRoleMode.AUTO,
+                "consistency_mode": 0,
+                "visual_role_strategy": VisualRoleStrategy.AUTO,
+            },
+        ),
+        (
+            "visual_role_strategy",
+            {
+                "requested_role_mode": VisualRoleMode.AUTO,
+                "consistency_mode": VisualConsistencyMode.OFF,
+                "visual_role_strategy": [],
+            },
+        ),
+    ],
+)
+def test_v44_context_rejects_non_string_default_like_mode_resolution_facts(
+    field_name,
+    kwargs,
+):
+    with pytest.raises(ValueError, match=field_name):
+        resolve_effective_role_mode_with_v44_context(
+            **kwargs,
+            subject_replacement_allowed=False,
+        )

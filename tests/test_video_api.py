@@ -18,6 +18,7 @@ from api.schemas.video import (
     VideoResolutionPreset,
 )
 from api.schemas.video_internal import VideoGenerateInternalRequest
+from pixelle_video.models.article_understanding import ArticleUnderstandingMode
 from pixelle_video.models.layered_template import (
     LayeredTemplateSpec,
     LayerSourceSpec,
@@ -35,6 +36,8 @@ from pixelle_video.models.video_generation_contract import (
     normalize_standard_video_generation_params,
     validate_standard_video_generation_params,
 )
+from pixelle_video.models.visual_planning_mode import VisualPlanningMode
+from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 from pixelle_video.services.resource_resolver import ResolvedResource, StaticResourceResolver
 
 
@@ -121,6 +124,24 @@ def test_api_media_preset_literals_match_size_contract():
     assert set(get_args(MediaResolutionPreset)) == set(VALID_MEDIA_RESOLUTION_PRESETS)
 
 
+def test_v44_api_planning_fields_use_model_enum_fact_sources():
+    assert video_schema_module.ArticleUnderstandingModeRequest is ArticleUnderstandingMode
+    assert video_schema_module.VisualPlanningModeRequest is VisualPlanningMode
+    assert video_schema_module.VisualRoleStrategyRequest is VisualRoleStrategy
+    assert (
+        VideoGenerateRequest.model_fields["article_understanding_mode"].annotation
+        is ArticleUnderstandingMode
+    )
+    assert (
+        VideoGenerateRequest.model_fields["visual_planning_mode"].annotation
+        is VisualPlanningMode
+    )
+    assert (
+        VideoGenerateRequest.model_fields["visual_role_strategy"].annotation
+        is VisualRoleStrategy
+    )
+
+
 def test_video_generate_request_rejects_removed_hyperframes_alias():
     with pytest.raises(ValidationError, match="hyperframes_compiled"):
         VideoGenerateRequest(
@@ -164,6 +185,54 @@ def test_video_generate_request_accepts_ip_prompt_chain_controls():
     assert request.ip_enabled is True
     assert request.ip_asset_bible_id == "bible_demo"
     assert request.ip_profile_id == "ip_main"
+
+
+def test_video_generate_request_accepts_v44_planning_controls():
+    request = VideoGenerateRequest(
+        text="demo",
+        article_understanding_mode="causal_mechanism",
+        visual_planning_mode="process_walkthrough",
+        visual_role_strategy="observer_guide",
+        strict_user_mode=True,
+        force_v44_planning=True,
+    )
+
+    assert request.article_understanding_mode == "causal_mechanism"
+    assert request.visual_planning_mode == "process_walkthrough"
+    assert request.visual_role_strategy == "observer_guide"
+    assert request.strict_user_mode is True
+    assert request.force_v44_planning is True
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("article_understanding_mode", "unknown"),
+        ("visual_planning_mode", "unknown"),
+        ("visual_role_strategy", "unknown"),
+    ],
+)
+def test_video_generate_request_rejects_invalid_v44_literal_values(
+    field_name: str,
+    value: str,
+):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="demo", **{field_name: value})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("visual_role_mode", "unknown"),
+        ("visual_consistency_mode", "unknown"),
+    ],
+)
+def test_video_generate_request_rejects_invalid_visual_role_strategy_controls(
+    field_name: str,
+    value: str,
+):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="demo", **{field_name: value})
 
 
 def test_video_generate_request_accepts_generation_world_hint():
@@ -218,6 +287,30 @@ def test_build_video_generation_params_copies_ip_prompt_chain_controls():
     assert params["ip_profile_id"] == "ip_main"
 
 
+def test_build_video_generation_params_copies_v44_planning_controls():
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            article_understanding_mode="thesis_argument",
+            visual_planning_mode="structural_explainer",
+            visual_role_strategy="host_explainer",
+            user_intent_hint="explain the policy change",
+            allow_mixed_lenses=False,
+            strict_user_mode=True,
+            force_v44_planning=True,
+        ),
+        request_id="req_v44",
+    )
+
+    assert params["article_understanding_mode"] == "thesis_argument"
+    assert params["visual_planning_mode"] == "structural_explainer"
+    assert params["visual_role_strategy"] == "host_explainer"
+    assert params["user_intent_hint"] == "explain the policy change"
+    assert params["allow_mixed_lenses"] is False
+    assert params["strict_user_mode"] is True
+    assert params["force_v44_planning"] is True
+
+
 def test_build_video_generation_params_copies_generation_world_hint():
     params = build_video_generation_params(
         VideoGenerateRequest(
@@ -244,6 +337,66 @@ def test_standard_video_generation_contract_omits_blank_generation_world_hint():
     )
 
     assert "generation_world_hint" not in params
+
+
+def test_standard_video_generation_contract_provides_v44_planning_defaults():
+    params = normalize_standard_video_generation_params({"text": "demo"})
+
+    assert params["article_understanding_mode"] == "auto"
+    assert params["visual_planning_mode"] == "auto"
+    assert params["visual_role_strategy"] == "auto"
+    assert params["user_intent_hint"] is None
+    assert params["allow_mixed_lenses"] is True
+    assert params["strict_user_mode"] is False
+    assert params["force_v44_planning"] is False
+
+
+def test_standard_video_generation_contract_normalizes_all_v44_request_fields():
+    params = normalize_standard_video_generation_params(
+        {
+            "text": "demo",
+            "user_intent_hint": "  explain policy change  ",
+            "allow_mixed_lenses": "false",
+        }
+    )
+
+    assert params["user_intent_hint"] == "explain policy change"
+    assert params["allow_mixed_lenses"] is False
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["article_understanding_mode", "visual_planning_mode", "visual_role_strategy"],
+)
+def test_standard_video_generation_contract_rejects_invalid_v44_enum_values(
+    field_name: str,
+):
+    with pytest.raises(ValueError, match=field_name):
+        normalize_standard_video_generation_params({field_name: "unknown"})
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["visual_role_mode", "visual_consistency_mode"],
+)
+def test_standard_video_generation_contract_rejects_invalid_visual_role_strategy_controls(
+    field_name: str,
+):
+    with pytest.raises(ValueError, match=field_name):
+        normalize_standard_video_generation_params({field_name: "unknown"})
+    with pytest.raises(ValueError, match=field_name):
+        validate_standard_video_generation_params({"text": "demo", field_name: "unknown"})
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["allow_mixed_lenses", "strict_user_mode", "force_v44_planning"],
+)
+def test_standard_video_generation_contract_rejects_invalid_v44_boolean_strings(
+    field_name: str,
+):
+    with pytest.raises(ValueError, match=field_name):
+        validate_standard_video_generation_params({"text": "demo", field_name: "maybe"})
 
 
 def test_standard_video_generation_contract_requires_ip_ids_when_enabled():
@@ -839,6 +992,11 @@ async def test_generate_video_sync_passes_prompt_generation_performance_controls
             text="demo",
             llm_prompt_batch_size=8,
             llm_prompt_batch_concurrent_limit=3,
+            article_understanding_mode="cognitive_state",
+            visual_planning_mode="cognitive_illustration",
+            visual_role_strategy="signature_presence",
+            strict_user_mode=True,
+            force_v44_planning=True,
         ),
         fake_pixelle_video,
         _api_request_context(),
@@ -847,6 +1005,11 @@ async def test_generate_video_sync_passes_prompt_generation_performance_controls
     call = fake_pixelle_video.calls[0]
     assert call["llm_prompt_batch_size"] == 8
     assert call["llm_prompt_batch_concurrent_limit"] == 3
+    assert call["article_understanding_mode"] == "cognitive_state"
+    assert call["visual_planning_mode"] == "cognitive_illustration"
+    assert call["visual_role_strategy"] == "signature_presence"
+    assert call["strict_user_mode"] is True
+    assert call["force_v44_planning"] is True
 
 
 @pytest.mark.asyncio
@@ -1062,12 +1225,12 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "max_image_prompt_words": 60,
             "canvas_width": 720,
             "canvas_height": 1280,
-            "media_width": 768,
-            "media_height": 768,
+            "media_width": 1280,
+            "media_height": 720,
             "video_orientation": "portrait",
             "video_resolution_preset": "portrait_hd",
-            "media_orientation": "square",
-            "media_resolution_preset": "768",
+            "media_orientation": "landscape",
+            "media_resolution_preset": "1k",
             "sync_media_size_to_canvas": False,
             "media_placement": {
                 "basis": "canvas",
@@ -1097,6 +1260,13 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "ip_enabled": False,
             "ip_asset_bible_id": None,
             "ip_profile_id": None,
+            "article_understanding_mode": "auto",
+            "visual_planning_mode": "auto",
+            "visual_role_strategy": "auto",
+            "user_intent_hint": None,
+            "allow_mixed_lenses": True,
+            "strict_user_mode": False,
+            "force_v44_planning": False,
             "text_rendering": {
                 "overlay": {
                     "enabled": True,

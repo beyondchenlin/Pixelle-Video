@@ -31,6 +31,7 @@ from api.schemas.storyboard_contract import (
     StoryboardPromptLanguage,
 )
 from api.schemas.text_rendering import TextRenderingRequest
+from pixelle_video.models.article_understanding import ArticleUnderstandingMode
 from pixelle_video.models.media_placement import MediaPlacement
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
 from pixelle_video.models.size_contract import (
@@ -50,6 +51,9 @@ from pixelle_video.models.storyboard_planning import (
     RoleStrategy,
     ShotOverridePolicy,
 )
+from pixelle_video.models.visual_planning_mode import VisualPlanningMode
+from pixelle_video.models.visual_role_request import VisualRoleControlsContract
+from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 from pixelle_video.render_backend import RenderBackend
 from pixelle_video.tts_split_strategy import TtsSplitMode
 from pixelle_video.utils.prompt_generation_performance import (
@@ -65,6 +69,9 @@ from pixelle_video.utils.template_util import (
 )
 
 StandardTtsAudioStrategy = Literal["auto", "master_track"]
+ArticleUnderstandingModeRequest = ArticleUnderstandingMode
+VisualPlanningModeRequest = VisualPlanningMode
+VisualRoleStrategyRequest = VisualRoleStrategy
 VideoOrientation = Literal["landscape", "portrait", "square"]
 VideoResolutionPreset = Literal[
     "landscape_hd",
@@ -268,6 +275,34 @@ class VideoGenerateRequest(BaseModel):
     visual_consistency_mode: Optional[str] = Field(
         None,
         description="V4 visual-role consistency mode.",
+    )
+    article_understanding_mode: ArticleUnderstandingModeRequest = Field(
+        "auto",
+        description="V4.4 article understanding mode.",
+    )
+    visual_planning_mode: VisualPlanningModeRequest = Field(
+        "auto",
+        description="V4.4 visual planning mode.",
+    )
+    visual_role_strategy: VisualRoleStrategyRequest = Field(
+        "auto",
+        description="V4.4 visual role strategy.",
+    )
+    user_intent_hint: Optional[str] = Field(
+        None,
+        description="Optional user intent hint for V4.4 article visual planning.",
+    )
+    allow_mixed_lenses: bool = Field(
+        True,
+        description="Allow V4.4 article understanding to use mixed lenses across frames.",
+    )
+    strict_user_mode: bool = Field(
+        False,
+        description="Reject planner fallback when user-selected V4.4 controls conflict.",
+    )
+    force_v44_planning: bool = Field(
+        False,
+        description="Force V4.4 planning path for eligible generation.",
     )
     tts_audio_strategy: Optional[StandardTtsAudioStrategy] = Field(
         None,
@@ -526,6 +561,13 @@ class VideoGenerateRequest(BaseModel):
                 raise ValueError("ip_asset_bible_id is required when ip_enabled=True")
             if self.ip_profile_id is None:
                 raise ValueError("ip_profile_id is required when ip_enabled=True")
+
+        VisualRoleControlsContract.from_mapping(
+            {
+                "visual_role_mode": self.visual_role_mode,
+                "visual_consistency_mode": self.visual_consistency_mode,
+            }
+        )
 
         size_params = {
             "canvas_width": self.canvas_width,

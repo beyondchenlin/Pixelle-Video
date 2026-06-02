@@ -4,6 +4,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from pixelle_video.models.mode_resolution import (
+    ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,
+    ArticleVisualPlanningRequest,
+)
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
 from pixelle_video.models.storyboard_limits import (
     DEFAULT_STORYBOARD_GENERATION_LIMITS,
@@ -17,17 +21,20 @@ from pixelle_video.models.storyboard_plan import (
     StoryboardGenerationMode,
     StoryboardPlan,
 )
+from pixelle_video.models.visual_role_request import (
+    VisualRoleControlsContract,
+    VisualRoleRequest,
+)
+from pixelle_video.models.visual_role_strategy import (
+    VisualRoleStrategy,
+    resolve_effective_role_mode_with_v44_context,
+)
 from pixelle_video.prompt_language import (
     DEFAULT_PROMPT_LANGUAGE,
     PromptLanguage,
     normalize_prompt_language,
 )
 from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
-from pixelle_video.models.visual_role_request import (
-    VisualRoleControlsContract,
-    VisualRoleRequest,
-)
 
 LEGACY_STANDARD_STORYBOARD_PARAMS = frozenset(
     {
@@ -102,6 +109,7 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "visual_role_mode",
     "visual_consistency_mode",
 )
+ARTICLE_VISUAL_PLANNING_OPTION_KEYS = ARTICLE_VISUAL_PLANNING_REQUEST_KEYS
 
 
 def _normalize_optional_contract_string(value: Any) -> str | None:
@@ -291,15 +299,52 @@ def normalize_standard_video_generation_params(
     )
     ip_contract = IPControlsContract.from_mapping(normalized)
     visual_role_contract = VisualRoleControlsContract.from_mapping(normalized)
+    article_visual_planning_request = ArticleVisualPlanningRequest.from_mapping(normalized)
     for key in (*STORYBOARD_GENERATION_OPTION_KEYS, *STORYBOARD_PLANNING_OPTION_KEYS):
         normalized.pop(key, None)
     for key in IP_PROMPT_CHAIN_OPTION_KEYS:
+        normalized.pop(key, None)
+    for key in ARTICLE_VISUAL_PLANNING_OPTION_KEYS:
         normalized.pop(key, None)
     normalized.update(storyboard_contract.to_generation_dict())
     normalized.update(storyboard_contract.to_planning_dict(include_prompt_language=True))
     normalized.update(ip_contract.to_dict())
     normalized.update(visual_role_contract.to_generation_dict())
+    article_visual_planning_params = article_visual_planning_request.to_dict()
+    normalized.update(
+        {
+            key: article_visual_planning_params[key]
+            for key in ARTICLE_VISUAL_PLANNING_OPTION_KEYS
+        }
+    )
+    _apply_v44_visual_role_strategy_effective_mode(
+        normalized,
+        visual_role_contract=visual_role_contract,
+        article_visual_planning_request=article_visual_planning_request,
+    )
     return normalized
+
+
+def _apply_v44_visual_role_strategy_effective_mode(
+    normalized: dict[str, Any],
+    *,
+    visual_role_contract: VisualRoleControlsContract,
+    article_visual_planning_request: ArticleVisualPlanningRequest,
+) -> None:
+    visual_role_strategy = article_visual_planning_request.visual_role_strategy
+    if (
+        visual_role_strategy is VisualRoleStrategy.AUTO
+        or "effective_visual_role_mode" not in normalized
+    ):
+        return
+
+    effective_role_mode = resolve_effective_role_mode_with_v44_context(
+        requested_role_mode=visual_role_contract.strategy.role_mode,
+        consistency_mode=visual_role_contract.strategy.consistency_mode,
+        visual_role_strategy=visual_role_strategy,
+        subject_replacement_allowed=visual_role_strategy is VisualRoleStrategy.PARTICIPANT,
+    )
+    normalized["effective_visual_role_mode"] = effective_role_mode.value
 
 
 def validate_standard_video_generation_params(
@@ -319,6 +364,9 @@ def validate_standard_video_generation_params(
             "legacy storyboard parameter is not supported in standard video generation: "
             + ", ".join(legacy_fields)
         )
+
+    ArticleVisualPlanningRequest.from_mapping(params)
+    VisualRoleControlsContract.from_mapping(params)
 
     mode = params.get("mode", "generate")
     if mode not in VIDEO_GENERATION_MODES:
