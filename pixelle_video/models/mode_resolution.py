@@ -19,6 +19,17 @@ from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
+ARTICLE_CONCRETIZATION_FLAT_REQUEST_KEYS = (
+    "article_concretization_enabled",
+    "cognitive_anchor_kind",
+    "explanation_diagram_grammar",
+    "series_visual_signature_role",
+    "diagram_render_style",
+    "diagram_aspect_ratio",
+    "diagram_visible_text_policy",
+    "diagram_approved_labels",
+    "diagram_user_intent_hint",
+)
 
 _ALLOWED_RESOLUTION_STATUSES = frozenset(
     {"resolved", "low_confidence", "planner_failed", "fallback_used"}
@@ -105,7 +116,9 @@ class ArticleVisualPlanningRequest:
             allow_mixed_lenses=source.get("allow_mixed_lenses", True),
             strict_user_mode=source.get("strict_user_mode", False),
             force_v44_planning=source.get("force_v44_planning", False),
-            article_concretization=ArticleConcretizationRequest.from_mapping(source),
+            article_concretization=ArticleConcretizationRequest.from_mapping(
+                _article_concretization_source(source)
+            ),
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -428,6 +441,17 @@ def _request_value(value: Any) -> ArticleVisualPlanningRequest:
     if isinstance(value, Mapping):
         return ArticleVisualPlanningRequest.from_mapping(value)
     raise TypeError("requested must be an ArticleVisualPlanningRequest")
+
+
+def _article_concretization_source(source: Mapping[str, Any]) -> dict[str, Any]:
+    payload = {
+        key: source[key]
+        for key in ARTICLE_CONCRETIZATION_FLAT_REQUEST_KEYS
+        if key in source
+    }
+    if "article_concretization" in source:
+        payload["article_concretization"] = source["article_concretization"]
+    return payload
 
 
 def _article_concretization_request_value(value: Any) -> ArticleConcretizationRequest:

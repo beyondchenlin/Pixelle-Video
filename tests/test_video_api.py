@@ -510,6 +510,59 @@ def test_disabled_article_concretization_has_no_prompt_side_effects_in_generatio
         assert side_effect_key not in params
 
 
+def test_standard_video_generation_contract_preserves_top_level_enabled_key():
+    params = normalize_standard_video_generation_params(
+        {
+            "text": "demo",
+            "enabled": True,
+        }
+    )
+
+    assert params["enabled"] is True
+    assert params["article_concretization_enabled"] is False
+    assert params["article_concretization"]["enabled"] is False
+
+
+def test_standard_video_generation_contract_accepts_nested_enabled_alias():
+    params = normalize_standard_video_generation_params(
+        {
+            "text": "demo",
+            "article_concretization": {
+                "enabled": True,
+            },
+        }
+    )
+
+    assert params["article_concretization_enabled"] is True
+    assert params["article_concretization"]["enabled"] is True
+
+
+@pytest.mark.parametrize(
+    ("flat_enabled", "nested_enabled", "expected_enabled"),
+    [
+        (False, True, True),
+        (True, False, False),
+    ],
+)
+def test_standard_video_generation_contract_nested_concretization_overrides_flat_enabled(
+    flat_enabled: bool,
+    nested_enabled: bool,
+    expected_enabled: bool,
+):
+    params = normalize_standard_video_generation_params(
+        {
+            "text": "demo",
+            "article_concretization_enabled": flat_enabled,
+            "article_concretization": {
+                "enabled": nested_enabled,
+            },
+        }
+    )
+
+    assert params["article_concretization_enabled"] is expected_enabled
+    assert params["article_concretization"]["enabled"] is expected_enabled
+
+
 def test_standard_video_generation_contract_normalizes_all_v44_request_fields():
     params = normalize_standard_video_generation_params(
         {

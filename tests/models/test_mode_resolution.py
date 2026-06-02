@@ -141,6 +141,13 @@ def test_article_visual_planning_request_carries_nested_concretization_request()
     }
 
 
+def test_article_visual_planning_request_ignores_top_level_enabled_alias():
+    request = ArticleVisualPlanningRequest.from_mapping({"enabled": True})
+
+    assert request.article_concretization.enabled is False
+    assert request.to_dict()["article_concretization"]["enabled"] is False
+
+
 def test_article_visual_planning_request_keys_match_serialized_contract():
     assert ARTICLE_VISUAL_PLANNING_REQUEST_KEYS == tuple(
         ArticleVisualPlanningRequest().to_dict()
