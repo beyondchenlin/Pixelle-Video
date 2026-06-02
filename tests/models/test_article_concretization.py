@@ -408,10 +408,14 @@ def test_xiaohei_render_style_does_not_insert_signature_when_role_none():
         ("style_rules", ["use a recurring figure in each panel"]),
         ("style_rules", ["black solid figure appears in every frame"]),
         ("style_rules", ["recurring-figure marker in every panel"]),
+        ("style_rules", ["same black solid figure appears in all panels"]),
+        ("style_rules", ["black solid silhouette appears in every frame"]),
+        ("style_rules", ["same Xiaohei silhouette appears in every panel"]),
         ("negative_style_rules", ["do not include Xiaohei character as recurring figure"]),
         ("negative_style_rules", ["do not add recurring figure"]),
         ("negative_style_rules", ["do not use black solid figure in every frame"]),
         ("negative_style_rules", ["no recurring-figure marker"]),
+        ("negative_style_rules", ["do not add same Xiaohei silhouette in all panels"]),
     ],
 )
 def test_xiaohei_render_style_rejects_fixed_signature_semantics(
@@ -428,6 +432,8 @@ def test_xiaohei_render_style_rejects_fixed_signature_semantics(
             "simple black linework",
             "limited red orange blue annotation marks",
             "plain paper texture",
+            "white background",
+            "clean contours",
         ],
         "negative_style_rules": ["no photorealistic shading"],
     }
@@ -448,6 +454,8 @@ def test_xiaohei_render_style_allows_surface_style_rules():
             "simple black linework",
             "limited red orange blue annotation marks",
             "plain paper texture",
+            "white background",
+            "clean contours",
         ],
         negative_style_rules=["no photorealistic shading"],
     )
@@ -457,6 +465,8 @@ def test_xiaohei_render_style_allows_surface_style_rules():
         "simple black linework",
         "limited red orange blue annotation marks",
         "plain paper texture",
+        "white background",
+        "clean contours",
     )
 
 

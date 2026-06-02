@@ -12,25 +12,47 @@ from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, Visible
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
 _MISSING = object()
-_XIAOHEI_FIXED_ROLE_PATTERN_SPECS = (
-    ("signature", re.compile(r"\bsignature\b", re.IGNORECASE)),
-    ("character", re.compile(r"\bcharacter\b", re.IGNORECASE)),
-    ("mascot", re.compile(r"\bmascot\b", re.IGNORECASE)),
-    ("recurring figure", re.compile(r"\brecurring[-\s]+figure\b", re.IGNORECASE)),
-    (
-        "fixed figure",
-        re.compile(r"\bfixed[-\s]+(?:recurring[-\s]+)?figure\b", re.IGNORECASE),
-    ),
-    ("xiaohei figure", re.compile(r"\bxiaohei[-\s]+figure\b", re.IGNORECASE)),
-    (
-        "figure repeated across panels",
-        re.compile(
-            r"\bfigure\b[^\n\r]*"
-            r"(?:\b(?:appears?|appearing|in|marker|markers)\b[^\n\r]*)?"
-            r"\b(?:every|each)\s+(?:frame|panel)\b",
-            re.IGNORECASE,
-        ),
-    ),
+_XIAOHEI_DIRECT_IDENTITY_TERMS = frozenset(
+    {
+        "signature",
+        "character",
+        "mascot",
+    }
+)
+_XIAOHEI_SUBJECT_TERMS = frozenset(
+    {
+        "avatar",
+        "character",
+        "figure",
+        "mascot",
+        "person",
+        "signature",
+        "silhouette",
+        "xiaohei",
+    }
+)
+_XIAOHEI_XIAOHEI_SUBJECT_TERMS = frozenset(
+    {
+        "avatar",
+        "figure",
+        "person",
+        "silhouette",
+    }
+)
+_XIAOHEI_RECURRENCE_CUES = (
+    "same",
+    "recurring",
+    "repeated",
+    "fixed",
+    "every frame",
+    "each frame",
+    "all frames",
+    "every panel",
+    "each panel",
+    "all panels",
+    "appears in every",
+    "appears in each",
+    "appears in all",
 )
 
 
@@ -1021,10 +1043,23 @@ def _validate_xiaohei_surface_style_rules(
 
 
 def _xiaohei_fixed_role_match(rule: str) -> bool:
-    return any(
-        pattern.search(rule)
-        for _, pattern in _XIAOHEI_FIXED_ROLE_PATTERN_SPECS
-    )
+    normalized = _normalize_xiaohei_rule_text(rule)
+    if not normalized:
+        return False
+    tokens = frozenset(normalized.split())
+    if tokens & _XIAOHEI_DIRECT_IDENTITY_TERMS:
+        return True
+    has_subject = bool(tokens & _XIAOHEI_SUBJECT_TERMS)
+    has_recurrence = any(cue in normalized for cue in _XIAOHEI_RECURRENCE_CUES)
+    if has_subject and has_recurrence:
+        return True
+    return "xiaohei" in tokens and bool(tokens & _XIAOHEI_XIAOHEI_SUBJECT_TERMS)
+
+
+def _normalize_xiaohei_rule_text(rule: str) -> str:
+    text = str(rule.value if isinstance(rule, Enum) else rule).lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
 
 
 def _validate_signature_enabled_state(
