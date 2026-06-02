@@ -133,6 +133,17 @@ STORYBOARD_GENERATION_OPTION_KEYS = (
     "script_length_mode",
     "script_target_words",
 )
+ARTICLE_CONCRETIZATION_OPTION_KEYS = (
+    "article_concretization_enabled",
+    "cognitive_anchor_kind",
+    "explanation_diagram_grammar",
+    "series_visual_signature_role",
+    "diagram_render_style",
+    "diagram_aspect_ratio",
+    "diagram_visible_text_policy",
+    "diagram_approved_labels",
+    "diagram_user_intent_hint",
+)
 SINGLE_VIDEO_GENERATING_KEY = "single_video_is_generating"
 SINGLE_VIDEO_REQUESTED_KEY = "single_video_generation_requested"
 SINGLE_VIDEO_DUPLICATE_CLICK_KEY = "single_video_duplicate_click"
@@ -1238,6 +1249,13 @@ def copy_generation_world_hint(source, target):
         target["generation_world_hint"] = storyboard_contract.generation_world_hint
 
 
+def copy_article_concretization_options(source, target):
+    """Copy article concretization UI params into a generation request dict."""
+    for key in ARTICLE_CONCRETIZATION_OPTION_KEYS:
+        if key in source:
+            target[key] = source[key]
+
+
 def copy_ip_prompt_chain_options(source, target):
     """Copy IP prompt-chain controls into a generation request dict."""
     if "ip_enabled" not in source:
@@ -1325,6 +1343,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_tts_split_settings(video_params, request)
     copy_storyboard_generation_options(video_params, request)
     copy_generation_world_hint(video_params, request)
+    copy_article_concretization_options(video_params, request)
     copy_element_animation_options(video_params, request)
     copy_ip_prompt_chain_options(video_params, request)
     copy_prompt_generation_performance_params(video_params, request)
@@ -1411,6 +1430,7 @@ def build_batch_shared_config(video_params):
     copy_tts_split_settings(video_params, shared_config)
     copy_storyboard_generation_options(video_params, shared_config)
     copy_generation_world_hint(video_params, shared_config)
+    copy_article_concretization_options(video_params, shared_config)
     copy_element_animation_options(video_params, shared_config)
     copy_ip_prompt_chain_options(video_params, shared_config)
     copy_prompt_generation_performance_params(video_params, shared_config)

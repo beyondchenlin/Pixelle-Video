@@ -27,10 +27,13 @@ from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
     ENGLISH_PROMPT_LANGUAGE,
 )
+from web.components.article_concretization_controls import (
+    render_article_concretization_controls,
+)
+from web.components.content_ip_world_controls import render_content_ip_world_controls
 from web.components.prompt_generation_performance import (
     render_prompt_generation_performance_controls,
 )
-from web.components.content_ip_world_controls import render_content_ip_world_controls
 from web.components.storyboard_planning_controls import (
     render_storyboard_advanced_controls,
 )
@@ -366,6 +369,12 @@ def render_content_input(*, pixelle_video=None):
                 mode=mode,
                 key_prefix="single_video",
             )
+            article_concretization = render_article_concretization_controls(
+                key_prefix="single_video",
+                selected_template_type_for_storyboard=st.session_state.get(
+                    "template_type_selector"
+                ),
+            )
 
             prompt_generation_performance = render_prompt_generation_performance_controls(
                 key_prefix="single_video"
@@ -380,6 +389,7 @@ def render_content_input(*, pixelle_video=None):
                 "title": title,
                 **script_generation,
                 **storyboard_generation,
+                **article_concretization,
                 **content_ip_world,
                 **prompt_generation_performance,
             }
@@ -458,6 +468,12 @@ def render_content_input(*, pixelle_video=None):
                 mode="generate",
                 key_prefix="batch_video",
             )
+            article_concretization = render_article_concretization_controls(
+                key_prefix="batch_video",
+                selected_template_type_for_storyboard=st.session_state.get(
+                    "template_type_selector"
+                ),
+            )
 
             prompt_generation_performance = render_prompt_generation_performance_controls(
                 key_prefix="batch_video"
@@ -475,6 +491,7 @@ def render_content_input(*, pixelle_video=None):
                 "title_prefix": title_prefix,
                 **script_generation,
                 **storyboard_generation,
+                **article_concretization,
                 **content_ip_world,
                 **prompt_generation_performance,
             }

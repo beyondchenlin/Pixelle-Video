@@ -310,6 +310,36 @@ def test_build_single_generation_request_includes_generation_world_hint():
     assert request["generation_world_hint"] == "古城清晨漫游，IP 是陪伴式向导。"
 
 
+def test_single_generation_request_copies_article_concretization_options():
+    def _progress(_event):
+        return None
+
+    article_options = {
+        "article_concretization_enabled": True,
+        "cognitive_anchor_kind": "judgment",
+        "explanation_diagram_grammar": "single_explanation_image",
+        "series_visual_signature_role": "silent_witness",
+        "diagram_render_style": "clean_vector",
+        "diagram_aspect_ratio": "vertical_9_16",
+        "diagram_visible_text_policy": "approved_labels_only",
+        "diagram_approved_labels": ["cash flow", "risk"],
+        "diagram_user_intent_hint": "make the tradeoff concrete",
+    }
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            **article_options,
+        },
+        progress_callback=_progress,
+        session_state={},
+    )
+
+    for key, value in article_options.items():
+        assert request[key] == value
+
+
 def test_build_single_generation_request_does_not_forward_ip_profile_world_hint():
     def _progress(_event):
         return None
@@ -1008,6 +1038,30 @@ def test_build_batch_shared_config_includes_generation_world_hint():
     )
 
     assert shared_config["generation_world_hint"] == "古城清晨漫游，IP 是陪伴式向导。"
+
+
+def test_batch_shared_config_copies_article_concretization_options():
+    article_options = {
+        "article_concretization_enabled": True,
+        "cognitive_anchor_kind": "relationship",
+        "explanation_diagram_grammar": "relationship_map",
+        "series_visual_signature_role": "operator",
+        "diagram_render_style": "editorial_diagram",
+        "diagram_aspect_ratio": "landscape_16_9",
+        "diagram_visible_text_policy": "source_text_only",
+        "diagram_approved_labels": ["market", "margin"],
+        "diagram_user_intent_hint": "show why the relationship matters",
+    }
+
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "title_prefix": "Series",
+            **article_options,
+        }
+    )
+
+    for key, value in article_options.items():
+        assert shared_config[key] == value
 
 
 def test_build_batch_shared_config_omits_empty_layered_template_snapshot_duplicate():
