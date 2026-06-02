@@ -17,6 +17,7 @@ Handles task metadata and storyboard persistence to filesystem.
 """
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -636,11 +637,31 @@ class PersistenceService:
         path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
         try:
-            temp_path.write_text(encoded, encoding="utf-8")
+            with temp_path.open("w", encoding="utf-8") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
             temp_path.replace(path)
+            self._fsync_directory(path.parent)
         finally:
             if temp_path.exists():
                 temp_path.unlink()
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        if os.name == "nt":
+            return
+        try:
+            dir_fd = os.open(path, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            try:
+                os.fsync(dir_fd)
+            except OSError:
+                return
+        finally:
+            os.close(dir_fd)
     
     def _load_index(self) -> Dict[str, Any]:
         """Load index from file"""

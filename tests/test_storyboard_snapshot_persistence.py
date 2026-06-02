@@ -28,6 +28,59 @@ def _build_planning_snapshot() -> dict:
     }
 
 
+def test_atomic_json_write_flushes_file_before_replace(tmp_path, monkeypatch):
+    persistence = PersistenceService(output_dir=str(tmp_path))
+    fsync_calls = []
+
+    monkeypatch.setattr(
+        "pixelle_video.services.persistence.os.fsync",
+        lambda file_descriptor: fsync_calls.append(file_descriptor),
+    )
+
+    persistence._write_json_atomic(tmp_path / "payload.json", {"ok": True})
+
+    assert fsync_calls
+
+
+def test_atomic_json_write_fsync_failure_preserves_existing_json(tmp_path, monkeypatch):
+    persistence = PersistenceService(output_dir=str(tmp_path))
+    target = tmp_path / "payload.json"
+    target.write_text('{"ok": true}', encoding="utf-8")
+
+    def fail_fsync(file_descriptor):
+        raise OSError("fsync failed")
+
+    monkeypatch.setattr("pixelle_video.services.persistence.os.fsync", fail_fsync)
+
+    with pytest.raises(OSError, match="fsync failed"):
+        persistence._write_json_atomic(target, {"ok": False})
+
+    assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
+    assert list(tmp_path.glob(".payload.json.*.tmp")) == []
+
+
+def test_directory_fsync_failure_is_best_effort(tmp_path, monkeypatch):
+    close_calls = []
+
+    def fail_directory_fsync(file_descriptor):
+        raise OSError("directory fsync failed")
+
+    monkeypatch.setattr("pixelle_video.services.persistence.os.name", "posix")
+    monkeypatch.setattr("pixelle_video.services.persistence.os.open", lambda path, flags: 42)
+    monkeypatch.setattr(
+        "pixelle_video.services.persistence.os.fsync",
+        fail_directory_fsync,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.persistence.os.close",
+        lambda fd: close_calls.append(fd),
+    )
+
+    PersistenceService._fsync_directory(tmp_path)
+
+    assert close_calls == [42]
+
+
 @pytest.mark.asyncio
 async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and_fields(tmp_path):
     persistence = PersistenceService(output_dir=str(tmp_path))
