@@ -116,6 +116,20 @@ def test_nested_payload_overrides_flat_payload():
     assert request.diagram_user_intent_hint == "nested hint"
 
 
+def test_nested_enabled_alias_overrides_flat_enabled_alias():
+    request = ArticleConcretizationRequest.from_mapping(
+        {
+            "enabled": True,
+            "article_concretization": {
+                "article_concretization_enabled": False,
+            },
+        }
+    )
+
+    assert request.enabled is False
+    assert request.to_dict()["enabled"] is False
+
+
 @pytest.mark.parametrize(
     ("field_name", "bad_value"),
     [

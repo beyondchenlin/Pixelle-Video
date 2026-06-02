@@ -9,6 +9,7 @@ from pixelle_video.models.visual_planning_mode import VisibleTextPolicy
 
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
+_MISSING = object()
 
 
 class CognitiveAnchorKind(str, Enum):
@@ -176,9 +177,10 @@ class ArticleConcretizationRequest:
     ) -> "ArticleConcretizationRequest":
         data = dict(source or {})
         nested = data.get("article_concretization")
-        merged = {**data, **dict(nested)} if isinstance(nested, Mapping) else data
+        nested_data = dict(nested) if isinstance(nested, Mapping) else None
+        merged = {**data, **nested_data} if nested_data is not None else data
         return cls(
-            enabled=_merged_enabled_value(merged),
+            enabled=_merged_enabled_value(data, nested_data),
             cognitive_anchor_kind=merged.get("cognitive_anchor_kind", CognitiveAnchorKind.AUTO),
             explanation_diagram_grammar=merged.get(
                 "explanation_diagram_grammar",
@@ -218,10 +220,21 @@ class ArticleConcretizationRequest:
         }
 
 
-def _merged_enabled_value(source: Mapping[str, Any]) -> Any:
+def _merged_enabled_value(
+    flat: Mapping[str, Any],
+    nested: Mapping[str, Any] | None,
+) -> Any:
+    if nested is not None:
+        nested_value = _enabled_alias_value(nested, _MISSING)
+        if nested_value is not _MISSING:
+            return nested_value
+    return _enabled_alias_value(flat, False)
+
+
+def _enabled_alias_value(source: Mapping[str, Any], default: Any) -> Any:
     if "enabled" in source:
         return source["enabled"]
-    return source.get("article_concretization_enabled", False)
+    return source.get("article_concretization_enabled", default)
 
 
 def _strict_enum_value(
