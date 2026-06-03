@@ -1,9 +1,15 @@
 import asyncio
 
 import pytest
+from pydantic import ValidationError
 
 from pixelle_video.models.asset_bible import IPProfile, IPRenderingStyle
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
+from pixelle_video.models.mandatory_visual_anchor_integration import (
+    MandatoryVisualAnchorIntegrationManifestationResponse,
+    MandatoryVisualAnchorIntegrationPlanResponse,
+    MandatoryVisualAnchorIntegrationResponse,
+)
 from pixelle_video.models.visual_anchor_integration import (
     VisualAnchorIntegrationCandidateResponse,
     VisualAnchorIntegrationPlanResponse,
@@ -88,6 +94,46 @@ class MalformedButJsonLLM:
         }
 
 
+class TypedRepairLLM:
+    def __init__(self):
+        self.calls = []
+
+    async def __call__(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        if len(self.calls) == 1:
+            raise ValueError("schema validation failed: candidates must be an array")
+        return MandatoryVisualAnchorIntegrationResponse(
+            visual_anchor_integration_plans=[
+                MandatoryVisualAnchorIntegrationPlanResponse(
+                    frame_id="f1",
+                    carrier_type="bookplate_or_stamp",
+                    anchor_function="material_signature",
+                    prominence="embedded_mark",
+                    style_relation="blended",
+                    placement="attached to the inner paper margin of the open page",
+                    support_anchor="open book page",
+                    contact_relation="pressed into the paper surface",
+                    interaction_target="book page",
+                    occlusion_relation="main reading area remains clear",
+                    visual_weight_clause="low contrast in-scene material detail",
+                    image_prompt_clause="a dalmatian wearing black sunglasses appears as a subtle bookplate stamp on the open page",
+                    integrated_scene_prompt="An open book page with a subtle bookplate stamp showing a dalmatian wearing black sunglasses.",
+                    integration_strategy="supporting_integration",
+                    anchor_manifestation=MandatoryVisualAnchorIntegrationManifestationResponse(
+                        form="bookplate stamp",
+                        location="inner paper margin",
+                        visibility="clear",
+                        relationship="supports the book scene without replacing it",
+                    ),
+                    scene_coherence_score=9,
+                    disruption_risk=1,
+                    identity_preservation_score=9,
+                    reason="mandatory integration",
+                )
+            ]
+        )
+
+
 def _profile() -> IPProfile:
     return IPProfile(
         series_visual_signature_profile_id="rabbit",
@@ -96,6 +142,17 @@ def _profile() -> IPProfile:
         name="科技兔子",
         rendering_style=IPRenderingStyle.STYLIZED_CHARACTER,
         visual_summary="一只白色科技兔子，蓝色领结，长耳朵，圆润脸型",
+    )
+
+
+def _ascii_profile() -> IPProfile:
+    return IPProfile(
+        series_visual_signature_profile_id="dalmatian",
+        workspace_id="ws",
+        project_id="prj",
+        name="dalmatian",
+        rendering_style=IPRenderingStyle.STYLIZED_CHARACTER,
+        visual_summary="dalmatian wearing black sunglasses",
     )
 
 
@@ -126,6 +183,41 @@ def test_series_visual_signature_anchor_planner_uses_scene_bound_llm_candidate()
     assert "角标" not in plans[0].image_prompt_clause
     assert "水印" not in plans[0].image_prompt_clause
     assert plans[0].metadata["source"] == "llm_mandatory_series_visual_signature_integration"
+
+
+def test_series_visual_signature_anchor_planner_uses_typed_schema_and_repairs_validation_failures():
+    llm = TypedRepairLLM()
+
+    plans = asyncio.run(
+        VisualAnchorIntegrationPlanner(llm_service=llm).plan_batch(
+            base_visual_briefs=(_book_brief(),),
+            anchor_profile=_ascii_profile(),
+        )
+    )
+
+    assert len(llm.calls) == 2
+    assert all(call["response_type"] is MandatoryVisualAnchorIntegrationResponse for call in llm.calls)
+    assert "schema validation failed" in llm.calls[1]["prompt"]
+    assert plans[0].visible
+    assert "dalmatian wearing black sunglasses" in plans[0].image_prompt_clause
+
+
+def test_mandatory_visual_anchor_integration_schema_rejects_legacy_candidate_shape():
+    with pytest.raises(ValidationError) as exc_info:
+        MandatoryVisualAnchorIntegrationResponse.model_validate(
+            {
+                "visual_anchor_integration_plans": [
+                    {
+                        "frame_id": "f1",
+                        "candidates": "selected_index",
+                    }
+                ]
+            }
+        )
+
+    fields = {".".join(str(part) for part in error["loc"]) for error in exc_info.value.errors()}
+    assert "visual_anchor_integration_plans.0.candidates" in fields
+    assert "visual_anchor_integration_plans.0.carrier_type" in fields
 
 
 def test_series_visual_signature_anchor_planner_rejects_overlay_candidate_fail_closed():

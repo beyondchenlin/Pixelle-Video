@@ -5,10 +5,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
+from pydantic import ValidationError
 
 from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.ip_prompt_planning import IPFrameAdaptationPackage
+from pixelle_video.models.mandatory_visual_anchor_integration import (
+    MandatoryVisualAnchorIntegrationResponse,
+)
 from pixelle_video.models.series_visual_signature_strategy import (
     SeriesVisualSignatureStrategyControls,
     build_visual_identity_kernel,
@@ -77,14 +81,28 @@ class VisualAnchorIntegrationPlanner:
                 visual_identity_kernel_json=list(identity_kernel),
                 repair_context_json=repair_context,
             )
-            raw_response = await self.llm_service(
-                prompt=rendered_prompt.text,
-                response_type=dict,
-                temperature=0.2,
-                max_tokens=5000,
-                trace_context=trace_context,
-                trace_recorder=trace_recorder,
-            )
+            try:
+                raw_response = await self.llm_service(
+                    prompt=rendered_prompt.text,
+                    response_type=MandatoryVisualAnchorIntegrationResponse,
+                    temperature=0.2,
+                    max_tokens=5000,
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                )
+            except (ValidationError, ValueError) as exc:
+                errors = [f"LLM response failed mandatory integration schema validation: {_exception_summary(exc)}"]
+                repair_context = {
+                    "attempt": attempt + 1,
+                    "errors": errors,
+                    "instruction": "Return one selected visible plan object for every failed frame. Do not output candidates arrays or hidden/suppressed/fallback.",
+                }
+                logger.warning(
+                    "mandatory series visual signature integration rejected attempt {}: {}",
+                    attempt + 1,
+                    errors[0],
+                )
+                continue
             plans, errors = _placement_plans_from_payload(
                 raw_response,
                 frame_ids=frame_ids,
@@ -109,6 +127,17 @@ class VisualAnchorIntegrationPlanner:
             "mandatory series visual signature integration failed after repair attempts: "
             + "; ".join(repair_context.get("errors", [])[:12])
         )
+
+
+def _exception_summary(exc: Exception) -> str:
+    if isinstance(exc, ValidationError):
+        details = []
+        for error in exc.errors()[:8]:
+            field = ".".join(str(part) for part in error.get("loc", ()))
+            message = str(error.get("msg", ""))
+            details.append(f"{field}: {message}" if field else message)
+        return "; ".join(details) or str(exc)
+    return str(exc)
 
 
 def _anchor_profile_payload(anchor_profile: IPProfile, *, policy: VisualSignaturePolicy, identity_kernel: Sequence[str]) -> dict[str, Any]:
@@ -140,7 +169,10 @@ def _placement_plans_from_payload(
     policy: VisualSignaturePolicy,
 ) -> tuple[list[VisualAnchorPlacementPlan], list[str]]:
     if hasattr(payload, "model_dump"):
-        payload = payload.model_dump()
+        try:
+            payload = payload.model_dump(mode="json")
+        except TypeError:
+            payload = payload.model_dump()
     elif hasattr(payload, "to_dict"):
         payload = payload.to_dict()
     raw_plans = []

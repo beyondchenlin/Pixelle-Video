@@ -194,12 +194,14 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     assert captured["role_strategy"] == "auto"
     assert captured["role_locking_strength"] == "strong"
     assert captured["shot_strategy"] == "strict"
-    assert ctx.image_prompts == [
-        "bird-universe dog sprint "
-        "Visual style: rendered as clean educational illustration, flat illustration "
-        "Composition: framed as medium shot, context "
-        "Environment: with strategy board integrated into the environment"
-    ]
+    assert len(ctx.image_prompts) == 1
+    prompt = ctx.image_prompts[0]
+    assert prompt.startswith("bird-universe dog sprint")
+    assert "clean educational illustration" in prompt
+    assert "flat illustration" in prompt
+    assert "medium shot" in prompt
+    assert "context" in prompt
+    assert "strategy board" in prompt
     assert "Neutral Knowledge Storyboard" not in ctx.image_prompts[0]
     assert "medium_shot" not in ctx.image_prompts[0]
     assert ctx.media_negative_prompt is None

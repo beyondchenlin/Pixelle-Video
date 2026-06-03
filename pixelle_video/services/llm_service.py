@@ -281,7 +281,6 @@ class LLMService:
                 )
                 
                 return result
-        
         except Exception as e:
             logger.error(f"LLM call error (model={final_model}, base_url={client.base_url}): {e}")
             raise
@@ -808,6 +807,16 @@ class LLMService:
             else:
                 logger.error(f"Raw response content (first {max_log_len} chars): {content[:max_log_len]!r}")
                 logger.error(f"... (truncated, total length: {len(content)} chars)")
+            raise ValueError(f"Failed to parse LLM response as {response_type.__name__}: {content[:200]}...") from e
+        except ValidationError as e:
+            logger.error(f"Schema validation error when parsing LLM response as {response_type.__name__}: {e}")
+            max_log_len = 2000
+            if len(content) <= max_log_len:
+                logger.error(f"Raw response content: {content!r}")
+            else:
+                logger.error(f"Raw response content (first {max_log_len} chars): {content[:max_log_len]!r}")
+                logger.error(f"... (truncated, total length: {len(content)} chars)")
+            raise
         except Exception as e:
             logger.error(f"Unexpected error when parsing LLM response: {type(e).__name__}: {e}")
             max_log_len = 2000
@@ -816,8 +825,7 @@ class LLMService:
             else:
                 logger.error(f"Raw response content (first {max_log_len} chars): {content[:max_log_len]!r}")
                 logger.error(f"... (truncated, total length: {len(content)} chars)")
-        
-        raise ValueError(f"Failed to parse LLM response as {response_type.__name__}: {content[:200]}...")
+            raise ValueError(f"Failed to parse LLM response as {response_type.__name__}: {content[:200]}...") from e
 
     def _build_request_payload(
         self,

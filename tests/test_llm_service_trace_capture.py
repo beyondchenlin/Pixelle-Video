@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceRecordingError
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
@@ -274,6 +274,46 @@ async def test_llm_service_records_structured_parse_failures_at_gateway(monkeypa
     assert stored_trace["trace_id"] == "trace_parse_failure"
     assert stored_trace["status"] == "parse_error"
     assert "Failed to parse LLM response" in stored_trace["parse_error"]
+    assert stored_trace["response_payload_key"] == raw_store.payloads[1]["storage_key"]
+
+
+@pytest.mark.asyncio
+async def test_llm_service_records_structured_validation_failures_at_gateway(monkeypatch):
+    fake_client, _ = _fake_client(
+        base_url="https://api.deepseek.com/v1",
+        content='{"title":"Schema drift"}',
+    )
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    recorder, raw_store, trace_repository = _recorder("trace_validation_failure")
+
+    with pytest.raises(ValidationError):
+        await service(
+            prompt="Review a movie",
+            model="deepseek-chat",
+            response_type=MovieReview,
+            trace_context=LLMTraceContext(
+                workspace_id="workspace_1",
+                task_id="task_123",
+                operation="movie_review",
+                stage="stage1a",
+            ),
+            trace_recorder=recorder,
+        )
+
+    assert len(raw_store.payloads) == 2
+    assert raw_store.payloads[1]["payload"]["content"] == '{"title":"Schema drift"}'
+    stored_trace = trace_repository.appended[0]["trace"]
+    assert stored_trace["trace_id"] == "trace_validation_failure"
+    assert stored_trace["status"] == "validation_error"
+    assert "rating" in stored_trace["parse_error"]
+    assert stored_trace["validation_errors"] == [
+        {
+            "field": "rating",
+            "message": "Field required",
+            "type": "missing",
+        }
+    ]
     assert stored_trace["response_payload_key"] == raw_store.payloads[1]["storage_key"]
 
 

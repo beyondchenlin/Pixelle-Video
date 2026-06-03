@@ -158,9 +158,11 @@ class ImagePromptComposer:
             planning_snapshot["article_concretization_by_frame"] = (
                 article_concretization_by_frame
             )
+        rendered_prompts_for_plan = batch.rendered_prompts or None
         prompt_plan_bundle = build_prompt_plan_bundle(
             storyboard_plan=storyboard_plan,
-            rendered_prompts=batch.rendered_prompts,
+            rendered_prompts=rendered_prompts_for_plan,
+            image_prompts=batch.prompts if rendered_prompts_for_plan is None else None,
             source_trace_ids_by_frame=_prompt_generation_trace_ids_by_frame(
                 storyboard_plan,
                 planning_snapshot,

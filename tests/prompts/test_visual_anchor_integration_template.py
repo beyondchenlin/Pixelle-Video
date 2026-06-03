@@ -5,7 +5,6 @@ from string import Formatter
 
 from pixelle_video.prompts.visual_anchor_integration import render_visual_anchor_integration_prompt
 
-
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_PATH = ROOT / "pixelle_video/prompts/templates/visual_anchor_integration.md"
 
@@ -29,6 +28,7 @@ def test_visual_anchor_integration_prompt_renders_with_strict_schema_guards():
     )
 
     assert "# Strict schema guards" in rendered.text
-    assert "Use an empty object when there is no affordance" in rendered.text
-    assert "affordance" in rendered.text
-    assert "candidates" in rendered.text
+    assert "Return one selected visible plan object per frame" in rendered.text
+    assert "Do not return `candidates`" in rendered.text
+    assert "anchor_manifestation" in rendered.text
+    assert "integrated_scene_prompt" in rendered.text
