@@ -73,7 +73,7 @@ def _preset_payload() -> dict[str, Any]:
             "project_id": "__builtin__",
             "ip_profiles": [
                 {
-                    "ip_profile_id": "ip_main",
+                    "series_visual_signature_profile_id": "ip_main",
                     "workspace_id": "__builtin__",
                     "project_id": "__builtin__",
                     "name": "Demo IP",
@@ -169,7 +169,7 @@ def test_asset_bible_preset_api_import_overwrites_existing(tmp_path: Path):
         "asset_bible_id": "demo_project_bible",
         "ip_profiles": [
             {
-                "ip_profile_id": "old_profile",
+                "series_visual_signature_profile_id": "old_profile",
                 "workspace_id": "workspace_1",
                 "project_id": "project_1",
                 "name": "Old Profile",

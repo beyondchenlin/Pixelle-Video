@@ -30,7 +30,9 @@ from pixelle_video.prompt_language import (
 from web.components.article_concretization_controls import (
     render_article_concretization_controls,
 )
-from web.components.content_ip_world_controls import render_content_ip_world_controls
+from web.components.content_series_visual_signature_controls import (
+    render_content_series_visual_signature_controls,
+)
 from web.components.prompt_generation_performance import (
     render_prompt_generation_performance_controls,
 )
@@ -353,7 +355,7 @@ def render_content_input(*, pixelle_video=None):
             )
 
             content_context = {"title": title, "text": text}
-            content_ip_world = render_content_ip_world_controls(
+            content_ip_world = render_content_series_visual_signature_controls(
                 pixelle_video=pixelle_video,
                 content_context=content_context,
                 storyboard_prompt_language=_storyboard_prompt_language_state("single_video"),
@@ -452,7 +454,7 @@ def render_content_input(*, pixelle_video=None):
             )
 
             content_context = {"title": title_prefix, "text": text_input}
-            content_ip_world = render_content_ip_world_controls(
+            content_ip_world = render_content_series_visual_signature_controls(
                 pixelle_video=pixelle_video,
                 content_context=content_context,
                 storyboard_prompt_language=_storyboard_prompt_language_state("batch_video"),

@@ -174,7 +174,7 @@ async def test_storyboard_persistence_detaches_mappingproxy_in_planning_snapshot
             )
         ],
         planning_snapshot={
-            "visual_role_projected_prompt_parts_by_frame": {
+            "series_visual_signature_projected_prompt_parts_by_frame": {
                 "frame_0001": MappingProxyType({"projector_validation_passed": True})
             }
         },
@@ -185,7 +185,7 @@ async def test_storyboard_persistence_detaches_mappingproxy_in_planning_snapshot
 
     assert loaded is not None
     assert loaded.planning_snapshot == {
-        "visual_role_projected_prompt_parts_by_frame": {
+        "series_visual_signature_projected_prompt_parts_by_frame": {
             "frame_0001": {"projector_validation_passed": True}
         }
     }

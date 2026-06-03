@@ -11,6 +11,10 @@ SCRIPT_DIR = REPO_ROOT / "scripts" / "comfyui"
 POWERSHELL = "powershell"
 
 
+def ps_single_quote(value: object) -> str:
+    return str(value).replace("'", "''")
+
+
 def run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     command = [
         POWERSHELL,
@@ -451,10 +455,10 @@ def test_process_with_same_data_root_but_different_port_is_not_managed(
             (
                 ". (Join-Path $PWD 'scripts/comfyui/backend_common.ps1'); "
                 "$config = Resolve-PixelleComfyUIBackendConfig "
-                f"-PythonExe '{str(sys.executable).replace("'", "''")}' "
-                f"-ComfyUIRoot '{str(comfyui_root).replace("'", "''")}' "
-                f"-DataRoot '{str(data_root).replace("'", "''")}' "
-                f"-ExtraModelsConfig '{str(extra_models_config).replace("'", "''")}' "
+                f"-PythonExe '{ps_single_quote(sys.executable)}' "
+                f"-ComfyUIRoot '{ps_single_quote(comfyui_root)}' "
+                f"-DataRoot '{ps_single_quote(data_root)}' "
+                f"-ExtraModelsConfig '{ps_single_quote(extra_models_config)}' "
                 "-RuntimeDir 'unused-runtime' "
                 "-HostAddress '127.0.0.1' "
                 f"-Port {target_port}; "

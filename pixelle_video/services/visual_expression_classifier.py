@@ -8,7 +8,7 @@ from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.visual_expression import (
     VisualExpressionDecision,
     VisualExpressionMode,
-    normalize_visual_expression_mode,
+    normalize_series_visual_signature_expression_mode,
 )
 
 
@@ -19,9 +19,9 @@ class VisualExpressionClassifier:
         *,
         frame_contexts: Sequence[Mapping[str, Any]],
         base_visual_briefs: Sequence[BaseVisualBrief],
-        visual_expression_mode: VisualExpressionMode | str | None = None,
+        series_visual_signature_expression_mode: VisualExpressionMode | str | None = None,
     ) -> tuple[VisualExpressionDecision, ...]:
-        requested_mode = normalize_visual_expression_mode(visual_expression_mode)
+        requested_mode = normalize_series_visual_signature_expression_mode(series_visual_signature_expression_mode)
         decisions: list[VisualExpressionDecision] = []
         for index, brief in enumerate(base_visual_briefs):
             frame_context = frame_contexts[index] if index < len(frame_contexts) else {}
@@ -29,7 +29,7 @@ class VisualExpressionClassifier:
                 self.classify_frame(
                     frame_context=frame_context,
                     base_visual_brief=brief,
-                    visual_expression_mode=requested_mode,
+                    series_visual_signature_expression_mode=requested_mode,
                 )
             )
         return tuple(decisions)
@@ -39,14 +39,14 @@ class VisualExpressionClassifier:
         *,
         frame_context: Mapping[str, Any] | None,
         base_visual_brief: BaseVisualBrief,
-        visual_expression_mode: VisualExpressionMode | str | None = None,
+        series_visual_signature_expression_mode: VisualExpressionMode | str | None = None,
     ) -> VisualExpressionDecision:
-        requested_mode = normalize_visual_expression_mode(visual_expression_mode)
+        requested_mode = normalize_series_visual_signature_expression_mode(series_visual_signature_expression_mode)
         if requested_mode is not VisualExpressionMode.AUTO:
             return VisualExpressionDecision(
                 frame_id=base_visual_brief.frame_id,
                 expression_mode=requested_mode,
-                reason="user selected visual_expression_mode",
+                reason="user selected series_visual_signature_expression_mode",
                 source="user",
             )
 

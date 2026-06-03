@@ -420,7 +420,7 @@ def test_import_asset_bible_preset_posts_project_endpoint(monkeypatch):
                     "asset_bible_id": "demo_bible",
                     "workspace_id": "ws_1",
                     "project_id": "project_1",
-                    "ip_profiles": [{"ip_profile_id": "ip_main", "name": "Demo IP"}],
+                    "ip_profiles": [{"series_visual_signature_profile_id": "ip_main", "name": "Demo IP"}],
                 },
             }
 
@@ -559,7 +559,7 @@ def test_create_asset_bible_posts_minimal_draft_payload(monkeypatch):
             "asset_bible_id": " bible_1 ",
             "ip_profiles": [
                 {
-                    "ip_profile_id": " ip_main ",
+                    "series_visual_signature_profile_id": " ip_main ",
                     "name": " Demo IP ",
                     "world_hint": " sky city ",
                     "style_hint": " clean comic ",
@@ -577,7 +577,7 @@ def test_create_asset_bible_posts_minimal_draft_payload(monkeypatch):
             "asset_bible_id": "bible_1",
             "ip_profiles": [
                 {
-                    "ip_profile_id": "ip_main",
+                    "series_visual_signature_profile_id": "ip_main",
                     "name": "Demo IP",
                     "world_hint": "sky city",
                     "style_hint": "clean comic",
@@ -674,7 +674,7 @@ def test_render_asset_bible_draft_setup_creates_asset_bible(monkeypatch):
             "projection_frame_id": "frame_old",
             "projection_preview_result": {"projection": {"source": {"scene_cast_id": "cast_old"}}},
             "stage2_asset_bible_id": "bible_1",
-            "stage2_ip_profile_id": "ip_main",
+            "stage2_series_visual_signature_profile_id": "ip_main",
             "stage2_ip_name": "Demo IP",
             "stage2_identity_lock": "白色卡通兔子, 长耳朵",
             "stage2_create_asset_bible_submit": True,
@@ -716,7 +716,7 @@ def test_render_asset_bible_draft_setup_creates_asset_bible(monkeypatch):
             "asset_bible_id": "bible_1",
             "ip_profiles": [
                 {
-                    "ip_profile_id": "ip_main",
+                    "series_visual_signature_profile_id": "ip_main",
                     "name": "Demo IP",
                     "identity_lock": ["白色卡通兔子", "长耳朵"],
                 }

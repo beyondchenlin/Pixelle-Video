@@ -1,11 +1,13 @@
 from pixelle_video.models.asset_bible import IPProfile
-from pixelle_video.services.final_visual_prompt_contract_builder import FinalVisualPromptContractBuilder
+from pixelle_video.services.final_visual_prompt_contract_builder import (
+    FinalVisualPromptContractBuilder,
+)
 
 
 def test_builder_creates_mixed_style_sections_for_photoreal_ip():
     profile = IPProfile.from_dict(
         {
-            "ip_profile_id": "teacher",
+            "series_visual_signature_profile_id": "teacher",
             "workspace_id": "workspace",
             "project_id": "project",
             "name": "Teacher",

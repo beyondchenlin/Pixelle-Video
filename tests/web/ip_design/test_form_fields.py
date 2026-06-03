@@ -18,7 +18,7 @@ def test_ip_profile_form_schema_has_session_key_and_help_for_every_field() -> No
 
 def test_ip_profile_form_schema_tracks_expected_model_fields() -> None:
     assert ip_profile_form_field_names() == {
-        "ip_profile_id",
+        "series_visual_signature_profile_id",
         "name",
         "ip_type",
         "logline",

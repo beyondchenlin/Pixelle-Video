@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -13,6 +13,14 @@ from pixelle_video.models.mode_resolution import (
     ArticleVisualPlanningRequest,
 )
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
+from pixelle_video.models.series_visual_signature_request import (
+    SeriesVisualSignatureControlsContract,
+    SeriesVisualSignatureRequest,
+)
+from pixelle_video.models.series_visual_signature_strategy import (
+    SeriesVisualSignatureStrategy,
+    resolve_effective_signature_mode_with_v44_context,
+)
 from pixelle_video.models.storyboard_limits import (
     DEFAULT_STORYBOARD_GENERATION_LIMITS,
     DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
@@ -24,14 +32,6 @@ from pixelle_video.models.storyboard_plan import (
     StoryboardCountMode,
     StoryboardGenerationMode,
     StoryboardPlan,
-)
-from pixelle_video.models.visual_role_request import (
-    VisualRoleControlsContract,
-    VisualRoleRequest,
-)
-from pixelle_video.models.visual_role_strategy import (
-    VisualRoleStrategy,
-    resolve_effective_role_mode_with_v44_context,
 )
 from pixelle_video.prompt_language import (
     DEFAULT_PROMPT_LANGUAGE,
@@ -104,14 +104,14 @@ STORYBOARD_PLANNING_OPTION_KEYS = (
     "frame_overrides",
 )
 IP_PROMPT_CHAIN_OPTION_KEYS = (
-    "ip_enabled",
-    "ip_asset_bible_id",
-    "ip_profile_id",
-    "visual_expression_mode",
-    "visual_structure_mode",
-    "visual_participation_mode",
-    "visual_role_mode",
-    "visual_consistency_mode",
+    "series_visual_signature_enabled",
+    "series_visual_signature_asset_bible_id",
+    "series_visual_signature_profile_id",
+    "series_visual_signature_expression_mode",
+    "series_visual_signature_structure_mode",
+    "series_visual_signature_participation_mode",
+    "series_visual_signature_mode",
+    "series_visual_signature_consistency_mode",
 )
 ARTICLE_VISUAL_PLANNING_OPTION_KEYS = (
     *ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,
@@ -129,57 +129,57 @@ def _normalize_optional_contract_string(value: Any) -> str | None:
 
 @dataclass(frozen=True)
 class IPControlsContract:
-    ip_enabled: bool = False
-    ip_asset_bible_id: str | None = None
-    ip_profile_id: str | None = None
-    visual_expression_mode: str = "auto"
-    visual_structure_mode: str = "auto"
-    visual_participation_mode: str = "auto"
-    visual_role_mode: str = "auto"
-    visual_consistency_mode: str = "off"
-    effective_visual_role_mode: str = "auto"
+    series_visual_signature_enabled: bool = False
+    series_visual_signature_asset_bible_id: str | None = None
+    series_visual_signature_profile_id: str | None = None
+    series_visual_signature_expression_mode: str = "auto"
+    series_visual_signature_structure_mode: str = "auto"
+    series_visual_signature_participation_mode: str = "auto"
+    series_visual_signature_mode: str = "auto"
+    series_visual_signature_consistency_mode: str = "off"
+    effective_series_visual_signature_mode: str = "auto"
 
     @classmethod
     def from_mapping(cls, params: Mapping[str, Any] | None) -> "IPControlsContract":
         mapping = params or {}
-        ip_enabled = bool(mapping.get("ip_enabled", False))
-        ip_asset_bible_id = _normalize_optional_contract_string(mapping.get("ip_asset_bible_id"))
-        ip_profile_id = _normalize_optional_contract_string(mapping.get("ip_profile_id"))
-        visual_controls = VisualRoleControlsContract.from_mapping(mapping)
+        series_visual_signature_enabled = bool(mapping.get("series_visual_signature_enabled", False))
+        series_visual_signature_asset_bible_id = _normalize_optional_contract_string(mapping.get("series_visual_signature_asset_bible_id"))
+        series_visual_signature_profile_id = _normalize_optional_contract_string(mapping.get("series_visual_signature_profile_id"))
+        visual_controls = SeriesVisualSignatureControlsContract.from_mapping(mapping)
         return cls(
-            ip_enabled=ip_enabled,
-            ip_asset_bible_id=ip_asset_bible_id,
-            ip_profile_id=ip_profile_id,
-            visual_expression_mode=visual_controls.expression_mode.value,
-            visual_structure_mode=visual_controls.structure_mode.value,
-            visual_participation_mode=visual_controls.participation_mode.value,
-            visual_role_mode=visual_controls.strategy.role_mode.value,
-            visual_consistency_mode=visual_controls.strategy.consistency_mode.value,
-            effective_visual_role_mode=visual_controls.strategy.effective_role_mode.value,
+            series_visual_signature_enabled=series_visual_signature_enabled,
+            series_visual_signature_asset_bible_id=series_visual_signature_asset_bible_id,
+            series_visual_signature_profile_id=series_visual_signature_profile_id,
+            series_visual_signature_expression_mode=visual_controls.expression_mode.value,
+            series_visual_signature_structure_mode=visual_controls.structure_mode.value,
+            series_visual_signature_participation_mode=visual_controls.participation_mode.value,
+            series_visual_signature_mode=visual_controls.strategy.signature_mode.value,
+            series_visual_signature_consistency_mode=visual_controls.strategy.consistency_mode.value,
+            effective_series_visual_signature_mode=visual_controls.strategy.effective_signature_mode.value,
         )
 
     def validate(self) -> None:
-        if not self.ip_enabled:
+        if not self.series_visual_signature_enabled:
             return
-        if self.ip_asset_bible_id is None:
-            raise ValueError("ip_asset_bible_id is required when ip_enabled=True")
-        if self.ip_profile_id is None:
-            raise ValueError("ip_profile_id is required when ip_enabled=True")
+        if self.series_visual_signature_asset_bible_id is None:
+            raise ValueError("series_visual_signature_asset_bible_id is required when series_visual_signature_enabled=True")
+        if self.series_visual_signature_profile_id is None:
+            raise ValueError("series_visual_signature_profile_id is required when series_visual_signature_enabled=True")
 
     def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {"ip_enabled": self.ip_enabled}
-        if not self.ip_enabled:
+        payload: dict[str, Any] = {"series_visual_signature_enabled": self.series_visual_signature_enabled}
+        if not self.series_visual_signature_enabled:
             return payload
-        if self.ip_asset_bible_id is not None:
-            payload["ip_asset_bible_id"] = self.ip_asset_bible_id
-        if self.ip_profile_id is not None:
-            payload["ip_profile_id"] = self.ip_profile_id
-        payload["visual_expression_mode"] = self.visual_expression_mode
-        payload["visual_structure_mode"] = self.visual_structure_mode
-        payload["visual_participation_mode"] = self.visual_participation_mode
-        payload["visual_role_mode"] = self.visual_role_mode
-        payload["visual_consistency_mode"] = self.visual_consistency_mode
-        payload["effective_visual_role_mode"] = self.effective_visual_role_mode
+        if self.series_visual_signature_asset_bible_id is not None:
+            payload["series_visual_signature_asset_bible_id"] = self.series_visual_signature_asset_bible_id
+        if self.series_visual_signature_profile_id is not None:
+            payload["series_visual_signature_profile_id"] = self.series_visual_signature_profile_id
+        payload["series_visual_signature_expression_mode"] = self.series_visual_signature_expression_mode
+        payload["series_visual_signature_structure_mode"] = self.series_visual_signature_structure_mode
+        payload["series_visual_signature_participation_mode"] = self.series_visual_signature_participation_mode
+        payload["series_visual_signature_mode"] = self.series_visual_signature_mode
+        payload["series_visual_signature_consistency_mode"] = self.series_visual_signature_consistency_mode
+        payload["effective_series_visual_signature_mode"] = self.effective_series_visual_signature_mode
         return payload
 
 
@@ -305,7 +305,7 @@ def normalize_standard_video_generation_params(
         default_prompt_language=default_prompt_language,
     )
     ip_contract = IPControlsContract.from_mapping(normalized)
-    visual_role_contract = VisualRoleControlsContract.from_mapping(normalized)
+    series_visual_signature_contract = SeriesVisualSignatureControlsContract.from_mapping(normalized)
     article_visual_planning_request = ArticleVisualPlanningRequest.from_mapping(normalized)
     for key in (*STORYBOARD_GENERATION_OPTION_KEYS, *STORYBOARD_PLANNING_OPTION_KEYS):
         normalized.pop(key, None)
@@ -316,7 +316,7 @@ def normalize_standard_video_generation_params(
     normalized.update(storyboard_contract.to_generation_dict())
     normalized.update(storyboard_contract.to_planning_dict(include_prompt_language=True))
     normalized.update(ip_contract.to_dict())
-    normalized.update(visual_role_contract.to_generation_dict())
+    normalized.update(series_visual_signature_contract.to_generation_dict())
     article_visual_planning_params = article_visual_planning_request.to_dict()
     normalized.update(article_visual_planning_params)
     normalized.update(
@@ -324,9 +324,9 @@ def normalize_standard_video_generation_params(
             article_visual_planning_request.article_concretization
         )
     )
-    _apply_v44_visual_role_strategy_effective_mode(
+    _apply_v44_series_visual_signature_strategy_effective_mode(
         normalized,
-        visual_role_contract=visual_role_contract,
+        series_visual_signature_contract=series_visual_signature_contract,
         article_visual_planning_request=article_visual_planning_request,
     )
     return normalized
@@ -349,26 +349,26 @@ def _article_concretization_generation_params(
     }
 
 
-def _apply_v44_visual_role_strategy_effective_mode(
+def _apply_v44_series_visual_signature_strategy_effective_mode(
     normalized: dict[str, Any],
     *,
-    visual_role_contract: VisualRoleControlsContract,
+    series_visual_signature_contract: SeriesVisualSignatureControlsContract,
     article_visual_planning_request: ArticleVisualPlanningRequest,
 ) -> None:
-    visual_role_strategy = article_visual_planning_request.visual_role_strategy
+    series_visual_signature_strategy = article_visual_planning_request.series_visual_signature_strategy
     if (
-        visual_role_strategy is VisualRoleStrategy.AUTO
-        or "effective_visual_role_mode" not in normalized
+        series_visual_signature_strategy is SeriesVisualSignatureStrategy.AUTO
+        or "effective_series_visual_signature_mode" not in normalized
     ):
         return
 
-    effective_role_mode = resolve_effective_role_mode_with_v44_context(
-        requested_role_mode=visual_role_contract.strategy.role_mode,
-        consistency_mode=visual_role_contract.strategy.consistency_mode,
-        visual_role_strategy=visual_role_strategy,
-        subject_replacement_allowed=visual_role_strategy is VisualRoleStrategy.PARTICIPANT,
+    effective_signature_mode = resolve_effective_signature_mode_with_v44_context(
+        requested_signature_mode=series_visual_signature_contract.strategy.signature_mode,
+        consistency_mode=series_visual_signature_contract.strategy.consistency_mode,
+        series_visual_signature_strategy=series_visual_signature_strategy,
+        subject_replacement_allowed=series_visual_signature_strategy is SeriesVisualSignatureStrategy.PARTICIPANT,
     )
-    normalized["effective_visual_role_mode"] = effective_role_mode.value
+    normalized["effective_series_visual_signature_mode"] = effective_signature_mode.value
 
 
 def validate_standard_video_generation_params(
@@ -390,7 +390,7 @@ def validate_standard_video_generation_params(
         )
 
     ArticleVisualPlanningRequest.from_mapping(params)
-    VisualRoleControlsContract.from_mapping(params)
+    SeriesVisualSignatureControlsContract.from_mapping(params)
 
     mode = params.get("mode", "generate")
     if mode not in VIDEO_GENERATION_MODES:
@@ -479,7 +479,7 @@ def validate_standard_video_generation_params(
 
     validate_plan_frame_override_payloads(params.get("frame_overrides"))
     IPControlsContract.from_mapping(params).validate()
-    VisualRoleRequest.from_mapping(params).validate()
+    SeriesVisualSignatureRequest.from_mapping(params).validate()
 
 
 def is_plan_frame_override_payload(override: Mapping[str, Any]) -> bool:

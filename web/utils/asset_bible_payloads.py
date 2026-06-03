@@ -72,10 +72,10 @@ def upsert_ip_profile_draft(
     normalized = dict(asset_bible_payload)
     normalized.pop("workspace_id", None)
     normalized.pop("asset_bible_id", None)
-    target_id = normalized_profile["ip_profile_id"]
+    target_id = normalized_profile["series_visual_signature_profile_id"]
     profiles = _dict_items(normalized.get("ip_profiles"))
     for index, profile in enumerate(profiles):
-        if profile.get("ip_profile_id") == target_id:
+        if profile.get("series_visual_signature_profile_id") == target_id:
             profiles[index] = normalized_profile
             break
     else:
@@ -88,9 +88,9 @@ def _build_ip_profile_payload(value: Any, *, index: int) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"ip_profiles[{index}] must be a JSON object")
     profile = dict(value)
-    profile["ip_profile_id"] = _validate_public_reference_id(
-        "ip_profile_id",
-        str(profile.get("ip_profile_id", "")),
+    profile["series_visual_signature_profile_id"] = _validate_public_reference_id(
+        "series_visual_signature_profile_id",
+        str(profile.get("series_visual_signature_profile_id", "")),
     )
     profile["name"] = _require_text("name", str(profile.get("name", "")))
     for field_name in ("logline", "world_hint", "style_hint"):
@@ -104,7 +104,7 @@ def _project_ip_profile_response(value: dict[str, Any]) -> dict[str, Any]:
     return _copy_allowed_fields(
         value,
         (
-            "ip_profile_id",
+            "series_visual_signature_profile_id",
             "name",
             "logline",
             "world_hint",

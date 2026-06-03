@@ -69,7 +69,7 @@ class _RecordingAssetBibleRepository:
             "project_id": "project_1",
             "ip_profiles": [
                 {
-                    "ip_profile_id": "ip_main",
+                    "series_visual_signature_profile_id": "ip_main",
                     "workspace_id": workspace_id,
                     "project_id": "project_1",
                     "name": "正定向导兔",
@@ -432,9 +432,9 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
             "frame_template": "1080x1920/image_default.html",
             "workspace_id": "workspace_1",
             "project_id": "project_1",
-            "ip_enabled": True,
-            "ip_asset_bible_id": "bible_demo",
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
         },
     )
     ctx.task_id = "task-ip-controls"
@@ -444,8 +444,8 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
 
     assert repository.load_calls == [("workspace_1", "bible_demo")]
     assert repository.list_scene_cast_calls == [("workspace_1", "project_1", "bible_demo")]
-    assert captured["ip_enabled"] is True
-    assert captured["ip_profile"].ip_profile_id == "ip_main"
+    assert captured["series_visual_signature_enabled"] is True
+    assert captured["ip_profile"].series_visual_signature_profile_id == "ip_main"
     scene_casts_by_frame = captured["scene_casts_by_frame"]
     assert list(scene_casts_by_frame) == [plan.frames[0].frame_id]
     assert scene_casts_by_frame[plan.frames[0].frame_id]["metadata"]["ip_presence_type"] == "scene_integrated"
@@ -473,9 +473,9 @@ async def test_plan_visuals_rejects_enabled_ip_without_identity_anchors(monkeypa
             "frame_template": "1080x1920/image_default.html",
             "workspace_id": "workspace_1",
             "project_id": "project_1",
-            "ip_enabled": True,
-            "ip_asset_bible_id": "bible_demo",
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
         },
     )
     ctx.task_id = "task-ip-empty-anchors"
@@ -499,9 +499,9 @@ async def test_plan_visuals_rejects_enabled_ip_without_asset_repository(monkeypa
         input_text="第一句。第二句。",
         params={
             "frame_template": "1080x1920/image_default.html",
-            "ip_enabled": True,
-            "ip_asset_bible_id": "bible_demo",
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
         },
     )
     ctx.task_id = "task-ip-missing-repository"

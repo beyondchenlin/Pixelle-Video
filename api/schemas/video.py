@@ -41,6 +41,10 @@ from pixelle_video.models.article_concretization import (
 from pixelle_video.models.article_understanding import ArticleUnderstandingMode
 from pixelle_video.models.media_placement import MediaPlacement
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
+from pixelle_video.models.series_visual_signature_request import (
+    SeriesVisualSignatureControlsContract,
+)
+from pixelle_video.models.series_visual_signature_strategy import SeriesVisualSignatureStrategy
 from pixelle_video.models.size_contract import (
     STANDARD_VIDEO_SIZE_PRESETS,
     GenerationSizeContract,
@@ -59,8 +63,6 @@ from pixelle_video.models.storyboard_planning import (
     ShotOverridePolicy,
 )
 from pixelle_video.models.visual_planning_mode import VisibleTextPolicy, VisualPlanningMode
-from pixelle_video.models.visual_role_request import VisualRoleControlsContract
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 from pixelle_video.render_backend import RenderBackend
 from pixelle_video.tts_split_strategy import TtsSplitMode
 from pixelle_video.utils.prompt_generation_performance import (
@@ -78,7 +80,7 @@ from pixelle_video.utils.template_util import (
 StandardTtsAudioStrategy = Literal["auto", "master_track"]
 ArticleUnderstandingModeRequest = ArticleUnderstandingMode
 VisualPlanningModeRequest = VisualPlanningMode
-VisualRoleStrategyRequest = VisualRoleStrategy
+SeriesVisualSignatureStrategyRequest = SeriesVisualSignatureStrategy
 CognitiveAnchorKindRequest = CognitiveAnchorKind
 ExplanationDiagramGrammarRequest = ExplanationDiagramGrammar
 SeriesVisualSignatureRoleRequest = SeriesVisualSignatureRole
@@ -264,37 +266,37 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="Public TTS workflow preset resource ID resolved server-side",
     )
-    ip_enabled: bool = Field(
+    series_visual_signature_enabled: bool = Field(
         False,
         description="Enable IP prompt chain for image prompt generation.",
     )
-    ip_asset_bible_id: Optional[str] = Field(
+    series_visual_signature_asset_bible_id: Optional[str] = Field(
         None,
         description="Public asset bible resource ID resolved server-side for IP prompt chain.",
     )
-    ip_profile_id: Optional[str] = Field(
+    series_visual_signature_profile_id: Optional[str] = Field(
         None,
         description="IP profile ID inside the selected asset bible.",
     )
-    visual_expression_mode: Optional[str] = Field(
+    series_visual_signature_expression_mode: Optional[str] = Field(
         None,
-        description="V4 visual-role expression mode.",
+        description="V4 series-visual-signature expression mode.",
     )
-    visual_structure_mode: Optional[str] = Field(
+    series_visual_signature_structure_mode: Optional[str] = Field(
         None,
-        description="V4 visual-role structure mode.",
+        description="V4 series-visual-signature structure mode.",
     )
-    visual_participation_mode: Optional[str] = Field(
+    series_visual_signature_participation_mode: Optional[str] = Field(
         None,
-        description="V4 visual-role participation mode.",
+        description="V4 series-visual-signature participation mode.",
     )
-    visual_role_mode: Optional[str] = Field(
+    series_visual_signature_mode: Optional[str] = Field(
         None,
-        description="V4 visual-role strategy mode.",
+        description="V4 series-visual-signature strategy mode.",
     )
-    visual_consistency_mode: Optional[str] = Field(
+    series_visual_signature_consistency_mode: Optional[str] = Field(
         None,
-        description="V4 visual-role consistency mode.",
+        description="V4 series-visual-signature consistency mode.",
     )
     article_understanding_mode: ArticleUnderstandingModeRequest = Field(
         "auto",
@@ -304,9 +306,9 @@ class VideoGenerateRequest(BaseModel):
         "auto",
         description="V4.4 visual planning mode.",
     )
-    visual_role_strategy: VisualRoleStrategyRequest = Field(
+    series_visual_signature_strategy: SeriesVisualSignatureStrategyRequest = Field(
         "auto",
-        description="V4.4 visual role strategy.",
+        description="V4.4 series visual signature strategy.",
     )
     user_intent_hint: Optional[str] = Field(
         None,
@@ -551,8 +553,8 @@ class VideoGenerateRequest(BaseModel):
         "bgm_id",
         "workflow_preset_id",
         "tts_workflow_preset_id",
-        "ip_asset_bible_id",
-        "ip_profile_id",
+        "series_visual_signature_asset_bible_id",
+        "series_visual_signature_profile_id",
     )
     @classmethod
     def validate_public_resource_ids(cls, value: str | None, info) -> str | None:
@@ -617,16 +619,16 @@ class VideoGenerateRequest(BaseModel):
         elif self.script_target_words is not None:
             raise ValueError("script_target_words is only valid with custom script length mode")
 
-        if self.ip_enabled:
-            if self.ip_asset_bible_id is None:
-                raise ValueError("ip_asset_bible_id is required when ip_enabled=True")
-            if self.ip_profile_id is None:
-                raise ValueError("ip_profile_id is required when ip_enabled=True")
+        if self.series_visual_signature_enabled:
+            if self.series_visual_signature_asset_bible_id is None:
+                raise ValueError("series_visual_signature_asset_bible_id is required when series_visual_signature_enabled=True")
+            if self.series_visual_signature_profile_id is None:
+                raise ValueError("series_visual_signature_profile_id is required when series_visual_signature_enabled=True")
 
-        VisualRoleControlsContract.from_mapping(
+        SeriesVisualSignatureControlsContract.from_mapping(
             {
-                "visual_role_mode": self.visual_role_mode,
-                "visual_consistency_mode": self.visual_consistency_mode,
+                "series_visual_signature_mode": self.series_visual_signature_mode,
+                "series_visual_signature_consistency_mode": self.series_visual_signature_consistency_mode,
             }
         )
 

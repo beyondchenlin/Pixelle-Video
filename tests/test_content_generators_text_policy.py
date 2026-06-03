@@ -75,7 +75,9 @@ def test_image_text_policy_routes_custom_positive_and_negative_prompts():
 
     prompt = apply_image_text_policy("a clean desk", policy)
 
-    assert prompt == "a clean desk Rendering requirements: avoid any generated lettering"
+    assert prompt.startswith("[Scene] ")
+    assert "a clean desk" in prompt
+    assert "Rendering requirements: avoid any generated lettering" in prompt
     assert select_image_text_negative_prompt(policy) == ("signage", "captions")
 
 
@@ -139,22 +141,26 @@ async def test_generate_styled_image_prompt_batch_injects_native_hints_before_te
         enabled_targets=("native_prompt",),
         allow_native_text_in_image=True,
     )
-    assert result.prompts == [
-        'a clean hanging sign Rendering requirements: render the planned text "Pixelle", '
-        "only render the explicitly requested planned text, no extra captions, "
-        "no extra subtitles, no watermark, no logo text, no random letters"
-    ]
+    assert result.prompts[0].startswith("[Scene] ")
+    assert result.prompts[0].count("[Scene]") == 1
+    assert 'render the planned text "Pixelle"' in result.prompts[0]
+    assert "only render the explicitly requested planned text" in result.prompts[0]
+    assert "no random letters" in result.prompts[0]
     assert result.negative_prompt is not None
     assert "random letters" in result.negative_prompt
     assert "Chinese characters" not in result.negative_prompt
-    assert result.planning_snapshot == {
-        "final_visual_prompt_template": final_visual_prompt_template_metadata(),
-        "final_visual_prompt_clause_template": final_visual_prompt_clause_template_metadata(),
-        "text_rendering_policy": policy.to_dict(),
-        "native_prompt_hint_count": 1,
-        "frames_with_native_hints": [0],
-        "native_prompt_source_candidate_ids": ["candidate-1"],
-    }
+    assert result.planning_snapshot["final_visual_prompt_template"] == (
+        final_visual_prompt_template_metadata()
+    )
+    assert result.planning_snapshot["final_visual_prompt_clause_template"] == (
+        final_visual_prompt_clause_template_metadata()
+    )
+    assert result.planning_snapshot["text_rendering_policy"] == policy.to_dict()
+    assert result.planning_snapshot["native_prompt_hint_count"] == 1
+    assert result.planning_snapshot["frames_with_native_hints"] == [0]
+    assert result.planning_snapshot["native_prompt_source_candidate_ids"] == [
+        "candidate-1"
+    ]
 
 
 @pytest.mark.asyncio
@@ -292,8 +298,9 @@ async def test_generate_styled_image_prompt_batch_defaults_to_no_image_text_supp
         workflow="selfhost/image_z_image_turbo.json",
     )
 
-    assert result.prompts == ["a clean desk"]
+    assert "a clean desk" in result.prompts[0]
     assert NO_TEXT_POSITIVE_RULE not in result.prompts[0]
+    assert "Rendering requirements:" not in result.prompts[0]
     assert result.negative_prompt is None
 
 
@@ -332,7 +339,7 @@ async def test_generate_styled_image_prompt_batch_uses_image_text_policy_prompts
         },
     )
 
-    assert result.prompts == [
-        "a clean desk Rendering requirements: avoid generated lettering"
-    ]
+    assert result.prompts[0].startswith("[Scene] ")
+    assert "a clean desk" in result.prompts[0]
+    assert "Rendering requirements: avoid generated lettering" in result.prompts[0]
     assert result.negative_prompt == "signage, captions"

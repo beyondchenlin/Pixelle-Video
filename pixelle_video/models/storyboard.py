@@ -28,8 +28,8 @@ from pixelle_video.models.size_contract import (
     DEFAULT_VIDEO_ORIENTATION,
     DEFAULT_VIDEO_RESOLUTION_PRESET,
 )
-from pixelle_video.models.template_display import TemplateDisplaySettings
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
+from pixelle_video.models.template_display import TemplateDisplaySettings
 from pixelle_video.models.video_generation_contract import StoryboardControlsContract
 from pixelle_video.prompt_language import (
     DEFAULT_PROMPT_LANGUAGE,

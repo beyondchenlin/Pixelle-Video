@@ -93,7 +93,7 @@ class StyleProfileDraft(PublicMetadataModel):
 class IPProfileDraft(PublicMetadataModel):
     model_config = ConfigDict(extra="forbid")
 
-    ip_profile_id: str
+    series_visual_signature_profile_id: str
     name: str
     logline: str | None = None
     world_hint: str | None = None
@@ -117,7 +117,7 @@ class IPProfileDraft(PublicMetadataModel):
     adaptable_slots: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("ip_profile_id")
+    @field_validator("series_visual_signature_profile_id")
     @classmethod
     def validate_ids(cls, value: str, info) -> str:
         return validate_public_reference_id(info.field_name, value)
@@ -153,7 +153,7 @@ class IPProfileDraft(PublicMetadataModel):
 
     def to_model(self, *, workspace_id: str, project_id: str) -> IPProfile:
         return IPProfile(
-            ip_profile_id=self.ip_profile_id,
+            series_visual_signature_profile_id=self.series_visual_signature_profile_id,
             workspace_id=workspace_id,
             project_id=project_id,
             name=self.name,
@@ -201,9 +201,9 @@ class AssetBibleDraftRequest(PublicMetadataModel):
     @field_validator("ip_profiles")
     @classmethod
     def validate_ip_profiles(cls, value: list[IPProfileDraft]) -> list[IPProfileDraft]:
-        ids = [item.ip_profile_id for item in value]
+        ids = [item.series_visual_signature_profile_id for item in value]
         if len(set(ids)) != len(ids):
-            raise ValueError("ip_profiles must not include duplicate ip_profile_id")
+            raise ValueError("ip_profiles must not include duplicate series_visual_signature_profile_id")
         return value
 
     def to_model(self, *, project_id: str) -> AssetBible:
@@ -350,7 +350,7 @@ class SceneCastListResponse(BaseModel):
 class IPProfileResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ip_profile_id: str
+    series_visual_signature_profile_id: str
     workspace_id: str
     project_id: str
     name: str
@@ -376,7 +376,7 @@ class IPProfileResponse(BaseModel):
     visible_text_whitelist: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("ip_profile_id", "workspace_id", "project_id")
+    @field_validator("series_visual_signature_profile_id", "workspace_id", "project_id")
     @classmethod
     def validate_ids(cls, value: str, info) -> str:
         return validate_public_reference_id(info.field_name, value)

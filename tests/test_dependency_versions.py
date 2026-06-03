@@ -13,7 +13,7 @@ def test_asset_bible_version_is_stable_for_same_public_payload():
         project_id="project_1",
         ip_profiles=(
             IPProfile(
-                ip_profile_id="ip_main",
+                series_visual_signature_profile_id="ip_main",
                 workspace_id="workspace_1",
                 project_id="project_1",
                 name="Pixelle Demo",

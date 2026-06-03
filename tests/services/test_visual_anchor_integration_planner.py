@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from pixelle_video.models.asset_bible import IPProfile, IPRenderingStyle
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.visual_anchor_integration import (
@@ -8,7 +10,9 @@ from pixelle_video.models.visual_anchor_integration import (
     VisualAnchorIntegrationResponse,
 )
 from pixelle_video.models.visual_anchor_planning import AnchorProminence
-from pixelle_video.services.visual_anchor_integration_planner import VisualAnchorIntegrationPlanner
+from pixelle_video.services.series_visual_signature_anchor_planner import (
+    VisualAnchorIntegrationPlanner,
+)
 
 
 class ValidSceneBoundLLM:
@@ -29,7 +33,7 @@ class ValidSceneBoundLLM:
                             interaction_target="书页",
                             occlusion_relation="主体阅读区域保持清晰",
                             visual_weight_clause="低对比、低存在感，作为纸面材质细节",
-                            image_prompt_clause="蓝领结白兔轮廓浅压印纹章，像安静的藏书票细节",
+                            image_prompt_clause="白色科技兔子轮廓浅压印纹章，带蓝色领结和长耳朵，像安静的藏书票细节",
                             scene_coherence_score=10,
                             disruption_risk=1,
                             identity_preservation_score=9,
@@ -86,7 +90,7 @@ class MalformedButJsonLLM:
 
 def _profile() -> IPProfile:
     return IPProfile(
-        ip_profile_id="rabbit",
+        series_visual_signature_profile_id="rabbit",
         workspace_id="ws",
         project_id="prj",
         name="科技兔子",
@@ -106,7 +110,7 @@ def _book_brief() -> BaseVisualBrief:
     )
 
 
-def test_visual_anchor_integration_planner_uses_scene_bound_llm_candidate():
+def test_series_visual_signature_anchor_planner_uses_scene_bound_llm_candidate():
     plans = asyncio.run(
         VisualAnchorIntegrationPlanner(llm_service=ValidSceneBoundLLM()).plan_batch(
             base_visual_briefs=(_book_brief(),),
@@ -116,32 +120,39 @@ def test_visual_anchor_integration_planner_uses_scene_bound_llm_candidate():
 
     assert plans[0].visible
     assert plans[0].anchor_prominence is AnchorProminence.EMBEDDED_MARK
-    assert "蓝领结白兔" in plans[0].image_prompt_clause
+    assert "白色科技兔子" in plans[0].image_prompt_clause
+    assert "蓝色领结" in plans[0].image_prompt_clause
     assert "压印" in plans[0].image_prompt_clause
     assert "角标" not in plans[0].image_prompt_clause
     assert "水印" not in plans[0].image_prompt_clause
-    assert plans[0].metadata["source"] == "llm_visual_anchor_integration"
+    assert plans[0].metadata["source"] == "llm_mandatory_series_visual_signature_integration"
 
 
-def test_visual_anchor_integration_planner_rejects_overlay_candidate_fail_closed():
-    plans = asyncio.run(
-        VisualAnchorIntegrationPlanner(llm_service=RejectedOverlayLLM()).plan_batch(
-            base_visual_briefs=(_book_brief(),),
-            anchor_profile=_profile(),
+def test_series_visual_signature_anchor_planner_rejects_overlay_candidate_fail_closed():
+    with pytest.raises(ValueError, match="forbidden overlay"):
+        asyncio.run(
+            VisualAnchorIntegrationPlanner(llm_service=RejectedOverlayLLM()).plan_batch(
+                base_visual_briefs=(_book_brief(),),
+                anchor_profile=_profile(),
+            )
         )
-    )
-
-    assert not plans[0].visible
-    assert plans[0].metadata["source"] == "llm_no_usable_candidate"
 
 
-def test_visual_anchor_integration_planner_repairs_malformed_json_fail_closed():
-    plans = asyncio.run(
-        VisualAnchorIntegrationPlanner(llm_service=MalformedButJsonLLM()).plan_batch(
-            base_visual_briefs=(_book_brief(),),
-            anchor_profile=_profile(),
+def test_series_visual_signature_anchor_planner_repairs_malformed_json_fail_closed():
+    with pytest.raises(ValueError, match="candidates must be an array"):
+        asyncio.run(
+            VisualAnchorIntegrationPlanner(llm_service=MalformedButJsonLLM()).plan_batch(
+                base_visual_briefs=(_book_brief(),),
+                anchor_profile=_profile(),
+            )
         )
-    )
 
-    assert not plans[0].visible
-    assert plans[0].metadata["source"] == "malformed_or_missing_candidates"
+
+def test_series_visual_signature_anchor_planner_rejects_non_callable_llm_service():
+    with pytest.raises(ValueError, match="callable llm_service"):
+        asyncio.run(
+            VisualAnchorIntegrationPlanner(llm_service=object()).plan_batch(
+                base_visual_briefs=(_book_brief(),),
+                anchor_profile=_profile(),
+            )
+        )

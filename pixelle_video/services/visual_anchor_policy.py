@@ -7,7 +7,6 @@ from typing import Any
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 
-
 CANVAS_OVERLAY_TERMS: tuple[str, ...] = (
     "画面角落",
     "画面边角",

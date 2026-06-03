@@ -197,7 +197,7 @@ def _asset_bible_payload(**overrides) -> dict[str, Any]:
         "asset_bible_id": "bible_demo",
         "ip_profiles": [
             {
-                "ip_profile_id": "ip_main",
+                "series_visual_signature_profile_id": "ip_main",
                 "name": "Pixelle Demo",
                 "world_hint": "Soft futuristic city.",
                 "style_hint": "clean comic panels",
@@ -483,7 +483,7 @@ def test_asset_bible_api_updates_draft_through_repository():
     response = client.put(
         "/projects/project_1/asset-bible/bible_demo",
         json=_asset_bible_payload(
-            ip_profiles=[{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+            ip_profiles=[{"series_visual_signature_profile_id": "ip_main", "name": "Updated IP"}],
         ),
     )
 
@@ -509,7 +509,7 @@ def test_asset_bible_api_update_marks_imported_draft_customized_and_preserves_or
     response = client.put(
         "/projects/project_1/asset-bible/bible_demo",
         json=_asset_bible_payload(
-            ip_profiles=[{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+            ip_profiles=[{"series_visual_signature_profile_id": "ip_main", "name": "Updated IP"}],
             metadata={"source_kind": "imported", "customized": False},
         ),
     )
@@ -540,7 +540,7 @@ def test_asset_bible_api_update_uses_stale_aware_write_service_when_configured()
     response = client.put(
         "/projects/project_1/asset-bible/bible_demo",
         json=_asset_bible_payload(
-            ip_profiles=[{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+            ip_profiles=[{"series_visual_signature_profile_id": "ip_main", "name": "Updated IP"}],
         ),
     )
 
@@ -571,7 +571,7 @@ def test_asset_bible_api_stale_update_marks_imported_draft_customized():
     response = client.put(
         "/projects/project_1/asset-bible/bible_demo",
         json=_asset_bible_payload(
-            ip_profiles=[{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+            ip_profiles=[{"series_visual_signature_profile_id": "ip_main", "name": "Updated IP"}],
         ),
     )
 
@@ -594,7 +594,7 @@ def test_asset_bible_api_update_rejects_partial_stale_repository_configuration()
     response = client.put(
         "/projects/project_1/asset-bible/bible_demo",
         json=_asset_bible_payload(
-            ip_profiles=[{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+            ip_profiles=[{"series_visual_signature_profile_id": "ip_main", "name": "Updated IP"}],
         ),
     )
 
@@ -640,7 +640,7 @@ def test_asset_bible_api_maps_domain_validation_errors_to_422():
         json=_asset_bible_payload(
             ip_profiles=[
                 {
-                    "ip_profile_id": "ip_main",
+                    "series_visual_signature_profile_id": "ip_main",
                     "name": "Pixelle Demo",
                     "identity_anchors": [""],
                 }
@@ -659,7 +659,7 @@ def test_update_asset_bible_preserves_structured_ip_profile_fields():
     payload = _asset_bible_payload(
         ip_profiles=[
             {
-                "ip_profile_id": "ip_main",
+                "series_visual_signature_profile_id": "ip_main",
                 "name": "正定向导兔",
                 "logline": "一只白色兔子古城向导。",
                 "world_hint": "正定古城、城墙、古寺、青砖、历史文化旅游。",

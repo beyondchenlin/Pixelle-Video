@@ -23,7 +23,6 @@ from loguru import logger
 from .loader import load_config_dict, save_config_dict
 from .schema import PixelleVideoConfig
 
-
 _UNSET = object()
 
 

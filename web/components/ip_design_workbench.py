@@ -14,20 +14,12 @@ from pixelle_video.platform_context import (
 from pixelle_video.services.ip_color_palette import build_color_palette_prompt_entries
 from pixelle_video.services.ip_profile_readiness import ip_generation_identity_terms
 from web.i18n import tr
+from web.ip_design.asset_bible_payloads import _to_ip_profile_draft
 from web.ip_design.models import (
-    AssetBibleDraft,
-    CharacterProfileDraft,
     FieldId,
     IPProfileDraft,
-    ListSceneCastsResponse,
-    PropAssetDraft,
-    SaveResponse,
-    SceneAssetDraft,
-    SceneCastDraft,
-    StyleProfileDraft,
 )
 from web.ip_design.session_keys import IPSessionKeys
-from web.ip_design.asset_bible_payloads import _to_ip_profile_draft
 from web.utils.asset_bible_payloads import (
     build_asset_bible_draft_payload_from_response,
     upsert_ip_profile_draft,
@@ -246,7 +238,7 @@ def _render_ip_profile_tab(
 ) -> None:
     ip_profiles = list_of_dicts(selected_asset_bible.get("ip_profiles"))
     ip_profile_options = [
-        first_text(p.get("ip_profile_id")) for p in ip_profiles if first_text(p.get("ip_profile_id"))
+        first_text(p.get("series_visual_signature_profile_id")) for p in ip_profiles if first_text(p.get("series_visual_signature_profile_id"))
     ]
     ip_profile_options.append("__new_ip__")
 
@@ -281,7 +273,7 @@ def _render_ip_profile_tab(
     # Block 1: Basic Settings
     with ui.container(border=True):
         ui.caption(translate("ip_design.asset_bible.section_basic"))
-        ip_type = _render_select_or_custom(
+        _render_select_or_custom(
             ui,
             translate("ip_design.asset_bible.ip_type"),
             key=IPSessionKeys.FORM.ip_type,
@@ -291,10 +283,10 @@ def _render_ip_profile_tab(
         )
         keyed_text_input(
             ui,
-            translate("ip_design.asset_bible.ip_profile_id"),
-            key=IPSessionKeys.FORM.ip_profile_id,
-            value=first_text(ip_profile_dict.get("ip_profile_id")),
-            help=translate("ip_design.help.ip_profile_id"),
+            translate("ip_design.asset_bible.series_visual_signature_profile_id"),
+            key=IPSessionKeys.FORM.series_visual_signature_profile_id,
+            value=first_text(ip_profile_dict.get("series_visual_signature_profile_id")),
+            help=translate("ip_design.help.series_visual_signature_profile_id"),
         )
         keyed_text_input(
             ui,
@@ -440,9 +432,9 @@ def _render_ip_profile_tab(
         key="ip_design_save_asset_bible",
     ):
         asset_bible_id_form = st.session_state.get(IPSessionKeys.ASSET_BIBLE.asset_bible_id, "")
-        ip_profile_id_form = st.session_state.get(IPSessionKeys.FORM.ip_profile_id, "")
+        series_visual_signature_profile_id_form = st.session_state.get(IPSessionKeys.FORM.series_visual_signature_profile_id, "")
         ip_name_form = st.session_state.get(IPSessionKeys.FORM.name, "")
-        if not all(v.strip() for v in (asset_bible_id_form, ip_profile_id_form, ip_name_form)):
+        if not all(v.strip() for v in (asset_bible_id_form, series_visual_signature_profile_id_form, ip_name_form)):
             ui.error(translate("ip_design.asset_bible.missing_required"))
             return
 
@@ -769,7 +761,7 @@ def _render_readiness_tab(
         return
 
     for profile in ip_profiles:
-        profile_id = first_text(profile.get("ip_profile_id"), profile.get("name"))
+        profile_id = first_text(profile.get("series_visual_signature_profile_id"), profile.get("name"))
         ui.markdown(f"**{profile_id}**")
         identity_terms = list(ip_generation_identity_terms(profile))
         if identity_terms:
@@ -896,15 +888,15 @@ def _first_ip_name(asset_bible: dict[str, Any]) -> str:
     return first_text(profiles[0].get("name")) if profiles else ""
 
 
-def _first_ip_profile_id(asset_bible: dict[str, Any]) -> str:
+def _first_series_visual_signature_profile_id(asset_bible: dict[str, Any]) -> str:
     profiles = list_of_dicts(asset_bible.get("ip_profiles"))
-    return first_text(profiles[0].get("ip_profile_id")) if profiles else ""
+    return first_text(profiles[0].get("series_visual_signature_profile_id")) if profiles else ""
 
 
-def _find_ip_profile(asset_bible: dict[str, Any], ip_profile_id: str) -> dict[str, Any]:
+def _find_ip_profile(asset_bible: dict[str, Any], series_visual_signature_profile_id: str) -> dict[str, Any]:
     profiles = list_of_dicts(asset_bible.get("ip_profiles"))
     for profile in profiles:
-        if first_text(profile.get("ip_profile_id")) == first_text(ip_profile_id):
+        if first_text(profile.get("series_visual_signature_profile_id")) == first_text(series_visual_signature_profile_id):
             return profile
     return {}
 

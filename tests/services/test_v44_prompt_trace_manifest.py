@@ -4,8 +4,8 @@ import pytest
 
 from pixelle_video.models.article_understanding import ArticleUnderstandingLens
 from pixelle_video.models.mode_resolution import VisualPlanningRouteDecision
+from pixelle_video.models.series_visual_signature_strategy import SeriesVisualSignatureStrategy
 from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, VisualPlanningMode
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 from pixelle_video.services.v44_prompt_trace_manifest import (
     build_v44_prompt_trace_manifest,
     write_v44_prompt_trace_manifest,
@@ -18,14 +18,14 @@ def test_manifest_collects_route_ids_resolved_modes_fallbacks_and_payloads():
         frame_id="frame-1",
         resolved_primary_lens=ArticleUnderstandingLens.PROCESS_METHOD,
         resolved_visual_planning_mode=VisualPlanningMode.PROCESS_WALKTHROUGH,
-        resolved_visual_role_strategy=VisualRoleStrategy.HOST_EXPLAINER,
+        resolved_series_visual_signature_strategy=SeriesVisualSignatureStrategy.HOST_EXPLAINER,
     )
     second = _route_decision(
         route_decision_id="route-frame-2",
         frame_id="frame-2",
         resolution_status="planner_failed",
         fallback_used=False,
-        fallback_target="v4.2_visual_role_path",
+        fallback_target="v4.2_series_visual_signature_path",
         fallback_reason="article context insufficient",
     )
 
@@ -35,7 +35,7 @@ def test_manifest_collects_route_ids_resolved_modes_fallbacks_and_payloads():
         requested_modes={
             "article_understanding_mode": "process_method",
             "visual_planning_mode": "process_walkthrough",
-            "visual_role_strategy": "host_explainer",
+            "series_visual_signature_strategy": "host_explainer",
         },
         route_decisions=[first, second],
         critic_status="passed",
@@ -49,23 +49,23 @@ def test_manifest_collects_route_ids_resolved_modes_fallbacks_and_payloads():
         "aggregation": "mixed",
         "primary_lens": None,
         "visual_planning_mode": None,
-        "visual_role_strategy": None,
+        "series_visual_signature_strategy": None,
         "mixed_fields": [
             "primary_lens",
             "visual_planning_mode",
-            "visual_role_strategy",
+            "series_visual_signature_strategy",
         ],
     }
     assert manifest["resolved_modes_by_frame"] == {
         "frame-1": {
             "primary_lens": "process_method",
             "visual_planning_mode": "process_walkthrough",
-            "visual_role_strategy": "host_explainer",
+            "series_visual_signature_strategy": "host_explainer",
         },
         "frame-2": {
             "primary_lens": "thesis_argument",
             "visual_planning_mode": "auto",
-            "visual_role_strategy": "auto",
+            "series_visual_signature_strategy": "auto",
         },
     }
     assert manifest["route_decision_ids"] == {
@@ -76,7 +76,7 @@ def test_manifest_collects_route_ids_resolved_modes_fallbacks_and_payloads():
         {
             "frame_id": "frame-2",
             "route_decision_id": "route-frame-2",
-            "fallback_target": "v4.2_visual_role_path",
+            "fallback_target": "v4.2_series_visual_signature_path",
             "fallback_reason": "article context insufficient",
             "resolution_status": "planner_failed",
         }
@@ -91,14 +91,14 @@ def test_manifest_records_uniform_resolved_modes_without_first_frame_bias():
         frame_id="frame-1",
         resolved_primary_lens=ArticleUnderstandingLens.PROCESS_METHOD,
         resolved_visual_planning_mode=VisualPlanningMode.PROCESS_WALKTHROUGH,
-        resolved_visual_role_strategy=VisualRoleStrategy.HOST_EXPLAINER,
+        resolved_series_visual_signature_strategy=SeriesVisualSignatureStrategy.HOST_EXPLAINER,
     )
     second = _route_decision(
         route_decision_id="route-frame-2",
         frame_id="frame-2",
         resolved_primary_lens=ArticleUnderstandingLens.PROCESS_METHOD,
         resolved_visual_planning_mode=VisualPlanningMode.PROCESS_WALKTHROUGH,
-        resolved_visual_role_strategy=VisualRoleStrategy.HOST_EXPLAINER,
+        resolved_series_visual_signature_strategy=SeriesVisualSignatureStrategy.HOST_EXPLAINER,
     )
 
     manifest = build_v44_prompt_trace_manifest(
@@ -107,7 +107,7 @@ def test_manifest_records_uniform_resolved_modes_without_first_frame_bias():
         requested_modes={
             "article_understanding_mode": "process_method",
             "visual_planning_mode": "process_walkthrough",
-            "visual_role_strategy": "host_explainer",
+            "series_visual_signature_strategy": "host_explainer",
         },
         route_decisions=[first, second],
         critic_status="passed",
@@ -118,13 +118,13 @@ def test_manifest_records_uniform_resolved_modes_without_first_frame_bias():
         "aggregation": "uniform",
         "primary_lens": "process_method",
         "visual_planning_mode": "process_walkthrough",
-        "visual_role_strategy": "host_explainer",
+        "series_visual_signature_strategy": "host_explainer",
         "mixed_fields": [],
     }
     assert manifest["resolved_modes_by_frame"]["frame-2"] == {
         "primary_lens": "process_method",
         "visual_planning_mode": "process_walkthrough",
-        "visual_role_strategy": "host_explainer",
+        "series_visual_signature_strategy": "host_explainer",
     }
 
 
@@ -136,7 +136,7 @@ def test_manifest_rejects_empty_route_decisions_for_v44_frames():
             requested_modes={
                 "article_understanding_mode": "auto",
                 "visual_planning_mode": "auto",
-                "visual_role_strategy": "auto",
+                "series_visual_signature_strategy": "auto",
             },
             route_decisions=[],
             critic_status="skipped",
@@ -148,7 +148,7 @@ def test_manifest_detaches_requested_modes_from_input_mutation():
     requested_modes = {
         "article_understanding_mode": "auto",
         "visual_planning_mode": "auto",
-        "visual_role_strategy": "auto",
+        "series_visual_signature_strategy": "auto",
         "nested": {"value": ["original"]},
     }
 
@@ -212,7 +212,7 @@ def test_writer_creates_prompt_trace_manifest_with_strict_json(tmp_path):
         requested_modes={
             "article_understanding_mode": "auto",
             "visual_planning_mode": "auto",
-            "visual_role_strategy": "auto",
+            "series_visual_signature_strategy": "auto",
         },
         route_decisions=[_route_decision()],
         critic_status="passed",
@@ -351,11 +351,11 @@ def _route_decision(**overrides):
         "preflight_id": "preflight-v44-1",
         "requested_article_mode": "auto",
         "requested_visual_mode": "auto",
-        "requested_visual_role_strategy": "auto",
+        "requested_series_visual_signature_strategy": "auto",
         "resolved_primary_lens": "thesis_argument",
         "resolved_secondary_lenses": (),
         "resolved_visual_planning_mode": "auto",
-        "resolved_visual_role_strategy": "auto",
+        "resolved_series_visual_signature_strategy": "auto",
         "primary_visual_task": "cognitive_explanation",
         "secondary_visual_tasks": (PrimaryVisualTask.STRUCTURE_EXPLANATION,),
         "confidence": 0.8,

@@ -1,5 +1,8 @@
 from pixelle_video.models.asset_bible import IPProfile, IPRenderingStyle
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
+from pixelle_video.models.series_visual_signature_strategy import (
+    SeriesVisualSignatureStrategyControls,
+)
 from pixelle_video.models.visual_anchor_planning import (
     AnchorCarrierType,
     AnchorFunction,
@@ -7,7 +10,6 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
 from pixelle_video.services.provider_prompt_projector import ProviderPromptProjector
 from pixelle_video.services.visual_anchor_placement_planner import VisualAnchorPlacementPlanner
 
@@ -95,11 +97,11 @@ def test_provider_prompt_projector_avoids_percent_scale_language_and_overlay_ter
     assert "logo" not in rendered.prompt.lower()
 
 
-def test_visual_prompt_planning_projector_accepts_visual_role_strategy_argument():
-    role_strategy = VisualRoleStrategyControls.from_mapping(
+def test_visual_prompt_planning_projector_accepts_series_visual_signature_strategy_argument():
+    role_strategy = SeriesVisualSignatureStrategyControls.from_mapping(
         {
-            "visual_role_mode": "subject_replacement",
-            "visual_consistency_mode": "primary_character",
+            "series_visual_signature_mode": "subject_replacement",
+            "series_visual_signature_consistency_mode": "primary_character",
         }
     )
 
@@ -107,16 +109,16 @@ def test_visual_prompt_planning_projector_accepts_visual_role_strategy_argument(
         base_visual_brief=_brief(),
         visual_anchor_plan=_anchor(),
         workflow="selfhost/image_z_image_turbo_gguf.json",
-        visual_role_strategy=role_strategy,
+        series_visual_signature_strategy=role_strategy,
     )
 
     assert rendered.prompt
-    assert rendered.prompt_contract.metadata["visual_role_strategy"] == role_strategy.to_dict()
+    assert rendered.prompt_contract.metadata["series_visual_signature_strategy"] == role_strategy.to_dict()
 
 
 def test_planner_suppresses_named_comparison_subjects_by_default():
     profile = IPProfile(
-        ip_profile_id="rabbit",
+        series_visual_signature_profile_id="rabbit",
         workspace_id="ws",
         project_id="prj",
         name="科技兔子",

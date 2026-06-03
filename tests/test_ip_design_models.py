@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 # ── Model / Enum tests ──
 
 def test_field_id_enum_values():
@@ -12,8 +11,8 @@ def test_field_id_enum_values():
 
 def test_ip_profile_draft_defaults():
     from web.ip_design.models import IPProfileDraft
-    draft = IPProfileDraft(ip_profile_id="ip_1", name="Test")
-    assert draft.ip_profile_id == "ip_1"
+    draft = IPProfileDraft(series_visual_signature_profile_id="ip_1", name="Test")
+    assert draft.series_visual_signature_profile_id == "ip_1"
     assert draft.name == "Test"
     assert draft.ip_type == "cartoon_animal"
     assert draft.logline == ""
@@ -23,7 +22,7 @@ def test_ip_profile_draft_defaults():
 def test_ip_profile_draft_all_fields():
     from web.ip_design.models import IPProfileDraft
     draft = IPProfileDraft(
-        ip_profile_id="ip_1",
+        series_visual_signature_profile_id="ip_1",
         name="Test",
         ip_type="anime_human",
         logline="A test",
@@ -38,11 +37,11 @@ def test_ip_profile_draft_all_fields():
 
 
 def test_asset_bible_draft_with_profiles():
-    from web.ip_design.models import AssetBibleDraft, IPProfileDraft, CharacterProfileDraft
+    from web.ip_design.models import AssetBibleDraft, CharacterProfileDraft, IPProfileDraft
     draft = AssetBibleDraft(
         asset_bible_id="bible_1",
         ip_profiles=[
-            IPProfileDraft(ip_profile_id="ip_1", name="IP One"),
+            IPProfileDraft(series_visual_signature_profile_id="ip_1", name="IP One"),
         ],
         character_profiles=[
             CharacterProfileDraft(character_id="char_1", display_name="Char One"),
@@ -71,7 +70,7 @@ def test_scene_cast_draft():
 
 
 def test_list_asset_bibles_response():
-    from web.ip_design.models import ListAssetBiblesResponse, AssetBibleSummary
+    from web.ip_design.models import AssetBibleSummary, ListAssetBiblesResponse
     resp = ListAssetBiblesResponse(
         success=True,
         asset_bibles=[
@@ -151,8 +150,8 @@ def test_ip_session_keys_widget_keys_contains_form_fields():
 
 
 def test_form_session_key_names_match_scene_cast():
-    from web.ip_design.session_keys import IPSessionKeys
     from web.ip_design.models import SceneCastDraft
+    from web.ip_design.session_keys import IPSessionKeys
     keys = IPSessionKeys()
     model_fields = set(SceneCastDraft.model_fields)
     key_attrs = {f.name for f in keys.SCENE_CAST.__class__.__dataclass_fields__.values()
@@ -168,9 +167,8 @@ def test_form_session_key_names_match_scene_cast():
 
 
 def test_form_session_key_names_match_model_fields():
-    from web.ip_design.session_keys import IPSessionKeys
     from web.ip_design.models import IPProfileDraft
-    from web.ip_design.asset_bible_payloads import _to_ip_profile_draft
+    from web.ip_design.session_keys import IPSessionKeys
     keys = IPSessionKeys()
     model_fields = set(IPProfileDraft.model_fields)
     carrier_fields = {"identity_anchors", "variable_slots", "world_hint",
@@ -193,7 +191,7 @@ def test_to_ip_profile_draft():
     from web.ip_design.asset_bible_payloads import _to_ip_profile_draft
     from web.ip_design.models import IPProfileDraft
     data = {
-        "ip_profile_id": "ip_1",
+        "series_visual_signature_profile_id": "ip_1",
         "name": "Test",
         "ip_type": "anime_human",
         "logline": "A test logline",
@@ -201,7 +199,7 @@ def test_to_ip_profile_draft():
     }
     draft = _to_ip_profile_draft(data)
     assert isinstance(draft, IPProfileDraft)
-    assert draft.ip_profile_id == "ip_1"
+    assert draft.series_visual_signature_profile_id == "ip_1"
     assert draft.name == "Test"
     assert draft.ip_type == "anime_human"
     assert draft.logline == "A test logline"
@@ -211,7 +209,7 @@ def test_to_ip_profile_draft():
 def test_to_ip_profile_draft_empty():
     from web.ip_design.asset_bible_payloads import _to_ip_profile_draft
     draft = _to_ip_profile_draft({})
-    assert draft.ip_profile_id == ""
+    assert draft.series_visual_signature_profile_id == ""
     assert draft.ip_type == "cartoon_animal"
     assert draft.identity_lock == []
 
@@ -264,8 +262,8 @@ def test_to_asset_bible_draft():
     draft = _to_asset_bible_draft({
         "asset_bible_id": "bible_1",
         "ip_profiles": [
-            {"ip_profile_id": "ip_1", "name": "Hero"},
-            {"ip_profile_id": "ip_2", "name": "Sidekick"},
+            {"series_visual_signature_profile_id": "ip_1", "name": "Hero"},
+            {"series_visual_signature_profile_id": "ip_2", "name": "Sidekick"},
         ],
         "character_profiles": [
             {"character_id": "char_1", "display_name": "Alice"},

@@ -63,10 +63,10 @@ def _render_asset_bible_create_form(
         translate("stage2.asset_bible.id_label"),
         key="stage2_asset_bible_id",
     )
-    ip_profile_id = _text_input(
+    series_visual_signature_profile_id = _text_input(
         ui,
-        translate("stage2.asset_bible.ip_profile_id_label"),
-        key="stage2_ip_profile_id",
+        translate("stage2.asset_bible.series_visual_signature_profile_id_label"),
+        key="stage2_series_visual_signature_profile_id",
         value="ip_main",
     )
     ip_name = _text_input(
@@ -85,7 +85,7 @@ def _render_asset_bible_create_form(
         key="stage2_create_asset_bible_submit",
     ):
         return
-    if _missing(project_id, workspace_id, asset_bible_id, ip_profile_id, ip_name):
+    if _missing(project_id, workspace_id, asset_bible_id, series_visual_signature_profile_id, ip_name):
         ui.error(translate("stage2.asset_bible.missing_required"))
         return
 
@@ -98,7 +98,7 @@ def _render_asset_bible_create_form(
                 "asset_bible_id": asset_bible_id,
                 "ip_profiles": [
                     {
-                        "ip_profile_id": ip_profile_id,
+                        "series_visual_signature_profile_id": series_visual_signature_profile_id,
                         "name": ip_name,
                         "identity_lock": split_csv(identity_lock),
                     }

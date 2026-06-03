@@ -11,7 +11,7 @@ from pixelle_video.models.mode_resolution import JSONValue, VisualPlanningRouteD
 _RESOLVED_MODE_KEYS = (
     "primary_lens",
     "visual_planning_mode",
-    "visual_role_strategy",
+    "series_visual_signature_strategy",
 )
 
 
@@ -171,7 +171,7 @@ def _resolved_modes_for_decision(decision: VisualPlanningRouteDecision) -> dict[
     return {
         "primary_lens": decision.resolved_primary_lens.value,
         "visual_planning_mode": decision.resolved_visual_planning_mode.value,
-        "visual_role_strategy": decision.resolved_visual_role_strategy.value,
+        "series_visual_signature_strategy": decision.resolved_series_visual_signature_strategy.value,
     }
 
 
@@ -183,7 +183,7 @@ def _aggregate_resolved_modes(
             "aggregation": "none",
             "primary_lens": None,
             "visual_planning_mode": None,
-            "visual_role_strategy": None,
+            "series_visual_signature_strategy": None,
             "mixed_fields": [],
         }
 

@@ -76,7 +76,7 @@ def test_http_ip_design_client_wraps_asset_bible_helpers():
         workspace_id="workspace_1",
         project_id="project_1",
         asset_bible_id="bible_demo",
-        payload={"ip_profiles": [{"ip_profile_id": "ip_main", "name": "Demo IP"}]},
+        payload={"ip_profiles": [{"series_visual_signature_profile_id": "ip_main", "name": "Demo IP"}]},
     )
     assert save_resp.success is True
     sc_list_resp = client.list_scene_casts(
@@ -168,7 +168,7 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
         payload={
             "ip_profiles": [
                 {
-                    "ip_profile_id": "ip_main",
+                    "series_visual_signature_profile_id": "ip_main",
                     "name": "Demo IP",
                 }
             ],
@@ -254,7 +254,7 @@ def test_inprocess_ip_design_client_save_marks_imported_asset_bible_customized()
                     "project_id": "project_1",
                     "ip_profiles": [
                         {
-                            "ip_profile_id": "ip_main",
+                            "series_visual_signature_profile_id": "ip_main",
                             "workspace_id": "workspace_1",
                             "project_id": "project_1",
                             "name": "Demo IP",
@@ -292,7 +292,7 @@ def test_inprocess_ip_design_client_save_marks_imported_asset_bible_customized()
         project_id="project_1",
         asset_bible_id="bible_demo",
         payload={
-            "ip_profiles": [{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+            "ip_profiles": [{"series_visual_signature_profile_id": "ip_main", "name": "Updated IP"}],
             "metadata": {"source_kind": "imported", "customized": False},
         },
     )
@@ -348,7 +348,7 @@ def test_inprocess_ip_design_client_imports_builtin_asset_bible_without_leaking_
                         "project_id": "project_1",
                         "ip_profiles": [
                             {
-                                "ip_profile_id": "ip_main",
+                                "series_visual_signature_profile_id": "ip_main",
                                 "workspace_id": "workspace_1",
                                 "project_id": "project_1",
                                 "name": "Demo IP",

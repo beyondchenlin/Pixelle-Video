@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from loguru import logger
+
 from pixelle_video.models.text_layout import TextLayoutPlan
 from pixelle_video.models.text_overlay import (
     ImageTextPromptPolicy,
@@ -23,7 +25,6 @@ from pixelle_video.models.text_style import (
     TextStyleProfile,
     build_default_text_style_profiles,
 )
-from loguru import logger
 from pixelle_video.services.text_overlay_planner import TextOverlayPlanner
 
 _PROGRAMMATIC_TARGETS = {"hyperframes", "html", "ass", "python"}

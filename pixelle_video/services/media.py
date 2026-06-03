@@ -29,11 +29,6 @@ from pixelle_video.runninghub_workflow_contracts import (
     RUNNINGHUB_SOURCE,
     runninghub_registry_root,
 )
-from pixelle_video.utils.os_util import (
-    get_resource_path,
-    list_resource_dirs,
-    list_resource_files,
-)
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.services.comfyui_errors import looks_like_memory_exhaustion
 from pixelle_video.services.prompt_trace_artifacts import (
@@ -42,6 +37,11 @@ from pixelle_video.services.prompt_trace_artifacts import (
     summarize_media_workflow_result,
     validate_media_prompt_trace_artifact,
     write_media_result_artifact,
+)
+from pixelle_video.utils.os_util import (
+    get_resource_path,
+    list_resource_dirs,
+    list_resource_files,
 )
 
 _MEDIA_PROMPT_ALIAS_PARAM_KEYS = frozenset(

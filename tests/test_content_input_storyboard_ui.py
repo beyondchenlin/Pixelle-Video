@@ -255,19 +255,19 @@ def test_left_content_ip_payload_render_content_input(monkeypatch):
         lambda **_kwargs: {},
     )
 
-    def _render_content_ip_world_controls(**kwargs):
+    def _render_content_series_visual_signature_controls(**kwargs):
         captured.update(kwargs)
         return {
-            "ip_enabled": True,
-            "ip_asset_bible_id": "content_bible",
-            "ip_profile_id": "rabbit_guide",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "content_bible",
+            "series_visual_signature_profile_id": "rabbit_guide",
             "generation_world_hint": "Follow the old walls.",
         }
 
     monkeypatch.setattr(
         content_input,
-        "render_content_ip_world_controls",
-        _render_content_ip_world_controls,
+        "render_content_series_visual_signature_controls",
+        _render_content_series_visual_signature_controls,
     )
 
     pixelle_video = object()
@@ -277,9 +277,9 @@ def test_left_content_ip_payload_render_content_input(monkeypatch):
     assert captured["content_context"] == {"title": "", "text": ""}
     assert captured["storyboard_prompt_language"] == "en_US"
     assert captured["world_preset_id"] is None
-    assert payload["ip_enabled"] is True
-    assert payload["ip_asset_bible_id"] == "content_bible"
-    assert payload["ip_profile_id"] == "rabbit_guide"
+    assert payload["series_visual_signature_enabled"] is True
+    assert payload["series_visual_signature_asset_bible_id"] == "content_bible"
+    assert payload["series_visual_signature_profile_id"] == "rabbit_guide"
     assert payload["generation_world_hint"] == "Follow the old walls."
 
 

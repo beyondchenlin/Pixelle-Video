@@ -60,12 +60,12 @@ def test_build_prompt_plan_bundle_preserves_frame_ids_and_links_drafts():
     assert bundle.prompt_plans[0].final_prompt == (
         "fox cub holding a lantern, warm storybook light"
     )
-    assert bundle.prompt_plans[0].prompt_sections == {
-        "source_text": "The fox finds a lantern.",
-        "visual_goal": "fox discovers a lantern",
-        "prompt_intent": "show curiosity and warm light",
-        "generated_prompt": "fox cub holding a lantern, warm storybook light",
-    }
+    assert bundle.prompt_plans[0].prompt_sections["scene"] == (
+        "fox cub holding a lantern, warm storybook light"
+    )
+    assert bundle.prompt_plans[0].prompt_sections["composition"] == (
+        "single unified image, readable composition"
+    )
     assert bundle.prompt_plans[0].source_trace_id == "trace_image_prompt_batch"
 
 
@@ -135,6 +135,8 @@ def test_build_prompt_plan_bundle_writes_ip_summary_metadata_from_frame_snapshot
             "visible_text_whitelist": ["Lantern route", "Village Gate"],
         },
         "visible_text_whitelist": ["Lantern route"],
+        "prompt_renderer_id": "image_prompt_text_adapter",
+        "prompt_renderer_version": "v1",
     }
     assert second_metadata == {
         "frame_index": 2,
@@ -144,6 +146,8 @@ def test_build_prompt_plan_bundle_writes_ip_summary_metadata_from_frame_snapshot
             "visible_text_whitelist": ["Quiet village"],
         },
         "visible_text_whitelist": ["Quiet village"],
+        "prompt_renderer_id": "image_prompt_text_adapter",
+        "prompt_renderer_version": "v1",
     }
     assert "identity_anchors_visible" not in first_metadata
     assert "ip_profile" not in second_metadata

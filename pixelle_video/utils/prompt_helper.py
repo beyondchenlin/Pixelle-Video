@@ -288,11 +288,18 @@ def _render_final_visual_prompt(
     rendered = render_prompt_template(
         FINAL_VISUAL_PROMPT_TEMPLATE_ID,
         {
-            "base_prompt": sanitize_visual_prompt_text(base_prompt),
-            "world_clause": sanitize_visual_prompt_text(world_clause),
-            "style_clause": sanitize_visual_prompt_text(style_clause),
-            "camera_clause": sanitize_visual_prompt_text(camera_clause),
-            "environment_clause": sanitize_visual_prompt_text(environment_clause),
+            "scene": sanitize_visual_prompt_text(base_prompt)
+            or "visual scene matching the storyboard frame",
+            "composition": sanitize_visual_prompt_text(camera_clause)
+            or "single unified image, readable composition",
+            "style_assignment": sanitize_visual_prompt_text(style_clause)
+            or "apply one coherent visual style to the whole image",
+            "character_layer_style": "preserve scene subjects; no extra recurring visual signature is inserted",
+            "world_layer_style": sanitize_visual_prompt_text(
+                " ".join(part for part in (world_clause, environment_clause) if part)
+            )
+            or "preserve a coherent readable world layer",
+            "integration_priority": "source subjects and readability stay primary",
             "visual_suffix": sanitize_visual_prompt_text(visual_suffix),
         },
     )
@@ -307,6 +314,22 @@ def append_final_visual_prompt_requirements(
     cleaned_base_prompt = sanitize_visual_prompt_text(base_prompt)
     if not visual_suffix:
         return cleaned_base_prompt
+    if cleaned_base_prompt.startswith("[Scene] "):
+        existing_requirements = re.search(
+            r"\s+Rendering requirements:\s*",
+            cleaned_base_prompt,
+        )
+        if existing_requirements is not None:
+            existing_suffix = cleaned_base_prompt[existing_requirements.end() :].strip()
+            cleaned_base_prompt = cleaned_base_prompt[
+                : existing_requirements.start()
+            ].strip()
+            visual_suffix = ", ".join(
+                _normalize_prompt_list([existing_suffix, visual_suffix])
+            )
+        return sanitize_visual_prompt_text(
+            f"{cleaned_base_prompt} Rendering requirements: {visual_suffix}"
+        )
     existing_requirements = re.search(
         r"\s+Rendering requirements:\s*",
         cleaned_base_prompt,

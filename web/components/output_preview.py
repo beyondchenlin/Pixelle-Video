@@ -1249,7 +1249,7 @@ def copy_article_concretization_options(source, target):
 
 def copy_ip_prompt_chain_options(source, target):
     """Copy IP prompt-chain controls into a generation request dict."""
-    if "ip_enabled" not in source:
+    if "series_visual_signature_enabled" not in source:
         return
     contract = IPControlsContract.from_mapping(source)
     target.update(contract.to_dict())
@@ -1637,9 +1637,9 @@ def _render_generation_section(pixelle_video, video_params):
                                 "selected_template_preset_id": video_params.get(
                                     "selected_template_preset_id"
                                 ),
-                                "ip_enabled": video_params.get("ip_enabled"),
-                                "ip_asset_bible_id": video_params.get("ip_asset_bible_id"),
-                                "ip_profile_id": video_params.get("ip_profile_id"),
+                                "series_visual_signature_enabled": video_params.get("series_visual_signature_enabled"),
+                                "series_visual_signature_asset_bible_id": video_params.get("series_visual_signature_asset_bible_id"),
+                                "series_visual_signature_profile_id": video_params.get("series_visual_signature_profile_id"),
                                 **storyboard_contract.to_planning_dict(),
                                 "text_rendering": video_params.get("text_rendering"),
                                 **{key: video_params.get(key) for key in TTS_SPLIT_SETTING_KEYS},

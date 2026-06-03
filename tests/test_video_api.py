@@ -32,6 +32,7 @@ from pixelle_video.models.layered_template import (
     RectSpec,
     TemplateLayer,
 )
+from pixelle_video.models.series_visual_signature_strategy import SeriesVisualSignatureStrategy
 from pixelle_video.models.size_contract import (
     STANDARD_VIDEO_SIZE_PRESETS,
     VALID_MEDIA_RESOLUTION_PRESETS,
@@ -44,7 +45,6 @@ from pixelle_video.models.video_generation_contract import (
     validate_standard_video_generation_params,
 )
 from pixelle_video.models.visual_planning_mode import VisibleTextPolicy, VisualPlanningMode
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 from pixelle_video.services.resource_resolver import ResolvedResource, StaticResourceResolver
 
 
@@ -134,7 +134,7 @@ def test_api_media_preset_literals_match_size_contract():
 def test_v44_api_planning_fields_use_model_enum_fact_sources():
     assert video_schema_module.ArticleUnderstandingModeRequest is ArticleUnderstandingMode
     assert video_schema_module.VisualPlanningModeRequest is VisualPlanningMode
-    assert video_schema_module.VisualRoleStrategyRequest is VisualRoleStrategy
+    assert video_schema_module.SeriesVisualSignatureStrategyRequest is SeriesVisualSignatureStrategy
     assert video_schema_module.CognitiveAnchorKindRequest is CognitiveAnchorKind
     assert video_schema_module.ExplanationDiagramGrammarRequest is ExplanationDiagramGrammar
     assert video_schema_module.SeriesVisualSignatureRoleRequest is SeriesVisualSignatureRole
@@ -151,8 +151,8 @@ def test_v44_api_planning_fields_use_model_enum_fact_sources():
         is VisualPlanningMode
     )
     assert (
-        VideoGenerateRequest.model_fields["visual_role_strategy"].annotation
-        is VisualRoleStrategy
+        VideoGenerateRequest.model_fields["series_visual_signature_strategy"].annotation
+        is SeriesVisualSignatureStrategy
     )
     assert (
         VideoGenerateRequest.model_fields["cognitive_anchor_kind"].annotation
@@ -228,17 +228,17 @@ def test_build_video_generation_params_copies_template_display_controls():
     }
 
 
-def test_video_generate_request_accepts_ip_prompt_chain_controls():
+def test_video_generate_request_accepts_series_visual_signature_controls():
     request = VideoGenerateRequest(
         text="demo",
-        ip_enabled=True,
-        ip_asset_bible_id="bible_demo",
-        ip_profile_id="ip_main",
+        series_visual_signature_enabled=True,
+        series_visual_signature_asset_bible_id="bible_demo",
+        series_visual_signature_profile_id="ip_main",
     )
 
-    assert request.ip_enabled is True
-    assert request.ip_asset_bible_id == "bible_demo"
-    assert request.ip_profile_id == "ip_main"
+    assert request.series_visual_signature_enabled is True
+    assert request.series_visual_signature_asset_bible_id == "bible_demo"
+    assert request.series_visual_signature_profile_id == "ip_main"
 
 
 def test_video_generate_request_accepts_v44_planning_controls():
@@ -246,14 +246,14 @@ def test_video_generate_request_accepts_v44_planning_controls():
         text="demo",
         article_understanding_mode="causal_mechanism",
         visual_planning_mode="process_walkthrough",
-        visual_role_strategy="observer_guide",
+        series_visual_signature_strategy="observer_guide",
         strict_user_mode=True,
         force_v44_planning=True,
     )
 
     assert request.article_understanding_mode == "causal_mechanism"
     assert request.visual_planning_mode == "process_walkthrough"
-    assert request.visual_role_strategy == "observer_guide"
+    assert request.series_visual_signature_strategy == "observer_guide"
     assert request.strict_user_mode is True
     assert request.force_v44_planning is True
 
@@ -312,7 +312,7 @@ def test_video_generate_request_rejects_too_long_diagram_hint():
     [
         ("article_understanding_mode", "unknown"),
         ("visual_planning_mode", "unknown"),
-        ("visual_role_strategy", "unknown"),
+        ("series_visual_signature_strategy", "unknown"),
     ],
 )
 def test_video_generate_request_rejects_invalid_v44_literal_values(
@@ -326,11 +326,11 @@ def test_video_generate_request_rejects_invalid_v44_literal_values(
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [
-        ("visual_role_mode", "unknown"),
-        ("visual_consistency_mode", "unknown"),
+        ("series_visual_signature_mode", "unknown"),
+        ("series_visual_signature_consistency_mode", "unknown"),
     ],
 )
-def test_video_generate_request_rejects_invalid_visual_role_strategy_controls(
+def test_video_generate_request_rejects_invalid_series_visual_signature_strategy_controls(
     field_name: str,
     value: str,
 ):
@@ -358,36 +358,36 @@ def test_video_generate_request_normalizes_blank_generation_world_hint():
 
 def test_video_generate_request_rejects_enabled_ip_without_required_ids():
     with pytest.raises(ValidationError):
-        VideoGenerateRequest(text="demo", ip_enabled=True, ip_asset_bible_id="bible_demo")
+        VideoGenerateRequest(text="demo", series_visual_signature_enabled=True, series_visual_signature_asset_bible_id="bible_demo")
 
     with pytest.raises(ValidationError):
-        VideoGenerateRequest(text="demo", ip_enabled=True, ip_profile_id="ip_main")
+        VideoGenerateRequest(text="demo", series_visual_signature_enabled=True, series_visual_signature_profile_id="ip_main")
 
 
 def test_video_generate_request_rejects_raw_ip_resource_id_syntax():
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            ip_enabled=True,
-            ip_asset_bible_id="../bible_demo",
-            ip_profile_id="ip_main",
+            series_visual_signature_enabled=True,
+            series_visual_signature_asset_bible_id="../bible_demo",
+            series_visual_signature_profile_id="ip_main",
         )
 
 
-def test_build_video_generation_params_copies_ip_prompt_chain_controls():
+def test_build_video_generation_params_copies_series_visual_signature_controls():
     params = build_video_generation_params(
         VideoGenerateRequest(
             text="demo",
-            ip_enabled=True,
-            ip_asset_bible_id="bible_demo",
-            ip_profile_id="ip_main",
+            series_visual_signature_enabled=True,
+            series_visual_signature_asset_bible_id="bible_demo",
+            series_visual_signature_profile_id="ip_main",
         ),
         request_id="req_test",
     )
 
-    assert params["ip_enabled"] is True
-    assert params["ip_asset_bible_id"] == "bible_demo"
-    assert params["ip_profile_id"] == "ip_main"
+    assert params["series_visual_signature_enabled"] is True
+    assert params["series_visual_signature_asset_bible_id"] == "bible_demo"
+    assert params["series_visual_signature_profile_id"] == "ip_main"
 
 
 def test_build_video_generation_params_copies_v44_planning_controls():
@@ -396,7 +396,7 @@ def test_build_video_generation_params_copies_v44_planning_controls():
             text="demo",
             article_understanding_mode="thesis_argument",
             visual_planning_mode="structural_explainer",
-            visual_role_strategy="host_explainer",
+            series_visual_signature_strategy="host_explainer",
             user_intent_hint="explain the policy change",
             allow_mixed_lenses=False,
             strict_user_mode=True,
@@ -407,7 +407,7 @@ def test_build_video_generation_params_copies_v44_planning_controls():
 
     assert params["article_understanding_mode"] == "thesis_argument"
     assert params["visual_planning_mode"] == "structural_explainer"
-    assert params["visual_role_strategy"] == "host_explainer"
+    assert params["series_visual_signature_strategy"] == "host_explainer"
     assert params["user_intent_hint"] == "explain the policy change"
     assert params["allow_mixed_lenses"] is False
     assert params["strict_user_mode"] is True
@@ -475,7 +475,7 @@ def test_standard_video_generation_contract_provides_v44_planning_defaults():
 
     assert params["article_understanding_mode"] == "auto"
     assert params["visual_planning_mode"] == "auto"
-    assert params["visual_role_strategy"] == "auto"
+    assert params["series_visual_signature_strategy"] == "auto"
     assert params["user_intent_hint"] is None
     assert params["allow_mixed_lenses"] is True
     assert params["strict_user_mode"] is False
@@ -594,7 +594,7 @@ def test_standard_video_generation_contract_normalizes_all_v44_request_fields():
 
 @pytest.mark.parametrize(
     "field_name",
-    ["article_understanding_mode", "visual_planning_mode", "visual_role_strategy"],
+    ["article_understanding_mode", "visual_planning_mode", "series_visual_signature_strategy"],
 )
 def test_standard_video_generation_contract_rejects_invalid_v44_enum_values(
     field_name: str,
@@ -605,9 +605,9 @@ def test_standard_video_generation_contract_rejects_invalid_v44_enum_values(
 
 @pytest.mark.parametrize(
     "field_name",
-    ["visual_role_mode", "visual_consistency_mode"],
+    ["series_visual_signature_mode", "series_visual_signature_consistency_mode"],
 )
-def test_standard_video_generation_contract_rejects_invalid_visual_role_strategy_controls(
+def test_standard_video_generation_contract_rejects_invalid_series_visual_signature_strategy_controls(
     field_name: str,
 ):
     with pytest.raises(ValueError, match=field_name):
@@ -628,12 +628,12 @@ def test_standard_video_generation_contract_rejects_invalid_v44_boolean_strings(
 
 
 def test_standard_video_generation_contract_requires_ip_ids_when_enabled():
-    with pytest.raises(ValueError, match="ip_asset_bible_id"):
-        validate_standard_video_generation_params({"ip_enabled": True})
+    with pytest.raises(ValueError, match="series_visual_signature_asset_bible_id"):
+        validate_standard_video_generation_params({"series_visual_signature_enabled": True})
 
-    with pytest.raises(ValueError, match="ip_profile_id"):
+    with pytest.raises(ValueError, match="series_visual_signature_profile_id"):
         validate_standard_video_generation_params(
-            {"ip_enabled": True, "ip_asset_bible_id": "bible_demo"}
+            {"series_visual_signature_enabled": True, "series_visual_signature_asset_bible_id": "bible_demo"}
         )
 
 
@@ -1222,7 +1222,7 @@ async def test_generate_video_sync_passes_prompt_generation_performance_controls
             llm_prompt_batch_concurrent_limit=3,
             article_understanding_mode="cognitive_state",
             visual_planning_mode="cognitive_illustration",
-            visual_role_strategy="signature_presence",
+            series_visual_signature_strategy="signature_presence",
             strict_user_mode=True,
             force_v44_planning=True,
         ),
@@ -1235,7 +1235,7 @@ async def test_generate_video_sync_passes_prompt_generation_performance_controls
     assert call["llm_prompt_batch_concurrent_limit"] == 3
     assert call["article_understanding_mode"] == "cognitive_state"
     assert call["visual_planning_mode"] == "cognitive_illustration"
-    assert call["visual_role_strategy"] == "signature_presence"
+    assert call["series_visual_signature_strategy"] == "signature_presence"
     assert call["strict_user_mode"] is True
     assert call["force_v44_planning"] is True
 
@@ -1486,12 +1486,12 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "role_strategy": "auto",
             "role_locking_strength": "strong",
             "shot_strategy": "strict",
-            "ip_enabled": False,
-            "ip_asset_bible_id": None,
-            "ip_profile_id": None,
+            "series_visual_signature_enabled": False,
+            "series_visual_signature_asset_bible_id": None,
+            "series_visual_signature_profile_id": None,
             "article_understanding_mode": "auto",
             "visual_planning_mode": "auto",
-            "visual_role_strategy": "auto",
+            "series_visual_signature_strategy": "auto",
             "user_intent_hint": None,
             "allow_mixed_lenses": True,
             "strict_user_mode": False,

@@ -14,11 +14,11 @@ from pixelle_video.models.article_understanding import (
     ArticleUnderstandingLens,
     ArticleUnderstandingMode,
 )
+from pixelle_video.models.series_visual_signature_strategy import SeriesVisualSignatureStrategy
 from pixelle_video.models.visual_planning_mode import (
     PrimaryVisualTask,
     VisualPlanningMode,
 )
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
@@ -33,7 +33,7 @@ _ALLOWED_RESOLUTION_STATUSES = frozenset(
 class ArticleVisualPlanningRequest:
     article_understanding_mode: ArticleUnderstandingMode | str = ArticleUnderstandingMode.AUTO
     visual_planning_mode: VisualPlanningMode | str = VisualPlanningMode.AUTO
-    visual_role_strategy: VisualRoleStrategy | str = VisualRoleStrategy.AUTO
+    series_visual_signature_strategy: SeriesVisualSignatureStrategy | str = SeriesVisualSignatureStrategy.AUTO
     user_intent_hint: str | None = None
     allow_mixed_lenses: bool = True
     strict_user_mode: bool = False
@@ -63,11 +63,11 @@ class ArticleVisualPlanningRequest:
         )
         object.__setattr__(
             self,
-            "visual_role_strategy",
+            "series_visual_signature_strategy",
             _strict_enum_value(
-                self.visual_role_strategy,
-                VisualRoleStrategy,
-                "visual_role_strategy",
+                self.series_visual_signature_strategy,
+                SeriesVisualSignatureStrategy,
+                "series_visual_signature_strategy",
             ),
         )
         object.__setattr__(self, "user_intent_hint", _optional_text(self.user_intent_hint))
@@ -104,7 +104,7 @@ class ArticleVisualPlanningRequest:
                 ArticleUnderstandingMode.AUTO,
             ),
             visual_planning_mode=source.get("visual_planning_mode", VisualPlanningMode.AUTO),
-            visual_role_strategy=source.get("visual_role_strategy", VisualRoleStrategy.AUTO),
+            series_visual_signature_strategy=source.get("series_visual_signature_strategy", SeriesVisualSignatureStrategy.AUTO),
             user_intent_hint=source.get("user_intent_hint"),
             allow_mixed_lenses=source.get("allow_mixed_lenses", True),
             strict_user_mode=source.get("strict_user_mode", False),
@@ -118,7 +118,7 @@ class ArticleVisualPlanningRequest:
         return {
             "article_understanding_mode": self.article_understanding_mode.value,
             "visual_planning_mode": self.visual_planning_mode.value,
-            "visual_role_strategy": self.visual_role_strategy.value,
+            "series_visual_signature_strategy": self.series_visual_signature_strategy.value,
             "user_intent_hint": self.user_intent_hint,
             "allow_mixed_lenses": self.allow_mixed_lenses,
             "strict_user_mode": self.strict_user_mode,
@@ -133,7 +133,7 @@ class ArticleVisualPlanningPreflight:
     requested: ArticleVisualPlanningRequest
     normalized_article_mode: ArticleUnderstandingMode | str
     normalized_visual_mode: VisualPlanningMode | str
-    normalized_visual_role_strategy: VisualRoleStrategy | str
+    normalized_series_visual_signature_strategy: SeriesVisualSignatureStrategy | str
     strict_user_mode: bool
     force_v44_planning: bool
     explicit_fields: Sequence[str]
@@ -163,11 +163,11 @@ class ArticleVisualPlanningPreflight:
         )
         object.__setattr__(
             self,
-            "normalized_visual_role_strategy",
+            "normalized_series_visual_signature_strategy",
             _strict_enum_value(
-                self.normalized_visual_role_strategy,
-                VisualRoleStrategy,
-                "normalized_visual_role_strategy",
+                self.normalized_series_visual_signature_strategy,
+                SeriesVisualSignatureStrategy,
+                "normalized_series_visual_signature_strategy",
             ),
         )
         object.__setattr__(
@@ -210,7 +210,7 @@ class ArticleVisualPlanningPreflight:
             requested=request,
             normalized_article_mode=request.article_understanding_mode,
             normalized_visual_mode=request.visual_planning_mode,
-            normalized_visual_role_strategy=request.visual_role_strategy,
+            normalized_series_visual_signature_strategy=request.series_visual_signature_strategy,
             strict_user_mode=request.strict_user_mode,
             force_v44_planning=request.force_v44_planning,
             explicit_fields=explicit_fields,
@@ -224,7 +224,7 @@ class ArticleVisualPlanningPreflight:
             "requested": self.requested.to_dict(),
             "normalized_article_mode": self.normalized_article_mode.value,
             "normalized_visual_mode": self.normalized_visual_mode.value,
-            "normalized_visual_role_strategy": self.normalized_visual_role_strategy.value,
+            "normalized_series_visual_signature_strategy": self.normalized_series_visual_signature_strategy.value,
             "strict_user_mode": self.strict_user_mode,
             "force_v44_planning": self.force_v44_planning,
             "explicit_fields": list(self.explicit_fields),
@@ -240,11 +240,11 @@ class VisualPlanningRouteDecision:
     preflight_id: str
     requested_article_mode: ArticleUnderstandingMode | str
     requested_visual_mode: VisualPlanningMode | str
-    requested_visual_role_strategy: VisualRoleStrategy | str
+    requested_series_visual_signature_strategy: SeriesVisualSignatureStrategy | str
     resolved_primary_lens: ArticleUnderstandingLens | str
     resolved_secondary_lenses: Sequence[ArticleUnderstandingLens | str]
     resolved_visual_planning_mode: VisualPlanningMode | str
-    resolved_visual_role_strategy: VisualRoleStrategy | str
+    resolved_series_visual_signature_strategy: SeriesVisualSignatureStrategy | str
     primary_visual_task: PrimaryVisualTask | str
     secondary_visual_tasks: Sequence[PrimaryVisualTask | str]
     confidence: float
@@ -284,11 +284,11 @@ class VisualPlanningRouteDecision:
         )
         object.__setattr__(
             self,
-            "requested_visual_role_strategy",
+            "requested_series_visual_signature_strategy",
             _strict_enum_value(
-                self.requested_visual_role_strategy,
-                VisualRoleStrategy,
-                "requested_visual_role_strategy",
+                self.requested_series_visual_signature_strategy,
+                SeriesVisualSignatureStrategy,
+                "requested_series_visual_signature_strategy",
             ),
         )
         object.__setattr__(
@@ -316,11 +316,11 @@ class VisualPlanningRouteDecision:
         )
         object.__setattr__(
             self,
-            "resolved_visual_role_strategy",
+            "resolved_series_visual_signature_strategy",
             _strict_enum_value(
-                self.resolved_visual_role_strategy,
-                VisualRoleStrategy,
-                "resolved_visual_role_strategy",
+                self.resolved_series_visual_signature_strategy,
+                SeriesVisualSignatureStrategy,
+                "resolved_series_visual_signature_strategy",
             ),
         )
         object.__setattr__(
@@ -381,13 +381,13 @@ class VisualPlanningRouteDecision:
             "preflight_id": self.preflight_id,
             "requested_article_mode": self.requested_article_mode.value,
             "requested_visual_mode": self.requested_visual_mode.value,
-            "requested_visual_role_strategy": self.requested_visual_role_strategy.value,
+            "requested_series_visual_signature_strategy": self.requested_series_visual_signature_strategy.value,
             "resolved_primary_lens": self.resolved_primary_lens.value,
             "resolved_secondary_lenses": [
                 lens.value for lens in self.resolved_secondary_lenses
             ],
             "resolved_visual_planning_mode": self.resolved_visual_planning_mode.value,
-            "resolved_visual_role_strategy": self.resolved_visual_role_strategy.value,
+            "resolved_series_visual_signature_strategy": self.resolved_series_visual_signature_strategy.value,
             "primary_visual_task": self.primary_visual_task.value,
             "secondary_visual_tasks": [task.value for task in self.secondary_visual_tasks],
             "confidence": self.confidence,
@@ -405,25 +405,25 @@ def should_use_v42_compatibility_path(
     preflight: ArticleVisualPlanningPreflight,
     route_decisions: Sequence[VisualPlanningRouteDecision],
     article_context_insufficient: bool,
-    legacy_visual_role_request_present: bool,
+    legacy_series_visual_signature_request_present: bool,
 ) -> bool:
     if preflight.normalized_article_mode is not ArticleUnderstandingMode.AUTO:
         return False
     if preflight.normalized_visual_mode is not VisualPlanningMode.AUTO:
         return False
-    if preflight.normalized_visual_role_strategy is not VisualRoleStrategy.AUTO:
+    if preflight.normalized_series_visual_signature_strategy is not SeriesVisualSignatureStrategy.AUTO:
         return False
     if preflight.force_v44_planning:
         return False
     if not preflight.legacy_fallback_candidate:
         return False
-    if not article_context_insufficient or not legacy_visual_role_request_present:
+    if not article_context_insufficient or not legacy_series_visual_signature_request_present:
         return False
     if not route_decisions:
         return True
     return any(
         decision.fallback_eligible
-        and decision.fallback_target == "v4.2_visual_role_path"
+        and decision.fallback_target == "v4.2_series_visual_signature_path"
         for decision in route_decisions
     )
 

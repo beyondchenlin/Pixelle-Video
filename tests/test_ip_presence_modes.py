@@ -13,7 +13,7 @@ def _make_ip_profile(**overrides: Any) -> Any:
     from pixelle_video.models.asset_bible import IPProfile
 
     return IPProfile(
-        ip_profile_id="ip_test_001",
+        series_visual_signature_profile_id="ip_test_001",
         workspace_id="ws_test",
         project_id="proj_test",
         name="白兔导游",

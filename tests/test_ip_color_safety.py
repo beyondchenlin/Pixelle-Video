@@ -108,7 +108,7 @@ def test_color_palette_hex_allowed_in_model():
     from pixelle_video.models.asset_bible import IPProfile
 
     profile = IPProfile(
-        ip_profile_id="ip_hex_test",
+        series_visual_signature_profile_id="ip_hex_test",
         workspace_id="ws_test",
         project_id="proj_test",
         name="测试角色",

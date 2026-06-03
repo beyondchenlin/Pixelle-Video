@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from pixelle_video.models.asset_bible import IPProfile, IPRenderingStyle, IPStyleScope
+from pixelle_video.models.asset_bible import IPProfile, IPRenderingStyle
 from pixelle_video.models.final_visual_prompt_contract import FinalVisualPromptContract
 from pixelle_video.models.visual_style_contract import (
     VisualLayerTarget,
@@ -95,7 +95,7 @@ class FinalVisualPromptContractBuilder:
             negative_rules=tuple(negative_rules),
             metadata={
                 "ip_present": ip_present,
-                "ip_profile_id": getattr(ip_profile, "ip_profile_id", None),
+                "series_visual_signature_profile_id": getattr(ip_profile, "series_visual_signature_profile_id", None),
                 "visual_style_contract_version": visual_style_contract.version,
             },
         )
@@ -145,7 +145,7 @@ def _ip_visual_style_contract(ip_profile: IPProfile) -> VisualStyleLayerContract
     return VisualStyleLayerContract(
         layers=(
             VisualStyleLayer(
-                layer_id=f"ip_{ip_profile.ip_profile_id}_style_layer",
+                layer_id=f"ip_{ip_profile.series_visual_signature_profile_id}_style_layer",
                 targets=(VisualLayerTarget.IP_CHARACTER, VisualLayerTarget.HUMAN_CHARACTER),
                 rendering_style=rendering_style,
                 positive_rules=tuple(_dedupe(positive_rules)),
@@ -156,7 +156,7 @@ def _ip_visual_style_contract(ip_profile: IPProfile) -> VisualStyleLayerContract
             ),
         ),
         negative_rules=tuple(_dedupe([*ip_profile.semantic_boundary, *ip_profile.negative_constraints])),
-        metadata={"source": "ip_profile", "ip_profile_id": ip_profile.ip_profile_id},
+        metadata={"source": "ip_profile", "series_visual_signature_profile_id": ip_profile.series_visual_signature_profile_id},
     )
 
 

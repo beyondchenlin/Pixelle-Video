@@ -9,7 +9,6 @@ from loguru import logger
 
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 
-
 DEFAULT_POLICY_PATH = (
     Path(__file__).resolve().parents[1] / "config" / "visual_signature_policy.md"
 )

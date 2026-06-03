@@ -45,7 +45,7 @@ class VisualExpressionDecision:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_id", _require_text("frame_id", self.frame_id))
-        object.__setattr__(self, "expression_mode", normalize_visual_expression_mode(self.expression_mode))
+        object.__setattr__(self, "expression_mode", normalize_series_visual_signature_expression_mode(self.expression_mode))
         object.__setattr__(self, "reason", _optional_text(self.reason))
         object.__setattr__(self, "source", _optional_text(self.source) or "rule")
 
@@ -58,7 +58,7 @@ class VisualExpressionDecision:
         }
 
 
-def normalize_visual_expression_mode(
+def normalize_series_visual_signature_expression_mode(
     value: Any,
     *,
     default: VisualExpressionMode = VisualExpressionMode.AUTO,
@@ -66,10 +66,10 @@ def normalize_visual_expression_mode(
     return VisualExpressionMode.from_value(value, default=default)
 
 
-def visual_expression_mode_from_mapping(source: Mapping[str, Any] | None) -> VisualExpressionMode:
+def series_visual_signature_expression_mode_from_mapping(source: Mapping[str, Any] | None) -> VisualExpressionMode:
     mapping = source or {}
-    return normalize_visual_expression_mode(
-        mapping.get("visual_expression_mode") or mapping.get("expression_mode")
+    return normalize_series_visual_signature_expression_mode(
+        mapping.get("series_visual_signature_expression_mode") or mapping.get("expression_mode")
     )
 
 
@@ -87,6 +87,6 @@ def _optional_text(value: Any) -> str:
 __all__ = [
     "VisualExpressionDecision",
     "VisualExpressionMode",
-    "normalize_visual_expression_mode",
-    "visual_expression_mode_from_mapping",
+    "normalize_series_visual_signature_expression_mode",
+    "series_visual_signature_expression_mode_from_mapping",
 ]

@@ -78,7 +78,7 @@ class ImportPresetResponse(TypedResponse):
 
 
 class IPProfileDraft(BaseModel):
-    ip_profile_id: str
+    series_visual_signature_profile_id: str
     name: str
     ip_type: str = "cartoon_animal"
     logline: str = ""

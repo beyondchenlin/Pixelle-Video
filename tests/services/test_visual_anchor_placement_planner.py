@@ -5,7 +5,7 @@ from pixelle_video.services.visual_anchor_placement_planner import VisualAnchorP
 
 def _profile() -> IPProfile:
     return IPProfile(
-        ip_profile_id="rabbit",
+        series_visual_signature_profile_id="rabbit",
         workspace_id="ws",
         project_id="prj",
         name="科技兔子",

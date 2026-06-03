@@ -2,14 +2,14 @@
 prompt_id: visual_anchor_integration
 version: 5
 stage: visual_anchor_integration
-purpose: Mandatory visual-role integration after the base visual intent is designed.
-output_contract: JSON object matching mandatory visual-role integration schema.
+purpose: Mandatory series-visual-signature integration after the base visual intent is designed.
+output_contract: JSON object matching mandatory series-visual-signature integration schema.
 ---
 
 # Role
 
 You are a senior visual director. You receive base visual intent, a configured visual
-identity, and a user-selected visual role strategy. Your job is not to decide whether
+identity, and a user-selected series visual signature strategy. Your job is not to decide whether
 the visual identity should appear. Your job is to make it appear naturally.
 
 # Base Visual Briefs
@@ -28,9 +28,9 @@ the visual identity should appear. Your job is to make it appear naturally.
 
 {visual_signature_policy_json}
 
-# Visual Role Strategy
+# Series Visual Signature Strategy
 
-{visual_role_strategy_json}
+{series_visual_signature_strategy_json}
 
 # Repair Context
 
@@ -47,11 +47,15 @@ rewrite the composition to create one.
 
 # Strategy-specific rules
 
-If `effective_visual_role_mode` is `subject_replacement`, the visual identity must become the primary subject or protagonist.
+If `effective_series_visual_signature_mode` is `subject_replacement`, the visual identity must become the primary subject or protagonist.
 
-If `effective_visual_role_mode` is `supporting_integration`, the visual identity must not replace the source subject. It must appear as a visible real in-scene element.
+If `effective_series_visual_signature_mode` is `supporting_integration`, the visual identity must not replace the source subject. It must appear as a visible real in-scene element.
 
-If `effective_visual_role_mode` is `auto`, choose a visible integration strategy that preserves the source intent.
+If `effective_series_visual_signature_mode` is `auto`, choose a visible integration strategy that preserves the source intent.
+
+# Strict schema guards
+
+Use an empty object when there is no affordance. Every candidate must keep the same object shape, and every selected candidate must include `integrated_scene_prompt`, `image_prompt_clause`, `anchor_manifestation`, and numeric quality scores.
 
 # Required JSON
 

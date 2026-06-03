@@ -9,11 +9,11 @@ from pixelle_video.models.layered_template import (
 )
 from pixelle_video.models.media_placement import resolve_media_placement
 from pixelle_video.models.render_package import resolve_media_layout_mode
-from pixelle_video.models.template_parameters import validate_template_params
 from pixelle_video.models.template_display import (
     TemplateDisplaySettings,
     resolve_template_params_and_display,
 )
+from pixelle_video.models.template_parameters import validate_template_params
 from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 from pixelle_video.services.frame_html import HTMLFrameGenerator
 from pixelle_video.services.layered_template_adapters.html_frame import (
