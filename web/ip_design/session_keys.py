@@ -14,7 +14,7 @@ class _AssetBibleKeys:
 @dataclass(frozen=True)
 class _IPFormKeys:
     ip_profile_select: str = f"{PREFIX}_ip_profile_select"
-    ip_profile_id: str = f"{PREFIX}_ip_profile_id"
+    series_visual_signature_profile_id: str = f"{PREFIX}_series_visual_signature_profile_id"
     name: str = f"{PREFIX}_ip_name"
     ip_type: str = f"{PREFIX}_ip_type"
     logline: str = f"{PREFIX}_logline"

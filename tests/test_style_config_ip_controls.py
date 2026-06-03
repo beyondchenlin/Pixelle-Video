@@ -1,4 +1,4 @@
-from web.components import ip_prompt_chain_controls
+from web.components import series_visual_signature_controls
 
 
 class _FakeStyleConfigUI:
@@ -38,17 +38,17 @@ class _FakeStyleConfigUI:
 
 def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
     fake_ui = _FakeStyleConfigUI()
-    fake_ui.session_state["style_ip_enabled"] = True
-    fake_ui.session_state["style_ip_asset_bible_id"] = "bible_demo"
-    fake_ui.session_state["style_ip_profile_id"] = "ip_main"
+    fake_ui.session_state["style_series_visual_signature_enabled"] = True
+    fake_ui.session_state["style_series_visual_signature_asset_bible_id"] = "bible_demo"
+    fake_ui.session_state["style_series_visual_signature_profile_id"] = "ip_main"
 
-    payload = ip_prompt_chain_controls.render_ip_prompt_chain_controls(
+    payload = series_visual_signature_controls.render_series_visual_signature_controls(
         ui=fake_ui,
         asset_bibles=[
             {
                 "asset_bible_id": "bible_demo",
                 "ip_profiles": [
-                    {"ip_profile_id": "ip_main", "name": "正定向导兔"}
+                    {"series_visual_signature_profile_id": "ip_main", "name": "正定向导兔"}
                 ],
             }
         ],
@@ -56,38 +56,38 @@ def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
     )
 
     assert payload == {
-        "ip_enabled": True,
-        "ip_asset_bible_id": "bible_demo",
-        "ip_profile_id": "ip_main",
-        "visual_expression_mode": "auto",
-        "visual_structure_mode": "auto",
-        "visual_participation_mode": "auto",
-        "visual_role_mode": "auto",
-        "visual_consistency_mode": "off",
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_asset_bible_id": "bible_demo",
+        "series_visual_signature_profile_id": "ip_main",
+        "series_visual_signature_expression_mode": "auto",
+        "series_visual_signature_structure_mode": "auto",
+        "series_visual_signature_participation_mode": "auto",
+        "series_visual_signature_mode": "auto",
+        "series_visual_signature_consistency_mode": "off",
     }
     assert [call["key"] for call in fake_ui.selectbox_calls] == [
-        "style_ip_asset_bible_id",
-        "style_ip_profile_id",
-        "style_ip_visual_expression_mode",
-        "style_ip_visual_structure_mode",
-        "style_ip_visual_participation_mode",
-        "style_ip_visual_role_mode",
-        "style_ip_visual_consistency_mode",
+        "style_series_visual_signature_asset_bible_id",
+        "style_series_visual_signature_profile_id",
+        "style_ip_series_visual_signature_expression_mode",
+        "style_ip_series_visual_signature_structure_mode",
+        "style_ip_series_visual_signature_participation_mode",
+        "style_ip_series_visual_signature_mode",
+        "style_ip_series_visual_signature_consistency_mode",
     ]
 
 
-def test_render_ip_prompt_chain_controls_returns_selected_profile_world_hint():
+def test_render_series_visual_signature_controls_returns_selected_profile_world_hint():
     fake_ui = _FakeStyleConfigUI()
-    fake_ui.session_state["style_ip_enabled"] = True
+    fake_ui.session_state["style_series_visual_signature_enabled"] = True
 
-    payload = ip_prompt_chain_controls.render_ip_prompt_chain_controls(
+    payload = series_visual_signature_controls.render_series_visual_signature_controls(
         ui=fake_ui,
         asset_bibles=[
             {
                 "asset_bible_id": "bible_demo",
                 "ip_profiles": [
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "白兔向导",
                         "world_hint": "适合亲切文旅讲解世界。",
                     }
@@ -101,18 +101,18 @@ def test_render_ip_prompt_chain_controls_returns_selected_profile_world_hint():
 
 
 def test_resolve_selected_ip_prompt_chain_profile_summary_returns_world_hint():
-    summary = ip_prompt_chain_controls.resolve_selected_ip_prompt_chain_profile_summary(
+    summary = series_visual_signature_controls.resolve_selected_ip_prompt_chain_profile_summary(
         session_state={
-            "style_ip_enabled": True,
-            "style_ip_asset_bible_id": "bible_demo",
-            "style_ip_profile_id": "ip_main",
+            "style_series_visual_signature_enabled": True,
+            "style_series_visual_signature_asset_bible_id": "bible_demo",
+            "style_series_visual_signature_profile_id": "ip_main",
         },
         asset_bibles=[
             {
                 "asset_bible_id": "bible_demo",
                 "ip_profiles": [
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "White Rabbit Guide",
                         "world_hint": "Friendly guide world.",
                     }
@@ -125,20 +125,20 @@ def test_resolve_selected_ip_prompt_chain_profile_summary_returns_world_hint():
     assert summary["ip_profile_name"] == "White Rabbit Guide"
 
 
-def test_render_ip_prompt_chain_controls_supports_content_state_prefix():
+def test_render_series_visual_signature_controls_supports_content_state_prefix():
     fake_ui = _FakeStyleConfigUI()
-    fake_ui.session_state["content_ip_enabled"] = True
-    fake_ui.session_state["content_ip_asset_bible_id"] = "bible_demo"
-    fake_ui.session_state["content_ip_profile_id"] = "ip_main"
+    fake_ui.session_state["content_series_visual_signature_enabled"] = True
+    fake_ui.session_state["content_series_visual_signature_asset_bible_id"] = "bible_demo"
+    fake_ui.session_state["content_series_visual_signature_profile_id"] = "ip_main"
 
-    payload = ip_prompt_chain_controls.render_ip_prompt_chain_controls(
+    payload = series_visual_signature_controls.render_series_visual_signature_controls(
         ui=fake_ui,
         asset_bibles=[
             {
                 "asset_bible_id": "bible_demo",
                 "ip_profiles": [
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "White Rabbit Guide",
                         "world_hint": "Friendly guide world.",
                     }
@@ -151,41 +151,41 @@ def test_render_ip_prompt_chain_controls_supports_content_state_prefix():
     )
 
     assert payload == {
-        "ip_enabled": True,
-        "ip_asset_bible_id": "bible_demo",
-        "ip_profile_id": "ip_main",
-        "visual_expression_mode": "auto",
-        "visual_structure_mode": "auto",
-        "visual_participation_mode": "auto",
-        "visual_role_mode": "auto",
-        "visual_consistency_mode": "off",
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_asset_bible_id": "bible_demo",
+        "series_visual_signature_profile_id": "ip_main",
+        "series_visual_signature_expression_mode": "auto",
+        "series_visual_signature_structure_mode": "auto",
+        "series_visual_signature_participation_mode": "auto",
+        "series_visual_signature_mode": "auto",
+        "series_visual_signature_consistency_mode": "off",
         "ip_profile_world_hint": "Friendly guide world.",
     }
-    assert fake_ui.toggle_calls[0]["key"] == "content_ip_enabled"
+    assert fake_ui.toggle_calls[0]["key"] == "content_series_visual_signature_enabled"
     assert [call["key"] for call in fake_ui.selectbox_calls] == [
-        "content_ip_asset_bible_id",
-        "content_ip_profile_id",
-        "content_ip_visual_expression_mode",
-        "content_ip_visual_structure_mode",
-        "content_ip_visual_participation_mode",
-        "content_ip_visual_role_mode",
-        "content_ip_visual_consistency_mode",
+        "content_series_visual_signature_asset_bible_id",
+        "content_series_visual_signature_profile_id",
+        "content_ip_series_visual_signature_expression_mode",
+        "content_ip_series_visual_signature_structure_mode",
+        "content_ip_series_visual_signature_participation_mode",
+        "content_ip_series_visual_signature_mode",
+        "content_ip_series_visual_signature_consistency_mode",
     ]
 
 
 def test_resolve_selected_ip_prompt_chain_profile_summary_supports_content_state_prefix():
-    summary = ip_prompt_chain_controls.resolve_selected_ip_prompt_chain_profile_summary(
+    summary = series_visual_signature_controls.resolve_selected_ip_prompt_chain_profile_summary(
         session_state={
-            "content_ip_enabled": True,
-            "content_ip_asset_bible_id": "bible_demo",
-            "content_ip_profile_id": "ip_main",
+            "content_series_visual_signature_enabled": True,
+            "content_series_visual_signature_asset_bible_id": "bible_demo",
+            "content_series_visual_signature_profile_id": "ip_main",
         },
         asset_bibles=[
             {
                 "asset_bible_id": "bible_demo",
                 "ip_profiles": [
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "White Rabbit Guide",
                         "world_hint": "Friendly guide world.",
                     }
@@ -196,8 +196,8 @@ def test_resolve_selected_ip_prompt_chain_profile_summary_supports_content_state
     )
 
     assert summary == {
-        "ip_asset_bible_id": "bible_demo",
-        "ip_profile_id": "ip_main",
+        "series_visual_signature_asset_bible_id": "bible_demo",
+        "series_visual_signature_profile_id": "ip_main",
         "ip_profile_name": "White Rabbit Guide",
         "ip_profile_world_hint": "Friendly guide world.",
     }
@@ -206,13 +206,13 @@ def test_resolve_selected_ip_prompt_chain_profile_summary_supports_content_state
 def test_style_config_hides_ip_selectors_when_disabled():
     fake_ui = _FakeStyleConfigUI()
 
-    payload = ip_prompt_chain_controls.render_ip_prompt_chain_controls(
+    payload = series_visual_signature_controls.render_series_visual_signature_controls(
         ui=fake_ui,
         asset_bibles=[],
         translate=lambda key, **_kwargs: key,
     )
 
-    assert payload == {"ip_enabled": False}
+    assert payload == {"series_visual_signature_enabled": False}
     assert fake_ui.selectbox_calls == []
 
 
@@ -220,27 +220,27 @@ def test_style_config_does_not_load_ip_assets_when_disabled():
     fake_ui = _FakeStyleConfigUI()
     loader_calls = []
 
-    payload = ip_prompt_chain_controls.render_ip_prompt_chain_controls(
+    payload = series_visual_signature_controls.render_series_visual_signature_controls(
         ui=fake_ui,
         asset_bible_loader=lambda: loader_calls.append("called"),
         translate=lambda key, **_kwargs: key,
     )
 
-    assert payload == {"ip_enabled": False}
+    assert payload == {"series_visual_signature_enabled": False}
     assert loader_calls == []
 
 
 def test_style_config_loads_ip_assets_after_enable_toggle():
     fake_ui = _FakeStyleConfigUI()
-    fake_ui.session_state["style_ip_enabled"] = True
+    fake_ui.session_state["style_series_visual_signature_enabled"] = True
 
-    payload = ip_prompt_chain_controls.render_ip_prompt_chain_controls(
+    payload = series_visual_signature_controls.render_series_visual_signature_controls(
         ui=fake_ui,
         asset_bible_loader=lambda: [
             {
                 "asset_bible_id": "bible_demo",
                 "ip_profiles": [
-                    {"ip_profile_id": "ip_main", "name": "正定向导兔"}
+                    {"series_visual_signature_profile_id": "ip_main", "name": "正定向导兔"}
                 ],
             }
         ],
@@ -248,12 +248,12 @@ def test_style_config_loads_ip_assets_after_enable_toggle():
     )
 
     assert payload == {
-        "ip_enabled": True,
-        "ip_asset_bible_id": "bible_demo",
-        "ip_profile_id": "ip_main",
-        "visual_expression_mode": "auto",
-        "visual_structure_mode": "auto",
-        "visual_participation_mode": "auto",
-        "visual_role_mode": "auto",
-        "visual_consistency_mode": "off",
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_asset_bible_id": "bible_demo",
+        "series_visual_signature_profile_id": "ip_main",
+        "series_visual_signature_expression_mode": "auto",
+        "series_visual_signature_structure_mode": "auto",
+        "series_visual_signature_participation_mode": "auto",
+        "series_visual_signature_mode": "auto",
+        "series_visual_signature_consistency_mode": "off",
     }

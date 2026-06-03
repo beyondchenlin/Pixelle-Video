@@ -143,12 +143,12 @@ def build_video_generation_params(
         "role_locking_strength": request_body.role_locking_strength,
         "shot_strategy": request_body.shot_strategy,
         "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
-        "ip_enabled": request_body.ip_enabled,
-        "ip_asset_bible_id": request_body.ip_asset_bible_id,
-        "ip_profile_id": request_body.ip_profile_id,
+        "series_visual_signature_enabled": request_body.series_visual_signature_enabled,
+        "series_visual_signature_asset_bible_id": request_body.series_visual_signature_asset_bible_id,
+        "series_visual_signature_profile_id": request_body.series_visual_signature_profile_id,
         "article_understanding_mode": request_body.article_understanding_mode,
         "visual_planning_mode": request_body.visual_planning_mode,
-        "visual_role_strategy": request_body.visual_role_strategy,
+        "series_visual_signature_strategy": request_body.series_visual_signature_strategy,
         "user_intent_hint": request_body.user_intent_hint,
         "allow_mixed_lenses": request_body.allow_mixed_lenses,
         "strict_user_mode": request_body.strict_user_mode,
@@ -160,11 +160,11 @@ def build_video_generation_params(
     }
 
     for key in (
-        "visual_expression_mode",
-        "visual_structure_mode",
-        "visual_participation_mode",
-        "visual_role_mode",
-        "visual_consistency_mode",
+        "series_visual_signature_expression_mode",
+        "series_visual_signature_structure_mode",
+        "series_visual_signature_participation_mode",
+        "series_visual_signature_mode",
+        "series_visual_signature_consistency_mode",
     ):
         value = getattr(request_body, key)
         if value is not None:

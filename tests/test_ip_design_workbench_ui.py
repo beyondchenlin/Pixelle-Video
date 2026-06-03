@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from web.ip_design.models import ListAssetBiblesResponse, ListSceneCastsResponse, AssetBibleSummary
+from web.ip_design.models import AssetBibleSummary, ListAssetBiblesResponse, ListSceneCastsResponse
 
 
 class _NoopContext:
@@ -160,7 +160,7 @@ def _asset_bible(**overrides: Any) -> dict[str, Any]:
         "project_id": "project_1",
         "ip_profiles": [
             {
-                "ip_profile_id": "ip_main",
+                "series_visual_signature_profile_id": "ip_main",
                 "name": "Pixelle Demo",
                 "logline": "A compact character universe.",
                 "world_hint": "Floating academy",
@@ -291,7 +291,7 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
     fake_ui.session_state.update(
         {
             "ip_design_asset_bible_id": "bible_new",
-            "ip_design_ip_profile_id": "ip_main",
+            "ip_design_series_visual_signature_profile_id": "ip_main",
             "ip_design_ip_name": "New IP",
             "ip_design_logline": "New logline",
             "ip_design_ip_type": "cartoon_animal",
@@ -325,7 +325,7 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
     saved_profiles = saved_call["payload"]["ip_profiles"]
     assert len(saved_profiles) == 1
     profile = saved_profiles[0]
-    assert profile["ip_profile_id"] == "ip_main"
+    assert profile["series_visual_signature_profile_id"] == "ip_main"
     assert profile["name"] == "New IP"
     assert profile["logline"] == "New logline"
     assert profile["ip_type"] == "cartoon_animal"
@@ -353,7 +353,7 @@ def test_ip_design_workbench_preserves_non_rule_palette_entries_when_saving():
     fake_ui.session_state.update(
         {
             "ip_design_asset_bible_id": "bible_demo",
-            "ip_design_ip_profile_id": "ip_main",
+            "ip_design_series_visual_signature_profile_id": "ip_main",
             "ip_design_ip_name": "Updated IP",
             "ip_design_identity_lock": "white rabbit",
             "ip_design_color_rules": "#FFFFFF white body",
@@ -366,7 +366,7 @@ def test_ip_design_workbench_preserves_non_rule_palette_entries_when_saving():
             _asset_bible(
                 ip_profiles=[
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "Main IP",
                         "identity_lock": ["white rabbit"],
                         "color_palette": {
@@ -428,7 +428,7 @@ def test_ip_design_workbench_preserves_sibling_ip_profiles_when_saving():
     fake_ui.session_state.update(
         {
             "ip_design_asset_bible_id": "bible_demo",
-            "ip_design_ip_profile_id": "ip_main",
+            "ip_design_series_visual_signature_profile_id": "ip_main",
             "ip_design_ip_name": "Updated Main",
             "ip_design_identity_lock": "updated main rabbit",
             "ip_design_save_asset_bible": True,
@@ -440,12 +440,12 @@ def test_ip_design_workbench_preserves_sibling_ip_profiles_when_saving():
             _asset_bible(
                 ip_profiles=[
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "Main IP",
                         "identity_lock": ["main rabbit"],
                     },
                     {
-                        "ip_profile_id": "ip_side",
+                        "series_visual_signature_profile_id": "ip_side",
                         "name": "Side IP",
                         "identity_lock": ["side rabbit"],
                     },
@@ -462,15 +462,15 @@ def test_ip_design_workbench_preserves_sibling_ip_profiles_when_saving():
 
     saved_profiles = client.calls[-1]["payload"]["ip_profiles"]
     assert len(saved_profiles) == 2
-    main_profile = next(p for p in saved_profiles if p["ip_profile_id"] == "ip_main")
-    side_profile = next(p for p in saved_profiles if p["ip_profile_id"] == "ip_side")
+    main_profile = next(p for p in saved_profiles if p["series_visual_signature_profile_id"] == "ip_main")
+    side_profile = next(p for p in saved_profiles if p["series_visual_signature_profile_id"] == "ip_side")
     assert main_profile["name"] == "Updated Main"
     assert main_profile["identity_lock"] == ["updated main rabbit"]
     assert side_profile["name"] == "Side IP"
     assert side_profile["identity_lock"] == ["side rabbit"]
 
 
-def test_ip_design_workbench_reads_profile_matching_session_ip_profile_id():
+def test_ip_design_workbench_reads_profile_matching_session_series_visual_signature_profile_id():
     from web.components.ip_design_workbench import render_ip_design_workbench
 
     fake_ui = _FakeUI()
@@ -485,14 +485,14 @@ def test_ip_design_workbench_reads_profile_matching_session_ip_profile_id():
             _asset_bible(
                 ip_profiles=[
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "Main IP",
                         "logline": "Main logline",
                         "identity_lock": ["main rabbit"],
                         "visual_summary": "main visual summary",
                     },
                     {
-                        "ip_profile_id": "ip_side",
+                        "series_visual_signature_profile_id": "ip_side",
                         "name": "Side IP",
                         "logline": "Side logline",
                         "identity_lock": ["side rabbit"],
@@ -526,7 +526,7 @@ def test_ip_design_workbench_renders_existing_color_mapping_prompts():
             _asset_bible(
                 ip_profiles=[
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "Main IP",
                         "identity_lock": ["white rabbit"],
                         "color_palette": {
@@ -560,7 +560,7 @@ def test_ip_design_workbench_noop_save_does_not_duplicate_non_rule_mapping_promp
             _asset_bible(
                 ip_profiles=[
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "Main IP",
                         "identity_lock": ["white rabbit"],
                         "color_palette": {
@@ -606,7 +606,7 @@ def test_ip_design_workbench_marks_ip_without_identity_anchors_unavailable():
                 "project_id": "project_1",
                 "ip_profiles": [
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "Empty IP",
                         "identity_lock": [],
                         "identity_anchors": [],

@@ -54,6 +54,33 @@ def _assert_old_storyboard_block_tokens_absent(prompt: str, *tokens: str) -> Non
         assert token not in prompt
 
 
+def _assert_final_prompt_contract(prompt: str, scene_fragment: str) -> None:
+    assert prompt.startswith("[Scene] ")
+    assert scene_fragment in prompt
+    assert "[Composition]" in prompt
+    assert "[Style Assignment]" in prompt
+    assert "[Character Layer Style]" in prompt
+    assert "[World Layer Style]" in prompt
+    assert "[Integration and Priority]" in prompt
+
+
+def _assert_final_prompt_snapshot(snapshot: dict | None) -> None:
+    assert snapshot is not None
+    assert "base_visual_briefs_by_frame" in snapshot
+    assert "visual_anchor_placement_by_frame" in snapshot
+    assert snapshot["final_visual_prompt_template"]["prompt_id"] == "final_visual_prompt"
+
+
+def _skip_series_visual_signature_anchor_planning(monkeypatch) -> None:
+    async def fake_plan_batch(self, **kwargs):
+        return ()
+
+    monkeypatch.setattr(
+        "pixelle_video.services.visual_prompt_planning_service.VisualAnchorIntegrationPlanner.plan_batch",
+        fake_plan_batch,
+    )
+
+
 def _storyboard_plan() -> StoryboardPlan:
     frame = StoryboardPlanFrame(
         index=1,
@@ -102,7 +129,7 @@ def _storyboard_plan_two_frames() -> StoryboardPlan:
 
 def _ip_profile() -> IPProfile:
     return IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="正定向导兔",
@@ -115,7 +142,7 @@ def _ip_profile() -> IPProfile:
 
 def _empty_ip_profile() -> IPProfile:
     return IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="Empty IP",
@@ -141,14 +168,15 @@ async def test_generate_styled_image_prompt_batch_accepts_task3_ip_passthrough_k
         narrations=["scene one"],
         image_config={},
         storyboard_plan=None,
-        ip_enabled=False,
+        series_visual_signature_enabled=False,
         ip_profile=None,
         scene_casts_by_frame=None,
         text_rendering=_suppress_image_text(),
     )
 
-    assert result.prompts == [apply_no_text_policy("base scene prompt")]
-    assert result.planning_snapshot is None
+    _assert_final_prompt_contract(result.prompts[0], "base scene prompt")
+    assert "no visible text" in result.prompts[0]
+    _assert_final_prompt_snapshot(result.planning_snapshot)
 
 
 @pytest.mark.asyncio
@@ -326,16 +354,18 @@ async def test_generate_styled_image_prompt_batch_blocks_raw_fallback_for_ip_wor
     )
 
     prompt = result.prompts[0]
-    assert prompt.startswith(
-        "rounded geometric dog sprinting across playful wooden obstacles"
+    _assert_final_prompt_contract(
+        prompt,
+        "rounded geometric dog sprinting across playful wooden obstacles",
     )
-    assert "Visual style:" in prompt
-    assert "same playful bird universe silhouette" in prompt
+    assert "rounded geometric cartoon forms" in prompt
+    assert "destructible wooden obstacles" in prompt
+    assert "all frames belong to the same playful bird universe" in prompt
     assert "no visible text" in prompt
     assert "Angry Birds style" not in result.prompts[0]
     assert result.negative_prompt is not None
-    assert "photo realism" in result.negative_prompt
-    assert "realistic fur" in result.negative_prompt
+    assert "photo realism" in prompt
+    assert "realistic fur" in prompt
     assert "text" in result.negative_prompt
     assert "Chinese characters" in result.negative_prompt
 
@@ -449,9 +479,10 @@ async def test_generate_styled_image_prompt_batch_uses_structured_style_when_tem
     )
 
     prompt = result.prompts[0]
-    assert prompt.startswith("base scene prompt")
+    _assert_final_prompt_contract(prompt, "base scene prompt")
     assert "rounded geometric cartoon forms" in prompt
     assert "destructible wooden obstacles" in prompt
+    assert "all frames belong to the same playful bird universe" in prompt
     assert "Angry Birds style" not in prompt
     assert prompt == apply_no_text_policy(prompt)
 
@@ -499,9 +530,9 @@ async def test_generate_styled_image_prompt_batch_ignores_capability_probe_failu
     )
 
     prompt = result.prompts[0]
-    assert prompt.startswith("base scene prompt")
-    assert "Visual style:" in prompt
-    assert "same playful bird universe silhouette" in prompt
+    _assert_final_prompt_contract(prompt, "base scene prompt")
+    assert "rounded geometric cartoon forms" in prompt
+    assert "all frames belong to the same playful bird universe" in prompt
     assert "no visible text" in prompt
     assert "photo realism" in prompt
     assert "realistic fur" in prompt
@@ -571,7 +602,7 @@ async def test_generate_styled_image_prompt_batch_rejects_enabled_ip_without_ide
             narrations=["从长乐门出发。"],
             image_config={},
             storyboard_plan=_storyboard_plan(),
-            ip_enabled=True,
+            series_visual_signature_enabled=True,
             ip_profile=_empty_ip_profile(),
         )
 
@@ -618,6 +649,7 @@ async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints
         "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
+    _skip_series_visual_signature_anchor_planning(monkeypatch)
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
@@ -626,7 +658,7 @@ async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints
         media_service=object(),
         workflow="selfhost/image_z_image_turbo.json",
         storyboard_plan=plan,
-        ip_enabled=True,
+        series_visual_signature_enabled=True,
         ip_profile=_ip_profile(),
     )
 
@@ -711,6 +743,7 @@ async def test_generate_styled_image_prompt_batch_merges_per_frame_ip_negative_i
         "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
+    _skip_series_visual_signature_anchor_planning(monkeypatch)
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
@@ -719,7 +752,7 @@ async def test_generate_styled_image_prompt_batch_merges_per_frame_ip_negative_i
         media_service=object(),
         workflow="selfhost/image_flux.json",
         storyboard_plan=plan,
-        ip_enabled=True,
+        series_visual_signature_enabled=True,
         ip_profile=_ip_profile(),
         text_rendering=_suppress_image_text("letters"),
     )
@@ -804,6 +837,7 @@ async def test_generate_styled_image_prompt_batch_merges_all_z_image_constraints
         "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
+    _skip_series_visual_signature_anchor_planning(monkeypatch)
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
@@ -812,7 +846,7 @@ async def test_generate_styled_image_prompt_batch_merges_all_z_image_constraints
         media_service=object(),
         workflow="selfhost/image_z_image_turbo.json",
         storyboard_plan=plan,
-        ip_enabled=True,
+        series_visual_signature_enabled=True,
         ip_profile=_ip_profile(),
         text_rendering=_suppress_image_text("letters"),
     )
@@ -865,6 +899,7 @@ async def test_z_image_final_prompt_contains_structured_ip_identity_anchors(monk
         "pixelle_video.utils.content_generators.generate_image_prompts",
         capturing_generate_image_prompts,
     )
+    _skip_series_visual_signature_anchor_planning(monkeypatch)
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
@@ -873,9 +908,9 @@ async def test_z_image_final_prompt_contains_structured_ip_identity_anchors(monk
         media_service=object(),
         workflow="selfhost/image_z_image_turbo.json",
         storyboard_plan=plan,
-        ip_enabled=True,
+        series_visual_signature_enabled=True,
         ip_profile=IPProfile(
-            ip_profile_id="ip_main",
+            series_visual_signature_profile_id="ip_main",
             workspace_id="workspace_1",
             project_id="project_1",
             name="正定向导兔",
@@ -921,7 +956,7 @@ async def test_generate_styled_image_prompt_batch_ignores_stale_ip_adaptation_wh
         image_config={},
         media_service=object(),
         workflow="selfhost/image_z_image_turbo.json",
-        ip_enabled=False,
+        series_visual_signature_enabled=False,
         prompt_contexts=[
             {
                 "ip_adaptation": {
@@ -937,7 +972,8 @@ async def test_generate_styled_image_prompt_batch_ignores_stale_ip_adaptation_wh
     assert isinstance(captured["prompt_contexts"], PromptContextEnvelope)
     assert "ip_adaptation" not in captured["prompt_contexts"].frame_contexts[0]
     assert "ip_presence_options" not in captured["prompt_contexts"].frame_contexts[0]
-    assert result.planning_snapshot is None
+    _assert_final_prompt_snapshot(result.planning_snapshot)
+    assert "ip_adaptations_by_frame" not in result.planning_snapshot
 
 
 @pytest.mark.asyncio
@@ -962,6 +998,7 @@ async def test_generate_styled_image_prompt_batch_does_not_apply_ip_chain_to_vid
         "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
+    _skip_series_visual_signature_anchor_planning(monkeypatch)
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
@@ -969,7 +1006,7 @@ async def test_generate_styled_image_prompt_batch_does_not_apply_ip_chain_to_vid
         image_config={},
         media_type="video",
         storyboard_plan=_storyboard_plan(),
-        ip_enabled=True,
+        series_visual_signature_enabled=True,
         ip_profile=_ip_profile(),
         prompt_contexts=[
             {
@@ -1161,6 +1198,7 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
         "pixelle_video.utils.content_generators.ContentWorldPlanner",
         lambda: _WorldPlanner(),
     )
+    _skip_series_visual_signature_anchor_planning(monkeypatch)
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
@@ -1170,7 +1208,7 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
         storyboard_plan=plan,
         world_preset_id="neutral_knowledge_storyboard",
         generation_world_hint="古城清晨漫游，低侵入陪伴。",
-        ip_enabled=True,
+        series_visual_signature_enabled=True,
         ip_profile=_ip_profile(),
         scene_casts_by_frame={"frame_1": {"ip_presence_type": "scene_integrated"}},
     )
@@ -1298,13 +1336,14 @@ async def test_generate_styled_image_prompt_batch_uses_visible_text_whitelist_fo
         "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
+    _skip_series_visual_signature_anchor_planning(monkeypatch)
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
         narrations=["Start from Changle Gate."],
         image_config={},
         storyboard_plan=plan,
-        ip_enabled=True,
+        series_visual_signature_enabled=True,
         ip_profile=_ip_profile(),
         text_rendering={
             "image_text": {
@@ -1424,9 +1463,10 @@ async def test_generate_styled_image_prompt_batch_uses_video_prompt_generator_fo
     assert captured["style_profile"]["style_kind"] == "ip_world"
     assert captured["prompt_language"] == "zh_CN"
     prompt = result.prompts[0]
-    assert prompt.startswith("dynamic dog sprinting through playful wooden obstacles")
-    assert "Visual style:" in prompt
-    assert "same playful bird universe silhouette" in prompt
+    _assert_final_prompt_contract(
+        prompt,
+        "dynamic dog sprinting through playful wooden obstacles",
+    )
     assert "no visible text" in prompt
 
 
@@ -1535,10 +1575,9 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
         }
     ]
     prompt = result.prompts[0]
-    assert prompt.startswith("base scene prompt")
-    assert "Visual style: rendered as clean educational illustration" in prompt
-    assert "Composition: framed as medium shot, context" in prompt
-    assert "Environment: with strategy board integrated into the environment" in prompt
+    _assert_final_prompt_contract(prompt, "base scene prompt")
+    assert "clean educational illustration" in prompt
+    assert "strategy board" in prompt
     assert "no visible text" in prompt
     _assert_old_storyboard_block_tokens_absent(prompt, "medium_shot")
 
@@ -1838,17 +1877,17 @@ async def test_generate_styled_image_prompt_batch_storyboard_keeps_compatible_te
         text_rendering=_suppress_image_text(),
     )
 
-    expected_prompt = apply_no_text_policy(
-        "base scene prompt "
-        "Visual style: rendered as clean educational illustration, "
-        "editorial line art treatment, with etched crosshatching "
-        "Composition: framed as close up, detail focus "
-        "Environment: with lab bench integrated into the environment"
-    )
-
-    assert result.prompts == [expected_prompt]
+    prompt = result.prompts[0]
+    _assert_final_prompt_contract(prompt, "base scene prompt")
+    assert "clean educational illustration" in prompt
+    assert "editorial line art treatment" in prompt
+    assert "etched crosshatching" in prompt
+    assert "close up" in prompt
+    assert "detail focus" in prompt
+    assert "lab bench" in prompt
+    assert "no visible text" in prompt
     _assert_old_storyboard_block_tokens_absent(
-        result.prompts[0],
+        prompt,
         "close_up",
         "detail_focus",
     )
@@ -1914,14 +1953,15 @@ async def test_generate_styled_image_prompt_batch_uses_resolved_style_when_story
         text_rendering=_suppress_image_text(),
     )
 
-    assert result.prompts == [
-        apply_no_text_policy(
-            "base scene prompt "
-            "Visual style: rendered with flat geometry, matte illustration, "
-            "warm muted colors, soft studio light, flat illustration treatment"
-        )
-    ]
-    assert result.planning_snapshot is None
+    prompt = result.prompts[0]
+    _assert_final_prompt_contract(prompt, "base scene prompt")
+    assert "flat geometry" in prompt
+    assert "matte illustration" in prompt
+    assert "warm muted colors" in prompt
+    assert "soft studio light" in prompt
+    assert "flat illustration treatment" in prompt
+    assert "no visible text" in prompt
+    _assert_final_prompt_snapshot(result.planning_snapshot)
 
 
 @pytest.mark.asyncio
@@ -1956,7 +1996,8 @@ async def test_generate_styled_image_prompt_batch_forwards_prompt_contexts(monke
             "prompt_intent": "Visual metaphor one.",
         },
     )
-    assert result.prompts == ["base scene prompt"]
+    assert "base scene prompt" in result.prompts[0]
+    _assert_final_prompt_snapshot(result.planning_snapshot)
 
 
 @pytest.mark.asyncio

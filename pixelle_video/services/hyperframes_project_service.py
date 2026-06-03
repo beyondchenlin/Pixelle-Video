@@ -19,12 +19,12 @@ from pixelle_video.models.render_package import (
     TextCue,
     VisualClip,
 )
-from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
 from pixelle_video.models.template_display import (
     TemplateDisplaySettings,
     resolve_template_params_and_display,
 )
 from pixelle_video.models.template_parameters import validate_template_params
+from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
 from pixelle_video.models.template_text_capabilities import TemplateTextCapabilities
 from pixelle_video.models.text_style import DEFAULT_CAPTION_STYLE_ID, DEFAULT_TITLE_STYLE_ID
 from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences

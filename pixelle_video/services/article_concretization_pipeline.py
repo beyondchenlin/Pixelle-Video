@@ -41,7 +41,7 @@ def build_article_concretization_plans(
     *,
     storyboard_plan: StoryboardPlan,
     params: Mapping[str, Any],
-    ip_profile_id: str | None,
+    series_visual_signature_profile_id: str | None,
     template_aspect_ratio: DiagramAspectRatio,
 ) -> tuple[ArticleConcretizationPlan, ...]:
     request = ArticleVisualPlanningRequest.from_mapping(params)
@@ -64,17 +64,17 @@ def build_article_concretization_plans(
             request=concretization_request,
             article_plan=article_plan,
             frame_plan=frame_plan,
-            ip_profile_id=ip_profile_id,
+            series_visual_signature_profile_id=series_visual_signature_profile_id,
             template_aspect_ratio=template_aspect_ratio,
             strict_user_mode=request.strict_user_mode,
-            visual_role_strategy=request.visual_role_strategy,
+            series_visual_signature_strategy=request.series_visual_signature_strategy,
         )
         plan = planner.plan(
             resolution=resolution,
             article_plan=article_plan,
             frame_plan=frame_plan,
             source_text=storyboard_plan.source_text,
-            identity_profile_id=ip_profile_id,
+            identity_profile_id=series_visual_signature_profile_id,
         )
         if plan is None:
             raise ValueError("enabled article concretization produced no plan")

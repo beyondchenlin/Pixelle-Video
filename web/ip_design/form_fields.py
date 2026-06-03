@@ -64,8 +64,8 @@ IP_PROFILE_FORM_SECTIONS: tuple[tuple[str, tuple[IPProfileFormField, ...]], ...]
                 default="cartoon_animal",
             ),
             IPProfileFormField(
-                "ip_profile_id", SECTION_BASIC, "ip_design.asset_bible.ip_profile_id",
-                "ip_design.help.ip_profile_id",
+                "series_visual_signature_profile_id", SECTION_BASIC, "ip_design.asset_bible.series_visual_signature_profile_id",
+                "ip_design.help.series_visual_signature_profile_id",
             ),
             IPProfileFormField(
                 "name", SECTION_BASIC, "ip_design.asset_bible.ip_name", "ip_design.help.ip_name",

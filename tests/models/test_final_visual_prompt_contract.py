@@ -11,8 +11,8 @@ from pixelle_video.models.final_visual_prompt_contract import (
     RenderedMediaPrompt,
     attach_v44_contract_metadata,
 )
+from pixelle_video.models.series_visual_signature_strategy import SeriesVisualSignatureStrategy
 from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, VisibleTextPolicy
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 
 
 class _UnsafeEnum(Enum):
@@ -91,7 +91,7 @@ def _v44_contract(**overrides):
         "required_subjects": ["host", {"name": "screen", "count": 1}],
         "visual_concretization_summary": "concrete summary",
         "identity_contract": {"identity": "Pixelle", "traits": ("bright", "precise")},
-        "visual_role_strategy": VisualRoleStrategy.OBSERVER_GUIDE,
+        "series_visual_signature_strategy": SeriesVisualSignatureStrategy.OBSERVER_GUIDE,
         "weight_contract": {"subject": 0.8, "style": 0.2},
         "visible_text_policy": VisibleTextPolicy.SOURCE_TEXT_ONLY,
         "projected_prompt_parts": [_projected_part()],
@@ -110,7 +110,7 @@ def test_v44_contract_serializes_json_safe_payload():
     assert payload["contract_schema_version"] == "final_visual_prompt_contract.v4_4"
     assert payload["route_decision_id"] == "route-1"
     assert payload["primary_visual_task"] == PrimaryVisualTask.COGNITIVE_EXPLANATION.value
-    assert payload["visual_role_strategy"] == VisualRoleStrategy.OBSERVER_GUIDE.value
+    assert payload["series_visual_signature_strategy"] == SeriesVisualSignatureStrategy.OBSERVER_GUIDE.value
     assert payload["visible_text_policy"] == VisibleTextPolicy.SOURCE_TEXT_ONLY.value
     assert payload["required_subjects"] == ["host", {"name": "screen", "count": 1}]
     assert payload["projected_prompt_parts"] == [
@@ -624,7 +624,7 @@ def test_v44_contract_rejects_invalid_projected_prompt_parts():
     ("field_name", "value"),
     [
         ("primary_visual_task", "not_a_task"),
-        ("visual_role_strategy", "not_a_strategy"),
+        ("series_visual_signature_strategy", "not_a_strategy"),
         ("visible_text_policy", "free_text"),
     ],
 )
@@ -636,12 +636,12 @@ def test_v44_contract_rejects_invalid_enum_strings(field_name, value):
 def test_v44_contract_accepts_exact_enum_names():
     contract = _v44_contract(
         primary_visual_task="COGNITIVE_EXPLANATION",
-        visual_role_strategy="OBSERVER_GUIDE",
+        series_visual_signature_strategy="OBSERVER_GUIDE",
         visible_text_policy="SOURCE_TEXT_ONLY",
     )
 
     assert contract.to_dict()["primary_visual_task"] == "cognitive_explanation"
-    assert contract.to_dict()["visual_role_strategy"] == "observer_guide"
+    assert contract.to_dict()["series_visual_signature_strategy"] == "observer_guide"
     assert contract.to_dict()["visible_text_policy"] == "source_text_only"
 
 

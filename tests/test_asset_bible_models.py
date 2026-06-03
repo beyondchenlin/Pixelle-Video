@@ -17,7 +17,7 @@ def test_asset_bible_round_trips_ip_and_visual_assets():
         project_id="project_1",
         ip_profiles=[
             IPProfile(
-                ip_profile_id="ip_main",
+                series_visual_signature_profile_id="ip_main",
                 workspace_id="workspace_1",
                 project_id="project_1",
                 name="Pixelle Demo",
@@ -152,7 +152,7 @@ def test_style_profile_rejects_text_rendering_style_metadata():
     [
         (
             lambda: IPProfile(
-                ip_profile_id="ip_main",
+                series_visual_signature_profile_id="ip_main",
                 workspace_id="workspace_1",
                 project_id="project_1",
                 name="Main IP",
@@ -179,7 +179,7 @@ def test_asset_profiles_reject_empty_or_duplicate_id_lists(asset_factory, field_
 
 def test_ip_profile_supports_identity_locks_color_tokens_and_text_rules():
     profile = IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="正定向导兔",
@@ -209,7 +209,7 @@ def test_ip_profile_supports_identity_locks_color_tokens_and_text_rules():
 @pytest.mark.parametrize("field_name", ["logline", "world_hint", "style_hint"])
 def test_ip_profile_rejects_hex_colors_in_prompt_text_fields(field_name):
     payload = {
-        "ip_profile_id": "ip_main",
+        "series_visual_signature_profile_id": "ip_main",
         "workspace_id": "workspace_1",
         "project_id": "project_1",
         "name": "正定向导兔",
@@ -275,7 +275,7 @@ def test_non_ip_asset_text_tuples_preserve_existing_hex_color_behavior():
 )
 def test_ip_profile_palette_prompt_fields_reject_hex_colors(palette_field, palette_payload):
     payload = {
-        "ip_profile_id": "ip_main",
+        "series_visual_signature_profile_id": "ip_main",
         "workspace_id": "workspace_1",
         "project_id": "project_1",
         "name": "正定向导兔",
@@ -288,7 +288,7 @@ def test_ip_profile_palette_prompt_fields_reject_hex_colors(palette_field, palet
 
 def test_ip_profile_palette_non_prompt_annotations_allow_hex_text_and_round_trip():
     profile = IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="正定向导兔",
@@ -317,7 +317,7 @@ def test_ip_profile_palette_non_prompt_annotations_allow_hex_text_and_round_trip
 def test_ip_profile_palette_mapping_errors_name_palette_field():
     with pytest.raises(ValueError, match="color_palette"):
         IPProfile(
-            ip_profile_id="ip_main",
+            series_visual_signature_profile_id="ip_main",
             workspace_id="workspace_1",
             project_id="project_1",
             name="正定向导兔",
@@ -329,7 +329,7 @@ def test_ip_profile_from_dict_rejects_string_tuple_payloads():
     with pytest.raises(ValueError, match="identity_lock"):
         IPProfile.from_dict(
             {
-                "ip_profile_id": "ip_main",
+                "series_visual_signature_profile_id": "ip_main",
                 "workspace_id": "workspace_1",
                 "project_id": "project_1",
                 "name": "正定向导兔",
@@ -342,7 +342,7 @@ def test_ip_profile_from_dict_rejects_forbidden_elements_string_payloads():
     with pytest.raises(ValueError, match="forbidden_elements"):
         IPProfile.from_dict(
             {
-                "ip_profile_id": "ip_main",
+                "series_visual_signature_profile_id": "ip_main",
                 "workspace_id": "workspace_1",
                 "project_id": "project_1",
                 "name": "正定向导兔",
@@ -354,7 +354,7 @@ def test_ip_profile_from_dict_rejects_forbidden_elements_string_payloads():
 def test_ip_profile_supports_universal_actor_fields():
     """New fields from the universal-actor redesign round-trip correctly."""
     profile = IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="正定向导兔",
@@ -402,7 +402,7 @@ def test_ip_profile_preserves_legacy_fields():
     """Legacy fields (world_hint, style_hint, identity_anchors, variable_slots)
     are preserved through serialization even though they are no longer shown in UI."""
     profile = IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="正定向导兔",

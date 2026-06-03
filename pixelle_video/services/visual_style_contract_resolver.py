@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -24,12 +25,16 @@ class VisualStyleContractResolver:
         if item_contract is not None:
             contracts.append(item_contract)
         style_contract = getattr(resolved_style, "visual_style_contract", None)
-        if isinstance(style_contract, VisualStyleLayerContract):
+        if isinstance(style_contract, VisualStyleLayerContract) and _has_contract_content(style_contract):
             contracts.append(style_contract)
         elif isinstance(style_contract, Mapping):
-            contracts.append(VisualStyleLayerContract.from_dict(style_contract))
+            mapped_contract = VisualStyleLayerContract.from_dict(style_contract)
+            if _has_contract_content(mapped_contract):
+                contracts.append(mapped_contract)
+            elif resolved_style is not None:
+                contracts.append(_contract_from_resolved_style(resolved_style))
         elif resolved_style is not None:
-            contracts.append(visual_style_contract_from_style_profile(getattr(resolved_style, "style_profile", {}) or {}))
+            contracts.append(_contract_from_resolved_style(resolved_style))
         if not contracts and fallback_to_default_world:
             return default_mixed_style_world_contract()
         if not contracts:
@@ -57,6 +62,41 @@ def _contract_from_active_item(active_style_item: Mapping[str, Any] | None) -> V
                 }
             )
     return None
+
+
+def _has_contract_content(contract: VisualStyleLayerContract) -> bool:
+    return bool(contract.layers or contract.integration_rules or contract.negative_rules)
+
+
+def _contract_from_resolved_style(resolved_style: Any) -> VisualStyleLayerContract:
+    profile = dict(getattr(resolved_style, "style_profile", {}) or {})
+    template_clause = _style_clause_from_prompt_template(
+        getattr(resolved_style, "prompt_template", "") or ""
+    )
+    if template_clause and not _profile_has_visual_rules(profile):
+        profile["consistency_anchor"] = template_clause
+    return visual_style_contract_from_style_profile(profile)
+
+
+def _profile_has_visual_rules(profile: Mapping[str, Any]) -> bool:
+    return any(
+        str(profile.get(key) or "").strip()
+        for key in (
+            "shape_language",
+            "material",
+            "palette",
+            "lighting",
+            "world_elements",
+            "consistency_anchor",
+        )
+    )
+
+
+def _style_clause_from_prompt_template(prompt_template: str) -> str:
+    text = str(prompt_template or "").replace("{prompt}", " ")
+    text = re.sub(r"[_-]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip(" ,.:;")
 
 
 __all__ = ["VisualStyleContractResolver"]

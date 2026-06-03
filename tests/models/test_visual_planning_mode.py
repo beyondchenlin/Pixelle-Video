@@ -14,7 +14,7 @@ def test_visual_planning_mode_accepts_known_value():
     )
 
 
-def test_visual_planning_mode_rejects_visual_role_terms():
+def test_visual_planning_mode_rejects_signature_strategy_terms():
     assert VisualPlanningMode.from_value("host_explainer") is VisualPlanningMode.AUTO
     assert VisualPlanningMode.from_value("signature_presence") is VisualPlanningMode.AUTO
 

@@ -7,7 +7,7 @@ FORBIDDEN_FIELDS = (
 )
 
 CHECKED_FILES = (
-    Path("web/components/content_ip_world_controls.py"),
+    Path("web/components/content_series_visual_signature_controls.py"),
     Path("web/i18n/locales/en_US.json"),
     Path("web/i18n/locales/zh_CN.json"),
 )

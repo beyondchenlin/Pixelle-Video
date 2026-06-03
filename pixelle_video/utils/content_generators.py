@@ -32,6 +32,11 @@ from pixelle_video.models.content_generation import (
     VideoPromptBatchResponse,
 )
 from pixelle_video.models.content_world import ContentWorldProfile
+from pixelle_video.models.final_visual_prompt_contract import (
+    FinalVisualPromptContract,
+    RenderedMediaPrompt,
+    join_rendered_negative_prompts,
+)
 from pixelle_video.models.llm_interaction_trace import (
     LLMTraceContext,
     LLMTraceError,
@@ -39,19 +44,14 @@ from pixelle_video.models.llm_interaction_trace import (
 )
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
-from pixelle_video.models.final_visual_prompt_contract import (
-    FinalVisualPromptContract,
-    RenderedMediaPrompt,
-    join_rendered_negative_prompts,
-)
-from pixelle_video.models.visual_role_profile import VisualRoleProfile
-from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.models.prompt_context import (
     PromptContextEnvelope,
     PromptContextInput,
     normalize_prompt_contexts,
     slice_prompt_contexts,
 )
+from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
+from pixelle_video.models.series_visual_signature_request import SeriesVisualSignatureRequest
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.models.text_overlay import (
     build_text_rendering_policy,
@@ -59,14 +59,9 @@ from pixelle_video.models.text_overlay import (
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
 from pixelle_video.services.content_world_planner import ContentWorldPlanner
-from pixelle_video.services.final_visual_prompt_contract_builder import FinalVisualPromptContractBuilder
 from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
 )
-from pixelle_video.services.model_prompt_renderer import select_model_prompt_renderer
-from pixelle_video.services.visual_role_profile_builder import VisualRoleProfileBuilder
-from pixelle_video.services.visual_style_contract_resolver import VisualStyleContractResolver
-from pixelle_video.services.visual_prompt_planning_service import VisualPromptPlanningService
 from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import (
@@ -74,7 +69,12 @@ from pixelle_video.services.llm_trace_refs import (
     llm_trace_refs_from_records,
     merge_llm_trace_refs,
 )
+from pixelle_video.services.series_visual_signature_profile_builder import (
+    SeriesVisualSignatureProfileBuilder,
+)
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
+from pixelle_video.services.visual_prompt_planning_service import VisualPromptPlanningService
+from pixelle_video.services.visual_style_contract_resolver import VisualStyleContractResolver
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.prompt_batching import (
     PromptBatch,
@@ -89,10 +89,6 @@ from pixelle_video.utils.prompt_helper import (
     append_final_visual_prompt_requirements,
     apply_image_text_policy,
     apply_text_rendering_policy,
-    assemble_image_prompt,
-    assemble_negative_prompt,
-    assemble_storyboard_prompt,
-    build_image_prompt,
     build_visible_text_whitelist_clause,
     final_visual_prompt_clause_template_metadata,
     final_visual_prompt_template_metadata,
@@ -1261,45 +1257,45 @@ async def generate_styled_image_prompt_batch(
         Mapping[int, Sequence[NativePromptHint | str]]
     ] = None,
     storyboard_plan=None,
-    ip_enabled: bool = False,
+    series_visual_signature_enabled: bool = False,
     ip_profile=None,
-    visual_role_profile: VisualRoleProfile | None = None,
+    series_visual_signature_profile: SeriesVisualSignatureProfile | None = None,
     scene_casts_by_frame=None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
     upstream_llm_trace_refs: Optional[Sequence[Mapping[str, str]]] = None,
     *,
     trace_context: LLMTraceContext | None = None,
     trace_recorder: LLMInteractionRecorder | None = None,
-    visual_expression_mode: str | None = None,
-    visual_structure_mode: str | None = None,
-    visual_participation_mode: str | None = None,
-    visual_role_request: VisualRoleRequest | None = None,
-    visual_role_mode: str | None = None,
-    visual_consistency_mode: str | None = None,
+    series_visual_signature_expression_mode: str | None = None,
+    series_visual_signature_structure_mode: str | None = None,
+    series_visual_signature_participation_mode: str | None = None,
+    series_visual_signature_request: SeriesVisualSignatureRequest | None = None,
+    series_visual_signature_mode: str | None = None,
+    series_visual_signature_consistency_mode: str | None = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
     normalized_prompt_contexts = _normalize_prompt_contexts(prompt_contexts, len(narrations))
-    resolved_visual_role_request = visual_role_request or VisualRoleRequest.from_mapping(
+    resolved_series_visual_signature_request = series_visual_signature_request or SeriesVisualSignatureRequest.from_mapping(
         {
-            "ip_enabled": ip_enabled,
-            "visual_expression_mode": visual_expression_mode,
-            "visual_structure_mode": visual_structure_mode,
-            "visual_participation_mode": visual_participation_mode,
-            "visual_role_mode": visual_role_mode,
-            "visual_consistency_mode": visual_consistency_mode,
+            "series_visual_signature_enabled": series_visual_signature_enabled,
+            "series_visual_signature_expression_mode": series_visual_signature_expression_mode,
+            "series_visual_signature_structure_mode": series_visual_signature_structure_mode,
+            "series_visual_signature_participation_mode": series_visual_signature_participation_mode,
+            "series_visual_signature_mode": series_visual_signature_mode,
+            "series_visual_signature_consistency_mode": series_visual_signature_consistency_mode,
         },
-        profile_id=getattr(ip_profile, "ip_profile_id", None),
+        profile_id=getattr(ip_profile, "series_visual_signature_profile_id", None),
         generation_world_hint=generation_world_hint,
     )
-    ip_prompt_chain_enabled = resolved_visual_role_request.enabled and media_type == "image"
-    resolved_visual_role_profile = visual_role_profile
+    ip_prompt_chain_enabled = resolved_series_visual_signature_request.enabled and media_type == "image"
+    resolved_series_visual_signature_profile = series_visual_signature_profile
     if ip_prompt_chain_enabled and storyboard_plan is None:
-        raise ValueError("storyboard_plan is required when ip_enabled=True")
+        raise ValueError("storyboard_plan is required when series_visual_signature_enabled=True")
     if ip_prompt_chain_enabled:
         ensure_ip_profile_ready_for_generation(ip_profile)
-        if resolved_visual_role_profile is None:
-            resolved_visual_role_profile = VisualRoleProfileBuilder().build(ip_profile)
+        if resolved_series_visual_signature_profile is None:
+            resolved_series_visual_signature_profile = SeriesVisualSignatureProfileBuilder().build(ip_profile)
     text_rendering_settings = build_text_rendering_settings(text_rendering)
     image_text_payload = (
         text_rendering.get("image_text")
@@ -1345,7 +1341,6 @@ async def generate_styled_image_prompt_batch(
         else None
     )
     source = resolve_style_source(image_config, prompt_prefix_override=prompt_prefix)
-    raw_prefix = source.raw_content if source else ""
     resolved_style = None
     style_profile = None
     planning_snapshot = None
@@ -1578,6 +1573,13 @@ async def generate_styled_image_prompt_batch(
             packages=ip_adaptation_packages,
             storyboard_plan=storyboard_plan,
         )
+        if ip_adaptation_packages:
+            prompt_contexts_for_generation = _enrich_prompt_contexts_with_ip(
+                prompt_contexts_for_generation,
+                expected_count=len(narrations),
+                packages=tuple(ip_adaptation_packages),
+                style_context=style_context or {},
+            )
 
     if media_type == "video":
         base_prompts = await generate_video_prompts(
@@ -1675,7 +1677,7 @@ async def generate_styled_image_prompt_batch(
     visual_style_contract = VisualStyleContractResolver().resolve(
         resolved_style=resolved_style,
         active_style_item=active_style_item,
-        fallback_to_default_world=True,
+        fallback_to_default_world=bool(generation_world_profile or world_preset),
     )
     provider_negative_rules = _provider_negative_rules_for_projection(
         resolved_style=resolved_style,
@@ -1701,27 +1703,32 @@ async def generate_styled_image_prompt_batch(
             llm_service=llm_service,
             trace_context=trace_context,
             trace_recorder=active_trace_recorder,
-            visual_expression_mode=visual_expression_mode or resolved_visual_role_request.expression_mode.value,
-            visual_structure_mode=visual_structure_mode or resolved_visual_role_request.structure_mode.value,
-            visual_participation_mode=visual_participation_mode or resolved_visual_role_request.participation_mode.value,
-            visual_role_request=resolved_visual_role_request if ip_prompt_chain_enabled else None,
-            visual_role_profile=resolved_visual_role_profile,
-            visual_role_mode=visual_role_mode,
-            visual_consistency_mode=visual_consistency_mode,
+            series_visual_signature_expression_mode=series_visual_signature_expression_mode or resolved_series_visual_signature_request.expression_mode.value,
+            series_visual_signature_structure_mode=series_visual_signature_structure_mode or resolved_series_visual_signature_request.structure_mode.value,
+            series_visual_signature_participation_mode=series_visual_signature_participation_mode or resolved_series_visual_signature_request.participation_mode.value,
+            series_visual_signature_request=resolved_series_visual_signature_request if ip_prompt_chain_enabled else None,
+            series_visual_signature_profile=resolved_series_visual_signature_profile,
+            series_visual_signature_mode=series_visual_signature_mode,
+            series_visual_signature_consistency_mode=series_visual_signature_consistency_mode,
         )
         rendered_media_prompts = list(visual_planning_result.rendered_prompts)
         final_prompts = [rendered.prompt for rendered in rendered_media_prompts]
         planning_snapshot = dict(planning_snapshot or {})
         planning_snapshot.update(visual_planning_result.planning_snapshot())
-        if ip_prompt_chain_enabled and visual_planning_result.anchor_packages:
+        context_packages = (
+            visual_planning_result.anchor_packages
+            if visual_planning_result.anchor_packages
+            else tuple(ip_adaptation_packages)
+        )
+        if ip_prompt_chain_enabled and context_packages:
             prompt_contexts_for_generation = _enrich_prompt_contexts_with_ip(
                 normalized_prompt_contexts,
                 expected_count=len(narrations),
-                packages=visual_planning_result.anchor_packages,
+                packages=context_packages,
                 style_context=style_context or {},
             )
             planning_snapshot["ip_adaptations_by_frame"] = _ip_adaptations_by_frame(
-                packages=visual_planning_result.anchor_packages,
+                packages=context_packages,
                 storyboard_plan=storyboard_plan,
             )
     else:
@@ -1850,6 +1857,21 @@ async def generate_styled_image_prompt_batch(
         else [() for _ in final_prompts]
     )
 
+    if media_type == "image" and not capabilities.supports_negative_prompt:
+        final_prompts = [
+            merge_z_image_constraints_into_prompt(
+                prompt,
+                extra_constraints=[
+                    *shared_negative_rules,
+                    *ip_negative_rules_by_frame[index],
+                ],
+                visible_text_whitelist=ip_visible_text_whitelists[index],
+            )
+            for index, prompt in enumerate(final_prompts)
+        ]
+        shared_negative_rules = []
+        ip_negative_rules_by_frame = [() for _ in final_prompts]
+
     final_prompts = [
         sanitize_visual_prompt_text(prompt)
         for prompt in final_prompts
@@ -1859,6 +1881,17 @@ async def generate_styled_image_prompt_batch(
         for index, rendered in enumerate(rendered_media_prompts)
     ]
     negative_prompt = join_rendered_negative_prompts(rendered_media_prompts)
+    batch_negative_rules = list(shared_negative_rules)
+    for frame_rules in ip_negative_rules_by_frame:
+        batch_negative_rules.extend(frame_rules)
+    if batch_negative_rules:
+        merged_negative_rules = _dedupe_prompt_rules(
+            [
+                *(negative_prompt.split(",") if negative_prompt else ()),
+                *batch_negative_rules,
+            ]
+        )
+        negative_prompt = ", ".join(merged_negative_rules) if merged_negative_rules else None
     if planning_snapshot is not None:
         planning_snapshot = dict(planning_snapshot)
         planning_snapshot["final_visual_prompt_template"] = (

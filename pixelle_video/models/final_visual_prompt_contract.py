@@ -7,8 +7,8 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
+from pixelle_video.models.series_visual_signature_strategy import SeriesVisualSignatureStrategy
 from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, VisibleTextPolicy
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 
 FINAL_VISUAL_PROMPT_SECTION_KEYS = (
     "scene",
@@ -69,7 +69,7 @@ class FinalVisualPromptContractV44:
     required_subjects: Any
     visual_concretization_summary: str
     identity_contract: Any
-    visual_role_strategy: VisualRoleStrategy | str
+    series_visual_signature_strategy: SeriesVisualSignatureStrategy | str
     weight_contract: Any
     visible_text_policy: VisibleTextPolicy | str
     projected_prompt_parts: Sequence[ProjectedPromptPart]
@@ -100,8 +100,8 @@ class FinalVisualPromptContractV44:
         )
         object.__setattr__(
             self,
-            "visual_role_strategy",
-            _strict_enum_value("visual_role_strategy", self.visual_role_strategy, VisualRoleStrategy),
+            "series_visual_signature_strategy",
+            _strict_enum_value("series_visual_signature_strategy", self.series_visual_signature_strategy, SeriesVisualSignatureStrategy),
         )
         object.__setattr__(
             self,
@@ -132,7 +132,7 @@ class FinalVisualPromptContractV44:
             "required_subjects": _thaw_json_value(self.required_subjects),
             "visual_concretization_summary": self.visual_concretization_summary,
             "identity_contract": _thaw_json_value(self.identity_contract),
-            "visual_role_strategy": _serialize_enum_value(self.visual_role_strategy),
+            "series_visual_signature_strategy": _serialize_enum_value(self.series_visual_signature_strategy),
             "weight_contract": _thaw_json_value(self.weight_contract),
             "visible_text_policy": _serialize_enum_value(self.visible_text_policy),
             "projected_prompt_parts": [part.to_dict() for part in self.projected_prompt_parts],

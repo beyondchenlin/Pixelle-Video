@@ -23,6 +23,7 @@ from pixelle_video.models.mode_resolution import (
     VisualPlanningRouteDecision,
     should_use_v42_compatibility_path,
 )
+from pixelle_video.models.series_visual_signature_strategy import SeriesVisualSignatureStrategy
 from pixelle_video.models.video_generation_contract import (
     ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS as GENERATION_ARTICLE_CONCRETIZATION_KEYS,
 )
@@ -31,7 +32,6 @@ from pixelle_video.models.visual_planning_mode import (
     VisibleTextPolicy,
     VisualPlanningMode,
 )
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 
 
 def test_request_normalizes_known_modes_and_control_fields():
@@ -39,7 +39,7 @@ def test_request_normalizes_known_modes_and_control_fields():
         {
             "article_understanding_mode": "cognitive_state",
             "visual_planning_mode": "cognitive_illustration",
-            "visual_role_strategy": "observer_guide",
+            "series_visual_signature_strategy": "observer_guide",
             "user_intent_hint": "  explain policy change  ",
             "allow_mixed_lenses": "false",
             "strict_user_mode": "true",
@@ -49,7 +49,7 @@ def test_request_normalizes_known_modes_and_control_fields():
 
     assert request.article_understanding_mode is ArticleUnderstandingMode.COGNITIVE_STATE
     assert request.visual_planning_mode is VisualPlanningMode.COGNITIVE_ILLUSTRATION
-    assert request.visual_role_strategy is VisualRoleStrategy.OBSERVER_GUIDE
+    assert request.series_visual_signature_strategy is SeriesVisualSignatureStrategy.OBSERVER_GUIDE
     assert request.user_intent_hint == "explain policy change"
     assert request.allow_mixed_lenses is False
     assert request.strict_user_mode is True
@@ -57,7 +57,7 @@ def test_request_normalizes_known_modes_and_control_fields():
     assert request.to_dict() == {
         "article_understanding_mode": "cognitive_state",
         "visual_planning_mode": "cognitive_illustration",
-        "visual_role_strategy": "observer_guide",
+        "series_visual_signature_strategy": "observer_guide",
         "user_intent_hint": "explain policy change",
         "allow_mixed_lenses": False,
         "strict_user_mode": True,
@@ -88,7 +88,7 @@ def test_article_concretization_flat_keys_share_model_contract_source():
     [
         ("article_understanding_mode", "not_a_mode"),
         ("visual_planning_mode", "host_explainer"),
-        ("visual_role_strategy", "not_a_strategy"),
+        ("series_visual_signature_strategy", "not_a_strategy"),
     ],
 )
 def test_request_rejects_invalid_provided_v44_enum_fields(field_name, bad_value):
@@ -181,7 +181,7 @@ def test_preflight_rejects_unknown_boolean_strings(field_name):
         "requested": ArticleVisualPlanningRequest.from_mapping({}),
         "normalized_article_mode": "auto",
         "normalized_visual_mode": "auto",
-        "normalized_visual_role_strategy": "auto",
+        "normalized_series_visual_signature_strategy": "auto",
         "strict_user_mode": False,
         "force_v44_planning": False,
         "explicit_fields": (),
@@ -198,7 +198,7 @@ def test_preflight_rejects_unknown_boolean_strings(field_name):
     [
         ("normalized_article_mode", "not_a_mode"),
         ("normalized_visual_mode", "not_a_mode"),
-        ("normalized_visual_role_strategy", "not_a_strategy"),
+        ("normalized_series_visual_signature_strategy", "not_a_strategy"),
     ],
 )
 def test_preflight_rejects_invalid_normalized_enum_facts(field_name, bad_value):
@@ -207,7 +207,7 @@ def test_preflight_rejects_invalid_normalized_enum_facts(field_name, bad_value):
         "requested": ArticleVisualPlanningRequest.from_mapping({}),
         "normalized_article_mode": "auto",
         "normalized_visual_mode": "auto",
-        "normalized_visual_role_strategy": "auto",
+        "normalized_series_visual_signature_strategy": "auto",
         "strict_user_mode": False,
         "force_v44_planning": False,
         "explicit_fields": (),
@@ -251,11 +251,11 @@ def test_route_decision_serializes_normalized_values():
         preflight_id="preflight_v44_001",
         requested_article_mode="process_method",
         requested_visual_mode="process_walkthrough",
-        requested_visual_role_strategy="host_explainer",
+        requested_series_visual_signature_strategy="host_explainer",
         resolved_primary_lens="process_method",
         resolved_secondary_lenses=[ArticleUnderstandingLens.CAUSAL_MECHANISM],
         resolved_visual_planning_mode=VisualPlanningMode.PROCESS_WALKTHROUGH,
-        resolved_visual_role_strategy=VisualRoleStrategy.HOST_EXPLAINER,
+        resolved_series_visual_signature_strategy=SeriesVisualSignatureStrategy.HOST_EXPLAINER,
         primary_visual_task="process_walkthrough",
         secondary_visual_tasks=[PrimaryVisualTask.STRUCTURE_EXPLANATION],
         confidence=0.82,
@@ -275,7 +275,7 @@ def test_route_decision_serializes_normalized_values():
     assert payload["fallback_target"] is None
     assert payload["requested_article_mode"] == "process_method"
     assert payload["requested_visual_mode"] == "process_walkthrough"
-    assert payload["requested_visual_role_strategy"] == "host_explainer"
+    assert payload["requested_series_visual_signature_strategy"] == "host_explainer"
     assert "requested_article_understanding_mode" not in payload
     assert "requested_visual_planning_mode" not in payload
     assert decision.requested_article_understanding_mode is ArticleUnderstandingMode.PROCESS_METHOD
@@ -283,7 +283,7 @@ def test_route_decision_serializes_normalized_values():
     assert payload["resolved_primary_lens"] == "process_method"
     assert payload["resolved_secondary_lenses"] == ["causal_mechanism"]
     assert payload["resolved_visual_planning_mode"] == "process_walkthrough"
-    assert payload["resolved_visual_role_strategy"] == "host_explainer"
+    assert payload["resolved_series_visual_signature_strategy"] == "host_explainer"
     assert payload["primary_visual_task"] == "process_walkthrough"
     assert payload["secondary_visual_tasks"] == ["structure_explanation"]
     assert payload["mismatch_warnings"] == ["none"]
@@ -301,11 +301,11 @@ def test_route_decision_accepts_stable_resolution_statuses(resolution_status):
         preflight_id="preflight_v44_001",
         requested_article_mode="auto",
         requested_visual_mode="auto",
-        requested_visual_role_strategy="auto",
+        requested_series_visual_signature_strategy="auto",
         resolved_primary_lens="thesis_argument",
         resolved_secondary_lenses=(),
         resolved_visual_planning_mode="auto",
-        resolved_visual_role_strategy="auto",
+        resolved_series_visual_signature_strategy="auto",
         primary_visual_task="cognitive_explanation",
         secondary_visual_tasks=(),
         confidence=0.7,
@@ -330,11 +330,11 @@ def test_route_decision_rejects_invalid_resolution_statuses(resolution_status):
             preflight_id="preflight_v44_001",
             requested_article_mode="auto",
             requested_visual_mode="auto",
-            requested_visual_role_strategy="auto",
+            requested_series_visual_signature_strategy="auto",
             resolved_primary_lens="thesis_argument",
             resolved_secondary_lenses=(),
             resolved_visual_planning_mode="auto",
-            resolved_visual_role_strategy="auto",
+            resolved_series_visual_signature_strategy="auto",
             primary_visual_task="cognitive_explanation",
             secondary_visual_tasks=(),
             confidence=0.7,
@@ -360,11 +360,11 @@ def test_fallback_helper_allows_low_confidence_planner_failed_decisions():
         preflight_id=preflight.preflight_id,
         requested_article_mode=ArticleUnderstandingMode.AUTO,
         requested_visual_mode=VisualPlanningMode.AUTO,
-        requested_visual_role_strategy=VisualRoleStrategy.AUTO,
+        requested_series_visual_signature_strategy=SeriesVisualSignatureStrategy.AUTO,
         resolved_primary_lens="thesis_argument",
         resolved_secondary_lenses=(),
         resolved_visual_planning_mode=VisualPlanningMode.AUTO,
-        resolved_visual_role_strategy=VisualRoleStrategy.AUTO,
+        resolved_series_visual_signature_strategy=SeriesVisualSignatureStrategy.AUTO,
         primary_visual_task="cognitive_explanation",
         secondary_visual_tasks=(),
         confidence=0.2,
@@ -372,7 +372,7 @@ def test_fallback_helper_allows_low_confidence_planner_failed_decisions():
         resolution_status="planner_failed",
         fallback_eligible=True,
         fallback_used=False,
-        fallback_target="v4.2_visual_role_path",
+        fallback_target="v4.2_series_visual_signature_path",
         fallback_reason="insufficient context",
     )
 
@@ -380,7 +380,7 @@ def test_fallback_helper_allows_low_confidence_planner_failed_decisions():
         preflight,
         [decision],
         article_context_insufficient=True,
-        legacy_visual_role_request_present=True,
+        legacy_series_visual_signature_request_present=True,
     )
 
 
@@ -396,7 +396,7 @@ def test_fallback_helper_false_when_legacy_fallback_not_candidate():
         preflight,
         [],
         article_context_insufficient=True,
-        legacy_visual_role_request_present=True,
+        legacy_series_visual_signature_request_present=True,
     )
 
 
@@ -408,11 +408,11 @@ def test_fallback_helper_false_for_force_v44_or_explicit_non_auto_request():
         legacy_fallback_candidate=True,
     )
     explicit_request = ArticleVisualPlanningRequest.from_mapping(
-        {"visual_role_strategy": "signature_presence"}
+        {"series_visual_signature_strategy": "signature_presence"}
     )
     explicit_preflight = ArticleVisualPlanningPreflight.from_request(
         explicit_request,
-        explicit_fields=("visual_role_strategy",),
+        explicit_fields=("series_visual_signature_strategy",),
         legacy_fallback_candidate=True,
     )
 
@@ -420,13 +420,13 @@ def test_fallback_helper_false_for_force_v44_or_explicit_non_auto_request():
         forced_preflight,
         [],
         article_context_insufficient=True,
-        legacy_visual_role_request_present=True,
+        legacy_series_visual_signature_request_present=True,
     )
     assert not should_use_v42_compatibility_path(
         explicit_preflight,
         [],
         article_context_insufficient=True,
-        legacy_visual_role_request_present=True,
+        legacy_series_visual_signature_request_present=True,
     )
 
 
@@ -442,11 +442,11 @@ def test_route_decision_rejects_invalid_confidence(confidence):
             preflight_id="preflight_v44_001",
             requested_article_mode="auto",
             requested_visual_mode="auto",
-            requested_visual_role_strategy="auto",
+            requested_series_visual_signature_strategy="auto",
             resolved_primary_lens="thesis_argument",
             resolved_secondary_lenses=(),
             resolved_visual_planning_mode="auto",
-            resolved_visual_role_strategy="auto",
+            resolved_series_visual_signature_strategy="auto",
             primary_visual_task="cognitive_explanation",
             secondary_visual_tasks=(),
             confidence=confidence,
@@ -454,7 +454,7 @@ def test_route_decision_rejects_invalid_confidence(confidence):
             resolution_status="planner_failed",
             fallback_eligible=True,
             fallback_used=False,
-            fallback_target="v4.2_visual_role_path",
+            fallback_target="v4.2_series_visual_signature_path",
             fallback_reason="insufficient context",
         )
 
@@ -464,7 +464,7 @@ def test_route_decision_rejects_invalid_confidence(confidence):
     [
         ("requested_article_mode", "not_a_mode"),
         ("requested_visual_mode", "not_a_mode"),
-        ("requested_visual_role_strategy", "not_a_strategy"),
+        ("requested_series_visual_signature_strategy", "not_a_strategy"),
     ],
 )
 def test_route_decision_rejects_invalid_requested_modes_and_strategy(
@@ -484,7 +484,7 @@ def test_route_decision_rejects_invalid_requested_modes_and_strategy(
         ("resolved_primary_lens", "not_a_lens"),
         ("resolved_secondary_lenses", ["not_a_lens"]),
         ("resolved_visual_planning_mode", "not_a_mode"),
-        ("resolved_visual_role_strategy", "not_a_strategy"),
+        ("resolved_series_visual_signature_strategy", "not_a_strategy"),
         ("primary_visual_task", "not_a_task"),
         ("secondary_visual_tasks", ["not_a_task"]),
     ],
@@ -517,11 +517,11 @@ def _route_decision_kwargs():
         "preflight_id": "preflight_v44_001",
         "requested_article_mode": "auto",
         "requested_visual_mode": "auto",
-        "requested_visual_role_strategy": "auto",
+        "requested_series_visual_signature_strategy": "auto",
         "resolved_primary_lens": "thesis_argument",
         "resolved_secondary_lenses": (),
         "resolved_visual_planning_mode": "auto",
-        "resolved_visual_role_strategy": "auto",
+        "resolved_series_visual_signature_strategy": "auto",
         "primary_visual_task": "cognitive_explanation",
         "secondary_visual_tasks": (),
         "confidence": 0.7,

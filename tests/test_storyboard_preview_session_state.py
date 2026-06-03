@@ -27,7 +27,7 @@ def test_set_storyboard_preview_snapshot_detaches_mappingproxy_values():
     changed = set_storyboard_preview_snapshot(
         session_state,
         {
-            "visual_role_projected_prompt_parts_by_frame": {
+            "series_visual_signature_projected_prompt_parts_by_frame": {
                 "frame_0001": MappingProxyType({"projector_validation_passed": True})
             }
         },
@@ -35,7 +35,7 @@ def test_set_storyboard_preview_snapshot_detaches_mappingproxy_values():
 
     assert changed is True
     assert session_state[STORYBOARD_PREVIEW_SNAPSHOT_KEY] == {
-        "visual_role_projected_prompt_parts_by_frame": {
+        "series_visual_signature_projected_prompt_parts_by_frame": {
             "frame_0001": {"projector_validation_passed": True}
         }
     }

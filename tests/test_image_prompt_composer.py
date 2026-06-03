@@ -59,7 +59,7 @@ def _plan():
 
 def _ip_profile():
     return IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="Zhengding guide",
@@ -137,7 +137,7 @@ def _article_concretization_plans(plan: StoryboardPlan):
             request=request,
             article_plan=article_plan,
             frame_plan=frame_plan,
-            ip_profile_id=None,
+            series_visual_signature_profile_id=None,
             template_aspect_ratio=DiagramAspectRatio.VERTICAL_9_16,
             strict_user_mode=False,
         )
@@ -413,13 +413,13 @@ async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkey
         llm_service=object(),
         storyboard_plan=plan,
         image_config={},
-        ip_enabled=True,
+        series_visual_signature_enabled=True,
         ip_profile=profile,
         scene_casts_by_frame=scene_casts_by_frame,
     )
 
     assert captured["storyboard_plan"] == plan
-    assert captured["ip_enabled"] is True
+    assert captured["series_visual_signature_enabled"] is True
     assert captured["ip_profile"] == profile
     assert captured["scene_casts_by_frame"] == scene_casts_by_frame
     assert "ip_scene_description" not in captured["prompt_contexts"].frame_contexts[0]
@@ -429,7 +429,7 @@ async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkey
 
 
 @pytest.mark.asyncio
-async def test_composer_rejects_ip_enabled_prompt_count_mismatch(monkeypatch):
+async def test_composer_rejects_series_visual_signature_enabled_prompt_count_mismatch(monkeypatch):
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         return _styled_batch(prompts=["prompt one"])
 
@@ -443,7 +443,7 @@ async def test_composer_rejects_ip_enabled_prompt_count_mismatch(monkeypatch):
             llm_service=object(),
             storyboard_plan=_plan(),
             image_config={},
-            ip_enabled=True,
+            series_visual_signature_enabled=True,
             ip_profile=_ip_profile(),
             scene_casts_by_frame={},
         )

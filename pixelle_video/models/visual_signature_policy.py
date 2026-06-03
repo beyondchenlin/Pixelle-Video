@@ -4,7 +4,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-
 _DEFAULT_ALLOWED_CARRIER_TYPES = (
     "bookplate_or_stamp",
     "printed_mark",

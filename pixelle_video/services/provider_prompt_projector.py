@@ -6,9 +6,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
-from pixelle_video.models.final_visual_prompt_contract import FinalVisualPromptContract, RenderedMediaPrompt
+from pixelle_video.models.final_visual_prompt_contract import (
+    FinalVisualPromptContract,
+    RenderedMediaPrompt,
+)
+from pixelle_video.models.series_visual_signature_strategy import (
+    SeriesVisualSignatureStrategyControls,
+)
 from pixelle_video.models.visual_anchor_planning import VisualAnchorPlacementPlan
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.services.visual_anchor_policy import (
     contains_forbidden_overlay_language,
@@ -16,7 +21,6 @@ from pixelle_video.services.visual_anchor_policy import (
 )
 from pixelle_video.services.visual_signature_clause_renderer import render_visual_anchor_plan_clause
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
-
 
 _FORBIDDEN_PROVIDER_TERMS = (
     "IP角色",
@@ -55,7 +59,7 @@ class ProviderPromptProjector:
         capabilities: Any = None,
         workflow: str | None = None,
         visual_signature_policy: VisualSignaturePolicy | None = None,
-        visual_role_strategy: VisualRoleStrategyControls | None = None,
+        series_visual_signature_strategy: SeriesVisualSignatureStrategyControls | None = None,
     ) -> RenderedMediaPrompt:
         policy = visual_signature_policy or load_visual_signature_policy()
         anchor_clause = _safe_visual_anchor_clause(visual_anchor_plan, policy=policy)
@@ -76,8 +80,8 @@ class ProviderPromptProjector:
             "scene_bound_anchor_gate": "passed" if anchor_clause else "absent_or_rejected",
             "visual_signature_policy": policy.version,
         }
-        if visual_role_strategy is not None:
-            contract_metadata["visual_role_strategy"] = visual_role_strategy.to_dict()
+        if series_visual_signature_strategy is not None:
+            contract_metadata["series_visual_signature_strategy"] = series_visual_signature_strategy.to_dict()
 
         contract = FinalVisualPromptContract(
             scene=base_visual_brief.base_image_prompt,
@@ -122,6 +126,8 @@ class ProviderPromptProjector:
         parts = [
             base_prompt,
             visual_anchor_clause,
+            _provider_style_surface_text(base_visual_brief.style_surface),
+            _provider_scene_context_text(base_visual_brief),
             _image_facing_style_surface(base_visual_brief.style_surface, base_prompt=base_prompt),
             _positive_readability_text(base_visual_brief.readability_constraints),
             _positive_requirements(negative_rules),
@@ -214,6 +220,36 @@ def _image_facing_style_surface(style_surface: str, *, base_prompt: str = "") ->
     if any(token in text for token in ("minimal", "negative space", "简洁", "留白")):
         clauses.append("画面保留留白，避免杂乱细节")
     return "，".join(_dedupe(clauses))
+
+
+def _provider_style_surface_text(style_surface: str) -> str:
+    text = str(style_surface or "").strip()
+    if not text:
+        return ""
+    text = re.sub(
+        r"\bnon-IP world layer,\s*non-IP animals,\s*props,\s*background,\s*and environment:\s*",
+        "",
+        text,
+    )
+    replacements = {
+        "non-IP world layer:": "",
+        "non-IP world layer,": "",
+        "non-IP animals, props, background, and environment:": "",
+        "non-IP animals:": "",
+        "non-IP": "background",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    return text
+
+
+def _provider_scene_context_text(base_visual_brief: BaseVisualBrief) -> str:
+    props = ", ".join(base_visual_brief.key_props_symbols)
+    text = _join_non_empty(
+        base_visual_brief.camera_plan,
+        f"environment includes {props}" if props else "",
+    )
+    return re.sub(r"[_-]+", " ", text)
 
 
 def _positive_readability_text(rules: Sequence[str]) -> str:

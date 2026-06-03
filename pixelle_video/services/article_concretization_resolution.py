@@ -138,10 +138,10 @@ def resolve_article_concretization(
     request: ArticleConcretizationRequest,
     article_plan: ArticleUnderstandingPlan,
     frame_plan: FrameUnderstandingPlan,
-    ip_profile_id: str | None,
+    series_visual_signature_profile_id: str | None,
     template_aspect_ratio: DiagramAspectRatio,
     strict_user_mode: bool,
-    visual_role_strategy: Any = None,
+    series_visual_signature_strategy: Any = None,
 ) -> ArticleConcretizationResolution:
     template_ratio = _diagram_aspect_ratio(template_aspect_ratio, "template_aspect_ratio")
     if not request.enabled:
@@ -179,16 +179,16 @@ def resolve_article_concretization(
         request=request,
         anchor=anchor,
         grammar=grammar,
-        ip_profile_id=ip_profile_id,
+        series_visual_signature_profile_id=series_visual_signature_profile_id,
         strict_user_mode=strict_user_mode,
     )
     warnings.extend(signature_warnings)
     mark_fallback(signature_fallback)
 
     warnings.extend(
-        _legacy_visual_role_strategy_warnings(
+        _legacy_series_visual_signature_strategy_warnings(
             request=request,
-            visual_role_strategy=visual_role_strategy,
+            series_visual_signature_strategy=series_visual_signature_strategy,
         )
     )
 
@@ -432,20 +432,20 @@ def _resolve_signature_role(
     request: ArticleConcretizationRequest,
     anchor: CognitiveAnchorKind,
     grammar: ExplanationDiagramGrammar,
-    ip_profile_id: str | None,
+    series_visual_signature_profile_id: str | None,
     strict_user_mode: bool,
 ) -> tuple[SeriesVisualSignatureRole, tuple[str, ...], str | None]:
     requested_role = request.series_visual_signature_role
     if requested_role is SeriesVisualSignatureRole.NONE:
         return SeriesVisualSignatureRole.NONE, (), None
     if requested_role is SeriesVisualSignatureRole.AUTO:
-        if not _has_ip_profile_id(ip_profile_id):
+        if not _has_series_visual_signature_profile_id(series_visual_signature_profile_id):
             return _signature_role_requires_ip_profile_resolution(
                 requested_role=requested_role,
                 strict_user_mode=strict_user_mode,
             )
         return _auto_signature_role(anchor=anchor, grammar=grammar), (), None
-    if _has_ip_profile_id(ip_profile_id):
+    if _has_series_visual_signature_profile_id(series_visual_signature_profile_id):
         return requested_role, (), None
 
     return _signature_role_requires_ip_profile_resolution(
@@ -460,7 +460,7 @@ def _signature_role_requires_ip_profile_resolution(
     strict_user_mode: bool,
 ) -> tuple[SeriesVisualSignatureRole, tuple[str, ...], str | None]:
     warning = (
-        f"Series visual signature role {requested_role.value} requires ip_profile_id; "
+        f"Series visual signature role {requested_role.value} requires series_visual_signature_profile_id; "
         "repaired to none."
     )
     if strict_user_mode:
@@ -482,27 +482,27 @@ def _auto_signature_role(
     return AUTO_SIGNATURE_ROLE_BY_ANCHOR.get(anchor, SeriesVisualSignatureRole.SILENT_WITNESS)
 
 
-def _legacy_visual_role_strategy_warnings(
+def _legacy_series_visual_signature_strategy_warnings(
     *,
     request: ArticleConcretizationRequest,
-    visual_role_strategy: Any,
+    series_visual_signature_strategy: Any,
 ) -> tuple[str, ...]:
     if request.series_visual_signature_role is not SeriesVisualSignatureRole.NONE:
         return ()
-    strategy = _visual_role_strategy_text(visual_role_strategy)
+    strategy = _series_visual_signature_strategy_text(series_visual_signature_strategy)
     if not strategy or strategy in {"auto", "none"}:
         return ()
     return (
-        "visual_role_strategy is legacy when article_concretization is enabled "
+        "series_visual_signature_strategy is legacy when article_concretization is enabled "
         f"and series_visual_signature_role is none: {strategy}.",
     )
 
 
-def _visual_role_strategy_text(value: Any) -> str | None:
+def _series_visual_signature_strategy_text(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, Mapping):
-        value = value.get("visual_role_strategy") or value.get("strategy")
+        value = value.get("series_visual_signature_strategy") or value.get("strategy")
     if isinstance(value, Enum):
         value = value.value
     text = str(value or "").strip().lower()
@@ -592,7 +592,7 @@ def _diagram_aspect_ratio(value: Any, field_name: str) -> DiagramAspectRatio:
     raise ValueError(f"{field_name} must be a valid DiagramAspectRatio")
 
 
-def _has_ip_profile_id(value: str | None) -> bool:
+def _has_series_visual_signature_profile_id(value: str | None) -> bool:
     return bool(str(value or "").strip())
 
 

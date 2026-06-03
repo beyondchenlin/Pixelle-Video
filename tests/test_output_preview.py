@@ -280,7 +280,7 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["progress_callback"] is _progress
 
 
-def test_build_single_generation_request_includes_ip_prompt_chain_controls():
+def test_build_single_generation_request_includes_series_visual_signature_controls():
     def _progress(_event):
         return None
 
@@ -288,23 +288,23 @@ def test_build_single_generation_request_includes_ip_prompt_chain_controls():
         {
             "text": "demo",
             "mode": "generate",
-            "ip_enabled": True,
-            "ip_asset_bible_id": "bible_demo",
-            "ip_profile_id": "ip_main",
-            "visual_expression_mode": "explanatory_diagram",
-            "visual_structure_mode": "workflow",
-            "visual_participation_mode": "guide_explainer",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
+            "series_visual_signature_expression_mode": "explanatory_diagram",
+            "series_visual_signature_structure_mode": "workflow",
+            "series_visual_signature_participation_mode": "guide_explainer",
         },
         progress_callback=_progress,
         session_state={},
     )
 
-    assert request["ip_enabled"] is True
-    assert request["ip_asset_bible_id"] == "bible_demo"
-    assert request["ip_profile_id"] == "ip_main"
-    assert request["visual_expression_mode"] == "explanatory_diagram"
-    assert request["visual_structure_mode"] == "workflow"
-    assert request["visual_participation_mode"] == "guide_explainer"
+    assert request["series_visual_signature_enabled"] is True
+    assert request["series_visual_signature_asset_bible_id"] == "bible_demo"
+    assert request["series_visual_signature_profile_id"] == "ip_main"
+    assert request["series_visual_signature_expression_mode"] == "explanatory_diagram"
+    assert request["series_visual_signature_structure_mode"] == "workflow"
+    assert request["series_visual_signature_participation_mode"] == "guide_explainer"
 
 
 def test_build_single_generation_request_includes_generation_world_hint():
@@ -376,9 +376,9 @@ def test_build_single_generation_request_drops_content_ip_non_formal_fields():
         {
             "text": "demo",
             "mode": "generate",
-            "ip_enabled": True,
-            "ip_asset_bible_id": "bible_demo",
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
             "generation_world_hint": "market morning, IP blends in as a guide",
             "generation_notes": "old UI field",
             "slot_preference_override": "prefer_main",
@@ -1050,19 +1050,19 @@ def test_build_batch_shared_config_includes_render_backend():
     assert shared_config["tts_audio_strategy"] == "master_track"
 
 
-def test_build_batch_shared_config_includes_ip_prompt_chain_controls():
+def test_build_batch_shared_config_includes_series_visual_signature_controls():
     shared_config = output_preview.build_batch_shared_config(
         {
             "title_prefix": "Series",
-            "ip_enabled": True,
-            "ip_asset_bible_id": "bible_demo",
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
         }
     )
 
-    assert shared_config["ip_enabled"] is True
-    assert shared_config["ip_asset_bible_id"] == "bible_demo"
-    assert shared_config["ip_profile_id"] == "ip_main"
+    assert shared_config["series_visual_signature_enabled"] is True
+    assert shared_config["series_visual_signature_asset_bible_id"] == "bible_demo"
+    assert shared_config["series_visual_signature_profile_id"] == "ip_main"
 
 
 def test_build_batch_shared_config_includes_generation_world_hint():

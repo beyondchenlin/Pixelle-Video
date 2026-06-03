@@ -1,7 +1,7 @@
 import inspect
 
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
-from web.components import content_ip_world_controls
+from web.components import content_series_visual_signature_controls
 
 
 class _FakeContext:
@@ -86,7 +86,7 @@ def _asset_bibles():
             "asset_bible_id": "bible_demo",
             "ip_profiles": [
                 {
-                    "ip_profile_id": "ip_main",
+                    "series_visual_signature_profile_id": "ip_main",
                     "name": "White Rabbit Guide",
                     "world_hint": "Friendly guide world.",
                 }
@@ -101,12 +101,12 @@ def _tr(key, **kwargs):
 
 
 
-def test_render_content_ip_world_controls_keeps_world_hint_without_ip():
+def test_render_content_series_visual_signature_controls_keeps_world_hint_without_ip():
     fake_ui = _FakeContentIPWorldUI()
     fake_ui.session_state["content_generation_world_hint"] = "Manual request world."
     loader_calls = []
 
-    payload = content_ip_world_controls.render_content_ip_world_controls(
+    payload = content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -115,47 +115,47 @@ def test_render_content_ip_world_controls_keeps_world_hint_without_ip():
     )
 
     assert payload == {
-        "ip_enabled": False,
+        "series_visual_signature_enabled": False,
         "generation_world_hint": "Manual request world.",
     }
     assert loader_calls == []
     assert fake_ui.expanders == [{"label": "content.ip_world.section_title", "expanded": True}]
 
 
-def test_render_content_ip_world_controls_default_loader_is_lazy_when_ip_disabled(monkeypatch):
+def test_render_content_series_visual_signature_controls_default_loader_is_lazy_when_ip_disabled(monkeypatch):
     fake_ui = _FakeContentIPWorldUI()
     loader_calls = []
 
     monkeypatch.setattr(
-        content_ip_world_controls,
+        content_series_visual_signature_controls,
         "load_ip_prompt_chain_asset_bibles",
         lambda **_kwargs: loader_calls.append("called"),
     )
 
-    payload = content_ip_world_controls.render_content_ip_world_controls(
+    payload = content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=object(),
         content_context={"title": "Demo", "text": "Script text"},
     )
 
-    assert payload == {"ip_enabled": False}
+    assert payload == {"series_visual_signature_enabled": False}
     assert loader_calls == []
 
 
 
-def test_render_content_ip_world_controls_returns_selected_ip_payload_without_helper_field():
+def test_render_content_series_visual_signature_controls_returns_selected_ip_payload_without_helper_field():
     fake_ui = _FakeContentIPWorldUI()
     fake_ui.session_state.update(
         {
-            "content_ip_enabled": True,
-            "content_ip_asset_bible_id": "bible_demo",
-            "content_ip_profile_id": "ip_main",
+            "content_series_visual_signature_enabled": True,
+            "content_series_visual_signature_asset_bible_id": "bible_demo",
+            "content_series_visual_signature_profile_id": "ip_main",
             "content_generation_world_hint": "Manual request world.",
         }
     )
 
-    payload = content_ip_world_controls.render_content_ip_world_controls(
+    payload = content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -164,15 +164,15 @@ def test_render_content_ip_world_controls_returns_selected_ip_payload_without_he
     )
 
     assert payload == {
-        "ip_enabled": True,
-        "ip_asset_bible_id": "bible_demo",
-        "ip_profile_id": "ip_main",
-        "visual_expression_mode": "auto",
-        "visual_structure_mode": "auto",
-        "visual_participation_mode": "auto",
-        "visual_role_mode": "auto",
-        "visual_consistency_mode": "off",
-        "effective_visual_role_mode": "auto",
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_asset_bible_id": "bible_demo",
+        "series_visual_signature_profile_id": "ip_main",
+        "series_visual_signature_expression_mode": "auto",
+        "series_visual_signature_structure_mode": "auto",
+        "series_visual_signature_participation_mode": "auto",
+        "series_visual_signature_mode": "auto",
+        "series_visual_signature_consistency_mode": "off",
+        "effective_series_visual_signature_mode": "auto",
         "generation_world_hint": "Manual request world.",
     }
     assert fake_ui.session_state["content_ip_profile_world_hint"] == "Friendly guide world."
@@ -183,20 +183,20 @@ def test_render_content_ip_world_controls_returns_selected_ip_payload_without_he
 
 
 
-def test_render_content_ip_world_controls_can_use_ip_default(monkeypatch):
+def test_render_content_series_visual_signature_controls_can_use_ip_default(monkeypatch):
     fake_ui = _FakeContentIPWorldUI()
     fake_ui.session_state.update(
         {
-            "content_ip_enabled": True,
-            "content_ip_asset_bible_id": "bible_demo",
-            "content_ip_profile_id": "ip_main",
+            "content_series_visual_signature_enabled": True,
+            "content_series_visual_signature_asset_bible_id": "bible_demo",
+            "content_series_visual_signature_profile_id": "ip_main",
             "_button_returns": {"content_world_hint_use_ip_default": True},
         }
     )
     reruns = []
-    monkeypatch.setattr(content_ip_world_controls, "safe_rerun", lambda: reruns.append("rerun"))
+    monkeypatch.setattr(content_series_visual_signature_controls, "safe_rerun", lambda: reruns.append("rerun"))
 
-    content_ip_world_controls.render_content_ip_world_controls(
+    content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -209,20 +209,20 @@ def test_render_content_ip_world_controls_can_use_ip_default(monkeypatch):
     assert reruns == ["rerun"]
 
 
-def test_render_content_ip_world_controls_warns_when_ip_default_missing(monkeypatch):
+def test_render_content_series_visual_signature_controls_warns_when_ip_default_missing(monkeypatch):
     fake_ui = _FakeContentIPWorldUI()
     fake_ui.session_state.update(
         {
-            "content_ip_enabled": True,
-            "content_ip_asset_bible_id": "bible_demo",
-            "content_ip_profile_id": "ip_main",
+            "content_series_visual_signature_enabled": True,
+            "content_series_visual_signature_asset_bible_id": "bible_demo",
+            "content_series_visual_signature_profile_id": "ip_main",
             "_button_returns": {"content_world_hint_use_ip_default": True},
         }
     )
     reruns = []
-    monkeypatch.setattr(content_ip_world_controls, "safe_rerun", lambda: reruns.append("rerun"))
+    monkeypatch.setattr(content_series_visual_signature_controls, "safe_rerun", lambda: reruns.append("rerun"))
 
-    content_ip_world_controls.render_content_ip_world_controls(
+    content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -232,7 +232,7 @@ def test_render_content_ip_world_controls_warns_when_ip_default_missing(monkeypa
                 "asset_bible_id": "bible_demo",
                 "ip_profiles": [
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "White Rabbit Guide",
                     }
                 ],
@@ -245,11 +245,11 @@ def test_render_content_ip_world_controls_warns_when_ip_default_missing(monkeypa
     assert reruns == []
 
 
-def test_render_content_ip_world_controls_clears_stale_ip_world_hint_when_ip_disabled():
+def test_render_content_series_visual_signature_controls_clears_stale_ip_world_hint_when_ip_disabled():
     fake_ui = _FakeContentIPWorldUI()
     fake_ui.session_state["content_ip_profile_world_hint"] = "Stale helper world."
 
-    content_ip_world_controls.render_content_ip_world_controls(
+    content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -260,18 +260,18 @@ def test_render_content_ip_world_controls_clears_stale_ip_world_hint_when_ip_dis
     assert "content_ip_profile_world_hint" not in fake_ui.session_state
 
 
-def test_render_content_ip_world_controls_clears_stale_ip_world_hint_when_profile_has_no_hint():
+def test_render_content_series_visual_signature_controls_clears_stale_ip_world_hint_when_profile_has_no_hint():
     fake_ui = _FakeContentIPWorldUI()
     fake_ui.session_state.update(
         {
-            "content_ip_enabled": True,
-            "content_ip_asset_bible_id": "bible_demo",
-            "content_ip_profile_id": "ip_main",
+            "content_series_visual_signature_enabled": True,
+            "content_series_visual_signature_asset_bible_id": "bible_demo",
+            "content_series_visual_signature_profile_id": "ip_main",
             "content_ip_profile_world_hint": "Stale helper world.",
         }
     )
 
-    content_ip_world_controls.render_content_ip_world_controls(
+    content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -281,7 +281,7 @@ def test_render_content_ip_world_controls_clears_stale_ip_world_hint_when_profil
                 "asset_bible_id": "bible_demo",
                 "ip_profiles": [
                     {
-                        "ip_profile_id": "ip_main",
+                        "series_visual_signature_profile_id": "ip_main",
                         "name": "White Rabbit Guide",
                     }
                 ],
@@ -293,25 +293,25 @@ def test_render_content_ip_world_controls_clears_stale_ip_world_hint_when_profil
 
 
 
-def test_render_content_ip_world_controls_generates_world_hint_from_script(monkeypatch):
+def test_render_content_series_visual_signature_controls_generates_world_hint_from_script(monkeypatch):
     fake_ui = _FakeContentIPWorldUI()
     fake_ui.session_state.update(
         {
-            "content_ip_enabled": True,
-            "content_ip_asset_bible_id": "bible_demo",
-            "content_ip_profile_id": "ip_main",
+            "content_series_visual_signature_enabled": True,
+            "content_series_visual_signature_asset_bible_id": "bible_demo",
+            "content_series_visual_signature_profile_id": "ip_main",
             "_button_returns": {"content_world_hint_generate_from_content": True},
         }
     )
     captured = {}
     reruns = []
-    monkeypatch.setattr(content_ip_world_controls, "safe_rerun", lambda: reruns.append("rerun"))
+    monkeypatch.setattr(content_series_visual_signature_controls, "safe_rerun", lambda: reruns.append("rerun"))
 
     def _draft_generator(**payload):
         captured.update(payload)
         return {"world_hint_draft": "Generated request world."}
 
-    content_ip_world_controls.render_content_ip_world_controls(
+    content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -335,12 +335,12 @@ def test_render_content_ip_world_controls_generates_world_hint_from_script(monke
 
 
 
-def test_render_content_ip_world_controls_warns_when_generating_without_script():
+def test_render_content_series_visual_signature_controls_warns_when_generating_without_script():
     fake_ui = _FakeContentIPWorldUI()
     fake_ui.session_state["_button_returns"] = {"content_world_hint_generate_from_content": True}
     generator_calls = []
 
-    content_ip_world_controls.render_content_ip_world_controls(
+    content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -352,7 +352,7 @@ def test_render_content_ip_world_controls_warns_when_generating_without_script()
     assert fake_ui.warning_calls == ["content.ip_world.missing_content"]
 
 
-def test_render_content_ip_world_controls_warns_and_preserves_state_when_generator_raises(
+def test_render_content_series_visual_signature_controls_warns_and_preserves_state_when_generator_raises(
     monkeypatch,
 ):
     fake_ui = _FakeContentIPWorldUI()
@@ -364,12 +364,12 @@ def test_render_content_ip_world_controls_warns_and_preserves_state_when_generat
         }
     )
     reruns = []
-    monkeypatch.setattr(content_ip_world_controls, "safe_rerun", lambda: reruns.append("rerun"))
+    monkeypatch.setattr(content_series_visual_signature_controls, "safe_rerun", lambda: reruns.append("rerun"))
 
     def _draft_generator(**_payload):
         raise RuntimeError("boom")
 
-    content_ip_world_controls.render_content_ip_world_controls(
+    content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -383,7 +383,7 @@ def test_render_content_ip_world_controls_warns_and_preserves_state_when_generat
     assert reruns == []
 
 
-def test_render_content_ip_world_controls_warns_without_rerun_for_invalid_generated_world_hint(
+def test_render_content_series_visual_signature_controls_warns_without_rerun_for_invalid_generated_world_hint(
     monkeypatch,
 ):
     scenarios = [
@@ -402,10 +402,10 @@ def test_render_content_ip_world_controls_warns_without_rerun_for_invalid_genera
         )
         reruns = []
         monkeypatch.setattr(
-            content_ip_world_controls, "safe_rerun", lambda: reruns.append("rerun")
+            content_series_visual_signature_controls, "safe_rerun", lambda: reruns.append("rerun")
         )
 
-        content_ip_world_controls.render_content_ip_world_controls(
+        content_series_visual_signature_controls.render_content_series_visual_signature_controls(
             ui=fake_ui,
             translate=_tr,
             pixelle_video=None,
@@ -419,7 +419,7 @@ def test_render_content_ip_world_controls_warns_without_rerun_for_invalid_genera
         assert reruns == []
 
 
-def test_render_content_ip_world_controls_marks_auto_world_hint_as_manual_after_user_edit():
+def test_render_content_series_visual_signature_controls_marks_auto_world_hint_as_manual_after_user_edit():
     fake_ui = _FakeContentIPWorldUI()
     fake_ui.session_state.update(
         {
@@ -429,7 +429,7 @@ def test_render_content_ip_world_controls_marks_auto_world_hint_as_manual_after_
         }
     )
 
-    payload = content_ip_world_controls.render_content_ip_world_controls(
+    payload = content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -438,17 +438,17 @@ def test_render_content_ip_world_controls_marks_auto_world_hint_as_manual_after_
     )
 
     assert payload == {
-        "ip_enabled": False,
+        "series_visual_signature_enabled": False,
         "generation_world_hint": "Edited world hint.",
     }
     assert fake_ui.session_state["content_generation_world_hint_source"] == "manual"
     assert fake_ui.session_state["content_generation_world_hint_last_value"] == "Edited world hint."
 
 
-def test_content_ip_world_controls_render_request_world_hint_keys():
+def test_content_series_visual_signature_controls_render_request_world_hint_keys():
     fake_ui = _FakeContentIPWorldUI()
 
-    content_ip_world_controls.render_content_ip_world_controls(
+    content_series_visual_signature_controls.render_content_series_visual_signature_controls(
         ui=fake_ui,
         translate=_tr,
         pixelle_video=None,
@@ -472,11 +472,11 @@ def test_content_ip_world_controls_render_request_world_hint_keys():
 
 
 def test_build_content_ip_world_payload_uses_formal_contract_only():
-    payload = content_ip_world_controls.build_content_ip_world_payload(
+    payload = content_series_visual_signature_controls.build_content_ip_world_payload(
         ip_payload={
-            "ip_enabled": True,
-            "ip_asset_bible_id": "bible_demo",
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
             "ip_profile_world_hint": "helper only",
             "generation_notes": "legacy",
             "slot_preference_override": "legacy",
@@ -486,26 +486,26 @@ def test_build_content_ip_world_payload_uses_formal_contract_only():
     )
 
     assert payload == {
-        "ip_enabled": True,
-        "ip_asset_bible_id": "bible_demo",
-        "ip_profile_id": "ip_main",
-        "visual_expression_mode": "auto",
-        "visual_structure_mode": "auto",
-        "visual_participation_mode": "auto",
-        "visual_role_mode": "auto",
-        "visual_consistency_mode": "off",
-        "effective_visual_role_mode": "auto",
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_asset_bible_id": "bible_demo",
+        "series_visual_signature_profile_id": "ip_main",
+        "series_visual_signature_expression_mode": "auto",
+        "series_visual_signature_structure_mode": "auto",
+        "series_visual_signature_participation_mode": "auto",
+        "series_visual_signature_mode": "auto",
+        "series_visual_signature_consistency_mode": "off",
+        "effective_series_visual_signature_mode": "auto",
         "generation_world_hint": "script world",
     }
 
 
-def test_content_ip_world_controls_uses_shared_default_prompt_language_constant():
-    source = inspect.getsource(content_ip_world_controls.render_content_ip_world_controls)
+def test_content_series_visual_signature_controls_uses_shared_default_prompt_language_constant():
+    source = inspect.getsource(content_series_visual_signature_controls.render_content_series_visual_signature_controls)
 
     assert "storyboard_prompt_language: str = CHINESE_PROMPT_LANGUAGE" in source
     assert 'storyboard_prompt_language: str = "zh_CN"' not in source
     assert (
-        content_ip_world_controls.render_content_ip_world_controls.__kwdefaults__[
+        content_series_visual_signature_controls.render_content_series_visual_signature_controls.__kwdefaults__[
             "storyboard_prompt_language"
         ]
         == CHINESE_PROMPT_LANGUAGE

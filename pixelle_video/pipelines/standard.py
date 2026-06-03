@@ -1,4 +1,4 @@
-# Copyright (C) 2025 AIDC-AI
+﻿# Copyright (C) 2025 AIDC-AI
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -59,6 +59,7 @@ from pixelle_video.models.render_package import (
     TextTrack,
     VisualClip,
 )
+from pixelle_video.models.series_visual_signature_request import SeriesVisualSignatureRequest
 from pixelle_video.models.size_contract import (
     GenerationSizeContract,
     orientation_from_dimensions,
@@ -77,7 +78,6 @@ from pixelle_video.models.video_generation_contract import (
     IPControlsContract,
     StoryboardControlsContract,
 )
-from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.platform_context import resolve_project_id, resolve_workspace_id
@@ -640,7 +640,7 @@ class StandardPipeline(LinearVideoPipeline):
         ip_controls = IPControlsContract.from_mapping(ctx.params)
         needs_ip_prompt_inputs = template_requires_media or (
             bool(ctx.params.get("article_concretization_enabled"))
-            and ip_controls.ip_enabled
+            and ip_controls.series_visual_signature_enabled
         )
         ip_profile, scene_casts_by_frame = (
             await self._resolve_ip_prompt_chain_inputs(ctx)
@@ -650,8 +650,8 @@ class StandardPipeline(LinearVideoPipeline):
         article_concretization_plans = build_article_concretization_plans(
             storyboard_plan=ctx.storyboard_plan,
             params=ctx.params,
-            ip_profile_id=getattr(ip_profile, "ip_profile_id", None)
-            or ip_controls.ip_profile_id,
+            series_visual_signature_profile_id=getattr(ip_profile, "series_visual_signature_profile_id", None)
+            or ip_controls.series_visual_signature_profile_id,
             template_aspect_ratio=diagram_aspect_ratio_from_canvas(
                 size_contract.canvas_width,
                 size_contract.canvas_height,
@@ -693,9 +693,9 @@ class StandardPipeline(LinearVideoPipeline):
                 plan=text_rendering_result.overlay_plan,
                 policy=text_rendering_result.overlay_policy,
             )
-            visual_role_request = VisualRoleRequest.from_mapping(
+            series_visual_signature_request = SeriesVisualSignatureRequest.from_mapping(
                 ctx.params,
-                profile_id=getattr(ip_profile, "ip_profile_id", None) or ip_controls.ip_profile_id,
+                profile_id=getattr(ip_profile, "series_visual_signature_profile_id", None) or ip_controls.series_visual_signature_profile_id,
                 generation_world_hint=storyboard_contract.generation_world_hint,
             )
 
@@ -724,14 +724,14 @@ class StandardPipeline(LinearVideoPipeline):
                 frame_overrides=list(storyboard_contract.frame_overrides),
                 text_rendering=self._prompt_text_rendering_request(ctx),
                 native_prompt_hints_by_frame=native_hints,
-                ip_enabled=ip_controls.ip_enabled,
+                series_visual_signature_enabled=ip_controls.series_visual_signature_enabled,
                 ip_profile=ip_profile,
-                visual_expression_mode=visual_role_request.expression_mode.value,
-                visual_structure_mode=visual_role_request.structure_mode.value,
-                visual_participation_mode=visual_role_request.participation_mode.value,
-                visual_role_mode=visual_role_request.strategy.role_mode.value,
-                visual_consistency_mode=visual_role_request.strategy.consistency_mode.value,
-                visual_role_request=visual_role_request,
+                series_visual_signature_expression_mode=series_visual_signature_request.expression_mode.value,
+                series_visual_signature_structure_mode=series_visual_signature_request.structure_mode.value,
+                series_visual_signature_participation_mode=series_visual_signature_request.participation_mode.value,
+                series_visual_signature_mode=series_visual_signature_request.strategy.signature_mode.value,
+                series_visual_signature_consistency_mode=series_visual_signature_request.strategy.consistency_mode.value,
+                series_visual_signature_request=series_visual_signature_request,
                 article_concretization_plans=article_concretization_plans,
                 scene_casts_by_frame=scene_casts_by_frame,
                 stage_callback=stage_callback,
@@ -893,7 +893,7 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.storyboard.frames.append(frame)
 
         self._write_final_prompt_trace_artifact(ctx)
-        self._write_visual_role_trace_artifacts(ctx)
+        self._write_series_visual_signature_trace_artifacts(ctx)
 
         effective_max_sentences, effective_max_chars, normalize_block_text_for_tts, single_audio_block = (
             self._resolve_effective_timing_plan_settings(ctx.config)
@@ -1005,31 +1005,31 @@ class StandardPipeline(LinearVideoPipeline):
             }
 
 
-    def _write_visual_role_trace_artifacts(self, ctx: PipelineContext) -> None:
+    def _write_series_visual_signature_trace_artifacts(self, ctx: PipelineContext) -> None:
         if not ctx.task_dir or not ctx.planning_snapshot:
             return
         snapshot = dict(ctx.planning_snapshot or {})
-        request = snapshot.get("visual_role_request")
-        profile = snapshot.get("visual_role_profile")
-        identity_contract = snapshot.get("visual_role_identity_contract") or (
+        request = snapshot.get("series_visual_signature_request")
+        profile = snapshot.get("series_visual_signature_profile")
+        identity_contract = snapshot.get("series_visual_signature_identity_contract") or (
             (profile or {}).get("identity_contract") if isinstance(profile, Mapping) else None
         )
-        plans = snapshot.get("visual_role_plan_by_frame") or {}
-        critiques = snapshot.get("visual_role_critique_by_frame") or {}
+        plans = snapshot.get("series_visual_signature_plan_by_frame") or {}
+        critiques = snapshot.get("series_visual_signature_critique_by_frame") or {}
         decisions = snapshot.get("visual_expression_decision_by_frame") or {}
-        projected_parts = snapshot.get("visual_role_projected_prompt_parts_by_frame") or {}
-        repair_attempts = snapshot.get("visual_role_repair_attempts") or {}
+        projected_parts = snapshot.get("series_visual_signature_projected_prompt_parts_by_frame") or {}
+        repair_attempts = snapshot.get("series_visual_signature_repair_attempts") or {}
         if not request and not plans:
             return
 
-        artifact_dir = Path(ctx.task_dir) / "prompt_traces" / "visual_role"
+        artifact_dir = Path(ctx.task_dir) / "prompt_traces" / "series_visual_signature"
         artifact_dir.mkdir(parents=True, exist_ok=True)
 
         artifacts: dict[str, str] = {}
-        artifacts["visual_role_request"] = self._write_json_artifact(artifact_dir / "visual_role_request.json", request or {}, root=Path(ctx.task_dir))
-        artifacts["visual_role_profile"] = self._write_json_artifact(artifact_dir / "visual_role_profile.json", profile or {}, root=Path(ctx.task_dir))
-        artifacts["visual_role_identity_contract"] = self._write_json_artifact(artifact_dir / "visual_role_identity_contract.json", identity_contract or {}, root=Path(ctx.task_dir))
-        artifacts["visual_role_repair_attempts"] = self._write_json_artifact(artifact_dir / "visual_role_repair_attempts.json", repair_attempts, root=Path(ctx.task_dir))
+        artifacts["series_visual_signature_request"] = self._write_json_artifact(artifact_dir / "series_visual_signature_request.json", request or {}, root=Path(ctx.task_dir))
+        artifacts["series_visual_signature_profile"] = self._write_json_artifact(artifact_dir / "series_visual_signature_profile.json", profile or {}, root=Path(ctx.task_dir))
+        artifacts["series_visual_signature_identity_contract"] = self._write_json_artifact(artifact_dir / "series_visual_signature_identity_contract.json", identity_contract or {}, root=Path(ctx.task_dir))
+        artifacts["series_visual_signature_repair_attempts"] = self._write_json_artifact(artifact_dir / "series_visual_signature_repair_attempts.json", repair_attempts, root=Path(ctx.task_dir))
 
         frame_artifacts: dict[str, dict[str, str]] = {}
         frame_ids = sorted(set(decisions) | set(plans) | set(critiques))
@@ -1038,11 +1038,11 @@ class StandardPipeline(LinearVideoPipeline):
             plan_payload = plans.get(frame_id) or {}
             frame_artifacts[frame_id] = {
                 "visual_expression_decision": self._write_json_artifact(artifact_dir / f"visual_expression_decision_{prefix}.json", decisions.get(frame_id) or {}, root=Path(ctx.task_dir)),
-                "visual_role_plan": self._write_json_artifact(artifact_dir / f"visual_role_plan_{prefix}.json", plan_payload, root=Path(ctx.task_dir)),
-                "visual_role_structure_decision": self._write_json_artifact(artifact_dir / f"visual_role_structure_decision_{prefix}.json", self._visual_role_structure_decision_payload(frame_id, plan_payload), root=Path(ctx.task_dir)),
-                "visual_role_participation_decision": self._write_json_artifact(artifact_dir / f"visual_role_participation_decision_{prefix}.json", self._visual_role_participation_decision_payload(frame_id, plan_payload), root=Path(ctx.task_dir)),
-                "visual_role_critique": self._write_json_artifact(artifact_dir / f"visual_role_critique_{prefix}.json", critiques.get(frame_id) or {}, root=Path(ctx.task_dir)),
-                "visual_role_projected_prompt_parts": self._write_json_artifact(artifact_dir / f"visual_role_projected_prompt_parts_{prefix}.json", projected_parts.get(frame_id) or {}, root=Path(ctx.task_dir)),
+                "series_visual_signature_plan": self._write_json_artifact(artifact_dir / f"series_visual_signature_plan_{prefix}.json", plan_payload, root=Path(ctx.task_dir)),
+                "series_visual_signature_structure_decision": self._write_json_artifact(artifact_dir / f"series_visual_signature_structure_decision_{prefix}.json", self._series_visual_signature_structure_decision_payload(frame_id, plan_payload), root=Path(ctx.task_dir)),
+                "series_visual_signature_participation_decision": self._write_json_artifact(artifact_dir / f"series_visual_signature_participation_decision_{prefix}.json", self._series_visual_signature_participation_decision_payload(frame_id, plan_payload), root=Path(ctx.task_dir)),
+                "series_visual_signature_critique": self._write_json_artifact(artifact_dir / f"series_visual_signature_critique_{prefix}.json", critiques.get(frame_id) or {}, root=Path(ctx.task_dir)),
+                "series_visual_signature_projected_prompt_parts": self._write_json_artifact(artifact_dir / f"series_visual_signature_projected_prompt_parts_{prefix}.json", projected_parts.get(frame_id) or {}, root=Path(ctx.task_dir)),
             }
             integrated_prompt = str(plan_payload.get("integrated_scene_prompt") or "")
             prompt_path = artifact_dir / f"final_integrated_prompt_{prefix}.txt"
@@ -1050,11 +1050,11 @@ class StandardPipeline(LinearVideoPipeline):
             frame_artifacts[frame_id]["final_integrated_prompt"] = str(prompt_path.relative_to(Path(ctx.task_dir)))
 
         record = {"directory": str(artifact_dir.relative_to(Path(ctx.task_dir))), "artifacts": artifacts, "frames": frame_artifacts}
-        ctx.observability.setdefault("prompt_traces", {})["visual_role"] = record
-        ctx.planning_snapshot["visual_role_artifacts"] = record
+        ctx.observability.setdefault("prompt_traces", {})["series_visual_signature"] = record
+        ctx.planning_snapshot["series_visual_signature_artifacts"] = record
         if ctx.storyboard is not None:
             ctx.storyboard.planning_snapshot = dict(ctx.storyboard.planning_snapshot or {})
-            ctx.storyboard.planning_snapshot["visual_role_artifacts"] = record
+            ctx.storyboard.planning_snapshot["series_visual_signature_artifacts"] = record
 
     @staticmethod
     def _write_json_artifact(path: Path, payload: Mapping[str, Any] | dict[str, Any], *, root: Path) -> str:
@@ -1062,19 +1062,19 @@ class StandardPipeline(LinearVideoPipeline):
         return str(path.relative_to(root))
 
     @staticmethod
-    def _visual_role_structure_decision_payload(frame_id: str, plan: Mapping[str, Any]) -> dict[str, Any]:
+    def _series_visual_signature_structure_decision_payload(frame_id: str, plan: Mapping[str, Any]) -> dict[str, Any]:
         return {
             "frame_id": frame_id,
-            "visual_structure_mode": plan.get("structure_mode"),
+            "series_visual_signature_structure_mode": plan.get("structure_mode"),
             "structure_decision": plan.get("structure_decision"),
             "plan_version": plan.get("version"),
         }
 
     @staticmethod
-    def _visual_role_participation_decision_payload(frame_id: str, plan: Mapping[str, Any]) -> dict[str, Any]:
+    def _series_visual_signature_participation_decision_payload(frame_id: str, plan: Mapping[str, Any]) -> dict[str, Any]:
         return {
             "frame_id": frame_id,
-            "visual_participation_mode": plan.get("participation_mode"),
+            "series_visual_signature_participation_mode": plan.get("participation_mode"),
             "participation_decision": plan.get("participation_decision"),
             "plan_version": plan.get("version"),
         }
@@ -1105,9 +1105,9 @@ class StandardPipeline(LinearVideoPipeline):
         )
         ip_controls_contract = IPControlsContract.from_mapping(ctx.params)
         ip_controls = ip_controls_contract.to_dict()
-        visual_role_request = VisualRoleRequest.from_mapping(
+        series_visual_signature_request = SeriesVisualSignatureRequest.from_mapping(
             ctx.params,
-            profile_id=ip_controls_contract.ip_profile_id,
+            profile_id=ip_controls_contract.series_visual_signature_profile_id,
             generation_world_hint=ctx.params.get("generation_world_hint"),
         )
         storyboard_contract = StoryboardControlsContract.from_mapping(ctx.params)
@@ -1159,7 +1159,7 @@ class StandardPipeline(LinearVideoPipeline):
                 "prompt_prefix": ctx.params.get("prompt_prefix"),
                 "ip_controls": ip_controls,
                 "storyboard_controls": storyboard_controls,
-                "visual_role_request": visual_role_request.to_dict(),
+                "series_visual_signature_request": series_visual_signature_request.to_dict(),
             },
             "resolved_style": resolved_style,
             "planning_snapshot": ctx.planning_snapshot or {},
@@ -2270,7 +2270,7 @@ class StandardPipeline(LinearVideoPipeline):
         ctx: PipelineContext,
     ) -> tuple[IPProfile | None, dict[str, dict[str, Any]] | None]:
         ip_contract = IPControlsContract.from_mapping(ctx.params)
-        if not ip_contract.ip_enabled:
+        if not ip_contract.series_visual_signature_enabled:
             return None, None
 
         if ctx.storyboard_plan is None:
@@ -2278,13 +2278,13 @@ class StandardPipeline(LinearVideoPipeline):
 
         repository = getattr(self.core, "asset_bible_repository", None)
         if repository is None:
-            raise ValueError("asset_bible_repository is required when ip_enabled=True")
+            raise ValueError("asset_bible_repository is required when series_visual_signature_enabled=True")
 
         workspace_id = self._resolve_workspace_id(ctx)
         project_id = self._resolve_project_id(ctx)
-        asset_bible_id = ip_contract.ip_asset_bible_id
-        ip_profile_id = ip_contract.ip_profile_id
-        if asset_bible_id is None or ip_profile_id is None:
+        asset_bible_id = ip_contract.series_visual_signature_asset_bible_id
+        series_visual_signature_profile_id = ip_contract.series_visual_signature_profile_id
+        if asset_bible_id is None or series_visual_signature_profile_id is None:
             raise ValueError("ip prompt chain controls must include asset bible and profile IDs")
 
         loaded_asset_bible = await repository.load_asset_bible(workspace_id, asset_bible_id)
@@ -2297,11 +2297,11 @@ class StandardPipeline(LinearVideoPipeline):
             raise ValueError("asset bible project does not match current pipeline context")
 
         ip_profile = next(
-            (profile for profile in asset_bible.ip_profiles if profile.ip_profile_id == ip_profile_id),
+            (profile for profile in asset_bible.ip_profiles if profile.series_visual_signature_profile_id == series_visual_signature_profile_id),
             None,
         )
         if ip_profile is None:
-            raise ValueError(f"ip profile was not found in asset bible: {ip_profile_id}")
+            raise ValueError(f"ip profile was not found in asset bible: {series_visual_signature_profile_id}")
         ensure_ip_profile_ready_for_generation(ip_profile)
 
         scene_cast_payloads = await repository.list_scene_casts(

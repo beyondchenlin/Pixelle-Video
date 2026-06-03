@@ -11,7 +11,7 @@ IP_GENERATION_READINESS_ERROR = (
 
 def ensure_ip_profile_ready_for_generation(ip_profile: Any | None) -> None:
     if ip_profile is None:
-        raise ValueError("ip_profile is required when ip_enabled=True")
+        raise ValueError("ip_profile is required when series_visual_signature_enabled=True")
     if not ip_generation_identity_terms(ip_profile):
         raise ValueError(IP_GENERATION_READINESS_ERROR)
 

@@ -2,24 +2,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
-
 from .models import (
-    IPProfileDraft,
-    CharacterProfileDraft,
-    SceneAssetDraft,
-    PropAssetDraft,
-    StyleProfileDraft,
     AssetBibleDraft,
+    CharacterProfileDraft,
+    IPProfileDraft,
+    PropAssetDraft,
+    SceneAssetDraft,
     SceneCastDraft,
+    StyleProfileDraft,
 )
-
 
 # ── 新增 _to_model 函数族 ──
 
 def _to_ip_profile_draft(data: dict[str, Any]) -> IPProfileDraft:
     return IPProfileDraft(
-        ip_profile_id=data.get("ip_profile_id", ""),
+        series_visual_signature_profile_id=data.get("series_visual_signature_profile_id", ""),
         name=data.get("name", ""),
         ip_type=data.get("ip_type") or "cartoon_animal",
         logline=data.get("logline", ""),

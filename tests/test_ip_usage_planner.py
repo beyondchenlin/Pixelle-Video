@@ -22,7 +22,7 @@ from pixelle_video.services.ip_usage_planner import (
 
 def _profile():
     return IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="正定向导兔",
@@ -48,7 +48,7 @@ def test_identity_color_terms_reads_workbench_palette_entries():
     from pixelle_video.services.ip_usage_planner import _identity_color_terms
 
     profile = IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="Guide",
@@ -599,7 +599,7 @@ def test_usage_planner_reads_real_scene_cast_to_dict_metadata_presence_type():
 def _universal_ip_profile():
     """An IPProfile with the new universal-actor fields populated."""
     return IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="正定向导兔",
@@ -672,7 +672,7 @@ async def test_appearance_planner_llm_receives_full_actorization_context():
         )
 
     profile = IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="Market Guide",
@@ -937,7 +937,7 @@ async def test_appearance_planner_different_frames_preserve_role_and_visual_iden
 @pytest.mark.asyncio
 async def test_appearance_planner_handles_skeletal_ip_profile():
     skeletal = IPProfile(
-        ip_profile_id="ip_min",
+        series_visual_signature_profile_id="ip_min",
         workspace_id="workspace_1",
         project_id="project_1",
         name="Minimal",
@@ -1130,7 +1130,7 @@ def test_visible_anchors_excludes_identity_anchors_role_labels():
     from pixelle_video.services.ip_usage_planner import _visible_anchors
 
     profile = IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="TestIP",
@@ -1149,7 +1149,7 @@ def test_build_visual_identity_excludes_role_labels():
     from pixelle_video.services.ip_usage_planner import _build_visual_identity
 
     profile = IPProfile(
-        ip_profile_id="ip_main",
+        series_visual_signature_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
         name="TestIP",

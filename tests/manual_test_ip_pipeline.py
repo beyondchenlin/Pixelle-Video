@@ -3,6 +3,8 @@
 运行方式：uv run python tests/manual_test_ip_pipeline.py
 """
 
+# ruff: noqa: E402
+
 import asyncio
 import hashlib
 import logging
@@ -10,15 +12,15 @@ import logging
 logging.disable(logging.CRITICAL)
 
 from pixelle_video.models.asset_bible import IPProfile
-from pixelle_video.models.storyboard_plan import StoryboardPlanFrame, StoryboardPlan
 from pixelle_video.models.prompt_context import PromptContextEnvelope
-from pixelle_video.utils.content_generators import _enrich_prompt_contexts_with_ip
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+from pixelle_video.utils.content_generators import _enrich_prompt_contexts_with_ip
 
 
 def make_ip_profile() -> IPProfile:
     return IPProfile(
-        ip_profile_id="demo",
+        series_visual_signature_profile_id="demo",
         workspace_id="ws1",
         project_id="proj1",
         name="白兔导游",
@@ -132,7 +134,7 @@ async def main():
         if desc:
             print(f"    ✅ ip_scene_description: {desc}")
         else:
-            print(f"    ❌ ip_scene_description: (空！)")
+            print("    ❌ ip_scene_description: (空！)")
         nc = ctx.get("ip_negative_constraints", [])
         if nc:
             print(f"    ✅ ip_negative_constraints: {len(nc)} 条")

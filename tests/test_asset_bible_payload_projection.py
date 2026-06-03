@@ -8,7 +8,7 @@ def _asset_bible_response() -> dict:
         "project_id": "project_1",
         "ip_profiles": [
             {
-                "ip_profile_id": "ip_main",
+                "series_visual_signature_profile_id": "ip_main",
                 "workspace_id": "workspace_1",
                 "project_id": "project_1",
                 "name": "Main IP",
@@ -28,7 +28,7 @@ def _asset_bible_response() -> dict:
                 "forbidden_elements": ["legacy field"],
             },
             {
-                "ip_profile_id": "ip_side",
+                "series_visual_signature_profile_id": "ip_side",
                 "workspace_id": "workspace_1",
                 "project_id": "project_1",
                 "name": "Side IP",
@@ -85,7 +85,7 @@ def test_build_asset_bible_draft_payload_from_response_strips_response_only_fiel
     assert "project_id" not in payload
     assert payload["metadata"] == {"owner": "ip-design"}
     assert payload["ip_profiles"][0] == {
-        "ip_profile_id": "ip_main",
+        "series_visual_signature_profile_id": "ip_main",
         "name": "Main IP",
         "logline": "Main logline",
         "world_hint": "Main world",
@@ -125,19 +125,19 @@ def test_upsert_ip_profile_draft_replaces_matching_profile_and_preserves_sibling
     updated = upsert_ip_profile_draft(
         payload,
         {
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_profile_id": "ip_main",
             "name": "Updated Main IP",
             "identity_lock": ["updated rabbit"],
             "identity_anchors": ["updated bow"],
         },
     )
 
-    assert [profile["ip_profile_id"] for profile in updated["ip_profiles"]] == [
+    assert [profile["series_visual_signature_profile_id"] for profile in updated["ip_profiles"]] == [
         "ip_main",
         "ip_side",
     ]
     assert updated["ip_profiles"][0] == {
-        "ip_profile_id": "ip_main",
+        "series_visual_signature_profile_id": "ip_main",
         "name": "Updated Main IP",
         "identity_lock": ["updated rabbit"],
         "identity_anchors": ["updated bow"],
@@ -156,19 +156,19 @@ def test_upsert_ip_profile_draft_appends_new_profile_when_id_is_new():
     updated = upsert_ip_profile_draft(
         payload,
         {
-            "ip_profile_id": "ip_new",
+            "series_visual_signature_profile_id": "ip_new",
             "name": "New IP",
             "identity_lock": ["new identity"],
         },
     )
 
-    assert [profile["ip_profile_id"] for profile in updated["ip_profiles"]] == [
+    assert [profile["series_visual_signature_profile_id"] for profile in updated["ip_profiles"]] == [
         "ip_main",
         "ip_side",
         "ip_new",
     ]
     assert updated["ip_profiles"][2] == {
-        "ip_profile_id": "ip_new",
+        "series_visual_signature_profile_id": "ip_new",
         "name": "New IP",
         "identity_lock": ["new identity"],
     }
@@ -189,7 +189,7 @@ def test_upsert_ip_profile_draft_adds_first_profile_to_empty_projected_asset_bib
     updated = upsert_ip_profile_draft(
         payload,
         {
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_profile_id": "ip_main",
             "name": "Main IP",
             "identity_lock": ["white rabbit"],
         },
@@ -197,7 +197,7 @@ def test_upsert_ip_profile_draft_adds_first_profile_to_empty_projected_asset_bib
 
     assert updated["ip_profiles"] == [
         {
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_profile_id": "ip_main",
             "name": "Main IP",
             "identity_lock": ["white rabbit"],
         }

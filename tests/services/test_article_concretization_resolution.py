@@ -92,19 +92,19 @@ def _resolve(
     *,
     article_plan: ArticleUnderstandingPlan | None = None,
     frame_plan: FrameUnderstandingPlan | None = None,
-    ip_profile_id: str | None = "ip-1",
+    series_visual_signature_profile_id: str | None = "ip-1",
     template_aspect_ratio: DiagramAspectRatio = DiagramAspectRatio.VERTICAL_9_16,
     strict_user_mode: bool = True,
-    visual_role_strategy=None,
+    series_visual_signature_strategy=None,
 ):
     return resolve_article_concretization(
         request=request,
         article_plan=article_plan or _article_plan(),
         frame_plan=frame_plan or _frame_plan(),
-        ip_profile_id=ip_profile_id,
+        series_visual_signature_profile_id=series_visual_signature_profile_id,
         template_aspect_ratio=template_aspect_ratio,
         strict_user_mode=strict_user_mode,
-        visual_role_strategy=visual_role_strategy,
+        series_visual_signature_strategy=series_visual_signature_strategy,
     )
 
 
@@ -113,8 +113,8 @@ def test_disabled_request_returns_noop_resolution():
 
     resolution = _resolve(
         request,
-        ip_profile_id=None,
-        visual_role_strategy="signature_presence",
+        series_visual_signature_profile_id=None,
+        series_visual_signature_strategy="signature_presence",
     )
 
     assert resolution.enabled is False
@@ -484,8 +484,8 @@ def test_signature_role_requires_ip_profile_in_strict_mode():
         }
     )
 
-    with pytest.raises(ArticleConcretizationResolutionConflict, match="ip_profile_id"):
-        _resolve(request, ip_profile_id=None, strict_user_mode=True)
+    with pytest.raises(ArticleConcretizationResolutionConflict, match="series_visual_signature_profile_id"):
+        _resolve(request, series_visual_signature_profile_id=None, strict_user_mode=True)
 
 
 def test_signature_role_without_ip_non_strict_drops_to_none_with_warning():
@@ -496,12 +496,12 @@ def test_signature_role_without_ip_non_strict_drops_to_none_with_warning():
         }
     )
 
-    resolution = _resolve(request, ip_profile_id=None, strict_user_mode=False)
+    resolution = _resolve(request, series_visual_signature_profile_id=None, strict_user_mode=False)
 
     assert resolution.effective_signature_role is SeriesVisualSignatureRole.NONE
     assert resolution.fallback_used is True
     assert resolution.fallback_reason == "signature_role_requires_ip_profile"
-    assert any("ip_profile_id" in warning for warning in resolution.warnings)
+    assert any("series_visual_signature_profile_id" in warning for warning in resolution.warnings)
 
 
 def test_auto_signature_role_requires_ip_profile_in_strict_mode():
@@ -512,8 +512,8 @@ def test_auto_signature_role_requires_ip_profile_in_strict_mode():
         }
     )
 
-    with pytest.raises(ArticleConcretizationResolutionConflict, match="ip_profile_id"):
-        _resolve(request, ip_profile_id=None, strict_user_mode=True)
+    with pytest.raises(ArticleConcretizationResolutionConflict, match="series_visual_signature_profile_id"):
+        _resolve(request, series_visual_signature_profile_id=None, strict_user_mode=True)
 
 
 def test_auto_signature_role_without_ip_non_strict_drops_to_none_with_warning():
@@ -524,15 +524,15 @@ def test_auto_signature_role_without_ip_non_strict_drops_to_none_with_warning():
         }
     )
 
-    resolution = _resolve(request, ip_profile_id=None, strict_user_mode=False)
+    resolution = _resolve(request, series_visual_signature_profile_id=None, strict_user_mode=False)
 
     assert resolution.effective_signature_role is SeriesVisualSignatureRole.NONE
     assert resolution.fallback_used is True
     assert resolution.fallback_reason == "signature_role_requires_ip_profile"
-    assert any("ip_profile_id" in warning for warning in resolution.warnings)
+    assert any("series_visual_signature_profile_id" in warning for warning in resolution.warnings)
 
 
-def test_old_visual_role_strategy_conflict_records_warning():
+def test_old_series_visual_signature_strategy_conflict_records_warning():
     request = ArticleConcretizationRequest.from_mapping(
         {
             "enabled": True,
@@ -542,10 +542,10 @@ def test_old_visual_role_strategy_conflict_records_warning():
 
     resolution = _resolve(
         request,
-        ip_profile_id=None,
+        series_visual_signature_profile_id=None,
         strict_user_mode=True,
-        visual_role_strategy="signature_presence",
+        series_visual_signature_strategy="signature_presence",
     )
 
     assert resolution.effective_signature_role is SeriesVisualSignatureRole.NONE
-    assert any("visual_role_strategy" in warning for warning in resolution.warnings)
+    assert any("series_visual_signature_strategy" in warning for warning in resolution.warnings)

@@ -2490,16 +2490,16 @@ def test_style_config_no_longer_renders_standard_ip_selector_in_middle_column():
         Path(__file__).resolve().parents[1] / "web" / "components" / "style_config.py"
     ).read_text(encoding="utf-8")
 
-    assert "render_ip_prompt_chain_controls(" not in source
+    assert "render_series_visual_signature_controls(" not in source
     assert "style_ip_asset_bibles" not in source
     assert "style_ip_profile_world_hint" not in source
-    assert "**ip_prompt_chain_controls" not in source
+    assert "**series_visual_signature_controls" not in source
 
 
 def test_render_style_config_does_not_emit_ip_prompt_chain_payload(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
-    fake_st.session_state["style_ip_enabled"] = True
+    fake_st.session_state["style_series_visual_signature_enabled"] = True
     monkeypatch.setattr(style_config, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
@@ -2598,9 +2598,9 @@ def test_render_style_config_does_not_emit_ip_prompt_chain_payload(monkeypatch):
 
     result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 
-    assert "ip_enabled" not in result
-    assert "ip_asset_bible_id" not in result
-    assert "ip_profile_id" not in result
+    assert "series_visual_signature_enabled" not in result
+    assert "series_visual_signature_asset_bible_id" not in result
+    assert "series_visual_signature_profile_id" not in result
     assert "style_ip_asset_bibles" not in fake_st.session_state
     assert "style_ip_profile_world_hint" not in fake_st.session_state
 

@@ -26,7 +26,7 @@ class IPStyleScope(str, Enum):
 
 @dataclass(frozen=True)
 class IPProfile:
-    ip_profile_id: str
+    series_visual_signature_profile_id: str
     workspace_id: str
     project_id: str
     name: str
@@ -57,7 +57,7 @@ class IPProfile:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "ip_profile_id", _require_non_empty("ip_profile_id", self.ip_profile_id))
+        object.__setattr__(self, "series_visual_signature_profile_id", _require_non_empty("series_visual_signature_profile_id", self.series_visual_signature_profile_id))
         object.__setattr__(self, "workspace_id", _require_non_empty("workspace_id", self.workspace_id))
         object.__setattr__(self, "project_id", _require_non_empty("project_id", self.project_id))
         object.__setattr__(self, "name", _require_non_empty("name", self.name))
@@ -130,7 +130,7 @@ class IPProfile:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "ip_profile_id": self.ip_profile_id,
+            "series_visual_signature_profile_id": self.series_visual_signature_profile_id,
             "workspace_id": self.workspace_id,
             "project_id": self.project_id,
             "name": self.name,
@@ -165,7 +165,7 @@ class IPProfile:
     def from_dict(cls, payload: Mapping[str, Any]) -> "IPProfile":
         _require_mapping("IPProfile", payload)
         return cls(
-            ip_profile_id=payload.get("ip_profile_id", ""),
+            series_visual_signature_profile_id=payload.get("series_visual_signature_profile_id", ""),
             workspace_id=payload.get("workspace_id", ""),
             project_id=payload.get("project_id", ""),
             name=payload.get("name", ""),
@@ -422,7 +422,7 @@ class AssetBible:
         object.__setattr__(
             self,
             "ip_profiles",
-            _normalize_asset_tuple("ip_profiles", self.ip_profiles, IPProfile, "ip_profile_id"),
+            _normalize_asset_tuple("ip_profiles", self.ip_profiles, IPProfile, "series_visual_signature_profile_id"),
         )
         object.__setattr__(
             self,

@@ -8,6 +8,7 @@ from pathlib import Path
 from shutil import copy2
 
 from loguru import logger
+
 from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.media_placement import calculate_media_box
 from pixelle_video.models.render_package import CaptionCue, TextCue

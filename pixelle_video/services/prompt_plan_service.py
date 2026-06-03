@@ -3,7 +3,10 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping, Sequence
 
-from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
+from pixelle_video.models.final_visual_prompt_contract import (
+    FinalVisualPromptContract,
+    RenderedMediaPrompt,
+)
 from pixelle_video.models.prompt_plan import (
     ImagePromptDraft,
     PromptPlan,
@@ -15,14 +18,25 @@ from pixelle_video.models.storyboard_plan import StoryboardPlan
 def build_prompt_plan_bundle(
     *,
     storyboard_plan: StoryboardPlan,
-    rendered_prompts: Sequence[RenderedMediaPrompt],
+    rendered_prompts: Sequence[RenderedMediaPrompt] | None = None,
+    image_prompts: Sequence[str] | None = None,
     source_trace_id: str | None = None,
     source_trace_ids_by_frame: Mapping[str, str] | None = None,
     planning_snapshot: dict[str, object] | None = None,
 ) -> PromptPlanBundle:
-    rendered_items = tuple(rendered_prompts)
-    if len(rendered_items) != len(storyboard_plan.frames):
-        raise ValueError("rendered prompt count must match storyboard frame count")
+    if rendered_prompts is not None and image_prompts is not None:
+        raise ValueError("provide either rendered_prompts or image_prompts, not both")
+    if rendered_prompts is None:
+        if image_prompts is None:
+            raise ValueError("rendered_prompts or image_prompts is required")
+        prompt_items = tuple(image_prompts)
+        if len(prompt_items) != len(storyboard_plan.frames):
+            raise ValueError("image prompt count must match storyboard frame count")
+        rendered_items = tuple(_rendered_prompt_from_text(prompt) for prompt in prompt_items)
+    else:
+        rendered_items = tuple(rendered_prompts)
+        if len(rendered_items) != len(storyboard_plan.frames):
+            raise ValueError("rendered prompt count must match storyboard frame count")
 
     drafts: list[ImagePromptDraft] = []
     plans: list[PromptPlan] = []
@@ -90,6 +104,25 @@ def _normalize_prompt(prompt: str) -> str:
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("image prompts must be non-empty strings")
     return prompt.strip()
+
+
+def _rendered_prompt_from_text(prompt: str) -> RenderedMediaPrompt:
+    normalized = _normalize_prompt(prompt)
+    contract = FinalVisualPromptContract(
+        scene=normalized,
+        composition="single unified image, readable composition",
+        style_assignment="apply one coherent visual style to the whole image",
+        character_layer_style="preserve scene subjects",
+        world_layer_style="preserve a coherent readable world layer",
+        integration_priority="source subjects and readability stay primary",
+    )
+    return RenderedMediaPrompt(
+        prompt=normalized,
+        negative_prompt=None,
+        prompt_contract=contract,
+        renderer_id="image_prompt_text_adapter",
+        renderer_version="v1",
+    )
 
 
 def _normalize_trace_ids_by_frame(value: Mapping[str, str] | None) -> dict[str, str]:

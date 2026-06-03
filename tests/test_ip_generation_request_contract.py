@@ -9,15 +9,15 @@ from pixelle_video.contracts.ip_generation_request import (
 
 def test_formal_field_set_is_narrow():
     assert FORMAL_CONTENT_IP_WORLD_FIELDS == {
-        "ip_enabled",
-        "ip_asset_bible_id",
-        "ip_profile_id",
+        "series_visual_signature_enabled",
+        "series_visual_signature_asset_bible_id",
+        "series_visual_signature_profile_id",
         "generation_world_hint",
-        "visual_expression_mode",
-        "visual_structure_mode",
-        "visual_participation_mode",
-        "visual_role_mode",
-        "visual_consistency_mode",
+        "series_visual_signature_expression_mode",
+        "series_visual_signature_structure_mode",
+        "series_visual_signature_participation_mode",
+        "series_visual_signature_mode",
+        "series_visual_signature_consistency_mode",
     }
 
 
@@ -34,13 +34,13 @@ def test_removed_and_helper_field_sets_are_not_formal():
 def test_build_formal_payload_drops_helper_and_removed_fields():
     payload = build_formal_content_ip_world_payload(
         {
-            "ip_enabled": True,
-            "ip_asset_bible_id": "bible_demo",
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
             "generation_world_hint": "script world",
-            "visual_expression_mode": "explanatory_diagram",
-            "visual_structure_mode": "workflow",
-            "visual_participation_mode": "guide_explainer",
+            "series_visual_signature_expression_mode": "explanatory_diagram",
+            "series_visual_signature_structure_mode": "workflow",
+            "series_visual_signature_participation_mode": "guide_explainer",
             "ip_profile_world_hint": "asset helper",
             "generation_world_hint_source": "ip_default",
             "generation_notes": "old notes",
@@ -51,16 +51,16 @@ def test_build_formal_payload_drops_helper_and_removed_fields():
     )
 
     assert payload == {
-        "ip_enabled": True,
-        "ip_asset_bible_id": "bible_demo",
-        "ip_profile_id": "ip_main",
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_asset_bible_id": "bible_demo",
+        "series_visual_signature_profile_id": "ip_main",
         "generation_world_hint": "script world",
-        "visual_expression_mode": "explanatory_diagram",
-        "visual_structure_mode": "workflow",
-        "visual_participation_mode": "guide_explainer",
-        "visual_role_mode": "auto",
-        "visual_consistency_mode": "off",
-        "effective_visual_role_mode": "auto",
+        "series_visual_signature_expression_mode": "explanatory_diagram",
+        "series_visual_signature_structure_mode": "workflow",
+        "series_visual_signature_participation_mode": "guide_explainer",
+        "series_visual_signature_mode": "auto",
+        "series_visual_signature_consistency_mode": "off",
+        "effective_series_visual_signature_mode": "auto",
     }
     assert "unknown" not in payload
 
@@ -68,19 +68,19 @@ def test_build_formal_payload_drops_helper_and_removed_fields():
 def test_enabled_ip_omits_blank_ids_but_preserves_world_hint():
     assert build_formal_content_ip_world_payload(
         {
-            "ip_enabled": True,
-            "ip_asset_bible_id": "   ",
-            "ip_profile_id": "\t\n",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "   ",
+            "series_visual_signature_profile_id": "\t\n",
             "generation_world_hint": "  request world  ",
         }
     ) == {
-        "ip_enabled": True,
-        "visual_expression_mode": "auto",
-        "visual_structure_mode": "auto",
-        "visual_participation_mode": "auto",
-        "visual_role_mode": "auto",
-        "visual_consistency_mode": "off",
-        "effective_visual_role_mode": "auto",
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_expression_mode": "auto",
+        "series_visual_signature_structure_mode": "auto",
+        "series_visual_signature_participation_mode": "auto",
+        "series_visual_signature_mode": "auto",
+        "series_visual_signature_consistency_mode": "off",
+        "effective_series_visual_signature_mode": "auto",
         "generation_world_hint": "request world",
     }
 
@@ -88,13 +88,13 @@ def test_enabled_ip_omits_blank_ids_but_preserves_world_hint():
 def test_disabled_ip_still_carries_request_world_hint():
     assert build_formal_content_ip_world_payload(
         {
-            "ip_enabled": False,
-            "ip_asset_bible_id": "bible_demo",
-            "ip_profile_id": "ip_main",
+            "series_visual_signature_enabled": False,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
             "generation_world_hint": "world without selected IP",
         }
     ) == {
-        "ip_enabled": False,
+        "series_visual_signature_enabled": False,
         "generation_world_hint": "world without selected IP",
     }
 

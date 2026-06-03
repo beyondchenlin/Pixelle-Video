@@ -120,7 +120,7 @@ def _render_asset_bible_section(
 
         ip_profiles = _list_of_dicts(selected_asset_bible.get("ip_profiles"))
         ip_profile_options = [
-            _first_text(p.get("ip_profile_id")) for p in ip_profiles if _first_text(p.get("ip_profile_id"))
+            _first_text(p.get("series_visual_signature_profile_id")) for p in ip_profiles if _first_text(p.get("series_visual_signature_profile_id"))
         ]
         ip_profile_options.append("__new_ip__")
 
@@ -136,17 +136,17 @@ def _render_asset_bible_section(
         )
 
         if selected_ip_id == "__new_ip__":
-            ip_profile_id_value = ""
+            series_visual_signature_profile_id_value = ""
             ip_profile = {}
         else:
-            ip_profile_id_value = selected_ip_id
+            series_visual_signature_profile_id_value = selected_ip_id
             ip_profile = _find_ip_profile(selected_asset_bible, selected_ip_id)
 
-        ip_profile_id = _text_input(
+        series_visual_signature_profile_id = _text_input(
             ui,
-            translate("ip_design.asset_bible.ip_profile_id"),
-            key="ip_design_ip_profile_id",
-            value=ip_profile_id_value,
+            translate("ip_design.asset_bible.series_visual_signature_profile_id"),
+            key="ip_design_series_visual_signature_profile_id",
+            value=series_visual_signature_profile_id_value,
         )
         ip_name = _text_input(
             ui,
@@ -288,14 +288,14 @@ def _render_asset_bible_section(
             key="ip_design_save_asset_bible",
         ):
             is_existing_asset = asset_bible_id == selected_id
-            if not _has_text(asset_bible_id, ip_profile_id, ip_name):
+            if not _has_text(asset_bible_id, series_visual_signature_profile_id, ip_name):
                 ui.error(translate("ip_design.asset_bible.missing_required"))
             else:
                 try:
                     payload = _build_asset_bible_save_payload(
                         source_asset_bible=selected_asset_bible if is_existing_asset else {},
                         ip_profile={
-                            "ip_profile_id": ip_profile_id,
+                            "series_visual_signature_profile_id": series_visual_signature_profile_id,
                             "name": ip_name,
                             "logline": logline,
                             "ip_type": ip_type,
@@ -608,14 +608,14 @@ def _first_ip_name(asset_bible: Mapping[str, Any]) -> str:
     return _first_text(_first_dict(asset_bible.get("ip_profiles")).get("name"))
 
 
-def _first_ip_profile_id(asset_bible: Mapping[str, Any]) -> str:
-    return _first_text(_first_dict(asset_bible.get("ip_profiles")).get("ip_profile_id"))
+def _first_series_visual_signature_profile_id(asset_bible: Mapping[str, Any]) -> str:
+    return _first_text(_first_dict(asset_bible.get("ip_profiles")).get("series_visual_signature_profile_id"))
 
 
-def _find_ip_profile(asset_bible: Mapping[str, Any], ip_profile_id: str) -> dict[str, Any]:
+def _find_ip_profile(asset_bible: Mapping[str, Any], series_visual_signature_profile_id: str) -> dict[str, Any]:
     profiles = _list_of_dicts(asset_bible.get("ip_profiles"))
     for profile in profiles:
-        if _first_text(profile.get("ip_profile_id")) == _first_text(ip_profile_id):
+        if _first_text(profile.get("series_visual_signature_profile_id")) == _first_text(series_visual_signature_profile_id):
             return profile
     return {}
 

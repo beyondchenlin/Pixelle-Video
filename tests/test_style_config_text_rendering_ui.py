@@ -938,9 +938,9 @@ def test_standard_pipeline_passes_content_context_to_style_config(monkeypatch):
             "title": "上下文标题",
             "text": "第一行字幕\n第二行",
             "storyboard_prompt_language": "en_US",
-            "ip_enabled": True,
-            "ip_asset_bible_id": "content_bible",
-            "ip_profile_id": "content_profile",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "content_bible",
+            "series_visual_signature_profile_id": "content_profile",
         }
 
     monkeypatch.setattr(
@@ -975,13 +975,13 @@ def test_standard_pipeline_passes_content_context_to_style_config(monkeypatch):
         "title": "上下文标题",
         "text": "第一行字幕\n第二行",
         "storyboard_prompt_language": "en_US",
-        "ip_enabled": True,
-        "ip_asset_bible_id": "content_bible",
-        "ip_profile_id": "content_profile",
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_asset_bible_id": "content_bible",
+        "series_visual_signature_profile_id": "content_profile",
     }
-    assert captured["video_params"]["ip_enabled"] is True
-    assert captured["video_params"]["ip_asset_bible_id"] == "content_bible"
-    assert captured["video_params"]["ip_profile_id"] == "content_profile"
+    assert captured["video_params"]["series_visual_signature_enabled"] is True
+    assert captured["video_params"]["series_visual_signature_asset_bible_id"] == "content_bible"
+    assert captured["video_params"]["series_visual_signature_profile_id"] == "content_profile"
     assert "ip_profile_world_hint" not in captured["video_params"]
 
 

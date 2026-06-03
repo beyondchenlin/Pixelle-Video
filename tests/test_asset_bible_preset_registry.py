@@ -26,7 +26,7 @@ def _preset_payload() -> dict:
             "project_id": "__builtin__",
             "ip_profiles": [
                 {
-                    "ip_profile_id": "ip_main",
+                    "series_visual_signature_profile_id": "ip_main",
                     "workspace_id": "__builtin__",
                     "project_id": "__builtin__",
                     "name": "Demo IP",

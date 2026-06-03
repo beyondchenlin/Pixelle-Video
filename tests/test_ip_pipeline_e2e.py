@@ -12,7 +12,7 @@ def _make_ip_profile(**overrides: Any) -> Any:
     from pixelle_video.models.asset_bible import IPProfile
 
     defaults: dict[str, Any] = {
-        "ip_profile_id": "ip_e2e_001",
+        "series_visual_signature_profile_id": "ip_e2e_001",
         "workspace_id": "ws_e2e",
         "project_id": "proj_e2e",
         "name": "白兔导游",

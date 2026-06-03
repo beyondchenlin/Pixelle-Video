@@ -29,7 +29,7 @@ def test_write_final_prompt_artifact_persists_exact_media_prompts(tmp_path):
             "workflow": "selfhost/image_z_image_turbo.json",
             "workflow_input": "selfhost/image_z_image_turbo.json",
             "style_source": "prompt_prefix_library",
-            "ip_controls": {"ip_enabled": True, "ip_profile_id": "hero"},
+            "ip_controls": {"series_visual_signature_enabled": True, "series_visual_signature_profile_id": "hero"},
         },
     )
 
@@ -42,7 +42,7 @@ def test_write_final_prompt_artifact_persists_exact_media_prompts(tmp_path):
     assert "Frame count: 1" in content
     assert "## Generation Context" in content
     assert '"workflow": "selfhost/image_z_image_turbo.json"' in content
-    assert '"ip_profile_id": "hero"' in content
+    assert '"series_visual_signature_profile_id": "hero"' in content
     assert "```text\na precise image prompt\nwith a second line\n```" in content
     assert "```text\nno text, no watermark\n```" in content
 

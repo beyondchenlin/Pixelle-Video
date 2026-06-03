@@ -3,14 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_standard_style_config_no_longer_renders_duplicate_ip_panel():
     source = (ROOT / "web/components/style_config.py").read_text(encoding="utf-8")
 
-    assert "def render_ip_prompt_chain_controls()" not in source
+    assert "def render_series_visual_signature_controls()" not in source
     assert "ip_prompt_chain_settings" not in source
     assert "IP 角色融入" not in source
     assert "启用 IP" not in source

@@ -6,7 +6,7 @@ from pixelle_video.models.asset_bible import IPProfile, IPRenderingStyle, IPStyl
 def test_ip_profile_visual_layer_fields_round_trip():
     profile = IPProfile.from_dict(
         {
-            "ip_profile_id": "teacher",
+            "series_visual_signature_profile_id": "teacher",
             "workspace_id": "workspace",
             "project_id": "project",
             "name": "Young Teacher",
@@ -26,7 +26,7 @@ def test_ip_profile_rejects_unknown_rendering_style():
     with pytest.raises(ValueError):
         IPProfile.from_dict(
             {
-                "ip_profile_id": "teacher",
+                "series_visual_signature_profile_id": "teacher",
                 "workspace_id": "workspace",
                 "project_id": "project",
                 "name": "Young Teacher",
