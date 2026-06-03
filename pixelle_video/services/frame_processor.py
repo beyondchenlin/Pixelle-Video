@@ -787,6 +787,7 @@ class FrameProcessor:
             media_height=config.media_height,
             media_placement=config.media_placement,
             text_rendering=getattr(config, "text_rendering", None) or {},
+            template_display=getattr(config, "template_display", None),
             layered_template_spec=getattr(config, "layered_template_spec", None),
         )
 

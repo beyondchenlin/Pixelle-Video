@@ -232,6 +232,7 @@ def test_build_text_rendering_payload_keeps_caption_style_when_overlay_disabled(
 
     assert payload["caption_style"]["font_size"] == 72
     assert payload["caption_style"]["primary_color"] == "#FFFF00"
+    assert payload["caption"] == {"enabled": False}
     assert payload["overlay"] == {"enabled": False}
     assert payload["image_text"] == {
         "suppress_embedded_text": True,
@@ -254,6 +255,7 @@ def test_build_text_rendering_payload_keeps_overlay_style_when_overlay_disabled(
     )
 
     assert payload["overlay"] == {"enabled": False}
+    assert payload["caption"] == {"enabled": False}
     assert payload["overlay_style"] == {
         "font_size": 88,
         "position": "center",

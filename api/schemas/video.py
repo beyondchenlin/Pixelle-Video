@@ -151,6 +151,13 @@ class MediaPlacementRequest(BaseModel):
         return self.to_model().to_dict()
 
 
+class TemplateDisplayRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    show_title: bool = False
+    show_signature: bool = False
+
+
 def _infer_video_orientation_from_standard_preset(
     preset: VideoResolutionPreset | None,
 ) -> VideoOrientation | None:
@@ -479,6 +486,10 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="Custom template parameters (e.g., {'accent_color': '#ff0000', 'background': 'url'}). "
                     "Available parameters depend on the template. Use GET /api/templates/{template_path}/params to discover them."
+    )
+    template_display: TemplateDisplayRequest = Field(
+        default_factory=TemplateDisplayRequest,
+        description="Template shell display controls. Title and signature/watermark are hidden by default.",
     )
 
     # === Render Backend ===

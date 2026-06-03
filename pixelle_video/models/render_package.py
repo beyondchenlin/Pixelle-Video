@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
+from pixelle_video.models.template_display import TemplateDisplaySettings
 from pixelle_video.models.text_overlay import (
     FrozenJSONValue,
     freeze_json_value,
@@ -387,7 +388,10 @@ class RenderManifest:
     audio_blocks: List[AudioBlock] = field(default_factory=list)
     sentence_units: List[SentenceUnit] = field(default_factory=list)
     visual_clips: List[VisualClip] = field(default_factory=list)
-    caption_rendering_enabled: bool = True
+    template_display: TemplateDisplaySettings = field(
+        default_factory=TemplateDisplaySettings
+    )
+    caption_rendering_enabled: bool = False
     caption_renderer_targets: List[str] = field(
         default_factory=lambda: ["hyperframes", "ass"]
     )
@@ -421,7 +425,8 @@ class RenderManifest:
         audio_blocks: Optional[List[AudioBlock]] = None,
         sentence_units: Optional[List[SentenceUnit]] = None,
         visual_clips: Optional[List[VisualClip]] = None,
-        caption_rendering_enabled: bool = True,
+        template_display: TemplateDisplaySettings | Mapping[str, Any] | None = None,
+        caption_rendering_enabled: bool = False,
         caption_renderer_targets: Optional[List[str]] = None,
         caption_cues: Optional[List[CaptionCue]] = None,
         text_style_profiles: Optional[List[TextStyleProfile]] = None,
@@ -471,6 +476,7 @@ class RenderManifest:
         self.audio_blocks = list(audio_blocks or [])
         self.sentence_units = list(sentence_units or [])
         self.visual_clips = list(visual_clips or [])
+        self.template_display = TemplateDisplaySettings.from_mapping(template_display)
         self.caption_rendering_enabled = bool(caption_rendering_enabled)
         resolved_caption_targets = (
             ["hyperframes", "ass"]
@@ -525,6 +531,7 @@ class RenderManifest:
             "audio_blocks": [block.to_dict() for block in self.audio_blocks],
             "sentence_units": [unit.to_dict() for unit in self.sentence_units],
             "visual_clips": [clip.to_dict() for clip in self.visual_clips],
+            "template_display": self.template_display.to_dict(),
             "caption_rendering_enabled": self.caption_rendering_enabled,
             "caption_renderer_targets": list(self.caption_renderer_targets),
             "caption_cues": [cue.to_dict() for cue in self.caption_cues],
@@ -567,7 +574,8 @@ class RenderManifest:
             audio_blocks=[AudioBlock.from_dict(item) for item in data.get("audio_blocks", [])],
             sentence_units=[SentenceUnit.from_dict(item) for item in data.get("sentence_units", [])],
             visual_clips=[VisualClip.from_dict(item) for item in data.get("visual_clips", [])],
-            caption_rendering_enabled=bool(data.get("caption_rendering_enabled", True)),
+            template_display=data.get("template_display"),
+            caption_rendering_enabled=bool(data.get("caption_rendering_enabled", False)),
             caption_renderer_targets=list(
                 data.get("caption_renderer_targets", ["hyperframes", "ass"])
             ),

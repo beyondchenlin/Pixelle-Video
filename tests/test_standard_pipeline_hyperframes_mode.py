@@ -178,12 +178,24 @@ class _FakeHyperFramesProjectService:
             captions_path=data_dir / "captions.json",
         )
 
-    def write_project(self, manifest, *, template_params=None, master_audio_duration=None):
+    def write_project(
+        self,
+        manifest,
+        *,
+        template_params=None,
+        template_display=None,
+        master_audio_duration=None,
+    ):
         self.manifest = manifest
         self.write_project_calls.append(
             {
                 "manifest": manifest,
                 "template_params": dict(template_params or {}),
+                "template_display": (
+                    template_display.to_dict()
+                    if hasattr(template_display, "to_dict")
+                    else dict(template_display or {})
+                ),
                 "master_audio_duration": master_audio_duration,
             }
         )
@@ -1030,6 +1042,7 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
         {
             "manifest": manifest,
             "template_params": {"author": "demo", "footer": "LanRen"},
+            "template_display": {"show_title": False, "show_signature": False},
             "master_audio_duration": 1.8,
         }
     ]

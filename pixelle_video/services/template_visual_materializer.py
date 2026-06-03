@@ -9,7 +9,11 @@ from pixelle_video.models.layered_template import (
 )
 from pixelle_video.models.media_placement import resolve_media_placement
 from pixelle_video.models.render_package import resolve_media_layout_mode
-from pixelle_video.models.template_parameters import RESERVED_TEMPLATE_PARAM_NAMES
+from pixelle_video.models.template_parameters import validate_template_params
+from pixelle_video.models.template_display import (
+    TemplateDisplaySettings,
+    resolve_template_params_and_display,
+)
 from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 from pixelle_video.services.frame_html import HTMLFrameGenerator
 from pixelle_video.services.layered_template_adapters.html_frame import (
@@ -28,19 +32,6 @@ def resolve_template_body_text(template_body_text: str, text_policy: str) -> str
     if text_policy in {"template_body", "explicit_both"}:
         return template_body_text
     return ""
-
-
-def _validate_template_params(
-    template_params: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    params = dict(template_params or {})
-    reserved = sorted(
-        str(key) for key in params if key in RESERVED_TEMPLATE_PARAM_NAMES
-    )
-    if reserved:
-        joined = ", ".join(reserved)
-        raise ValueError(f"reserved template parameter(s) are not allowed: {joined}")
-    return params
 
 
 class TemplateVisualMaterializer:
@@ -65,17 +56,26 @@ class TemplateVisualMaterializer:
         media_height: int | None = None,
         media_placement: Any = None,
         text_rendering: Mapping[str, Any] | None = None,
+        template_display: TemplateDisplaySettings | Mapping[str, Any] | None = None,
         layered_template_spec: LayeredTemplateSpec | Mapping[str, Any] | None = None,
     ) -> TemplateVisualAsset:
         body_text = resolve_template_body_text(template_body_text, text_policy)
-        validated_template_params = _validate_template_params(template_params)
+        raw_template_params, display_settings = resolve_template_params_and_display(
+            template_params,
+            template_display,
+        )
+        validated_template_params = validate_template_params(raw_template_params)
+        render_title = display_settings.render_title(title)
+        render_template_params = display_settings.render_template_params(
+            validated_template_params
+        )
         spec = _coerce_layered_template_spec(layered_template_spec)
         if spec is not None:
             adapter = LayeredTemplateHTMLFrameAdapter()
             generated_path = await adapter.render_frame(
                 spec=spec,
                 output_path=output_path,
-                title_text=title,
+                title_text=render_title,
                 caption_text=caption_text if caption_text is not None else body_text,
                 text_rendering=text_rendering or {},
                 media_path=media_path,
@@ -94,6 +94,7 @@ class TemplateVisualMaterializer:
                     "layered_template_fingerprint": layered_template_fingerprint(spec),
                     "layered_template_canvas": f"{spec.canvas_width}x{spec.canvas_height}",
                     "template_params_count": len(validated_template_params),
+                    "template_display": display_settings.to_dict(),
                 },
             )
         resolved_media_layout_mode = resolve_media_layout_mode(media_layout_mode)
@@ -106,10 +107,10 @@ class TemplateVisualMaterializer:
             "index": int(frame_index) + 1,
             "media_layout_mode": resolved_media_layout_mode,
         }
-        ext.update(validated_template_params)
+        ext.update(render_template_params)
 
         generated_path = await generator.generate_frame(
-            title=title,
+            title=render_title,
             text=body_text,
             image=media_path or "",
             ext=ext,
@@ -129,7 +130,10 @@ class TemplateVisualMaterializer:
             height=int(generator.height),
             media_path=media_path,
             text_policy=text_policy,
-            diagnostics={"template_params_count": len(ext) - 1},
+            diagnostics={
+                "template_params_count": len(validated_template_params),
+                "template_display": display_settings.to_dict(),
+            },
         )
 
 

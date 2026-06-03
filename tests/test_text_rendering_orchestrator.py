@@ -13,6 +13,7 @@ from pixelle_video.services.text_rendering_orchestrator import (
 def test_orchestrator_builds_caption_style_when_overlay_disabled_and_preserves_image_policy():
     result = TextRenderingOrchestrator().build(
         text_rendering={
+            "caption": {"enabled": True},
             "overlay": {"enabled": False},
             "caption_style": {"font_size": 72, "primary_color": "#ffff00"},
             "overlay_style": {"font_size": 90},
@@ -36,6 +37,16 @@ def test_orchestrator_builds_caption_style_when_overlay_disabled_and_preserves_i
     assert result.overlay_plan.candidates == ()
     assert result.image_text_policy.suppress_embedded_text is True
     assert result.image_text_policy.positive_prompt == "avoid visible writing"
+
+
+def test_orchestrator_disables_caption_rendering_by_default():
+    result = TextRenderingOrchestrator().build(
+        text_rendering={},
+        narrations=["first narration"],
+        task_id="task-caption-default",
+    )
+
+    assert result.caption_settings.enabled is False
 
 
 def test_orchestrator_builds_overlay_plan_only_when_enabled_with_programmatic_targets():

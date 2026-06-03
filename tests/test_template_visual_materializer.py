@@ -147,12 +147,67 @@ async def test_template_visual_materializer_renders_html_with_text_policy(tmp_pa
 
     assert result.path == str(tmp_path / "frame.png")
     assert result.text_policy == "caption_renderer"
+    assert calls["title"] == ""
     assert calls["text"] == ""
     assert calls["ext"] == {
         "index": 1,
         "media_layout_mode": "template",
         "accent": "#fff",
+        "brand": "",
+        "author": "",
+        "describe": "",
+        "footer": "",
+        "author_desc": "",
     }
+
+
+@pytest.mark.asyncio
+async def test_template_visual_materializer_can_show_title_and_signature_when_enabled(
+    tmp_path,
+    monkeypatch,
+):
+    calls = {}
+
+    class FakeGenerator:
+        width = 1080
+        height = 1920
+
+        def __init__(self, *_args, **_kwargs):
+            return None
+
+        async def generate_frame(self, *, title, text, image, ext, output_path, **kwargs):
+            calls["title"] = title
+            calls["ext"] = dict(ext)
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(output_path).write_bytes(b"png")
+            return output_path
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        FakeGenerator,
+    )
+
+    await TemplateVisualMaterializer().materialize_frame(
+        title="Demo",
+        template_body_text="Template body",
+        media_path="raw.png",
+        frame_index=0,
+        template_path="templates/1080x1920/image_default.html",
+        template_id="image_default",
+        output_path=tmp_path / "frame.png",
+        text_policy="caption_renderer",
+        template_display={"show_title": True, "show_signature": True},
+        template_params={
+            "brand": "Brand",
+            "author": "Author",
+            "describe": "Desc",
+        },
+    )
+
+    assert calls["title"] == "Demo"
+    assert calls["ext"]["brand"] == "Brand"
+    assert calls["ext"]["author"] == "Author"
+    assert calls["ext"]["describe"] == "Desc"
 
 
 @pytest.mark.asyncio
@@ -258,7 +313,7 @@ async def test_template_visual_materializer_uses_layered_template_html_adapter(
     assert result.text_policy == "caption_renderer"
     assert result.diagnostics["layered_template_id"] == "user:portrait_news"
     assert result.diagnostics["layered_template_canvas"] == "720x1280"
-    assert calls["title_text"] == "Runtime Title"
+    assert calls["title_text"] == ""
     assert calls["caption_text"] == "Runtime Caption"
     assert calls["media_path"] == "raw.png"
     assert calls["text_rendering"] == {"title_style": {"font_size": 88}}

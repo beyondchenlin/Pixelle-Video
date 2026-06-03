@@ -217,6 +217,26 @@ def test_render_manifest_preserves_explicit_empty_caption_renderer_targets():
     restored = RenderManifest.from_dict(manifest.to_dict())
 
     assert restored.caption_renderer_targets == []
+    assert restored.caption_rendering_enabled is False
+
+
+def test_render_manifest_round_trips_template_display_settings():
+    manifest = RenderManifest(
+        task_id="task-template-display",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        template_display={"show_title": True, "show_signature": False},
+    )
+
+    restored = RenderManifest.from_dict(manifest.to_dict())
+
+    assert restored.template_display.to_dict() == {
+        "show_title": True,
+        "show_signature": False,
+    }
 
 
 def test_render_manifest_round_trips_declarative_audio_tracks():

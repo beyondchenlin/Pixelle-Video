@@ -1245,6 +1245,7 @@ def test_build_text_rendering_payload_defaults_image_text_suppression_off():
     )
 
     assert payload == {
+        "caption": {"enabled": False},
         "overlay": {"enabled": False},
         "image_text": {
             "suppress_embedded_text": False,
@@ -1306,10 +1307,11 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
         "density": "low",
         "max_items_per_frame": 1,
     }
+    assert policy["caption"] == {"enabled": False}
     assert policy["caption_style"] == {
         "font_family": "Noto Sans CJK SC",
         "font_size": 1,
-        "primary_color": "#2C3E50",
+        "primary_color": "#000000",
         "stroke_color": "#000000",
         "stroke_width": 1,
         "background_color": "#000000",

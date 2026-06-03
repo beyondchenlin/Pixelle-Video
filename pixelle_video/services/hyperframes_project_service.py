@@ -20,6 +20,11 @@ from pixelle_video.models.render_package import (
     VisualClip,
 )
 from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
+from pixelle_video.models.template_display import (
+    TemplateDisplaySettings,
+    resolve_template_params_and_display,
+)
+from pixelle_video.models.template_parameters import validate_template_params
 from pixelle_video.models.template_text_capabilities import TemplateTextCapabilities
 from pixelle_video.models.text_style import DEFAULT_CAPTION_STYLE_ID, DEFAULT_TITLE_STYLE_ID
 from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences
@@ -59,8 +64,15 @@ def build_template_render_context(
     manifest: RenderManifest,
     *,
     template_params: dict | None,
+    template_display: TemplateDisplaySettings | dict | None = None,
 ) -> TemplateRenderContext:
-    params = dict(template_params or {})
+    raw_params, display_settings = resolve_template_params_and_display(
+        template_params,
+        template_display,
+        default_display=manifest.template_display,
+    )
+    validated_params = validate_template_params(raw_params)
+    params = display_settings.render_template_params(validated_params)
     caption_cues = _resolve_caption_cues_for_manifest(manifest)
     title_style_profile = next(
         (
@@ -116,7 +128,7 @@ def build_template_render_context(
         layered_template_spec=manifest.layered_template_spec,
         duration=duration,
         fps=manifest.fps,
-        title=manifest.title,
+        title=display_settings.render_title(manifest.title),
         author=params.get("author"),
         footer=params.get("footer"),
         theme=params.get("theme"),
@@ -179,6 +191,7 @@ class HyperFramesProjectService:
         manifest: RenderManifest,
         *,
         template_params: dict | None = None,
+        template_display: TemplateDisplaySettings | dict | None = None,
         master_audio_duration: float | None = None,
     ) -> HyperFramesProjectPaths:
         normalized_manifest, _ = self._prepare_manifest_for_export(
@@ -195,6 +208,7 @@ class HyperFramesProjectService:
         context = build_template_render_context(
             localized_manifest,
             template_params=template_params,
+            template_display=template_display,
         )
 
         self.compiler.compile(project_dir=project_paths.project_dir, context=context)

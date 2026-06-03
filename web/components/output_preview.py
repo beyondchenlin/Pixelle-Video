@@ -1329,6 +1329,8 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     template_params = video_params.get("template_params", {})
     if template_params:
         request["template_params"] = template_params
+    if video_params.get("template_display") is not None:
+        request["template_display"] = video_params["template_display"]
     copy_render_backend(video_params, request)
     copy_tts_audio_strategy(video_params, request)
     copy_tts_split_settings(video_params, request)
@@ -1413,6 +1415,8 @@ def build_batch_shared_config(video_params):
 
     if video_params.get("template_params"):
         shared_config["template_params"] = video_params["template_params"]
+    if video_params.get("template_display") is not None:
+        shared_config["template_display"] = video_params["template_display"]
     if video_params.get("session_id"):
         shared_config["session_id"] = video_params["session_id"]
 

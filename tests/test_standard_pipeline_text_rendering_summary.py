@@ -254,7 +254,7 @@ def test_text_rendering_result_attaches_contract_to_creation_package(tmp_path):
 def test_caption_cues_rebuild_from_current_timing_plan(tmp_path):
     pipeline = StandardPipeline.__new__(StandardPipeline)
     ctx = SimpleNamespace(
-        params={"text_rendering": {}},
+        params={"text_rendering": {"caption": {"enabled": True}}},
         narrations=["caption"],
         task_id="task-caption-timing",
         task_dir=str(tmp_path),
@@ -287,10 +287,10 @@ def test_caption_cues_rebuild_from_current_timing_plan(tmp_path):
 def test_caption_cues_use_top_level_punctuation_mode(tmp_path):
     pipeline = StandardPipeline.__new__(StandardPipeline)
     ctx = SimpleNamespace(
-        params={
-            "caption_punctuation_mode": "preserve",
-            "text_rendering": {},
-        },
+            params={
+                "caption_punctuation_mode": "preserve",
+                "text_rendering": {"caption": {"enabled": True}},
+            },
         narrations=["caption."],
         task_id="task-caption-punctuation",
         task_dir=str(tmp_path),
@@ -565,6 +565,7 @@ async def test_legacy_ass_exports_caption_only_when_overlay_disabled(
         input_text="topic",
         params={
             "text_rendering": {
+                "caption": {"enabled": True},
                 "caption_style": {"primary_color": "#ffff00"},
                 "overlay": {"enabled": False},
             }

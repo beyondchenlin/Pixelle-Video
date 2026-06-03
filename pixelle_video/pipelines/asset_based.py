@@ -584,7 +584,8 @@ class AssetBasedPipeline(LinearVideoPipeline):
             **size_contract.to_params(),
             media_placement=context.params.get("media_placement"),
             frame_template=template_name,
-            template_params=context.params.get("template_params")
+            template_params=context.params.get("template_params"),
+            template_display=context.params.get("template_display"),
         )
         self._record_text_rendering_contract_summary(
             context,

@@ -28,6 +28,7 @@ def test_write_project_data_writes_manifest_and_captions_files(tmp_path):
         fps=30,
         template_id="image_life_insights_light",
         master_audio_path="output/task-1/master_audio.wav",
+        caption_rendering_enabled=True,
         audio_blocks=[
             AudioBlock(
                 id="block-1",
@@ -109,6 +110,66 @@ def test_template_render_context_preserves_media_sync_contract():
     assert (context.media_width, context.media_height) == (1280, 720)
     assert context.sync_media_size_to_canvas is True
     assert context.media_layout_mode == "canvas"
+
+
+def test_template_render_context_hides_title_and_signature_by_default():
+    manifest = RenderManifest(
+        task_id="task-template-display-defaults",
+        title="demo title",
+        width=1920,
+        height=1080,
+        fps=30,
+        template_id="image_landscape_minimal",
+    )
+
+    context = build_template_render_context(
+        manifest,
+        template_params={"author": "LanRen.AI", "footer": "LanRen"},
+    )
+
+    assert context.title == ""
+    assert context.author == ""
+    assert context.footer == ""
+
+
+def test_template_render_context_can_show_title_and_signature_when_enabled():
+    manifest = RenderManifest(
+        task_id="task-template-display-enabled",
+        title="demo title",
+        width=1920,
+        height=1080,
+        fps=30,
+        template_id="image_landscape_minimal",
+    )
+
+    context = build_template_render_context(
+        manifest,
+        template_params={"author": "LanRen.AI", "footer": "LanRen"},
+        template_display={"show_title": True, "show_signature": True},
+    )
+
+    assert context.title == "demo title"
+    assert context.author == "LanRen.AI"
+    assert context.footer == "LanRen"
+    assert "show_title" not in context.template_params
+    assert "show_signature" not in context.template_params
+
+
+def test_template_render_context_rejects_display_controls_in_template_params():
+    manifest = RenderManifest(
+        task_id="task-template-display-reserved",
+        title="demo title",
+        width=1920,
+        height=1080,
+        fps=30,
+        template_id="image_landscape_minimal",
+    )
+
+    with pytest.raises(ValueError, match="reserved template parameter"):
+        build_template_render_context(
+            manifest,
+            template_params={"show_title": True},
+        )
 
 
 def test_write_project_data_writes_text_tracks_diagnostic_payload(tmp_path):
@@ -263,6 +324,7 @@ def test_build_template_render_context_prefers_remapped_timing_when_present():
         template_id="image_default",
         master_audio_path="assets/audio/master_audio.wav",
         master_audio_duration=3.0,
+        caption_rendering_enabled=True,
         sentence_units=sentences,
         visual_clips=[
             VisualClip(
@@ -964,6 +1026,7 @@ def test_write_project_data_derives_captions_from_sentence_units_when_manifest_c
         height=1920,
         fps=30,
         template_id="image_life_insights_light",
+        caption_rendering_enabled=True,
         sentence_units=[
             SentenceUnit(
                 id="sentence-1",
@@ -1009,6 +1072,7 @@ def test_write_project_data_can_preserve_caption_punctuation_when_configured(tmp
         fps=30,
         template_id="image_life_insights_light",
         caption_punctuation_mode="preserve",
+        caption_rendering_enabled=True,
         sentence_units=[
             SentenceUnit(
                 id="sentence-1",
@@ -1077,6 +1141,7 @@ def test_write_project_data_splits_long_sentence_captions_into_expression_level_
         height=1920,
         fps=30,
         template_id="image_life_insights_light",
+        caption_rendering_enabled=True,
         sentence_units=[
             SentenceUnit(
                 id="sentence-1",
@@ -1122,6 +1187,7 @@ def test_write_project_data_clamps_and_filters_timeline_spans_before_export(tmp_
         fps=30,
         template_id="image_life_insights_light",
         master_audio_path="output/task-3/master_audio.wav",
+        caption_rendering_enabled=True,
         audio_blocks=[
             AudioBlock(
                 id="block-1",
@@ -1270,6 +1336,7 @@ def test_write_project_data_drops_captions_for_sentences_whose_remapped_span_col
         fps=30,
         template_id="image_life_insights_light",
         master_audio_path="output/task-4/trimmed_master_audio.wav",
+        caption_rendering_enabled=True,
         sentence_units=[
             SentenceUnit(
                 id="sentence-1",

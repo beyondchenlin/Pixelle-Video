@@ -54,6 +54,7 @@ from pixelle_video.models.size_contract import (
     STANDARD_VIDEO_SIZE_PRESETS,
     GenerationSizeContract,
 )
+from pixelle_video.models.template_display import TEMPLATE_SIGNATURE_TEXT_PARAM_NAMES
 from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
 )
@@ -150,6 +151,26 @@ from web.utils.tts_ui import (
 from web.utils.workflow_defaults import resolve_selectbox_default_index
 
 STORYBOARD_SHOT_PRESET_AUTO_VALUE = storyboard_planning_controls.STORYBOARD_SHOT_PRESET_AUTO_VALUE
+
+
+def _default_template_param_value(param_name: str, config: dict[str, Any]) -> Any:
+    default = config["default"]
+    if param_name in TEMPLATE_SIGNATURE_TEXT_PARAM_NAMES:
+        return ""
+    return default
+
+
+def _clear_legacy_signature_widget_default(
+    param_name: str,
+    widget_key: str,
+    config: dict[str, Any],
+) -> None:
+    if param_name not in TEMPLATE_SIGNATURE_TEXT_PARAM_NAMES:
+        return
+    if widget_key not in st.session_state:
+        return
+    if str(st.session_state.get(widget_key) or "") == str(config.get("default") or ""):
+        st.session_state[widget_key] = ""
 
 
 def _call_with_streamlit_fragment(func, *args, **kwargs):
@@ -3025,9 +3046,30 @@ def render_style_config(
             media_height=media_height,
         )
         custom_values_for_video = {}
+        template_display_for_video = {
+            "show_title": False,
+            "show_signature": False,
+        }
+        display_col1, display_col2 = st.columns(2)
+        with display_col1:
+            template_display_for_video["show_title"] = bool(
+                st.checkbox(
+                    tr("template.show_title"),
+                    value=False,
+                    key="video_template_display_show_title",
+                )
+            )
+        with display_col2:
+            template_display_for_video["show_signature"] = bool(
+                st.checkbox(
+                    tr("template.show_signature"),
+                    value=False,
+                    key="video_template_display_show_signature",
+                )
+            )
         if custom_params_for_video:
             st.markdown("📝 " + tr("template.custom_parameters"))
-            
+
             # Render custom parameter inputs in 2 columns
             video_custom_col1, video_custom_col2 = st.columns(2)
             
@@ -3038,64 +3080,68 @@ def render_style_config(
             with video_custom_col1:
                 for param_name, config in param_items[:mid_point]:
                     param_type = config['type']
-                    default = config['default']
+                    default = _default_template_param_value(param_name, config)
                     label = config['label']
+                    widget_key = f"video_custom_{param_name}"
+                    _clear_legacy_signature_widget_default(param_name, widget_key, config)
                     
                     if param_type == 'text':
                         custom_values_for_video[param_name] = st.text_input(
                             label,
                             value=default,
-                            key=f"video_custom_{param_name}"
+                            key=widget_key
                         )
                     elif param_type == 'number':
                         custom_values_for_video[param_name] = st.number_input(
                             label,
                             value=default,
-                            key=f"video_custom_{param_name}"
+                            key=widget_key
                         )
                     elif param_type == 'color':
                         custom_values_for_video[param_name] = st.color_picker(
                             label,
                             value=default,
-                            key=f"video_custom_{param_name}"
+                            key=widget_key
                         )
                     elif param_type == 'bool':
                         custom_values_for_video[param_name] = st.checkbox(
                             label,
                             value=default,
-                            key=f"video_custom_{param_name}"
+                            key=widget_key
                         )
             
             # Right column parameters
             with video_custom_col2:
                 for param_name, config in param_items[mid_point:]:
                     param_type = config['type']
-                    default = config['default']
+                    default = _default_template_param_value(param_name, config)
                     label = config['label']
+                    widget_key = f"video_custom_{param_name}"
+                    _clear_legacy_signature_widget_default(param_name, widget_key, config)
                     
                     if param_type == 'text':
                         custom_values_for_video[param_name] = st.text_input(
                             label,
                             value=default,
-                            key=f"video_custom_{param_name}"
+                            key=widget_key
                         )
                     elif param_type == 'number':
                         custom_values_for_video[param_name] = st.number_input(
                             label,
                             value=default,
-                            key=f"video_custom_{param_name}"
+                            key=widget_key
                         )
                     elif param_type == 'color':
                         custom_values_for_video[param_name] = st.color_picker(
                             label,
                             value=default,
-                            key=f"video_custom_{param_name}"
+                            key=widget_key
                         )
                     elif param_type == 'bool':
                         custom_values_for_video[param_name] = st.checkbox(
                             label,
                             value=default,
-                            key=f"video_custom_{param_name}"
+                            key=widget_key
                         )
 
     pending_layer_design_save: dict[str, LayeredTemplateEditorState | None] = {"state": None}
@@ -3346,6 +3392,7 @@ def render_style_config(
         **tts_split_settings,
         "frame_template": frame_template,
         "template_params": custom_values_for_video if custom_values_for_video else None,
+        "template_display": template_display_for_video,
         "media_workflow": workflow_key,
         "storyboard_prompt_language": storyboard_prompt_language,
         "prompt_prefix": prompt_prefix if prompt_prefix else "",

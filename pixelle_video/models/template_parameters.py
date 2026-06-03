@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final, Mapping
+
+from pixelle_video.models.template_display import TEMPLATE_DISPLAY_CONTROL_PARAM_NAMES
 
 RESERVED_TEMPLATE_PARAM_NAMES: Final[frozenset[str]] = frozenset(
     {
@@ -15,8 +17,22 @@ RESERVED_TEMPLATE_PARAM_NAMES: Final[frozenset[str]] = frozenset(
         "pixelle_media_left",
         "pixelle_media_top",
     }
+    | set(TEMPLATE_DISPLAY_CONTROL_PARAM_NAMES)
 )
 
 
 def is_reserved_template_param(name: str) -> bool:
     return name in RESERVED_TEMPLATE_PARAM_NAMES
+
+
+def validate_template_params(
+    template_params: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    params = dict(template_params or {})
+    reserved = sorted(
+        str(key) for key in params if key in RESERVED_TEMPLATE_PARAM_NAMES
+    )
+    if reserved:
+        joined = ", ".join(reserved)
+        raise ValueError(f"reserved template parameter(s) are not allowed: {joined}")
+    return params

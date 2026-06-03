@@ -44,6 +44,12 @@ class ImageTextPolicyRequest(BaseModel):
     negative_prompt: Optional[str] = None
 
 
+class CaptionRenderingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+
+
 class TextStyleProfileRequest(BaseModel):
     """Partial text style override merged with role-specific defaults downstream."""
 
@@ -77,6 +83,7 @@ class TextStyleProfileRequest(BaseModel):
 class TextRenderingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    caption: CaptionRenderingRequest = Field(default_factory=CaptionRenderingRequest)
     overlay: TextOverlayRequest = Field(default_factory=TextOverlayRequest)
     image_text: ImageTextPolicyRequest = Field(default_factory=ImageTextPolicyRequest)
     caption_style: Optional[TextStyleProfileRequest] = None

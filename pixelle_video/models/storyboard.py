@@ -28,6 +28,7 @@ from pixelle_video.models.size_contract import (
     DEFAULT_VIDEO_ORIENTATION,
     DEFAULT_VIDEO_RESOLUTION_PRESET,
 )
+from pixelle_video.models.template_display import TemplateDisplaySettings
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
 from pixelle_video.models.video_generation_contract import StoryboardControlsContract
 from pixelle_video.prompt_language import (
@@ -130,6 +131,7 @@ class StoryboardConfig:
     # Frame template (includes template design-coordinate information in path)
     frame_template: str = DEFAULT_IMAGE_TEMPLATE
     template_params: Optional[Dict[str, Any]] = None  # Custom template parameters (e.g., {"accent_color": "#ff0000"})
+    template_display: TemplateDisplaySettings | Dict[str, Any] | None = None
     layered_template_spec: Optional[Dict[str, Any]] = None
     selected_template_preset_id: Optional[str] = None
     template_text_policy: str = "caption_renderer"
@@ -193,6 +195,9 @@ class StoryboardConfig:
                 "template_text_policy must be one of "
                 f"{sorted(VALID_TEMPLATE_TEXT_POLICIES)}"
             )
+        self.template_display = TemplateDisplaySettings.from_mapping(
+            self.template_display
+        )
         if self.layered_template_spec is not None:
             self.layered_template_spec = active_layered_template_spec(
                 self.layered_template_spec

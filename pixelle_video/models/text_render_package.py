@@ -102,7 +102,7 @@ def _coerce_text_cue(value: Any) -> TextCue:
 @dataclass(frozen=True)
 class CaptionRenderingSettings:
     version: str = "caption_rendering_settings.v1"
-    enabled: bool = True
+    enabled: bool = False
     source: str = "narration_timing"
     style_profile: str = DEFAULT_CAPTION_STYLE_ID
     punctuation_mode: str = "strip_all"
@@ -122,7 +122,7 @@ class CaptionRenderingSettings:
         unknown_targets = set(targets) - _RENDERER_TARGETS
         if unknown_targets:
             raise ValueError(f"Unsupported renderer targets: {sorted(unknown_targets)}")
-        object.__setattr__(self, "enabled", _coerce_bool(self.enabled, True))
+        object.__setattr__(self, "enabled", _coerce_bool(self.enabled, False))
         object.__setattr__(self, "source", str(self.source))
         object.__setattr__(self, "style_profile", str(self.style_profile))
         object.__setattr__(self, "renderer_targets", targets)
@@ -142,7 +142,7 @@ class CaptionRenderingSettings:
         payload = dict(data or {})
         return cls(
             version=str(payload.get("version", "caption_rendering_settings.v1")),
-            enabled=_coerce_bool(payload.get("enabled"), True),
+            enabled=_coerce_bool(payload.get("enabled"), False),
             source=str(payload.get("source", "narration_timing")),
             style_profile=str(payload.get("style_profile", DEFAULT_CAPTION_STYLE_ID)),
             punctuation_mode=str(payload.get("punctuation_mode", "strip_all")),

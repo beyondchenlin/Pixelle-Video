@@ -862,6 +862,7 @@ class StandardPipeline(LinearVideoPipeline):
             media_negative_prompt=ctx.media_negative_prompt,
             frame_template=frame_template,
             template_params=ctx.params.get("template_params"),
+            template_display=ctx.params.get("template_display"),
             layered_template_spec=ctx.params.get("layered_template_spec"),
             selected_template_preset_id=ctx.params.get("selected_template_preset_id"),
             **build_storyboard_config_planning_kwargs(ctx.planning_snapshot, planning_params),
@@ -2759,6 +2760,7 @@ class StandardPipeline(LinearVideoPipeline):
                 layered_template_spec=storyboard.config.layered_template_spec,
                 fps=storyboard.config.video_fps,
                 template_id="legacy",
+                template_display=storyboard.config.template_display,
                 caption_rendering_enabled=self._caption_renderer_enabled(ctx, "ass"),
                 caption_renderer_targets=list(
                     self._caption_renderer_targets_for_summary(ctx)
@@ -2943,6 +2945,7 @@ class StandardPipeline(LinearVideoPipeline):
             audio_blocks=list(getattr(ctx.timing_plan, "blocks", []) or []),
             sentence_units=list(getattr(ctx.timing_plan, "sentences", []) or []),
             visual_clips=self._build_manifest_visual_clips(ctx),
+            template_display=config.template_display,
             caption_rendering_enabled=self._caption_renderer_enabled(ctx, "ass"),
             caption_renderer_targets=list(
                 self._caption_renderer_targets_for_summary(ctx)
@@ -3422,6 +3425,7 @@ class StandardPipeline(LinearVideoPipeline):
             audio_blocks=list(timing_plan.blocks),
             sentence_units=list(timing_plan.sentences),
             visual_clips=visual_clips,
+            template_display=config.template_display,
             caption_rendering_enabled=self._caption_renderer_enabled(ctx, "hyperframes"),
             caption_renderer_targets=list(
                 self._caption_renderer_targets_for_summary(ctx)
@@ -3454,6 +3458,7 @@ class StandardPipeline(LinearVideoPipeline):
         project_paths = self.core.hyperframes_project_service.write_project(
             manifest,
             template_params=storyboard.config.template_params or {},
+            template_display=storyboard.config.template_display,
             master_audio_duration=master_audio_duration,
         )
         self._record_caption_rendering_summary(

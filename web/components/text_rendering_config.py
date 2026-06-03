@@ -301,6 +301,7 @@ def build_text_rendering_payload(
     overlay_policy: dict | None,
     suppress_embedded_text: bool,
     positive_prompt: str,
+    caption_enabled: bool = False,
     caption_style: dict | None = None,
     title_style: dict | None = None,
     overlay_style: dict | None = None,
@@ -308,6 +309,7 @@ def build_text_rendering_payload(
     """Build the nested text_rendering payload used by API and pipelines."""
     cleaned_prompt = str(positive_prompt or "").strip()
     payload = {
+        "caption": {"enabled": bool(caption_enabled)},
         "overlay": overlay_policy or {"enabled": False},
         "image_text": {
             "suppress_embedded_text": bool(suppress_embedded_text),
@@ -679,6 +681,17 @@ def render_text_rendering_controls(
         translate("section.text_rendering"),
         expanded=False,
     ):
+        caption_enabled = ui.checkbox(
+            translate("caption_rendering.enabled"),
+            help=translate("caption_rendering.enabled_help"),
+            key="caption_rendering_enabled",
+            **_widget_default_kwargs(
+                ui,
+                "caption_rendering_enabled",
+                value=_session_value(ui, "caption_rendering_enabled", False),
+            ),
+        )
+
         with _render_middle_column_detail_section(ui, translate("text_style.tabs_title")):
             caption_tab, title_tab = ui.tabs(
                 [translate("caption_style.tab"), translate("title_style.tab")]
@@ -745,6 +758,7 @@ def render_text_rendering_controls(
             title_style=title_style,
             overlay_policy=overlay_policy,
             overlay_style=overlay_style,
+            caption_enabled=caption_enabled,
             suppress_embedded_text=suppress_embedded_text,
             positive_prompt=positive_prompt,
         )

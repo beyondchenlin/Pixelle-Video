@@ -192,6 +192,7 @@ def build_video_generation_params(
 
     if request_body.template_params:
         video_params["template_params"] = request_body.template_params
+    video_params["template_display"] = request_body.template_display.model_dump()
 
     if request_body.render_backend is not None:
         video_params["render_backend"] = request_body.render_backend

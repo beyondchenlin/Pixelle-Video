@@ -23,6 +23,12 @@ def test_caption_settings_separate_caption_overlay_and_image_text():
     assert settings.renderer_targets == ("hyperframes", "ass")
 
 
+def test_caption_settings_default_to_disabled():
+    settings = CaptionRenderingSettings()
+
+    assert settings.enabled is False
+
+
 @pytest.mark.parametrize(
     "kwargs,message",
     [

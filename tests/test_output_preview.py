@@ -918,6 +918,27 @@ def test_build_single_generation_request_includes_text_rendering_policy():
     assert "text_layer" not in request
 
 
+def test_build_single_generation_request_includes_template_display_policy():
+    def _progress(_event):
+        return None
+
+    template_display = {"show_title": True, "show_signature": False}
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "template_display": template_display,
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["template_display"] == template_display
+
+
 def test_build_single_generation_request_ignores_legacy_text_fields():
     def _progress(_event):
         return None
@@ -1320,6 +1341,20 @@ def test_build_batch_shared_config_includes_text_rendering_policy():
     assert shared_config["text_rendering"] == text_rendering
     assert "forbid_embedded_text_in_image" not in shared_config
     assert "text_layer" not in shared_config
+
+
+def test_build_batch_shared_config_includes_template_display_policy():
+    template_display = {"show_title": False, "show_signature": True}
+
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "template_display": template_display,
+        }
+    )
+
+    assert shared_config["template_display"] == template_display
 
 
 def test_build_batch_shared_config_ignores_legacy_text_fields():

@@ -58,6 +58,26 @@ def test_text_rendering_request_accepts_title_style_with_caption_shape():
     assert request.title_style.max_width_ratio == 0.4
 
 
+def test_text_rendering_request_accepts_caption_enabled_toggle():
+    request = TextRenderingRequest.model_validate({"caption": {"enabled": True}})
+    payload = request.model_dump(exclude_none=True)
+
+    result = TextRenderingOrchestrator().build(text_rendering=payload)
+
+    assert payload["caption"] == {"enabled": True}
+    assert result.caption_settings.enabled is True
+
+
+def test_text_rendering_request_disables_caption_by_default():
+    request = TextRenderingRequest.model_validate({})
+    payload = request.model_dump(exclude_none=True)
+
+    result = TextRenderingOrchestrator().build(text_rendering=payload)
+
+    assert payload["caption"] == {"enabled": False}
+    assert result.caption_settings.enabled is False
+
+
 def test_title_style_forbids_unknown_fields_like_caption_style():
     with pytest.raises(ValidationError):
         TextRenderingRequest.model_validate(
