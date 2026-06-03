@@ -95,7 +95,7 @@ class VisualAnchorIntegrationPlanner:
                 repair_context = {
                     "attempt": attempt + 1,
                     "errors": errors,
-                    "instruction": "Return one selected visible plan object for every failed frame. Do not output candidates arrays or hidden/suppressed/fallback.",
+                    "instruction": "Return one flat visible plan object per frame. Use manifestation_form, manifestation_location, manifestation_visibility, and manifestation_relationship. Do not output anchor_manifestation objects, candidates arrays, hidden/suppressed/fallback.",
                 }
                 logger.warning(
                     "mandatory series visual signature integration rejected attempt {}: {}",
@@ -115,7 +115,7 @@ class VisualAnchorIntegrationPlanner:
             repair_context = {
                 "attempt": attempt + 1,
                 "errors": errors[:24],
-                "instruction": "Rewrite every failed frame. Do not output hidden/suppressed/fallback.",
+                "instruction": "Rewrite every failed frame as one flat visible plan object. Do not output candidates arrays, selected_index, hidden/suppressed/fallback.",
             }
             logger.warning(
                 "mandatory series visual signature integration rejected attempt {}: {}",
@@ -168,7 +168,14 @@ def _placement_plans_from_payload(
     identity_kernel: Sequence[str],
     policy: VisualSignaturePolicy,
 ) -> tuple[list[VisualAnchorPlacementPlan], list[str]]:
-    if hasattr(payload, "model_dump"):
+    if isinstance(payload, MandatoryVisualAnchorIntegrationResponse):
+        payload = {
+            "visual_anchor_integration_plans": [
+                plan.to_plan_payload()
+                for plan in payload.visual_anchor_integration_plans
+            ]
+        }
+    elif hasattr(payload, "model_dump"):
         try:
             payload = payload.model_dump(mode="json")
         except TypeError:
@@ -224,24 +231,21 @@ def _placement_plan_from_raw_plan(
     identity_kernel: Sequence[str],
     policy: VisualSignaturePolicy,
 ) -> tuple[VisualAnchorPlacementPlan | None, list[str]]:
-    raw_candidates = raw_plan.get("candidates")
-    if isinstance(raw_candidates, Mapping):
-        candidates = [raw_candidates]
-    elif _is_sequence(raw_candidates):
-        candidates = [candidate for candidate in raw_candidates if isinstance(candidate, Mapping)]
-    elif _has_flat_candidate_fields(raw_plan):
-        candidates = [raw_plan]
-    else:
-        return None, [f"{frame_id}: candidates must be an array of visible candidate objects"]
+    if "candidates" in raw_plan or "selected_index" in raw_plan:
+        return None, [f"{frame_id}: candidates arrays are not allowed for mandatory flat integration"]
+    if not _has_flat_candidate_fields(raw_plan):
+        return None, [f"{frame_id}: flat visible plan fields are required"]
 
-    candidate_errors: list[str] = []
-    for candidate in candidates:
-        errors = _candidate_errors(candidate, frame_id=frame_id, role_strategy=role_strategy, identity_kernel=identity_kernel, policy=policy)
-        if errors:
-            candidate_errors.extend(errors)
-            continue
-        return _candidate_to_plan(candidate, frame_id=frame_id, role_strategy=role_strategy), []
-    return None, candidate_errors or [f"{frame_id}: no visible candidate accepted"]
+    errors = _candidate_errors(
+        raw_plan,
+        frame_id=frame_id,
+        role_strategy=role_strategy,
+        identity_kernel=identity_kernel,
+        policy=policy,
+    )
+    if errors:
+        return None, errors
+    return _candidate_to_plan(raw_plan, frame_id=frame_id, role_strategy=role_strategy), []
 
 
 def _candidate_to_plan(

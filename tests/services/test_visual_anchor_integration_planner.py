@@ -6,14 +6,8 @@ from pydantic import ValidationError
 from pixelle_video.models.asset_bible import IPProfile, IPRenderingStyle
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.mandatory_visual_anchor_integration import (
-    MandatoryVisualAnchorIntegrationManifestationResponse,
     MandatoryVisualAnchorIntegrationPlanResponse,
     MandatoryVisualAnchorIntegrationResponse,
-)
-from pixelle_video.models.visual_anchor_integration import (
-    VisualAnchorIntegrationCandidateResponse,
-    VisualAnchorIntegrationPlanResponse,
-    VisualAnchorIntegrationResponse,
 )
 from pixelle_video.models.visual_anchor_planning import AnchorProminence
 from pixelle_video.services.series_visual_signature_anchor_planner import (
@@ -23,30 +17,37 @@ from pixelle_video.services.series_visual_signature_anchor_planner import (
 
 class ValidSceneBoundLLM:
     async def __call__(self, **kwargs):
-        return VisualAnchorIntegrationResponse(
+        return MandatoryVisualAnchorIntegrationResponse(
             visual_anchor_integration_plans=[
-                VisualAnchorIntegrationPlanResponse(
+                MandatoryVisualAnchorIntegrationPlanResponse(
                     frame_id="f1",
-                    candidates=[
-                        VisualAnchorIntegrationCandidateResponse(
-                            carrier_type="bookplate_or_stamp",
-                            anchor_function="material_signature",
-                            prominence="embedded_mark",
-                            style_relation="blended",
-                            placement="attached to the inner paper margin of the open page",
-                            support_anchor="打开的书页纸面",
-                            contact_relation="压印进纸张纹理",
-                            interaction_target="书页",
-                            occlusion_relation="主体阅读区域保持清晰",
-                            visual_weight_clause="低对比、低存在感，作为纸面材质细节",
-                            image_prompt_clause="白色科技兔子轮廓浅压印纹章，带蓝色领结和长耳朵，像安静的藏书票细节",
-                            scene_coherence_score=10,
-                            disruption_risk=1,
-                            identity_preservation_score=9,
-                            reason="low disruption",
-                        )
-                    ],
-                    selected_index=0,
+                    carrier_type="bookplate_or_stamp",
+                    anchor_function="material_signature",
+                    prominence="embedded_mark",
+                    style_relation="blended",
+                    placement="attached to the inner paper margin of the open page",
+                    support_anchor="open book page",
+                    contact_relation="pressed into the paper surface",
+                    interaction_target="book page",
+                    occlusion_relation="main reading area remains clear",
+                    visual_weight_clause="low contrast in-scene material detail",
+                    image_prompt_clause=(
+                        "white tech rabbit with a blue collar appears as a subtle "
+                        "bookplate stamp on the open page"
+                    ),
+                    integrated_scene_prompt=(
+                        "An open book page with a subtle bookplate stamp showing "
+                        "a white tech rabbit with a blue collar."
+                    ),
+                    integration_strategy="supporting_integration",
+                    manifestation_form="bookplate stamp",
+                    manifestation_location="inner paper margin",
+                    manifestation_visibility="clear",
+                    manifestation_relationship="supports the book scene without replacing it",
+                    scene_coherence_score=10,
+                    disruption_risk=1,
+                    identity_preservation_score=9,
+                    reason="low disruption",
                 )
             ]
         )
@@ -58,23 +59,26 @@ class RejectedOverlayLLM:
             "visual_anchor_integration_plans": [
                 {
                     "frame_id": "f1",
-                    "candidates": [
-                        {
-                            "carrier_type": "printed_mark",
-                            "anchor_function": "material_signature",
-                            "prominence": "embedded_mark",
-                            "style_relation": "blended",
-                            "placement": "画面右下角",
-                            "support_anchor": "画面角落",
-                            "contact_relation": "悬浮在画面上",
-                            "image_prompt_clause": "右下角蓝领结白兔logo角标",
-                            "scene_coherence_score": 10,
-                            "disruption_risk": 1,
-                            "identity_preservation_score": 9,
-                            "reason": "bad overlay",
-                        }
-                    ],
-                    "selected_index": 0,
+                    "carrier_type": "printed_mark",
+                    "anchor_function": "material_signature",
+                    "prominence": "embedded_mark",
+                    "style_relation": "blended",
+                    "placement": "canvas lower-right corner",
+                    "support_anchor": "canvas corner",
+                    "contact_relation": "floating overlay on the image",
+                    "image_prompt_clause": "lower-right blue-collar rabbit logo corner badge",
+                    "integrated_scene_prompt": "lower-right blue-collar rabbit logo corner badge",
+                    "integration_strategy": "supporting_integration",
+                    "anchor_manifestation": {
+                        "form": "corner badge",
+                        "location": "canvas lower-right corner",
+                        "visibility": "clear",
+                        "relationship": "floating overlay",
+                    },
+                    "scene_coherence_score": 10,
+                    "disruption_risk": 1,
+                    "identity_preservation_score": 9,
+                    "reason": "bad overlay",
                 }
             ]
         }
@@ -116,15 +120,19 @@ class TypedRepairLLM:
                     interaction_target="book page",
                     occlusion_relation="main reading area remains clear",
                     visual_weight_clause="low contrast in-scene material detail",
-                    image_prompt_clause="a dalmatian wearing black sunglasses appears as a subtle bookplate stamp on the open page",
-                    integrated_scene_prompt="An open book page with a subtle bookplate stamp showing a dalmatian wearing black sunglasses.",
-                    integration_strategy="supporting_integration",
-                    anchor_manifestation=MandatoryVisualAnchorIntegrationManifestationResponse(
-                        form="bookplate stamp",
-                        location="inner paper margin",
-                        visibility="clear",
-                        relationship="supports the book scene without replacing it",
+                    image_prompt_clause=(
+                        "a dalmatian wearing black sunglasses appears as a subtle "
+                        "bookplate stamp on the open page"
                     ),
+                    integrated_scene_prompt=(
+                        "An open book page with a subtle bookplate stamp showing "
+                        "a dalmatian wearing black sunglasses."
+                    ),
+                    integration_strategy="supporting_integration",
+                    manifestation_form="bookplate stamp",
+                    manifestation_location="inner paper margin",
+                    manifestation_visibility="clear",
+                    manifestation_relationship="supports the book scene without replacing it",
                     scene_coherence_score=9,
                     disruption_risk=1,
                     identity_preservation_score=9,
@@ -139,9 +147,9 @@ def _profile() -> IPProfile:
         series_visual_signature_profile_id="rabbit",
         workspace_id="ws",
         project_id="prj",
-        name="科技兔子",
+        name="white tech rabbit",
         rendering_style=IPRenderingStyle.STYLIZED_CHARACTER,
-        visual_summary="一只白色科技兔子，蓝色领结，长耳朵，圆润脸型",
+        visual_summary="white tech rabbit with a blue collar",
     )
 
 
@@ -159,15 +167,15 @@ def _ascii_profile() -> IPProfile:
 def _book_brief() -> BaseVisualBrief:
     return BaseVisualBrief(
         frame_id="f1",
-        core_message="书籍介绍",
-        visual_moment="一本打开的书页展示家族故事。",
-        main_subjects=("《百年孤独》书页",),
-        anchor_affordances=("打开的书页纸面",),
-        base_image_prompt="一本打开的书页展示家族故事。",
+        core_message="book introduction",
+        visual_moment="an open book page shows a family story",
+        main_subjects=("open book page",),
+        anchor_affordances=("open book paper surface",),
+        base_image_prompt="an open book page shows a family story",
     )
 
 
-def test_series_visual_signature_anchor_planner_uses_scene_bound_llm_candidate():
+def test_series_visual_signature_anchor_planner_uses_flat_typed_scene_bound_plan():
     plans = asyncio.run(
         VisualAnchorIntegrationPlanner(llm_service=ValidSceneBoundLLM()).plan_batch(
             base_visual_briefs=(_book_brief(),),
@@ -177,11 +185,11 @@ def test_series_visual_signature_anchor_planner_uses_scene_bound_llm_candidate()
 
     assert plans[0].visible
     assert plans[0].anchor_prominence is AnchorProminence.EMBEDDED_MARK
-    assert "白色科技兔子" in plans[0].image_prompt_clause
-    assert "蓝色领结" in plans[0].image_prompt_clause
-    assert "压印" in plans[0].image_prompt_clause
-    assert "角标" not in plans[0].image_prompt_clause
-    assert "水印" not in plans[0].image_prompt_clause
+    assert "white tech rabbit" in plans[0].image_prompt_clause
+    assert "blue collar" in plans[0].image_prompt_clause
+    assert "bookplate stamp" in plans[0].image_prompt_clause
+    assert "corner" not in plans[0].image_prompt_clause
+    assert "watermark" not in plans[0].image_prompt_clause
     assert plans[0].metadata["source"] == "llm_mandatory_series_visual_signature_integration"
 
 
@@ -200,6 +208,7 @@ def test_series_visual_signature_anchor_planner_uses_typed_schema_and_repairs_va
     assert "schema validation failed" in llm.calls[1]["prompt"]
     assert plans[0].visible
     assert "dalmatian wearing black sunglasses" in plans[0].image_prompt_clause
+    assert plans[0].metadata["anchor_manifestation"]["form"] == "bookplate stamp"
 
 
 def test_mandatory_visual_anchor_integration_schema_rejects_legacy_candidate_shape():
@@ -220,6 +229,87 @@ def test_mandatory_visual_anchor_integration_schema_rejects_legacy_candidate_sha
     assert "visual_anchor_integration_plans.0.carrier_type" in fields
 
 
+def test_mandatory_visual_anchor_integration_schema_rejects_malformed_nested_manifestation_shape():
+    with pytest.raises(ValidationError) as exc_info:
+        MandatoryVisualAnchorIntegrationResponse.model_validate(
+            {
+                "visual_anchor_integration_plans": [
+                    {
+                        "frame_id": "f1",
+                        "carrier_type": "bookplate_or_stamp",
+                        "anchor_function": "material_signature",
+                        "prominence": "embedded_mark",
+                        "style_relation": "blended",
+                        "placement": "attached to the inner paper margin",
+                        "support_anchor": "open book page",
+                        "contact_relation": "pressed into the paper surface",
+                        "interaction_target": "book page",
+                        "occlusion_relation": "main reading area remains clear",
+                        "visual_weight_clause": "low contrast in-scene material detail",
+                        "image_prompt_clause": "dalmatian stamp on the open page",
+                        "integrated_scene_prompt": "Open book page with a dalmatian stamp.",
+                        "integration_strategy": "supporting_integration",
+                        "anchor_manifestation": "form",
+                        "location": "inner paper margin",
+                        "visibility": "clear",
+                        "relationship": "supports source intent without replacing it",
+                    }
+                ]
+            }
+        )
+
+    fields = {".".join(str(part) for part in error["loc"]) for error in exc_info.value.errors()}
+    assert "visual_anchor_integration_plans.0.anchor_manifestation" in fields
+    assert "visual_anchor_integration_plans.0.manifestation_form" in fields
+    assert "visual_anchor_integration_plans.0.scene_coherence_score" in fields
+
+
+def test_mandatory_visual_anchor_integration_schema_is_flat_for_qwen_json_mode():
+    schema_text = str(MandatoryVisualAnchorIntegrationResponse.model_json_schema())
+
+    assert "manifestation_form" in schema_text
+    assert "MandatoryVisualAnchorIntegrationManifestationResponse" not in schema_text
+    assert "anchor_manifestation" not in schema_text
+    assert "suppressed" not in schema_text
+    assert "hidden" not in schema_text
+
+
+def test_mandatory_visual_anchor_integration_plan_maps_flat_wire_fields_to_internal_payload():
+    plan = MandatoryVisualAnchorIntegrationPlanResponse(
+        frame_id="f1",
+        carrier_type="bookplate_or_stamp",
+        anchor_function="material_signature",
+        prominence="embedded_mark",
+        style_relation="blended",
+        placement="inner margin",
+        support_anchor="open book page",
+        contact_relation="printed on paper",
+        visual_weight_clause="subtle printed detail",
+        image_prompt_clause="dalmatian stamp on the open page",
+        integrated_scene_prompt="Open book page with a dalmatian stamp.",
+        integration_strategy="supporting_integration",
+        manifestation_form="bookplate stamp",
+        manifestation_location="inner margin",
+        manifestation_visibility="clear",
+        manifestation_relationship="supports the book scene",
+        scene_coherence_score=9,
+        disruption_risk=1,
+        identity_preservation_score=9,
+        reason="mandatory integration",
+    )
+
+    payload = plan.to_plan_payload()
+
+    assert payload["anchor_manifestation"] == {
+        "form": "bookplate stamp",
+        "location": "inner margin",
+        "visibility": "clear",
+        "relationship": "supports the book scene",
+    }
+    assert "manifestation_form" not in payload
+    assert "manifestation_location" not in payload
+
+
 def test_series_visual_signature_anchor_planner_rejects_overlay_candidate_fail_closed():
     with pytest.raises(ValueError, match="forbidden overlay"):
         asyncio.run(
@@ -230,8 +320,8 @@ def test_series_visual_signature_anchor_planner_rejects_overlay_candidate_fail_c
         )
 
 
-def test_series_visual_signature_anchor_planner_repairs_malformed_json_fail_closed():
-    with pytest.raises(ValueError, match="candidates must be an array"):
+def test_series_visual_signature_anchor_planner_rejects_legacy_candidate_array_shape():
+    with pytest.raises(ValueError, match="candidates arrays are not allowed"):
         asyncio.run(
             VisualAnchorIntegrationPlanner(llm_service=MalformedButJsonLLM()).plan_batch(
                 base_visual_briefs=(_book_brief(),),

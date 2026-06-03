@@ -30,5 +30,6 @@ def test_visual_anchor_integration_prompt_renders_with_strict_schema_guards():
     assert "# Strict schema guards" in rendered.text
     assert "Return one selected visible plan object per frame" in rendered.text
     assert "Do not return `candidates`" in rendered.text
-    assert "anchor_manifestation" in rendered.text
+    assert "Do not output an `anchor_manifestation` object" in rendered.text
+    assert "manifestation_form" in rendered.text
     assert "integrated_scene_prompt" in rendered.text

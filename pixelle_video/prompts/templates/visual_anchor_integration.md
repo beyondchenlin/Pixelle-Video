@@ -58,7 +58,9 @@ If `effective_series_visual_signature_mode` is `auto`, choose a visible integrat
 Return one selected visible plan object per frame. Do not return `candidates`,
 `selected_index`, nested candidate arrays, hidden plans, suppressed plans, or
 fallback plans. Every plan must include `integrated_scene_prompt`,
-`image_prompt_clause`, `anchor_manifestation`, and numeric quality scores.
+`image_prompt_clause`, flat `manifestation_*` fields, and numeric quality
+scores. Do not output an `anchor_manifestation` object; use the four flat
+manifestation fields shown below.
 
 Use only these enum values:
 - `carrier_type`: `living_character`, `background_extra`, `prop_object`, `figurine`, `embedded_mark`, `wall_art`, `screen_mark`, `page_mark`, `environment_detail`, `partial_detail`, `printed_mark`, `bookplate_or_stamp`, `embossed_mark`, `engraved_mark`, `surface_graphic`, `decorative_object`, `wearable_symbol`, `small_supporting_prop`, `minor_supporting_character`
@@ -87,12 +89,10 @@ Return exactly one JSON object. Each frame must contain exactly one visible plan
       "image_prompt_clause": "configured identity visibly integrated into the carrier",
       "integrated_scene_prompt": "Final text-to-image prompt that visibly includes the configured identity and preserves source intent.",
       "integration_strategy": "supporting_integration",
-      "anchor_manifestation": {{
-        "form": "scene-bound mark, prop, small supporting character, or primary protagonist when explicitly required",
-        "location": "specific physical location inside the scene",
-        "visibility": "clear",
-        "relationship": "supports source intent without replacing it unless subject_replacement is required"
-      }},
+      "manifestation_form": "scene-bound mark, prop, small supporting character, or primary protagonist when explicitly required",
+      "manifestation_location": "specific physical location inside the scene",
+      "manifestation_visibility": "clear",
+      "manifestation_relationship": "supports source intent without replacing it unless subject_replacement is required",
       "scene_coherence_score": 9,
       "disruption_risk": 1,
       "identity_preservation_score": 9,
