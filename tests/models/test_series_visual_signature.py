@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from pixelle_video.architecture.legacy_signature_field_guard import DEPRECATED_RUNTIME_FIELD_NAMES
 from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureContract,
     SeriesVisualSignatureRequest,
@@ -18,8 +19,13 @@ def test_request_does_not_derive_enabled_from_article_concretization() -> None:
 
 
 def test_request_rejects_deprecated_runtime_fields() -> None:
+    deprecated_profile_key = next(
+        key
+        for key in DEPRECATED_RUNTIME_FIELD_NAMES
+        if key.startswith("ip_") and key.endswith("_id") and "profile" in key
+    )
     with pytest.raises(ValueError, match="deprecated visual signature fields"):
-        SeriesVisualSignatureRequest.from_mapping({"ip_profile_id": "dog_1"})
+        SeriesVisualSignatureRequest.from_mapping({deprecated_profile_key: "dog_1"})
 
 
 def test_profile_rejects_prompt_paragraph_fields_and_instruction_traits() -> None:

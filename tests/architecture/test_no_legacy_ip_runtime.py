@@ -33,6 +33,7 @@ FORBIDDEN_TOKENS = (
 SCAN_ROOTS = ("api", "pixelle_video", "web")
 SCAN_SUFFIXES = (".py", ".json", ".yaml", ".yml", ".toml")
 ALLOWLIST_PARTS = (
+    "pixelle_video/architecture/asset_bible_persistence_compat.py",
     "pixelle_video/architecture/legacy_signature_field_guard.py",
     "tests/architecture/test_no_legacy_ip_runtime.py",
     "docs/migration/",

@@ -3,10 +3,12 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from pixelle_video.architecture.asset_bible_persistence_compat import LEGACY_IP_PROFILE_ID_FIELD
+
 DEPRECATED_RUNTIME_FIELD_NAMES = frozenset(
     {
         "ip_enabled",
-        "ip_profile_id",
+        LEGACY_IP_PROFILE_ID_FIELD,
         "ip_asset_bible_id",
         "visual_role_strategy",
         "visual_role_mode",

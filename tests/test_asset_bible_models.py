@@ -1,6 +1,6 @@
 import pytest
 
-from pixelle_video.architecture.legacy_signature_field_guard import DEPRECATED_RUNTIME_FIELD_NAMES
+from pixelle_video.architecture.asset_bible_persistence_compat import LEGACY_IP_PROFILE_ID_FIELD
 from pixelle_video.models.asset_bible import (
     AssetBible,
     CharacterProfile,
@@ -97,16 +97,9 @@ def test_asset_bible_round_trips_ip_and_visual_assets():
 
 
 def test_ip_profile_from_dict_migrates_legacy_profile_id_field():
-    legacy_profile_id_key = next(
-        field_name
-        for field_name in DEPRECATED_RUNTIME_FIELD_NAMES
-        if field_name.startswith("ip_")
-        and field_name.endswith("_id")
-        and "profile" in field_name
-    )
     profile = IPProfile.from_dict(
         {
-            legacy_profile_id_key: "ip_main",
+            LEGACY_IP_PROFILE_ID_FIELD: "ip_main",
             "workspace_id": "workspace_1",
             "project_id": "project_1",
             "name": "Pixelle Demo",
@@ -116,7 +109,24 @@ def test_ip_profile_from_dict_migrates_legacy_profile_id_field():
     payload = profile.to_dict()
     assert profile.series_visual_signature_profile_id == "ip_main"
     assert payload["series_visual_signature_profile_id"] == "ip_main"
-    assert legacy_profile_id_key not in payload
+    assert LEGACY_IP_PROFILE_ID_FIELD not in payload
+
+
+def test_ip_profile_from_dict_prefers_series_visual_signature_profile_id():
+    profile = IPProfile.from_dict(
+        {
+            "series_visual_signature_profile_id": "signature_main",
+            LEGACY_IP_PROFILE_ID_FIELD: "legacy_main",
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "name": "Pixelle Demo",
+        }
+    )
+
+    payload = profile.to_dict()
+    assert profile.series_visual_signature_profile_id == "signature_main"
+    assert payload["series_visual_signature_profile_id"] == "signature_main"
+    assert LEGACY_IP_PROFILE_ID_FIELD not in payload
 
 
 @pytest.mark.parametrize(

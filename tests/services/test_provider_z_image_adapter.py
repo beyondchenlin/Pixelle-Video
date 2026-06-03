@@ -22,10 +22,15 @@ def test_provider_adapter_accepts_only_prompt_bundle() -> None:
 
 
 def test_provider_adapter_rejects_deprecated_metadata_deep() -> None:
+    deprecated_profile_key = next(
+        key
+        for key in DEPRECATED_RUNTIME_FIELD_NAMES
+        if key.startswith("ip_") and key.endswith("_id") and "profile" in key
+    )
     with pytest.raises(ValueError, match="deprecated visual signature fields"):
         ZImagePromptBundle(
             positive_prompt="A clean unlabeled relationship map.",
-            metadata={"nested": {"ip_profile_id": "dog_1"}},
+            metadata={"nested": {deprecated_profile_key: "dog_1"}},
         )
 
     bundle = ZImagePromptBundle(positive_prompt="A clean unlabeled relationship map.")

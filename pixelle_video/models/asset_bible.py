@@ -8,7 +8,9 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
-from pixelle_video.architecture.legacy_signature_field_guard import DEPRECATED_RUNTIME_FIELD_NAMES
+from pixelle_video.architecture.asset_bible_persistence_compat import (
+    resolve_series_visual_signature_profile_id_from_payload,
+)
 
 _HEX_COLOR_RE = re.compile(r"(?<![0-9a-fA-F])#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])")
 
@@ -197,14 +199,6 @@ class IPProfile:
             visible_text_whitelist=_payload_sequence_or_default(payload.get("visible_text_whitelist")),
             metadata=payload.get("metadata") or {},
         )
-
-
-def resolve_series_visual_signature_profile_id_from_payload(payload: Mapping[str, Any]) -> str:
-    _require_mapping("IPProfile", payload)
-    return _first_text(
-        payload.get("series_visual_signature_profile_id"),
-        payload.get(_legacy_profile_identifier_field_name()),
-    )
 
 
 @dataclass(frozen=True)
@@ -526,23 +520,6 @@ class AssetBible:
 def _require_mapping(type_name: str, payload: Mapping[str, Any]) -> None:
     if not isinstance(payload, Mapping):
         raise ValueError(f"{type_name} payload must be a mapping")
-
-
-def _first_text(*values: Any) -> str:
-    for value in values:
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
-
-
-def _legacy_profile_identifier_field_name() -> str:
-    return next(
-        field_name
-        for field_name in DEPRECATED_RUNTIME_FIELD_NAMES
-        if field_name.startswith("ip_")
-        and field_name.endswith("_id")
-        and "profile" in field_name
-    )
 
 
 def _require_non_empty(field_name: str, value: Any) -> str:

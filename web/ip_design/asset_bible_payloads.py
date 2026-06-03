@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pixelle_video.models.asset_bible import resolve_series_visual_signature_profile_id_from_payload
+from pixelle_video.architecture.asset_bible_persistence_compat import (
+    resolve_series_visual_signature_profile_id_from_payload,
+)
 
 from .models import (
     AssetBibleDraft,
