@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pixelle_video.models.asset_bible import resolve_series_visual_signature_profile_id_from_payload
+
 from .models import (
     AssetBibleDraft,
     CharacterProfileDraft,
@@ -16,7 +18,7 @@ from .models import (
 
 def _to_ip_profile_draft(data: dict[str, Any]) -> IPProfileDraft:
     return IPProfileDraft(
-        series_visual_signature_profile_id=data.get("series_visual_signature_profile_id", ""),
+        series_visual_signature_profile_id=resolve_series_visual_signature_profile_id_from_payload(data),
         name=data.get("name", ""),
         ip_type=data.get("ip_type") or "cartoon_animal",
         logline=data.get("logline", ""),
