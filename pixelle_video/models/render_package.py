@@ -391,7 +391,7 @@ class RenderManifest:
     template_display: TemplateDisplaySettings = field(
         default_factory=TemplateDisplaySettings
     )
-    caption_rendering_enabled: bool = False
+    caption_rendering_enabled: bool = True
     caption_renderer_targets: List[str] = field(
         default_factory=lambda: ["hyperframes", "ass"]
     )
@@ -426,7 +426,7 @@ class RenderManifest:
         sentence_units: Optional[List[SentenceUnit]] = None,
         visual_clips: Optional[List[VisualClip]] = None,
         template_display: TemplateDisplaySettings | Mapping[str, Any] | None = None,
-        caption_rendering_enabled: bool = False,
+        caption_rendering_enabled: bool = True,
         caption_renderer_targets: Optional[List[str]] = None,
         caption_cues: Optional[List[CaptionCue]] = None,
         text_style_profiles: Optional[List[TextStyleProfile]] = None,
@@ -575,7 +575,7 @@ class RenderManifest:
             sentence_units=[SentenceUnit.from_dict(item) for item in data.get("sentence_units", [])],
             visual_clips=[VisualClip.from_dict(item) for item in data.get("visual_clips", [])],
             template_display=data.get("template_display"),
-            caption_rendering_enabled=bool(data.get("caption_rendering_enabled", False)),
+            caption_rendering_enabled=bool(data.get("caption_rendering_enabled", True)),
             caption_renderer_targets=list(
                 data.get("caption_renderer_targets", ["hyperframes", "ass"])
             ),

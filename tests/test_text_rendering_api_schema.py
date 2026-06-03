@@ -68,14 +68,14 @@ def test_text_rendering_request_accepts_caption_enabled_toggle():
     assert result.caption_settings.enabled is True
 
 
-def test_text_rendering_request_disables_caption_by_default():
+def test_text_rendering_request_enables_caption_by_default():
     request = TextRenderingRequest.model_validate({})
     payload = request.model_dump(exclude_none=True)
 
     result = TextRenderingOrchestrator().build(text_rendering=payload)
 
-    assert payload["caption"] == {"enabled": False}
-    assert result.caption_settings.enabled is False
+    assert payload["caption"] == {"enabled": True}
+    assert result.caption_settings.enabled is True
 
 
 def test_title_style_forbids_unknown_fields_like_caption_style():

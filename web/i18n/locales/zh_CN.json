@@ -943,7 +943,7 @@
     "caption_style.title": "字幕样式",
     "caption_style.tab": "字幕",
     "caption_rendering.enabled": "显示字幕",
-    "caption_rendering.enabled_help": "开启后在最终视频中渲染底部字幕；默认关闭。",
+    "caption_rendering.enabled_help": "开启后在最终视频中渲染底部字幕；默认开启。",
     "caption_style.font_family": "字体",
     "caption_style.font_family_help": "将字体文件放到项目根目录的 fonts/（首选），也兼容 font/ 和 resource/fonts/。下拉框会优先显示字体文件的内部家族名，例如 Noto Sans CJK SC；如果字体不生效，请确认字体文件的内部家族名与这里一致。",
     "caption_style.font_size": "字号",

@@ -301,7 +301,7 @@ def build_text_rendering_payload(
     overlay_policy: dict | None,
     suppress_embedded_text: bool,
     positive_prompt: str,
-    caption_enabled: bool = False,
+    caption_enabled: bool = True,
     caption_style: dict | None = None,
     title_style: dict | None = None,
     overlay_style: dict | None = None,
@@ -688,7 +688,7 @@ def render_text_rendering_controls(
             **_widget_default_kwargs(
                 ui,
                 "caption_rendering_enabled",
-                value=_session_value(ui, "caption_rendering_enabled", False),
+                value=_session_value(ui, "caption_rendering_enabled", True),
             ),
         )
 

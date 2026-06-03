@@ -23,10 +23,10 @@ def test_caption_settings_separate_caption_overlay_and_image_text():
     assert settings.renderer_targets == ("hyperframes", "ass")
 
 
-def test_caption_settings_default_to_disabled():
+def test_caption_settings_default_to_enabled():
     settings = CaptionRenderingSettings()
 
-    assert settings.enabled is False
+    assert settings.enabled is True
 
 
 @pytest.mark.parametrize(

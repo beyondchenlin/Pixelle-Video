@@ -1245,7 +1245,7 @@ def test_build_text_rendering_payload_defaults_image_text_suppression_off():
     )
 
     assert payload == {
-        "caption": {"enabled": False},
+        "caption": {"enabled": True},
         "overlay": {"enabled": False},
         "image_text": {
             "suppress_embedded_text": False,
@@ -1273,6 +1273,8 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
 
     def _checkbox(label, value=False, key=None, **kwargs):
         fake_st.checkbox_calls.append({"label": label, "value": value, "key": key, **kwargs})
+        if key == "caption_rendering_enabled":
+            return value
         return key in {"text_layer_enabled", "image_text_suppress_embedded_text"}
 
     def _radio(label, options, index=0, key=None, **kwargs):
@@ -1307,7 +1309,7 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
         "density": "low",
         "max_items_per_frame": 1,
     }
-    assert policy["caption"] == {"enabled": False}
+    assert policy["caption"] == {"enabled": True}
     assert policy["caption_style"] == {
         "font_family": "Noto Sans CJK SC",
         "font_size": 1,

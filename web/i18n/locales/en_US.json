@@ -946,7 +946,7 @@
     "caption_style.title": "Caption Style",
     "caption_style.tab": "Caption",
     "caption_rendering.enabled": "Show captions",
-    "caption_rendering.enabled_help": "Render bottom captions in the final video. Off by default.",
+    "caption_rendering.enabled_help": "Render bottom captions in the final video. On by default.",
     "caption_style.font_family": "Font family",
     "caption_style.font_family_help": "Place font files under the project-root fonts/ directory (preferred). font/ and resource/fonts/ are also checked. The dropdown uses the font file's internal family name when available, for example Noto Sans CJK SC; if it does not take effect, confirm the internal family name matches this value.",
     "caption_style.font_size": "Font size",

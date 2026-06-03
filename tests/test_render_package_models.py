@@ -217,7 +217,7 @@ def test_render_manifest_preserves_explicit_empty_caption_renderer_targets():
     restored = RenderManifest.from_dict(manifest.to_dict())
 
     assert restored.caption_renderer_targets == []
-    assert restored.caption_rendering_enabled is False
+    assert restored.caption_rendering_enabled is True
 
 
 def test_render_manifest_round_trips_template_display_settings():

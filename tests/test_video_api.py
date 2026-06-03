@@ -208,7 +208,7 @@ def test_video_generate_request_accepts_text_rendering_policy():
     )
 
     assert request.text_rendering.overlay.enabled is True
-    assert request.text_rendering.caption.enabled is False
+    assert request.text_rendering.caption.enabled is True
     assert request.text_rendering.image_text.suppress_embedded_text is True
     assert request.text_rendering.image_text.positive_prompt == "no letters in image"
 
@@ -1506,7 +1506,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "diagram_approved_labels": [],
             "diagram_user_intent_hint": None,
             "text_rendering": {
-                "caption": {"enabled": False},
+                "caption": {"enabled": True},
                 "overlay": {
                     "enabled": True,
                     "mode": "programmatic_only",
@@ -1673,7 +1673,7 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
     assert "no visible text" in text_rendering["image_text"]["positive_prompt"]
     assert "no watermark" in text_rendering["image_text"]["positive_prompt"]
     assert text_rendering["image_text"]["negative_prompt"] == "letters"
-    assert text_rendering["caption"] == {"enabled": False}
+    assert text_rendering["caption"] == {"enabled": True}
     assert "caption_style" not in text_rendering
     assert "overlay_style" not in text_rendering
     assert fake_pixelle_video.calls == []

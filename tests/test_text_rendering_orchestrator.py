@@ -39,14 +39,14 @@ def test_orchestrator_builds_caption_style_when_overlay_disabled_and_preserves_i
     assert result.image_text_policy.positive_prompt == "avoid visible writing"
 
 
-def test_orchestrator_disables_caption_rendering_by_default():
+def test_orchestrator_enables_caption_rendering_by_default():
     result = TextRenderingOrchestrator().build(
         text_rendering={},
         narrations=["first narration"],
         task_id="task-caption-default",
     )
 
-    assert result.caption_settings.enabled is False
+    assert result.caption_settings.enabled is True
 
 
 def test_orchestrator_builds_overlay_plan_only_when_enabled_with_programmatic_targets():

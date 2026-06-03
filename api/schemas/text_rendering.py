@@ -47,7 +47,7 @@ class ImageTextPolicyRequest(BaseModel):
 class CaptionRenderingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
+    enabled: bool = True
 
 
 class TextStyleProfileRequest(BaseModel):
