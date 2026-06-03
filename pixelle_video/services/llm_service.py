@@ -790,6 +790,8 @@ class LLMService:
         Returns:
             Parsed model instance
         """
+        logger.debug(f"Parsing LLM response as {response_type.__name__}, content length: {len(content)} chars")
+        
         try:
             data = parse_llm_json_response(
                 content,
@@ -797,8 +799,23 @@ class LLMService:
                 allow_embedded_json=False,
             )
             return response_type.model_validate(data)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error when parsing LLM response: {e}")
+            # 限制日志长度，避免大响应导致日志过大
+            max_log_len = 2000
+            if len(content) <= max_log_len:
+                logger.error(f"Raw response content: {content!r}")
+            else:
+                logger.error(f"Raw response content (first {max_log_len} chars): {content[:max_log_len]!r}")
+                logger.error(f"... (truncated, total length: {len(content)} chars)")
+        except Exception as e:
+            logger.error(f"Unexpected error when parsing LLM response: {type(e).__name__}: {e}")
+            max_log_len = 2000
+            if len(content) <= max_log_len:
+                logger.error(f"Raw response content: {content!r}")
+            else:
+                logger.error(f"Raw response content (first {max_log_len} chars): {content[:max_log_len]!r}")
+                logger.error(f"... (truncated, total length: {len(content)} chars)")
         
         raise ValueError(f"Failed to parse LLM response as {response_type.__name__}: {content[:200]}...")
 
