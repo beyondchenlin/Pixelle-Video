@@ -174,7 +174,21 @@ if ($listener) {
         if (-not (Test-ManagedComfyUIProcess $config $listenerPid)) {
             $listenerInfo = Get-ProcessInfo $listenerPid
             $listenerCommandLine = if ($listenerInfo) { $listenerInfo.CommandLine } else { 'unknown' }
-            throw "Port $($config.HostAddress):$($config.Port) is owned by PID $listenerPid, but that process is not the Pixelle-managed ComfyUI backend. Refusing to stop it. Command line: $listenerCommandLine"
+            Remove-BackendPidFiles $config
+            $payload = [ordered]@{
+                stopped = $false
+                reason = 'listener_owned_by_unmanaged_process'
+                requires_manual_restart = $true
+                pid = $managedPid
+                listener_pid = $listenerPid
+                launcher_pid = $launcherPid
+                pid_file = $pidFile
+                launcher_pid_file = $launcherPidFile
+                command_line = $listenerCommandLine
+            }
+            $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
+            Write-BackendMessage -Json:$Json -Payload $payload -Message "Port $($config.HostAddress):$($config.Port) is owned by unmanaged PID $listenerPid. Skipped automatic stop."
+            exit 0
         }
         Stop-ManagedComfyUIProcess $config $listenerPid | Out-Null
         $stoppedListener = $true

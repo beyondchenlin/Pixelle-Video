@@ -227,7 +227,14 @@ function Get-CommandLineValueVariants {
     param([string]$Value)
 
     $variants = New-Object System.Collections.Generic.List[string]
-    foreach ($candidate in @($Value, ($Value -replace '\\', '/'))) {
+    if (-not $Value) {
+        return [string[]]$variants.ToArray()
+    }
+
+    $slashVariant = $Value.Replace('\', '/')
+    $backslashVariant = $Value.Replace('/', '\')
+
+    foreach ($candidate in @($Value, $slashVariant, $backslashVariant)) {
         if ($candidate -and -not $variants.Contains($candidate)) {
             [void]$variants.Add($candidate)
         }

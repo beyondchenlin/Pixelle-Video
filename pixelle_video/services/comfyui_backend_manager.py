@@ -90,7 +90,27 @@ class ManagedComfyUIBackend:
             return False
 
         logger.warning(f"Restarting Pixelle-managed ComfyUI backend ({reason})")
-        await self.stop(reason=reason)
+        try:
+            stop_result = await self.stop(reason=reason)
+        except RuntimeError as exc:
+            if self.management_mode == "required" or not _is_unmanaged_backend_stop_error(exc):
+                raise
+            logger.warning(
+                "Skipping Pixelle-managed ComfyUI backend restart because the running backend "
+                f"is not owned by Pixelle ({reason}): {exc}"
+            )
+            return False
+
+        if _backend_result_requires_manual_restart(stop_result):
+            message = (
+                "Pixelle-managed ComfyUI backend restart was skipped because the running backend "
+                f"is not owned by Pixelle ({reason}): {stop_result.payload}"
+            )
+            if self.management_mode == "required":
+                raise RuntimeError(message)
+            logger.warning(message)
+            return False
+
         await self.start(reason=reason)
         return True
 
@@ -269,3 +289,20 @@ class ManagedComfyUIBackend:
         except json.JSONDecodeError:
             return {"raw_stdout": stripped}
         return payload if isinstance(payload, dict) else {"raw_stdout": payload}
+
+
+def _backend_result_requires_manual_restart(result: ComfyUIBackendCommandResult) -> bool:
+    payload = result.payload or {}
+    return bool(
+        payload.get("requires_manual_restart")
+        or payload.get("manual_restart_required")
+    )
+
+
+def _is_unmanaged_backend_stop_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "not the pixelle-managed comfyui backend" in message
+        or "requires_manual_restart" in message
+        or "manual restart" in message
+    )
