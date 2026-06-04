@@ -65,7 +65,7 @@ function Resolve-PixelleComfyUIBackendConfig {
 
     $repoRoot = Get-PixelleRepoRoot
     $resolvedDataRoot = Resolve-BackendValue $DataRoot 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData'
-    $sharedBasePath = $resolvedDataRoot
+    $sharedBasePath = Resolve-BackendValue '' 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData'
     $resolvedComfyUIRoot = Resolve-BackendValue $ComfyUIRoot 'PIXELLE_COMFYUI_ROOT' 'E:\comfyui\resources\ComfyUI'
     $defaultFrontEndRoot = Join-Path $resolvedComfyUIRoot 'web_custom_versions\desktop_app'
     $defaultDatabaseUrl = ConvertTo-SqliteUrl (Join-Path $resolvedDataRoot 'user\comfyui.db')
