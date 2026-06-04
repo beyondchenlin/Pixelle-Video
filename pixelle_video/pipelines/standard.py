@@ -1,4 +1,4 @@
-﻿# Copyright (C) 2025 AIDC-AI
+# Copyright (C) 2025 AIDC-AI
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -320,6 +320,29 @@ def _size_params_with_template_defaults(params: Mapping[str, Any]) -> dict[str, 
     return size_params
 
 
+def _params_with_visual_profile_defaults(params: Mapping[str, Any]) -> dict[str, Any]:
+    resolved = dict(params or {})
+    profile_id = resolved.get("visual_profile_id")
+    inline_profile = resolved.get("visual_profile")
+    if not profile_id and not inline_profile:
+        return resolved
+    from pixelle_video.services.visual_profile_registry import resolve_visual_profile
+
+    profile = resolve_visual_profile(
+        profile_id=profile_id,
+        inline_profile=inline_profile,
+    )
+    if profile is None:
+        return resolved
+    for key, value in profile.template_defaults().items():
+        if value is not None and resolved.get(key) is None:
+            resolved[key] = value
+    for key, value in profile.planning_defaults.items():
+        if value is not None and resolved.get(key) in (None, ""):
+            resolved[key] = value
+    return resolved
+
+
 def _resolve_template_type_from_params(
     params: Mapping[str, Any],
     frame_template: str | None,
@@ -611,6 +634,7 @@ class StandardPipeline(LinearVideoPipeline):
 
     async def plan_visuals(self, ctx: PipelineContext):
         """Step 4: Generate image prompts or visual descriptions."""
+        ctx.params = _params_with_visual_profile_defaults(ctx.params)
         storyboard_contract = StoryboardControlsContract.from_mapping(
             ctx.params,
             default_prompt_language=DEFAULT_PROMPT_LANGUAGE,
@@ -715,6 +739,10 @@ class StandardPipeline(LinearVideoPipeline):
                 progress_callback=image_prompt_progress,
                 world_preset_id=storyboard_contract.world_preset_id,
                 generation_world_hint=storyboard_contract.generation_world_hint,
+                visual_profile_id=ctx.params.get("visual_profile_id"),
+                visual_profile=ctx.params.get("visual_profile"),
+                visual_quality_gate_enabled=ctx.params.get("visual_quality_gate_enabled", True),
+                visual_quality_gate_strict=ctx.params.get("visual_quality_gate_strict", False),
                 shot_preset_id=storyboard_contract.shot_preset_id,
                 consistency_strength=storyboard_contract.consistency_strength or "standard",
                 content_mode=storyboard_contract.content_mode,
@@ -790,6 +818,7 @@ class StandardPipeline(LinearVideoPipeline):
 
     async def initialize_storyboard(self, ctx: PipelineContext):
         """Step 5: Create Storyboard object and frames."""
+        ctx.params = _params_with_visual_profile_defaults(ctx.params)
         # === Handle TTS parameter compatibility ===
         tts_inference_mode = ctx.params.get("tts_inference_mode")
         tts_voice = ctx.params.get("tts_voice")
@@ -865,6 +894,10 @@ class StandardPipeline(LinearVideoPipeline):
             template_display=ctx.params.get("template_display"),
             layered_template_spec=ctx.params.get("layered_template_spec"),
             selected_template_preset_id=ctx.params.get("selected_template_preset_id"),
+            visual_profile_id=ctx.params.get("visual_profile_id"),
+            visual_profile=ctx.params.get("visual_profile"),
+            visual_quality_gate_enabled=ctx.params.get("visual_quality_gate_enabled", True),
+            visual_quality_gate_strict=ctx.params.get("visual_quality_gate_strict", False),
             **build_storyboard_config_planning_kwargs(ctx.planning_snapshot, planning_params),
         )
         

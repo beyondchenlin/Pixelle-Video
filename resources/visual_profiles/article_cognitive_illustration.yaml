@@ -1,0 +1,52 @@
+id: article_cognitive_illustration
+name: Article Cognitive Illustration
+description: Generic article-to-illustration profile for explanatory metaphor-first visuals.
+canvas_width: 1920
+canvas_height: 1080
+media_width: 1920
+media_height: 1080
+frame_template: 1920x1080/image_white_canvas_illustration.html
+template_text_policy: none
+template_display:
+  show_title: false
+  show_signature: false
+planning_defaults:
+  content_mode: concept_explainer
+  role_strategy: stable_explainer_cast
+  role_locking_strength: strong
+  shot_strategy: cognitive_anchor
+positive_prompt_rules:
+  - 16:9 horizontal editorial illustration for a Chinese article
+  - one clear cognitive anchor per frame: judgment, process, state, or metaphor
+  - single visual idea, strong negative space, readable at thumbnail size
+  - avoid decorative characters; every visible subject must serve the idea
+composition_rules:
+  - main subject occupies roughly 40%-60% of the canvas
+  - clean foreground/midground/background separation
+  - large uncluttered white or very light background area
+visible_text_rules:
+  - visible text is optional and must be sparse, short, and intentionally placed
+  - prefer rendering exact Chinese text in the template layer when precision matters
+negative_prompt_rules:
+  - PPT slide
+  - infographic
+  - formal flowchart
+  - commercial vector art
+  - UI screenshot
+  - dense text
+  - top-left big title
+  - gradient background
+  - heavy shadow
+  - paper texture
+  - crowded composition
+required_prompt_terms:
+  - 16:9
+  - cognitive anchor
+forbidden_prompt_terms:
+  - PPT
+  - infographic
+  - flowchart
+  - UI screenshot
+repair_prompt_clauses:
+  - 'Repair: simplify to one visual metaphor and remove slide-like layout.'
+  - 'Repair: keep the background plain and leave large negative space.'

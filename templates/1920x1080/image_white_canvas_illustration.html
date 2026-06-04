@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="template:media-width" content="1920" />
+  <meta name="template:media-height" content="1080" />
+  <style>
+    html, body {
+      margin: 0;
+      width: 1920px;
+      height: 1080px;
+      background: transparent;
+      overflow: hidden;
+    }
+    .pixelle-canvas {
+      position: relative;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    .pixelle-canvas [data-pixelle-media-box],
+    .pixelle-media-box {
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="pixelle-canvas" aria-label="visual illustration canvas">
+    {{pixelle_media_layer}}
+  </main>
+</body>
+</html>

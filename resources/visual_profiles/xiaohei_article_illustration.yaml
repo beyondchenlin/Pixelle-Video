@@ -1,0 +1,57 @@
+id: xiaohei_article_illustration
+name: Xiaohei Article Illustration
+description: Xiaohei-style low-tech absurd hand-drawn article illustration profile.
+canvas_width: 1920
+canvas_height: 1080
+media_width: 1920
+media_height: 1080
+frame_template: 1920x1080/image_white_canvas_illustration.html
+template_text_policy: none
+template_display:
+  show_title: false
+  show_signature: false
+planning_defaults:
+  content_mode: concept_explainer
+  role_strategy: stable_explainer_cast
+  role_locking_strength: strong
+  shot_strategy: cognitive_anchor
+positive_prompt_rules:
+  - 16:9 horizontal Chinese article body illustration
+  - pure white background, black hand-drawn wobbly line art, minimal low-tech absurd metaphor
+  - Xiaohei is a small solid black creature with white dot eyes and tiny thin legs
+  - Xiaohei must perform the core action of the scene, never stand aside as decoration
+  - one cognitive anchor only: judgment, process, state, or metaphor
+composition_rules:
+  - large empty white space, one central action, no complex environment
+  - main subject occupies roughly 40%-60% of the frame
+  - use only sparse red, orange, or blue handwritten Chinese labels when labels are necessary
+visible_text_rules:
+  - no big title in the top-left corner
+  - at most 3-5 short Chinese labels; avoid full sentences inside the image
+negative_prompt_rules:
+  - PPT
+  - infographic
+  - formal flowchart
+  - business vector illustration
+  - cute mascot
+  - children book style
+  - realistic photo
+  - complex background
+  - gradient
+  - shadow
+  - paper texture
+  - dense Chinese text
+  - top-left big title
+required_prompt_terms:
+  - Xiaohei
+  - white background
+  - core action
+forbidden_prompt_terms:
+  - PPT
+  - infographic
+  - flowchart
+  - cute mascot
+  - children book
+repair_prompt_clauses:
+  - 'Repair: Xiaohei must be visibly doing the core action in the metaphor.'
+  - 'Repair: remove PPT layout, big title, dense labels, gradient, shadow, and decorative background.'

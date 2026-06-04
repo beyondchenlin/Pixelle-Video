@@ -751,18 +751,24 @@ class FrameProcessor:
     ) -> str:
         """Compose frame using HTML template"""
         from pixelle_video.services.template_visual_materializer import TemplateVisualMaterializer
+        from pixelle_video.models.template_text_policy import (
+            resolve_caption_renderer_text,
+            resolve_template_text_policy_for_body_override,
+        )
         from pixelle_video.utils.template_util import resolve_template_path
 
         # Resolve template path (handles various input formats)
         template_path = resolve_template_path(config.frame_template)
-        text_policy = getattr(config, "template_text_policy", "caption_renderer")
-        if template_body_text is not None:
-            text_policy = "template_body" if template_body_text else "caption_renderer"
+        text_policy = resolve_template_text_policy_for_body_override(
+            getattr(config, "template_text_policy", "caption_renderer"),
+            template_body_text,
+        )
         body_text = _format_template_body_text(
             frame.narration,
             template_body_text,
             punctuation_mode=config.caption_punctuation_mode,
         )
+        caption_text = resolve_caption_renderer_text(body_text, text_policy)
 
         # Use video_path for video media, image_path for images
         media_path = frame.video_path if frame.media_type == "video" else frame.image_path
@@ -771,7 +777,7 @@ class FrameProcessor:
         asset = await TemplateVisualMaterializer().materialize_frame(
             title=storyboard.title,
             template_body_text=body_text,
-            caption_text=body_text,
+            caption_text=caption_text,
             media_path=media_path,
             frame_index=frame.index,
             template_path=template_path,

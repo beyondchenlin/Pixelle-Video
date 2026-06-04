@@ -30,6 +30,10 @@ from pixelle_video.models.size_contract import (
 )
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
 from pixelle_video.models.template_display import TemplateDisplaySettings
+from pixelle_video.models.template_text_policy import (
+    VALID_TEMPLATE_TEXT_POLICIES,
+    normalize_template_text_policy,
+)
 from pixelle_video.models.video_generation_contract import StoryboardControlsContract
 from pixelle_video.prompt_language import (
     DEFAULT_PROMPT_LANGUAGE,
@@ -52,12 +56,7 @@ from pixelle_video.utils.text_splitting import (
 
 VALID_ELEMENT_ANIMATION_BACKENDS = {"hyperframes_canvas", "python_ffmpeg"}
 VALID_ELEMENT_ANIMATION_INTENSITIES = {"low", "medium", "high"}
-VALID_TEMPLATE_TEXT_POLICIES = {
-    "caption_renderer",
-    "template_body",
-    "none",
-    "explicit_both",
-}
+# VALID_TEMPLATE_TEXT_POLICIES is imported from template_text_policy to keep all renderers aligned.
 
 
 @dataclass
@@ -135,6 +134,10 @@ class StoryboardConfig:
     layered_template_spec: Optional[Dict[str, Any]] = None
     selected_template_preset_id: Optional[str] = None
     template_text_policy: str = "caption_renderer"
+    visual_profile_id: Optional[str] = None
+    visual_profile: Optional[Dict[str, Any]] = None
+    visual_quality_gate_enabled: bool = True
+    visual_quality_gate_strict: bool = False
     world_preset_id: Optional[str] = None
     shot_preset_id: Optional[str] = None
     storyboard_prompt_language: Optional[PromptLanguage] = None
@@ -190,11 +193,13 @@ class StoryboardConfig:
                 "element_animation_intensity must be one of "
                 f"{sorted(VALID_ELEMENT_ANIMATION_INTENSITIES)}"
             )
-        if self.template_text_policy not in VALID_TEMPLATE_TEXT_POLICIES:
-            raise ValueError(
-                "template_text_policy must be one of "
-                f"{sorted(VALID_TEMPLATE_TEXT_POLICIES)}"
-            )
+        self.template_text_policy = normalize_template_text_policy(self.template_text_policy)
+        self.visual_quality_gate_enabled = bool(self.visual_quality_gate_enabled)
+        self.visual_quality_gate_strict = bool(self.visual_quality_gate_strict)
+        if self.visual_profile is not None:
+            if not isinstance(self.visual_profile, Mapping):
+                raise ValueError("visual_profile must be a mapping")
+            self.visual_profile = dict(self.visual_profile)
         self.template_display = TemplateDisplaySettings.from_mapping(
             self.template_display
         )

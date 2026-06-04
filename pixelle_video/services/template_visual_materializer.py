@@ -14,24 +14,18 @@ from pixelle_video.models.template_display import (
     resolve_template_params_and_display,
 )
 from pixelle_video.models.template_parameters import validate_template_params
+from pixelle_video.models.template_text_policy import (
+    VALID_TEMPLATE_TEXT_POLICIES,
+    resolve_caption_renderer_text,
+    resolve_template_body_text,
+)
 from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 from pixelle_video.services.frame_html import HTMLFrameGenerator
 from pixelle_video.services.layered_template_adapters.html_frame import (
     LayeredTemplateHTMLFrameAdapter,
 )
 
-VALID_TEMPLATE_TEXT_POLICIES = {
-    "caption_renderer",
-    "template_body",
-    "none",
-    "explicit_both",
-}
-def resolve_template_body_text(template_body_text: str, text_policy: str) -> str:
-    if text_policy not in VALID_TEMPLATE_TEXT_POLICIES:
-        raise ValueError(f"Invalid template text policy: {text_policy}")
-    if text_policy in {"template_body", "explicit_both"}:
-        return template_body_text
-    return ""
+# Text policy constants and routing are centralized in models.template_text_policy.
 
 
 class TemplateVisualMaterializer:
@@ -60,6 +54,10 @@ class TemplateVisualMaterializer:
         layered_template_spec: LayeredTemplateSpec | Mapping[str, Any] | None = None,
     ) -> TemplateVisualAsset:
         body_text = resolve_template_body_text(template_body_text, text_policy)
+        caption_render_text = resolve_caption_renderer_text(
+            caption_text if caption_text is not None else template_body_text,
+            text_policy,
+        )
         raw_template_params, display_settings = resolve_template_params_and_display(
             template_params,
             template_display,
@@ -76,7 +74,7 @@ class TemplateVisualMaterializer:
                 spec=spec,
                 output_path=output_path,
                 title_text=render_title,
-                caption_text=caption_text if caption_text is not None else body_text,
+                caption_text=caption_render_text,
                 text_rendering=text_rendering or {},
                 media_path=media_path,
             )

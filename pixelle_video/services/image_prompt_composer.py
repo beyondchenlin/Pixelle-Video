@@ -25,6 +25,9 @@ from pixelle_video.services.article_concretization_pipeline import (
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import merge_llm_trace_refs
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
+from pixelle_video.services.visual_profile_registry import resolve_visual_profile
+from pixelle_video.services.visual_prompt_profile_projector import apply_visual_profile_to_batch
+from pixelle_video.services.visual_quality_gate import VisualQualityGate
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_helper import (
     final_visual_prompt_clause_template_metadata,
@@ -52,6 +55,10 @@ class ImagePromptComposer:
         progress_callback: Optional[Callable[[int, int, ProgressI18nMessage], None]] = None,
         world_preset_id: Optional[str] = None,
         generation_world_hint: Optional[str] = None,
+        visual_profile_id: Optional[str] = None,
+        visual_profile: Optional[Mapping[str, Any]] = None,
+        visual_quality_gate_enabled: bool = True,
+        visual_quality_gate_strict: bool = False,
         shot_preset_id: Optional[str] = None,
         consistency_strength: str = "standard",
         content_mode: Optional[str] = None,
@@ -134,7 +141,27 @@ class ImagePromptComposer:
         if len(batch.prompts) != storyboard_plan.resolved_scene_count:
             raise ValueError("image prompt count must match storyboard frame count")
 
+        resolved_visual_profile = resolve_visual_profile(
+            profile_id=visual_profile_id,
+            inline_profile=visual_profile,
+        )
+        visual_profile_snapshot = None
+        if resolved_visual_profile is not None and media_type == "image":
+            batch, visual_profile_snapshot = apply_visual_profile_to_batch(
+                batch=batch,
+                profile=resolved_visual_profile,
+                frame_contexts=prompt_contexts.frame_contexts,
+                quality_gate=VisualQualityGate(
+                    enabled=visual_quality_gate_enabled,
+                    strict=visual_quality_gate_strict,
+                ),
+            )
+
         planning_snapshot = dict(batch.planning_snapshot or {})
+        if visual_profile_snapshot:
+            planning_snapshot["visual_profile"] = visual_profile_snapshot["profile"]
+            if visual_profile_snapshot.get("quality_gate") is not None:
+                planning_snapshot["visual_quality_gate"] = visual_profile_snapshot["quality_gate"]
         llm_trace_refs = merge_llm_trace_refs(
             upstream_llm_trace_refs,
             planning_snapshot.get("llm_trace_refs"),
