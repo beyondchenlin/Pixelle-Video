@@ -2518,6 +2518,97 @@ def _render_image_prompt_prefix_library(
 
     return effective_prefix
 
+
+
+def render_series_visual_signature_presentation_controls() -> dict:
+    """Render product-level visual-signature presentation policy controls."""
+    presentation_options = [
+        "auto",
+        "visible_supporting_character",
+        "embedded_scene_mark",
+        "primary_character",
+    ]
+    fallback_options = ["auto_repair", "default_signature", "disabled"]
+    presentation_labels = {
+        "auto": tr("series_visual_signature.presentation.auto", fallback="自动决定"),
+        "visible_supporting_character": tr("series_visual_signature.presentation.visible_supporting_character", fallback="每帧可见实体角色"),
+        "embedded_scene_mark": tr("series_visual_signature.presentation.embedded_scene_mark", fallback="嵌入为场景小标识"),
+        "primary_character": tr("series_visual_signature.presentation.primary_character", fallback="允许成为主角"),
+    }
+    fallback_labels = {
+        "auto_repair": tr("series_visual_signature.fallback.auto_repair", fallback="自动修复并继续生成（推荐）"),
+        "default_signature": tr("series_visual_signature.fallback.default_signature", fallback="回退到默认视觉签名继续生成"),
+        "disabled": tr("series_visual_signature.fallback.disabled", fallback="不自动兜底"),
+    }
+    with render_middle_column_collapsible_section(
+        tr("series_visual_signature.presentation.section", fallback="视觉签名呈现策略"),
+        expanded=False,
+    ):
+        st.caption(
+            tr(
+                "series_visual_signature.presentation.caption",
+                fallback="这是产品级策略：优先保留你的视觉签名角色，同时避免高级参数冲突导致整条生成失败。",
+            )
+        )
+        presentation_mode = st.selectbox(
+            tr("series_visual_signature.presentation.label", fallback="视觉签名呈现方式"),
+            presentation_options,
+            index=presentation_options.index(
+                st.session_state.get("series_visual_signature_presentation_mode", "auto")
+                if st.session_state.get("series_visual_signature_presentation_mode", "auto") in presentation_options
+                else "auto"
+            ),
+            format_func=lambda value: presentation_labels.get(value, value),
+            key="series_visual_signature_presentation_mode",
+            help=tr(
+                "series_visual_signature.presentation.help",
+                fallback="普通用户只需要选择这一项。高级的融入模式/角色一致性会由系统自动映射和纠偏。",
+            ),
+        )
+        fallback_enabled = st.toggle(
+            tr("series_visual_signature.fallback.enabled", fallback="规划失败时自动兜底，不中断生成"),
+            value=bool(st.session_state.get("series_visual_signature_fallback_enabled", True)),
+            key="series_visual_signature_fallback_enabled",
+            help=tr(
+                "series_visual_signature.fallback.enabled_help",
+                fallback="推荐开启：只修失败帧，保留成功帧，并在日志里记录回退原因。",
+            ),
+        )
+        fallback_mode = st.selectbox(
+            tr("series_visual_signature.fallback.mode", fallback="失败处理"),
+            fallback_options,
+            index=fallback_options.index(
+                st.session_state.get("series_visual_signature_fallback_mode", "auto_repair")
+                if st.session_state.get("series_visual_signature_fallback_mode", "auto_repair") in fallback_options
+                else "auto_repair"
+            ),
+            format_func=lambda value: fallback_labels.get(value, value),
+            key="series_visual_signature_fallback_mode",
+            disabled=not fallback_enabled,
+        )
+        strict = st.toggle(
+            tr("series_visual_signature.enforcement.strict", fallback="严格模式：签名规划失败就停止生成"),
+            value=bool(st.session_state.get("series_visual_signature_enforcement_strict", False)),
+            key="series_visual_signature_enforcement_strict",
+            help=tr(
+                "series_visual_signature.enforcement.strict_help",
+                fallback="仅建议开发/评测时开启。普通 Web 生成应保持关闭。",
+            ),
+        )
+        st.caption(
+            tr(
+                "series_visual_signature.presentation.note",
+                fallback="如果你选择“每帧可见实体角色”，系统会先通过提示词自然融入；只有失败帧才会自动 fallback。",
+            )
+        )
+    return {
+        "series_visual_signature_presentation_mode": presentation_mode,
+        "series_visual_signature_enforcement": "strict" if strict else "soft",
+        "series_visual_signature_fallback_enabled": bool(fallback_enabled),
+        "series_visual_signature_fallback_mode": fallback_mode if fallback_enabled else "disabled",
+        "series_visual_signature_min_visibility": "clear",
+    }
+
 def render_style_config(
     pixelle_video,
     storyboard_default_enabled: bool = False,
@@ -2746,6 +2837,7 @@ def render_style_config(
         tts_split_settings = render_tts_split_settings()
 
     element_animation_settings = render_element_animation_controls()
+    series_visual_signature_presentation_settings = render_series_visual_signature_presentation_controls()
 
     # ====================================================================
     # Storyboard Template Section
@@ -3403,6 +3495,7 @@ def render_style_config(
         ),
         "selected_template_preset_id": selected_template_preset_id,
         **element_animation_settings,
+        **series_visual_signature_presentation_settings,
     }
     if text_rendering:
         result["text_rendering"] = text_rendering

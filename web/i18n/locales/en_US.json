@@ -1383,6 +1383,23 @@
     "style.ip_prompt_chain.series_visual_signature_consistency_mode_help": "Decide whether the visual signature stays consistent as a primary or supporting character across frames.",
     "style.ip_prompt_chain.series_visual_signature_consistency_mode.option.off": "Off",
     "style.ip_prompt_chain.series_visual_signature_consistency_mode.option.supporting_character": "Supporting Character",
-    "style.ip_prompt_chain.series_visual_signature_consistency_mode.option.primary_character": "Primary Character"
+    "style.ip_prompt_chain.series_visual_signature_consistency_mode.option.primary_character": "Primary Character",
+    "series_visual_signature.presentation.section": "Visual signature presentation",
+    "series_visual_signature.presentation.caption": "Product-level policy that preserves the visual signature while preventing advanced option conflicts from failing the whole generation.",
+    "series_visual_signature.presentation.label": "Visual signature presentation",
+    "series_visual_signature.presentation.auto": "Auto",
+    "series_visual_signature.presentation.visible_supporting_character": "Visible supporting character in every frame",
+    "series_visual_signature.presentation.embedded_scene_mark": "Embedded scene mark",
+    "series_visual_signature.presentation.primary_character": "Allow as primary character",
+    "series_visual_signature.presentation.help": "Most users only need this setting. Advanced integration and consistency fields are mapped and corrected by the system.",
+    "series_visual_signature.fallback.enabled": "Auto-repair failed signature plans and continue",
+    "series_visual_signature.fallback.enabled_help": "Recommended: repair only failed frames, preserve successful frames, and record fallback reasons.",
+    "series_visual_signature.fallback.mode": "Failure handling",
+    "series_visual_signature.fallback.auto_repair": "Auto-repair and continue (recommended)",
+    "series_visual_signature.fallback.default_signature": "Fallback to default signature and continue",
+    "series_visual_signature.fallback.disabled": "Do not auto-repair",
+    "series_visual_signature.enforcement.strict": "Strict mode: stop on signature failure",
+    "series_visual_signature.enforcement.strict_help": "Recommended only for development/evaluation. Keep off for normal Web generation.",
+    "series_visual_signature.presentation.note": "For visible supporting characters, the system first uses prompt guidance for natural integration; only failed frames are repaired."
   }
 }

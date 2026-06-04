@@ -13,6 +13,12 @@ from pixelle_video.models.ip_prompt_planning import IPFrameAdaptationPackage
 from pixelle_video.models.mandatory_visual_anchor_integration import (
     MandatoryVisualAnchorIntegrationResponse,
 )
+from pixelle_video.models.series_visual_signature_presentation import (
+    SeriesVisualSignatureEnforcementMode,
+    SeriesVisualSignatureFallbackMode,
+    SeriesVisualSignaturePresentationMode,
+    SeriesVisualSignaturePresentationPolicy,
+)
 from pixelle_video.models.series_visual_signature_strategy import (
     SeriesVisualSignatureStrategyControls,
     build_visual_identity_kernel,
@@ -27,21 +33,27 @@ from pixelle_video.models.visual_anchor_planning import (
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.prompts.visual_anchor_integration import render_visual_anchor_integration_prompt
 from pixelle_video.services.visual_anchor_policy import contains_forbidden_overlay_language
+from pixelle_video.services.visual_signature_fallback_planner import (
+    VisualSignatureFallbackPlanner,
+    merge_visual_anchor_plans_by_frame,
+)
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 
 
 @dataclass(frozen=True)
 class VisualAnchorIntegrationPlanner:
-    """Mandatory series-visual-signature integration planner.
+    """Resilient series-visual-signature integration planner.
 
-    The second stage is a task: every frame must receive a visible integrated prompt.
-    There is no successful hidden/suppressed/fallback result. Bad LLM output enters a
-    repair loop; repeated failure raises a clear error.
+    LLM integration remains the primary path.  If only some frames fail validation,
+    accepted frames are preserved and failed frames receive deterministic fallback
+    in soft mode.  Strict mode keeps the old fail-closed behavior for CI and
+    contract testing.
     """
 
     llm_service: Any | None = None
     policy: VisualSignaturePolicy | None = None
     series_visual_signature_strategy: SeriesVisualSignatureStrategyControls | None = None
+    presentation_policy: SeriesVisualSignaturePresentationPolicy | None = None
     max_repair_attempts: int = 2
 
     async def plan_batch(
@@ -55,29 +67,41 @@ class VisualAnchorIntegrationPlanner:
         trace_context: Any = None,
         trace_recorder: Any = None,
     ) -> tuple[VisualAnchorPlacementPlan, ...]:
+        del base_packages, frame_contexts, frame_plans
         briefs = tuple(base_visual_briefs)
         if not briefs:
             return ()
         if anchor_profile is None:
-            raise ValueError("mandatory series visual signature integration requires anchor_profile")
+            raise ValueError("series visual signature integration requires anchor_profile")
         if self.llm_service is None:
-            raise ValueError("mandatory series visual signature integration requires llm_service")
+            raise ValueError("series visual signature integration requires llm_service")
         if not callable(self.llm_service):
-            raise ValueError("mandatory series visual signature integration requires callable llm_service")
+            raise ValueError("series visual signature integration requires callable llm_service")
 
         policy = self.policy or load_visual_signature_policy()
-        role_strategy = self.series_visual_signature_strategy or SeriesVisualSignatureStrategyControls()
+        presentation_policy = self.presentation_policy or SeriesVisualSignaturePresentationPolicy.from_strategy(
+            self.series_visual_signature_strategy,
+        )
+        role_strategy = presentation_policy.strategy_controls()
         identity_kernel = build_visual_identity_kernel(anchor_profile)
         frame_ids = [brief.frame_id for brief in briefs]
         repair_context: dict[str, Any] = {}
+        accepted_by_frame: dict[str, VisualAnchorPlacementPlan] = {}
+        last_errors_by_frame: dict[str, list[str]] = {}
 
         for attempt in range(max(1, self.max_repair_attempts + 1)):
             rendered_prompt = render_visual_anchor_integration_prompt(
                 base_visual_briefs_json=[brief.to_dict() for brief in briefs],
-                anchor_profile_json=_anchor_profile_payload(anchor_profile, policy=policy, identity_kernel=identity_kernel),
+                anchor_profile_json=_anchor_profile_payload(
+                    anchor_profile,
+                    policy=policy,
+                    identity_kernel=identity_kernel,
+                    presentation_policy=presentation_policy,
+                ),
                 visual_signature_policy_json=policy.to_dict(),
                 cadence_plan_json=[],
                 series_visual_signature_strategy_json=role_strategy.to_dict(),
+                presentation_policy_json=presentation_policy.to_prompt_policy(),
                 visual_identity_kernel_json=list(identity_kernel),
                 repair_context_json=repair_context,
             )
@@ -91,14 +115,16 @@ class VisualAnchorIntegrationPlanner:
                     trace_recorder=trace_recorder,
                 )
             except (ValidationError, ValueError) as exc:
-                errors = [f"LLM response failed mandatory integration schema validation: {_exception_summary(exc)}"]
-                repair_context = {
-                    "attempt": attempt + 1,
-                    "errors": errors,
-                    "instruction": "Return one flat visible plan object per frame. Use manifestation_form, manifestation_location, manifestation_visibility, and manifestation_relationship. Do not output anchor_manifestation objects, candidates arrays, hidden/suppressed/fallback.",
-                }
+                errors = [f"LLM response failed integration schema validation: {_exception_summary(exc)}"]
+                last_errors_by_frame = {frame_id: list(errors) for frame_id in frame_ids if frame_id not in accepted_by_frame}
+                repair_context = _repair_context(
+                    attempt=attempt + 1,
+                    errors=errors,
+                    presentation_policy=presentation_policy,
+                    instruction="Return one flat visible plan object per frame. Use presentation_policy. Do not output candidates arrays, hidden/suppressed/fallback.",
+                )
                 logger.warning(
-                    "mandatory series visual signature integration rejected attempt {}: {}",
+                    "series visual signature integration rejected attempt {}: {}",
                     attempt + 1,
                     errors[0],
                 )
@@ -109,23 +135,53 @@ class VisualAnchorIntegrationPlanner:
                 role_strategy=role_strategy,
                 identity_kernel=identity_kernel,
                 policy=policy,
+                presentation_policy=presentation_policy,
             )
-            if not errors:
-                return tuple(plans)
-            repair_context = {
-                "attempt": attempt + 1,
-                "errors": errors[:24],
-                "instruction": "Rewrite every failed frame as one flat visible plan object. Do not output candidates arrays, selected_index, hidden/suppressed/fallback.",
-            }
+            for plan in plans:
+                accepted_by_frame[plan.frame_id] = plan
+            if not errors and set(accepted_by_frame) >= set(frame_ids):
+                return tuple(accepted_by_frame[frame_id] for frame_id in frame_ids)
+            last_errors_by_frame = _errors_by_frame(errors, frame_ids)
+            repair_context = _repair_context(
+                attempt=attempt + 1,
+                errors=errors[:24],
+                presentation_policy=presentation_policy,
+                instruction="Rewrite every failed frame as one flat visible plan object. Preserve accepted frames. For visible_supporting_character, use a real small supporting character on ground/floor/roadside/beside the main subject.",
+            )
             logger.warning(
-                "mandatory series visual signature integration rejected attempt {}: {}",
+                "series visual signature integration rejected attempt {}: {}",
                 attempt + 1,
-                "; ".join(errors[:8]),
+                "; ".join(errors[:8]) if errors else "missing frame coverage",
             )
 
-        raise ValueError(
-            "mandatory series visual signature integration failed after repair attempts: "
-            + "; ".join(repair_context.get("errors", [])[:12])
+        missing_frame_ids = [frame_id for frame_id in frame_ids if frame_id not in accepted_by_frame]
+        if not missing_frame_ids:
+            return tuple(accepted_by_frame[frame_id] for frame_id in frame_ids)
+
+        if presentation_policy.enforcement is SeriesVisualSignatureEnforcementMode.STRICT or not presentation_policy.fallback_enabled:
+            raise ValueError(
+                "series visual signature integration failed after repair attempts: "
+                + "; ".join(_flatten_errors(last_errors_by_frame, missing_frame_ids)[:12])
+            )
+
+        fallback_plans = VisualSignatureFallbackPlanner(
+            anchor_profile=anchor_profile,
+            presentation_policy=presentation_policy,
+            identity_kernel=identity_kernel,
+        ).plan_failed_frames(
+            base_visual_briefs=briefs,
+            failed_frame_ids=missing_frame_ids,
+            failure_reasons_by_frame=last_errors_by_frame,
+        )
+        logger.warning(
+            "series visual signature integration applied deterministic fallback for {} frame(s): {}",
+            len(fallback_plans),
+            ", ".join(plan.frame_id for plan in fallback_plans),
+        )
+        return merge_visual_anchor_plans_by_frame(
+            frame_ids=frame_ids,
+            accepted_plans=accepted_by_frame,
+            fallback_plans=fallback_plans,
         )
 
 
@@ -140,7 +196,13 @@ def _exception_summary(exc: Exception) -> str:
     return str(exc)
 
 
-def _anchor_profile_payload(anchor_profile: IPProfile, *, policy: VisualSignaturePolicy, identity_kernel: Sequence[str]) -> dict[str, Any]:
+def _anchor_profile_payload(
+    anchor_profile: IPProfile,
+    *,
+    policy: VisualSignaturePolicy,
+    identity_kernel: Sequence[str],
+    presentation_policy: SeriesVisualSignaturePresentationPolicy,
+) -> dict[str, Any]:
     return {
         "name": anchor_profile.name,
         "visual_summary": anchor_profile.visual_summary,
@@ -151,10 +213,11 @@ def _anchor_profile_payload(anchor_profile: IPProfile, *, policy: VisualSignatur
         "style_hint": anchor_profile.style_hint,
         "negative_constraints": list(anchor_profile.negative_constraints),
         "policy_version": policy.version,
+        "presentation_policy": presentation_policy.to_prompt_policy(),
         "guidance": [
-            "This is mandatory series-visual-signature integration.",
             "The identity must appear visibly in the final prompt.",
-            "If no natural carrier exists, create one by recomposition: TV, projection, frame, exhibit, desk, wall, book, poster, or prop.",
+            "Prefer the presentation_policy over lower-level strategy conflicts.",
+            "If no natural carrier exists, create a scene-valid carrier by recomposition.",
             "Do not output hidden, suppressed, absent, fallback, watermark, sticker, corner badge, or UI overlay.",
         ],
     }
@@ -167,6 +230,7 @@ def _placement_plans_from_payload(
     role_strategy: SeriesVisualSignatureStrategyControls,
     identity_kernel: Sequence[str],
     policy: VisualSignaturePolicy,
+    presentation_policy: SeriesVisualSignaturePresentationPolicy,
 ) -> tuple[list[VisualAnchorPlacementPlan], list[str]]:
     if isinstance(payload, MandatoryVisualAnchorIntegrationResponse):
         payload = {
@@ -215,6 +279,7 @@ def _placement_plans_from_payload(
             role_strategy=role_strategy,
             identity_kernel=identity_kernel,
             policy=policy,
+            presentation_policy=presentation_policy,
         )
         if plan_errors:
             errors.extend(plan_errors)
@@ -230,9 +295,10 @@ def _placement_plan_from_raw_plan(
     role_strategy: SeriesVisualSignatureStrategyControls,
     identity_kernel: Sequence[str],
     policy: VisualSignaturePolicy,
+    presentation_policy: SeriesVisualSignaturePresentationPolicy,
 ) -> tuple[VisualAnchorPlacementPlan | None, list[str]]:
     if "candidates" in raw_plan or "selected_index" in raw_plan:
-        return None, [f"{frame_id}: candidates arrays are not allowed for mandatory flat integration"]
+        return None, [f"{frame_id}: candidates arrays are not allowed for flat integration"]
     if not _has_flat_candidate_fields(raw_plan):
         return None, [f"{frame_id}: flat visible plan fields are required"]
 
@@ -242,6 +308,7 @@ def _placement_plan_from_raw_plan(
         role_strategy=role_strategy,
         identity_kernel=identity_kernel,
         policy=policy,
+        presentation_policy=presentation_policy,
     )
     if errors:
         return None, errors
@@ -250,6 +317,7 @@ def _placement_plan_from_raw_plan(
         frame_id=frame_id,
         role_strategy=role_strategy,
         identity_kernel=identity_kernel,
+        presentation_policy=presentation_policy,
     ), []
 
 
@@ -259,6 +327,7 @@ def _candidate_to_plan(
     frame_id: str,
     role_strategy: SeriesVisualSignatureStrategyControls,
     identity_kernel: Sequence[str] = (),
+    presentation_policy: SeriesVisualSignaturePresentationPolicy | None = None,
 ) -> VisualAnchorPlacementPlan:
     prompt = _prompt_text(candidate)
     carrier_type = _enum_value(candidate.get("carrier_type"), AnchorCarrierType, AnchorCarrierType.BOOKPLATE_OR_STAMP)
@@ -268,6 +337,14 @@ def _candidate_to_plan(
         carrier_type = AnchorCarrierType.LIVING_CHARACTER
         anchor_function = AnchorFunction.PRIMARY_CARRIER
         prominence = AnchorProminence.PRIMARY_CARRIER
+    elif (
+        presentation_policy is not None
+        and presentation_policy.presentation_mode is SeriesVisualSignaturePresentationMode.VISIBLE_SUPPORTING_CHARACTER
+    ):
+        if carrier_type in {AnchorCarrierType.BOOKPLATE_OR_STAMP, AnchorCarrierType.PRINTED_MARK, AnchorCarrierType.SURFACE_GRAPHIC, AnchorCarrierType.EMBOSSED_MARK}:
+            carrier_type = AnchorCarrierType.MINOR_SUPPORTING_CHARACTER
+            anchor_function = AnchorFunction.CO_PRESENT_SUPPORT
+            prominence = AnchorProminence.SMALL_SIDE_CHARACTER
 
     return VisualAnchorPlacementPlan(
         frame_id=frame_id,
@@ -285,10 +362,11 @@ def _candidate_to_plan(
         style_relation=_enum_value(candidate.get("style_relation"), AnchorStyleRelation, AnchorStyleRelation.BLENDED),
         image_prompt_clause=prompt,
         metadata={
-            "source": "llm_mandatory_series_visual_signature_integration",
+            "source": "llm_series_visual_signature_integration",
             "projection": "llm_integrated_prompt",
             "mandatory_integration": True,
             "series_visual_signature_strategy": role_strategy.to_dict(),
+            "presentation_policy": presentation_policy.to_dict() if presentation_policy is not None else {},
             "integration_strategy": _first_text(candidate.get("integration_strategy")),
             "anchor_manifestation": dict(candidate.get("anchor_manifestation") or {}) if isinstance(candidate.get("anchor_manifestation"), Mapping) else {},
             "visual_identity_kernel": [str(item) for item in identity_kernel if str(item or "").strip()],
@@ -303,9 +381,10 @@ def _candidate_errors(
     role_strategy: SeriesVisualSignatureStrategyControls,
     identity_kernel: Sequence[str],
     policy: VisualSignaturePolicy,
+    presentation_policy: SeriesVisualSignaturePresentationPolicy,
 ) -> list[str]:
     prompt = _prompt_text(candidate)
-    combined = " ".join([prompt, _first_text(candidate.get("placement")), _first_text(candidate.get("support_anchor")), _first_text(candidate.get("contact_relation")), str(candidate.get("anchor_manifestation") or "")])
+    combined = " ".join([prompt, _first_text(candidate.get("placement")), _first_text(candidate.get("support_anchor")), _first_text(candidate.get("contact_relation")), _first_text(candidate.get("manifestation_location")), _first_text(candidate.get("manifestation_relationship")), str(candidate.get("anchor_manifestation") or "")])
     errors: list[str] = []
     if not prompt:
         errors.append(f"{frame_id}: integrated_scene_prompt is required")
@@ -318,9 +397,9 @@ def _candidate_errors(
     if role_strategy.requires_subject_replacement and not _looks_primary(candidate, combined):
         errors.append(f"{frame_id}: subject_replacement requires primary subject manifestation")
     if role_strategy.requires_supporting_integration:
-        if _looks_primary(candidate, combined):
+        if _looks_primary(candidate, combined) and not _looks_small_supporting_character(candidate, combined):
             errors.append(f"{frame_id}: supporting_integration must not replace source subject")
-        if not _has_supporting_carrier(combined):
+        if not _has_supporting_carrier(candidate, combined, presentation_policy=presentation_policy):
             errors.append(f"{frame_id}: supporting_integration requires a concrete in-scene carrier")
     return errors
 
@@ -343,12 +422,34 @@ def _has_identity_signal(text: str, identity_kernel: Sequence[str]) -> bool:
 
 def _looks_primary(candidate: Mapping[str, Any], text: str) -> bool:
     values = " ".join([_first_text(candidate.get("carrier_type")), _first_text(candidate.get("anchor_function")), _first_text(candidate.get("prominence")), text]).lower()
-    return any(token in values for token in ("living_character", "primary_carrier", "主角", "主要主体", "protagonist", "main subject", "primary subject"))
+    return any(token in values for token in ("primary_carrier", "主角", "主要主体", "protagonist", "main subject", "primary subject"))
 
 
-def _has_supporting_carrier(text: str) -> bool:
+def _looks_small_supporting_character(candidate: Mapping[str, Any], text: str) -> bool:
+    values = " ".join([_first_text(candidate.get("carrier_type")), _first_text(candidate.get("anchor_function")), _first_text(candidate.get("prominence")), text]).lower()
+    return any(token in values for token in ("minor_supporting_character", "small_side_character", "co_present_support", "陪衬", "小型", "旁边", "身旁", "foreground", "beside", "near"))
+
+
+def _has_supporting_carrier(
+    candidate: Mapping[str, Any],
+    text: str,
+    *,
+    presentation_policy: SeriesVisualSignaturePresentationPolicy,
+) -> bool:
+    carrier_type = _first_text(candidate.get("carrier_type")).lower()
+    if carrier_type in {"minor_supporting_character", "small_supporting_prop", "decorative_object"}:
+        return True
     lowered = str(text or "").lower()
-    return any(token in lowered for token in ("墙", "桌", "书", "纸", "地图", "相框", "照片", "摆件", "展板", "投影", "屏幕", "电视", "海报", "徽章", "胸针", "display", "screen", "projection", "poster", "framed", "prop", "wall", "desk", "book"))
+    tokens = (
+        "墙", "桌", "书", "纸", "地图", "相框", "照片", "摆件", "展板", "投影", "屏幕", "电视", "海报", "徽章", "胸针",
+        "地面", "前景", "空地", "路边", "草地", "房间角落", "角落", "画面一侧", "主体旁边", "身旁", "桌边", "镜旁", "边缘", "道路", "街道",
+        "display", "screen", "projection", "poster", "framed", "prop", "wall", "desk", "book", "foreground", "ground", "floor", "beside", "next to", "near", "corner", "edge", "side", "roadside", "street", "path", "grass", "room corner",
+    )
+    if any(token in lowered for token in tokens):
+        return True
+    if presentation_policy.presentation_mode is SeriesVisualSignaturePresentationMode.VISIBLE_SUPPORTING_CHARACTER and _looks_small_supporting_character(candidate, lowered):
+        return True
+    return False
 
 
 def _has_flat_candidate_fields(plan: Mapping[str, Any]) -> bool:
@@ -377,6 +478,42 @@ def _first_text(*values: Any) -> str:
         if text:
             return text
     return ""
+
+
+def _repair_context(
+    *,
+    attempt: int,
+    errors: Sequence[str],
+    presentation_policy: SeriesVisualSignaturePresentationPolicy,
+    instruction: str,
+) -> dict[str, Any]:
+    return {
+        "attempt": attempt,
+        "errors": list(errors),
+        "presentation_policy": presentation_policy.to_prompt_policy(),
+        "instruction": instruction,
+    }
+
+
+def _errors_by_frame(errors: Sequence[str], frame_ids: Sequence[str]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {frame_id: [] for frame_id in frame_ids}
+    for error in errors:
+        text = str(error)
+        frame_id = text.split(":", 1)[0].strip()
+        if frame_id not in result:
+            continue
+        result[frame_id].append(text)
+    for frame_id in list(result):
+        if not result[frame_id]:
+            result.pop(frame_id)
+    return result
+
+
+def _flatten_errors(errors_by_frame: Mapping[str, Sequence[str]], frame_ids: Sequence[str]) -> list[str]:
+    result: list[str] = []
+    for frame_id in frame_ids:
+        result.extend(str(item) for item in errors_by_frame.get(frame_id, ()))
+    return result
 
 
 __all__ = ["VisualAnchorIntegrationPlanner"]

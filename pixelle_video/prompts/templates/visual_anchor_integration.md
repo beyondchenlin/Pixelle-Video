@@ -1,16 +1,16 @@
 ---
 prompt_id: visual_anchor_integration
-version: 5
+version: 6
 stage: visual_anchor_integration
-purpose: Mandatory series-visual-signature integration after the base visual intent is designed.
+purpose: Resilient series-visual-signature integration after the base visual intent is designed.
 output_contract: JSON object matching mandatory series-visual-signature integration schema.
 ---
 
 # Role
 
 You are a senior visual director. You receive base visual intent, a configured visual
-identity, and a user-selected series visual signature strategy. Your job is not to decide whether
-the visual identity should appear. Your job is to make it appear naturally.
+identity, a user-selected presentation policy, and a series visual signature strategy.
+Your job is to make the identity appear naturally while preserving the source visual intent.
 
 # Base Visual Briefs
 
@@ -32,6 +32,10 @@ the visual identity should appear. Your job is to make it appear naturally.
 
 {series_visual_signature_strategy_json}
 
+# Presentation Policy
+
+{presentation_policy_json}
+
 # Repair Context
 
 {repair_context_json}
@@ -44,6 +48,28 @@ visual identity while preserving the source visual intent.
 Never return hidden, suppressed, absent, skipped, no anchor, no signature, fallback, or
 "not suitable" as a successful answer. If the scene lacks a natural carrier, actively
 rewrite the composition to create one.
+
+# Presentation-specific rules
+
+If `series_visual_signature_presentation_mode` is `visible_supporting_character`:
+- The identity must appear as a real, visible, small supporting character in every frame.
+- Do not use watermark, logo, corner badge, bookplate, stamp, mirror mark, surface mark, or abstract emblem as the primary solution.
+- Do not replace the source subject. The source subject and story intent remain primary.
+- Put the identity in a concrete scene location: foreground ground, floor, roadside, grass, desk edge, room corner, beside the main subject, or edge of the scene.
+- The prompt must preserve the exact identity phrase, such as “戴黑色墨镜的斑点狗”, and include a physical relationship: standing, sitting, lying, watching, following, leaning, walking beside, or waiting near the source subject.
+- Prefer `carrier_type` = `minor_supporting_character`, `anchor_function` = `co_present_support`, and `prominence` = `small_side_character`.
+
+If `series_visual_signature_presentation_mode` is `embedded_scene_mark`:
+- The identity should appear as a clear but subordinate in-scene mark, prop graphic, bookplate, poster, screen graphic, surface motif, or small object.
+- The identity must remain specific and readable. Never collapse it into a generic channel identifier.
+
+If `series_visual_signature_presentation_mode` is `primary_character` or `effective_series_visual_signature_mode` is `subject_replacement`:
+- The identity may become the primary subject or protagonist.
+- Preserve the source meaning while letting the identity carry the main action.
+
+If `series_visual_signature_presentation_mode` is `auto`:
+- Choose the least disruptive visible presentation.
+- Prefer visible supporting integration. Use embedded scene marks only when a supporting character would damage the source visual intent.
 
 # Strategy-specific rules
 
@@ -76,20 +102,20 @@ Return exactly one JSON object. Each frame must contain exactly one visible plan
   "visual_anchor_integration_plans": [
     {{
       "frame_id": "...",
-      "carrier_type": "bookplate_or_stamp",
-      "anchor_function": "material_signature",
-      "prominence": "embedded_mark",
+      "carrier_type": "minor_supporting_character",
+      "anchor_function": "co_present_support",
+      "prominence": "small_side_character",
       "style_relation": "blended",
-      "placement": "attached to an in-scene carrier",
-      "support_anchor": "real scene object that carries the identity",
-      "contact_relation": "physically integrated with the carrier surface",
+      "placement": "specific physical location inside the scene",
+      "support_anchor": "foreground ground, floor, roadside, desk edge, room corner, beside source subject, or a real scene object",
+      "contact_relation": "physically standing, sitting, lying, leaning, or integrated with the support anchor",
       "interaction_target": "scene object or subject it supports",
       "occlusion_relation": "main subject remains readable",
       "visual_weight_clause": "visible but subordinate to the source subject",
       "image_prompt_clause": "configured identity visibly integrated into the carrier",
       "integrated_scene_prompt": "Final text-to-image prompt that visibly includes the configured identity and preserves source intent.",
       "integration_strategy": "supporting_integration",
-      "manifestation_form": "scene-bound mark, prop, small supporting character, or primary protagonist when explicitly required",
+      "manifestation_form": "small supporting character, scene-bound mark, prop, or primary protagonist when explicitly required",
       "manifestation_location": "specific physical location inside the scene",
       "manifestation_visibility": "clear",
       "manifestation_relationship": "supports source intent without replacing it unless subject_replacement is required",

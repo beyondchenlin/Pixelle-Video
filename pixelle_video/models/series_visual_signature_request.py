@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -7,6 +7,10 @@ from typing import Any
 from pixelle_video.models.series_visual_signature_identity import (
     SeriesVisualSignatureParticipationMode,
     SeriesVisualSignatureStructureMode,
+)
+from pixelle_video.models.series_visual_signature_presentation import (
+    PRESENTATION_CONTROL_OPTION_KEYS,
+    SeriesVisualSignaturePresentationPolicy,
 )
 from pixelle_video.models.series_visual_signature_strategy import (
     SeriesVisualSignatureMode,
@@ -33,6 +37,7 @@ SERIES_VISUAL_SIGNATURE_CONTROL_OPTION_KEYS = frozenset(
         "series_visual_signature_mode",
         "series_visual_signature_consistency_mode",
         "generation_world_hint",
+        *PRESENTATION_CONTROL_OPTION_KEYS,
     }
 )
 _SERIES_VISUAL_SIGNATURE_V4_OPTION_KEYS = frozenset(
@@ -42,6 +47,7 @@ _SERIES_VISUAL_SIGNATURE_V4_OPTION_KEYS = frozenset(
         "series_visual_signature_participation_mode",
         "series_visual_signature_mode",
         "series_visual_signature_consistency_mode",
+        *PRESENTATION_CONTROL_OPTION_KEYS,
     }
 )
 
@@ -55,6 +61,7 @@ class SeriesVisualSignatureControlsContract:
     structure_mode: SeriesVisualSignatureStructureMode = SeriesVisualSignatureStructureMode.AUTO
     participation_mode: SeriesVisualSignatureParticipationMode = SeriesVisualSignatureParticipationMode.AUTO
     strategy: SeriesVisualSignatureStrategyControls = field(default_factory=SeriesVisualSignatureStrategyControls)
+    presentation_policy: SeriesVisualSignaturePresentationPolicy = field(default_factory=SeriesVisualSignaturePresentationPolicy)
     generation_world_hint: str | None = None
     explicit_fields: tuple[str, ...] = ()
 
@@ -66,6 +73,7 @@ class SeriesVisualSignatureControlsContract:
             for key in sorted(SERIES_VISUAL_SIGNATURE_CONTROL_OPTION_KEYS)
             if key in mapping and mapping.get(key) is not None
         )
+        presentation_policy = SeriesVisualSignaturePresentationPolicy.from_mapping(mapping)
         return cls(
             enabled=bool(mapping.get("series_visual_signature_enabled", False)),
             asset_bible_id=_normalize_optional_string(mapping.get("series_visual_signature_asset_bible_id")),
@@ -75,7 +83,8 @@ class SeriesVisualSignatureControlsContract:
             participation_mode=SeriesVisualSignatureParticipationMode.from_value(
                 mapping.get("series_visual_signature_participation_mode")
             ),
-            strategy=SeriesVisualSignatureStrategyControls.from_mapping(mapping),
+            strategy=presentation_policy.strategy_controls(),
+            presentation_policy=presentation_policy,
             generation_world_hint=_normalize_optional_string(mapping.get("generation_world_hint")),
             explicit_fields=explicit_fields,
         )
@@ -95,7 +104,7 @@ class SeriesVisualSignatureControlsContract:
             "series_visual_signature_expression_mode": self.expression_mode.value,
             "series_visual_signature_structure_mode": self.structure_mode.value,
             "series_visual_signature_participation_mode": self.participation_mode.value,
-            **self.strategy.to_dict(),
+            **self.presentation_policy.to_generation_dict(),
         }
 
     def to_request(self) -> "SeriesVisualSignatureRequest":
@@ -109,7 +118,7 @@ class SeriesVisualSignatureControlsContract:
             "series_visual_signature_expression_mode": self.expression_mode.value,
             "series_visual_signature_structure_mode": self.structure_mode.value,
             "series_visual_signature_participation_mode": self.participation_mode.value,
-            **self.strategy.to_dict(),
+            **self.presentation_policy.to_dict(),
             "generation_world_hint": self.generation_world_hint,
             "explicit_fields": list(self.explicit_fields),
         }
@@ -121,6 +130,7 @@ class SeriesVisualSignatureRequest:
     asset_bible_id: str | None = None
     profile_id: str | None = None
     strategy: SeriesVisualSignatureStrategyControls = field(default_factory=SeriesVisualSignatureStrategyControls)
+    presentation_policy: SeriesVisualSignaturePresentationPolicy = field(default_factory=SeriesVisualSignaturePresentationPolicy)
     expression_mode: VisualExpressionMode = VisualExpressionMode.AUTO
     structure_mode: SeriesVisualSignatureStructureMode = SeriesVisualSignatureStructureMode.AUTO
     participation_mode: SeriesVisualSignatureParticipationMode = SeriesVisualSignatureParticipationMode.AUTO
@@ -146,6 +156,7 @@ class SeriesVisualSignatureRequest:
             asset_bible_id=asset_bible_id or controls.asset_bible_id,
             profile_id=profile_id or controls.profile_id,
             strategy=controls.strategy,
+            presentation_policy=controls.presentation_policy,
             expression_mode=controls.expression_mode,
             structure_mode=controls.structure_mode,
             participation_mode=controls.participation_mode,
@@ -176,6 +187,7 @@ class SeriesVisualSignatureRequest:
             asset_bible_id=controls.asset_bible_id,
             profile_id=controls.profile_id,
             strategy=controls.strategy,
+            presentation_policy=controls.presentation_policy,
             expression_mode=controls.expression_mode,
             structure_mode=controls.structure_mode,
             participation_mode=controls.participation_mode,
@@ -202,7 +214,7 @@ class SeriesVisualSignatureRequest:
             "series_visual_signature_expression_mode": self.expression_mode.value,
             "series_visual_signature_structure_mode": self.structure_mode.value,
             "series_visual_signature_participation_mode": self.participation_mode.value,
-            **self.strategy.to_dict(),
+            **self.presentation_policy.to_dict(),
         }
         if self.asset_bible_id is not None:
             payload["asset_bible_id"] = self.asset_bible_id
@@ -225,7 +237,6 @@ def is_supported_series_visual_signature_pipeline_version(value: Any) -> bool:
 
 
 SeriesVisualSignatureRequestContract = SeriesVisualSignatureControlsContract
-
 
 __all__ = [
     "SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS",

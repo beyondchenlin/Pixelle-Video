@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -112,6 +112,11 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "series_visual_signature_participation_mode",
     "series_visual_signature_mode",
     "series_visual_signature_consistency_mode",
+    "series_visual_signature_presentation_mode",
+    "series_visual_signature_enforcement",
+    "series_visual_signature_fallback_enabled",
+    "series_visual_signature_fallback_mode",
+    "series_visual_signature_min_visibility",
 )
 ARTICLE_VISUAL_PLANNING_OPTION_KEYS = (
     *ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,

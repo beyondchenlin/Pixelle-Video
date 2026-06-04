@@ -8,6 +8,7 @@ from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
 from pixelle_video.models.ip_prompt_planning import IPFrameAdaptationPackage
+from pixelle_video.models.series_visual_signature_presentation import SeriesVisualSignaturePresentationPolicy
 from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
 from pixelle_video.models.series_visual_signature_request import (
     SeriesVisualSignatureRequest,
@@ -23,6 +24,7 @@ from pixelle_video.services.provider_prompt_projector import ProviderPromptProje
 from pixelle_video.services.series_visual_signature_anchor_planner import (
     VisualAnchorIntegrationPlanner,
 )
+from pixelle_video.services.visual_signature_fallback_planner import fallback_ledger_from_plans
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 from pixelle_video.utils.json_safety import to_json_compatible
 
@@ -39,6 +41,7 @@ class VisualPromptPlanningResult:
     series_visual_signature_repair_attempts: Mapping[str, Any] | None = None
     series_visual_signature_request: SeriesVisualSignatureRequest | None = None
     series_visual_signature_profile: SeriesVisualSignatureProfile | None = None
+    series_visual_signature_fallback: Mapping[str, Any] | None = None
 
     def planning_snapshot(self) -> dict[str, Any]:
         snapshot = {
@@ -52,6 +55,8 @@ class VisualPromptPlanningResult:
             snapshot["series_visual_signature_identity_contract"] = (
                 self.series_visual_signature_profile.identity_contract.to_dict()
             )
+        if self.series_visual_signature_fallback:
+            snapshot["series_visual_signature_fallback"] = dict(self.series_visual_signature_fallback)
         if self.visual_expression_decisions:
             snapshot["visual_expression_decision_by_frame"] = {decision.frame_id: decision.to_dict() for decision in self.visual_expression_decisions}
         if self.series_visual_signature_plans:
@@ -84,7 +89,7 @@ class VisualPromptPlanningResult:
 
 @dataclass(frozen=True)
 class VisualPromptPlanningService:
-    """Subject-first visual planning with V4 series-visual-signature routing and V3 compatibility."""
+    """Subject-first visual planning with resilient series-visual-signature routing."""
 
     async def plan_image_prompts(
         self,
@@ -114,10 +119,24 @@ class VisualPromptPlanningService:
         series_visual_signature_consistency_mode: str | None = None,
     ) -> VisualPromptPlanningResult:
         policy = visual_signature_policy or load_visual_signature_policy()
-        role_strategy = series_visual_signature_request.strategy if series_visual_signature_request is not None else SeriesVisualSignatureStrategyControls.from_mapping({
-            "series_visual_signature_mode": series_visual_signature_mode,
-            "series_visual_signature_consistency_mode": series_visual_signature_consistency_mode,
-        })
+        if series_visual_signature_request is not None:
+            role_strategy = series_visual_signature_request.strategy
+            presentation_policy = series_visual_signature_request.presentation_policy
+        else:
+            presentation_policy = SeriesVisualSignaturePresentationPolicy.from_mapping(
+                {
+                    "series_visual_signature_mode": series_visual_signature_mode,
+                    "series_visual_signature_consistency_mode": series_visual_signature_consistency_mode,
+                }
+            )
+            role_strategy = presentation_policy.strategy_controls()
+            if role_strategy == SeriesVisualSignatureStrategyControls():
+                role_strategy = SeriesVisualSignatureStrategyControls.from_mapping(
+                    {
+                        "series_visual_signature_mode": series_visual_signature_mode,
+                        "series_visual_signature_consistency_mode": series_visual_signature_consistency_mode,
+                    }
+                )
         base_visual_briefs = BaseVisualBriefPlanner().plan_batch(
             base_prompts=base_prompts,
             frame_contexts=frame_contexts,
@@ -128,7 +147,12 @@ class VisualPromptPlanningService:
         )
 
         visual_anchor_plans = (
-            await VisualAnchorIntegrationPlanner(llm_service=llm_service, policy=policy, series_visual_signature_strategy=role_strategy).plan_batch(
+            await VisualAnchorIntegrationPlanner(
+                llm_service=llm_service,
+                policy=policy,
+                series_visual_signature_strategy=role_strategy,
+                presentation_policy=presentation_policy,
+            ).plan_batch(
                 base_visual_briefs=base_visual_briefs,
                 anchor_profile=anchor_profile,
                 base_packages=base_anchor_packages,
@@ -157,6 +181,7 @@ class VisualPromptPlanningService:
             )
             for index, brief in enumerate(base_visual_briefs)
         )
+        fallback_ledger = fallback_ledger_from_plans(visual_anchor_plans) if visual_anchor_plans else None
         return VisualPromptPlanningResult(
             base_visual_briefs=base_visual_briefs,
             visual_anchor_plans=visual_anchor_plans,
@@ -164,6 +189,7 @@ class VisualPromptPlanningService:
             rendered_prompts=rendered_prompts,
             series_visual_signature_request=series_visual_signature_request,
             series_visual_signature_profile=series_visual_signature_profile,
+            series_visual_signature_fallback=fallback_ledger if fallback_ledger and fallback_ledger.get("fallback_applied") else None,
         )
 
 
