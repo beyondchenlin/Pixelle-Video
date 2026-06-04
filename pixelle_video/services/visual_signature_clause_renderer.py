@@ -1,10 +1,38 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from typing import Any
 
 from pixelle_video.models.visual_anchor_planning import AnchorCarrierType, VisualAnchorPlacementPlan
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
+
+
+_IDENTITY_NOUN_HINTS = (
+    "小黑",
+    "斑点狗",
+    "狗",
+    "猫",
+    "兔",
+    "鸟",
+    "雀",
+    "人物",
+    "角色",
+    "机器人",
+    "小人",
+)
+_TRAIT_ONLY_HINTS = ("墨镜", "领结", "帽", "衣", "披风", "眼镜")
+_IDENTITY_SUFFIXES = (
+    "轮廓",
+    "形象",
+    "图案",
+    "纹样",
+    "标志",
+    "角色",
+    "小人",
+    "机器人",
+)
 
 
 def render_visual_signature_candidate_clause(
@@ -14,6 +42,7 @@ def render_visual_signature_candidate_clause(
     contact_relation: str = "",
     placement: str = "",
     source_text: str = "",
+    identity_kernel: Sequence[Any] | None = None,
     policy: VisualSignaturePolicy | None = None,
 ) -> str:
     policy = policy or load_visual_signature_policy()
@@ -25,29 +54,29 @@ def render_visual_signature_candidate_clause(
     if not support or policy.contains_forbidden_final_prompt_text(combined):
         return ""
 
-    identity = _identity_kernel(source_text)
+    identity = _identity_kernel(source_text, identity_kernel=identity_kernel)
     if carrier_value in {
         AnchorCarrierType.BOOKPLATE_OR_STAMP.value,
         AnchorCarrierType.PRINTED_MARK.value,
         AnchorCarrierType.EMBOSSED_MARK.value,
     }:
         clause = (
-            f"{support}的材质表面融入一枚低对比的{identity}浅压印纹章，"
-            "沿原有纸面或封面纹理呈现，作为安静的场景细节。"
+            f"{support}的材质表面有一枚小面积但清晰可辨的{identity}藏书票或浅压印图案，"
+            "沿原有纸面或封面纹理呈现，视觉重量低于主体但身份特征可读。"
         )
     elif carrier_value == AnchorCarrierType.ENGRAVED_MARK.value:
         clause = (
-            f"{support}的实体表面带有一处细浅的{identity}雕刻纹样，"
-            "顺着原有材质纹理呈现，视觉重量低于主体。"
+            f"{support}的实体表面带有一处小面积但清晰可辨的{identity}雕刻纹样，"
+            "顺着原有材质纹理呈现，视觉重量低于主体但身份特征可读。"
         )
     elif carrier_value == AnchorCarrierType.SURFACE_GRAPHIC.value:
         clause = (
-            f"{support}上的原有图案中融入一枚低对比的{identity}装饰纹样，"
-            "作为环境表面图形的一部分。"
+            f"{support}上的原有图案中融入一枚小面积但清晰可辨的{identity}装饰纹样，"
+            "作为环境表面图形的一部分，身份特征可读但不抢占主体。"
         )
     elif carrier_value == AnchorCarrierType.WEARABLE_SYMBOL.value:
         clause = (
-            f"{support}的布料或配饰表面带有一处细小的{identity}刺绣纹样，"
+            f"{support}的布料或配饰表面带有一处小面积但清晰可辨的{identity}刺绣纹样，"
             "贴合材质并服务整体造型。"
         )
     elif carrier_value in {
@@ -55,12 +84,12 @@ def render_visual_signature_candidate_clause(
         AnchorCarrierType.SMALL_SUPPORTING_PROP.value,
     }:
         clause = (
-            f"{support}上放置一个低存在感的{identity}小物件，"
+            f"{support}上放置一个小面积但清晰可辨的{identity}小物件，"
             "与支撑面自然接触，尺寸和明度都服从主要画面主体。"
         )
     elif carrier_value == AnchorCarrierType.MINOR_SUPPORTING_CHARACTER.value:
         clause = (
-            f"{support}附近有一个低存在感的{identity}小型陪衬形象，"
+            f"{support}附近有一个小面积但清晰可辨的{identity}小型陪衬形象，"
             "与场景地面和光线一致，只承担系列识别细节。"
         )
     else:
@@ -83,6 +112,7 @@ def render_visual_anchor_plan_clause(
         contact_relation=visual_anchor_plan.contact_relation,
         placement=visual_anchor_plan.placement_zone,
         source_text=visual_anchor_plan.image_prompt_clause,
+        identity_kernel=_metadata_identity_kernel(visual_anchor_plan.metadata),
         policy=policy,
     )
     if not clause:
@@ -100,17 +130,97 @@ def render_visual_anchor_plan_clause(
     return clause
 
 
-def _identity_kernel(text: str) -> str:
+def _metadata_identity_kernel(metadata: Any) -> tuple[str, ...]:
+    if not isinstance(metadata, dict):
+        return ()
+    raw = metadata.get("visual_identity_kernel") or metadata.get("identity_kernel")
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        return (raw,)
+    if isinstance(raw, Sequence):
+        return tuple(str(item or "").strip() for item in raw if str(item or "").strip())
+    return ()
+
+
+def _identity_kernel(
+    text: str,
+    *,
+    identity_kernel: Sequence[Any] | None = None,
+) -> str:
+    candidate = _select_identity_candidate(identity_kernel)
+    if not candidate:
+        candidate = _extract_identity_from_text(text)
+    return _identity_label(candidate)
+
+
+def _select_identity_candidate(values: Sequence[Any] | None) -> str:
+    candidates = [_clean_identity_text(value) for value in values or ()]
+    candidates = [value for value in candidates if value]
+    if not candidates:
+        return ""
+
+    def score(value: str) -> tuple[int, int]:
+        has_noun = any(token in value for token in _IDENTITY_NOUN_HINTS)
+        trait_only = any(token in value for token in _TRAIT_ONLY_HINTS) and not has_noun
+        return ((100 if has_noun else 0) - (30 if trait_only else 0), len(value))
+
+    return max(candidates, key=score)
+
+
+def _extract_identity_from_text(text: str) -> str:
     value = str(text or "")
     if "蓝领结白兔" in value:
         return "蓝领结白兔轮廓"
+    # Prefer explicit descriptive noun phrases such as “带着黑色墨镜的斑点狗”.
+    phrase_patterns = (
+        r"(?:带着|戴着|穿着|拿着)[^，。；,.;]{1,24}的[^，。；,.;]{1,18}(?:狗|猫|兔|鸟|雀|角色|机器人|小人)",
+        r"(?:小黑|斑点狗|白兔|麻雀|黑猫|小狗|机器人|小人)",
+    )
+    for pattern in phrase_patterns:
+        match = re.search(pattern, value)
+        if match:
+            return _clean_identity_text(match.group(0))
+
+    # Backward-compatible special cases, now including dog/cat instead of falling
+    # back to an anonymous “channel identifier”.
+    if "斑点狗" in value:
+        return "戴黑色墨镜的斑点狗" if "黑色墨镜" in value else "斑点狗"
+    if "狗" in value:
+        return "戴黑色墨镜的小狗" if "黑色墨镜" in value else "小狗"
+    if "猫" in value:
+        return "戴黑色墨镜的猫" if "黑色墨镜" in value else "猫"
+    if "蓝领结白兔" in value:
+        return "蓝领结白兔"
     if "兔" in value and ("蓝" in value or "领结" in value):
-        return "蓝领结白兔轮廓"
+        return "蓝领结白兔"
     if "兔" in value:
-        return "白兔轮廓"
+        return "白兔"
     if "麻雀" in value:
-        return "红嘴小麻雀轮廓"
-    return "频道识别轮廓"
+        return "红嘴小麻雀" if "红嘴" in value else "麻雀"
+    if "小黑" in value:
+        return "小黑"
+    return ""
+
+
+def _identity_label(identity: str) -> str:
+    cleaned = _clean_identity_text(identity)
+    if not cleaned:
+        return "频道识别轮廓"
+    if cleaned.endswith(_IDENTITY_SUFFIXES):
+        return cleaned
+    if any(token in cleaned for token in _IDENTITY_NOUN_HINTS):
+        return f"{cleaned}轮廓"
+    return f"{cleaned}识别轮廓"
+
+
+def _clean_identity_text(value: Any) -> str:
+    text = " ".join(str(value or "").split()).strip(" ，,。;；")
+    text = text.replace("Fixed IP identity:", "")
+    text = text.replace("fixed identity:", "")
+    text = text.replace("required identity traits:", "")
+    text = text.replace("required traits:", "")
+    return " ".join(text.split()).strip(" ，,。;；")
 
 
 def _clean_fragment(text: str) -> str:

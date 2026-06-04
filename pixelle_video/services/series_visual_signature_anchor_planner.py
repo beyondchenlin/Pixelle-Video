@@ -245,7 +245,12 @@ def _placement_plan_from_raw_plan(
     )
     if errors:
         return None, errors
-    return _candidate_to_plan(raw_plan, frame_id=frame_id, role_strategy=role_strategy), []
+    return _candidate_to_plan(
+        raw_plan,
+        frame_id=frame_id,
+        role_strategy=role_strategy,
+        identity_kernel=identity_kernel,
+    ), []
 
 
 def _candidate_to_plan(
@@ -253,6 +258,7 @@ def _candidate_to_plan(
     *,
     frame_id: str,
     role_strategy: SeriesVisualSignatureStrategyControls,
+    identity_kernel: Sequence[str] = (),
 ) -> VisualAnchorPlacementPlan:
     prompt = _prompt_text(candidate)
     carrier_type = _enum_value(candidate.get("carrier_type"), AnchorCarrierType, AnchorCarrierType.BOOKPLATE_OR_STAMP)
@@ -285,6 +291,7 @@ def _candidate_to_plan(
             "series_visual_signature_strategy": role_strategy.to_dict(),
             "integration_strategy": _first_text(candidate.get("integration_strategy")),
             "anchor_manifestation": dict(candidate.get("anchor_manifestation") or {}) if isinstance(candidate.get("anchor_manifestation"), Mapping) else {},
+            "visual_identity_kernel": [str(item) for item in identity_kernel if str(item or "").strip()],
         },
     )
 
