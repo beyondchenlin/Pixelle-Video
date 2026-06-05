@@ -242,6 +242,13 @@ class VideoGenerateRequest(BaseModel):
     )
     
     # === TTS Parameters ===
+    tts_inference_mode: Optional[Literal["local", "comfyui"]] = Field(
+        None,
+        description=(
+            "TTS inference mode override for this request. Use 'local' to avoid "
+            "ComfyUI reference-audio requirements."
+        ),
+    )
     voice_id: Optional[str] = Field(
         None,
         description="Public voice resource ID resolved server-side",
@@ -261,6 +268,13 @@ class VideoGenerateRequest(BaseModel):
     workflow_preset_id: Optional[str] = Field(
         None,
         description="Public media workflow preset resource ID resolved server-side",
+    )
+    media_workflow: Optional[str] = Field(
+        None,
+        description=(
+            "Local debug media workflow key. Public clients should prefer "
+            "workflow_preset_id."
+        ),
     )
     tts_workflow_preset_id: Optional[str] = Field(
         None,

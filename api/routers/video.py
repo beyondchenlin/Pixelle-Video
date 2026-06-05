@@ -201,6 +201,8 @@ def build_video_generation_params(
         video_params["text_rendering"] = request_body.text_rendering.model_dump(
             exclude_none=True
         )
+    if request_body.tts_inference_mode is not None:
+        video_params["tts_inference_mode"] = request_body.tts_inference_mode
     if request_body.layered_template_spec is not None:
         layered_template_spec = active_layered_template_spec(
             request_body.layered_template_spec.to_model()
@@ -213,6 +215,26 @@ def build_video_generation_params(
     _copy_tts_text_policy_params(request_body, video_params)
     copy_prompt_generation_performance_params(request_body, video_params)
     return video_params
+
+
+def _request_header(request: Request, name: str) -> str | None:
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        return None
+    return headers.get(name)
+
+
+def _request_correlation_id(request: Request) -> str:
+    return _request_header(request, "x-request-id") or new_correlation_id("req")
+
+
+def _apply_trace_request_context(request: Request, video_params: dict) -> None:
+    workspace_id = _request_header(request, "x-workspace-id")
+    session_id = _request_header(request, "x-session-id")
+    if workspace_id:
+        video_params["workspace_id"] = workspace_id
+    if session_id:
+        video_params["session_id"] = session_id
 
 
 def _article_concretization_params_from_request(
@@ -396,7 +418,7 @@ async def generate_video_sync(
     Returns path to generated video, duration, and file size.
     """
     try:
-        request_id = new_correlation_id("req")
+        request_id = _request_correlation_id(request)
         logger.bind(
             channel="runtime",
             request_id=request_id,
@@ -409,6 +431,7 @@ async def generate_video_sync(
             request_id=request_id,
             resource_resolver=resource_resolver,
         )
+        _apply_trace_request_context(request, video_params)
         validate_video_tts_contract(video_params)
         
         # Call video generator service
@@ -461,7 +484,7 @@ async def generate_video_async(
     Returns task_id for tracking progress.
     """
     try:
-        request_id = new_correlation_id("req")
+        request_id = _request_correlation_id(request)
         logger.bind(
             channel="runtime",
             request_id=request_id,
@@ -474,6 +497,7 @@ async def generate_video_async(
             request_id=request_id,
             resource_resolver=resource_resolver,
         )
+        _apply_trace_request_context(request, generation_params)
         validate_video_tts_contract(generation_params)
         generation_fingerprint = build_generation_fingerprint(
             text=request_body.text,

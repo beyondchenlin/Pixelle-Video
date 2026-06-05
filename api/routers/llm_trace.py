@@ -22,18 +22,52 @@ async def list_llm_traces(
     request: Request,
     task_id: str | None = None,
     operation: str | None = None,
+    stage: str | None = None,
+    request_id: str | None = None,
+    session_id: str | None = None,
+    api_task_id: str | None = None,
+    pipeline: str | None = None,
 ) -> LLMTraceListResponse:
     repository = _get_trace_repository(request)
     traces = await repository.list_llm_interactions(
         workspace_id,
         filters={"task_id": task_id, "operation": operation},
     )
+    summaries = [
+        _to_trace_summary(trace)
+        for trace in traces
+    ]
+    summaries = [
+        summary
+        for summary in summaries
+        if _summary_matches(
+            summary,
+            stage=stage,
+            request_id=request_id,
+            session_id=session_id,
+            api_task_id=api_task_id,
+            pipeline=pipeline,
+        )
+    ]
     return LLMTraceListResponse(
-        traces=[
-            _to_trace_summary(trace)
-            for trace in traces
-        ]
+        traces=summaries
     )
+
+
+@router.get("/{workspace_id}/{trace_id}", response_model=LLMTraceSummary)
+async def get_llm_trace_summary(
+    workspace_id: str,
+    trace_id: str,
+    request: Request,
+) -> LLMTraceSummary:
+    repository = _get_trace_repository(request)
+    traces = await repository.list_llm_interactions(
+        workspace_id,
+        filters={"trace_id": trace_id},
+    )
+    if not traces:
+        raise HTTPException(status_code=404, detail="LLM trace was not found")
+    return _to_trace_summary(traces[0])
 
 
 @router.get("/{workspace_id}/{trace_id}/raw/{payload_kind}", response_model=LLMTraceRawPayloadResponse)
@@ -105,6 +139,30 @@ def _is_loopback_client(request: Request) -> bool:
         return True
     ipv4_mapped = getattr(remote_address, "ipv4_mapped", None)
     return ipv4_mapped is not None and ipv4_mapped.is_loopback
+
+
+def _summary_matches(
+    summary: LLMTraceSummary,
+    *,
+    stage: str | None,
+    request_id: str | None,
+    session_id: str | None,
+    api_task_id: str | None,
+    pipeline: str | None,
+) -> bool:
+    context = summary.context
+    metadata = context.metadata or {}
+    if stage is not None and context.stage != stage:
+        return False
+    if request_id is not None and str(metadata.get("request_id", "")) != request_id:
+        return False
+    if session_id is not None and str(metadata.get("session_id", "")) != session_id:
+        return False
+    if api_task_id is not None and str(metadata.get("api_task_id", "")) != api_task_id:
+        return False
+    if pipeline is not None and str(metadata.get("pipeline", "")) != pipeline:
+        return False
+    return True
 
 
 def _to_trace_summary(trace: Mapping[str, Any]) -> LLMTraceSummary:
