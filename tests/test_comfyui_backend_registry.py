@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -156,7 +157,20 @@ async def test_core_maintenance_path_uses_registry_client_factory(monkeypatch):
         async def cleanup_before_generation(self):
             calls.append(("cleanup",))
 
+    class _Backend:
+        def can_manage(self):
+            calls.append(("can_manage",))
+            return True
+
+        async def start(self, *, reason):
+            calls.append(("start", reason))
+            return SimpleNamespace(payload={"already_running": True})
+
     class _Registry:
+        def managed_backend(self, role):
+            calls.append(("managed", role))
+            return _Backend()
+
         def maintenance_client(self, role):
             calls.append(("registry", role))
             return _Client()
@@ -166,6 +180,9 @@ async def test_core_maintenance_path_uses_registry_client_factory(monkeypatch):
     await core.prepare_comfyui_for_local_workflow()
 
     assert calls == [
+        ("managed", "default"),
+        ("can_manage",),
+        ("start", "pre-workflow"),
         ("registry", "default"),
         ("cleanup",),
     ]

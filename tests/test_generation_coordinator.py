@@ -3882,7 +3882,7 @@ async def test_index_tts2_release_preflight_runs_in_comfyui_cleanup_mode(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_prepare_comfyui_for_local_workflow_only_cleans_queue(monkeypatch):
+async def test_prepare_comfyui_for_local_workflow_starts_backend_then_cleans_queue(monkeypatch):
     events = []
 
     class _Client:
@@ -3924,9 +3924,19 @@ async def test_prepare_comfyui_for_local_workflow_only_cleans_queue(monkeypatch)
 
     core = PixelleVideoCore()
 
+    async def _ensure_backend(backend_role, *, reason):
+        events.append(("ensure_backend", backend_role, reason))
+
+    monkeypatch.setattr(
+        core,
+        "_ensure_comfyui_backend_started",
+        _ensure_backend,
+    )
+
     await core.prepare_comfyui_for_local_workflow()
 
     assert events == [
+        ("ensure_backend", "default", "pre-workflow"),
         ("client", "http://127.0.0.1:8000", "secret", 20.0),
         ("cleanup",),
     ]
@@ -4125,7 +4135,11 @@ async def test_local_comfyui_workflow_session_is_scoped_to_core_instance():
 
 
 @pytest.mark.asyncio
-async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_retries(monkeypatch):
+@pytest.mark.parametrize("failure_shape", ("error_result", "exception"))
+async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_retries(
+    monkeypatch,
+    failure_shape,
+):
     events = []
     core = PixelleVideoCore()
 
@@ -4166,6 +4180,14 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
         call_count += 1
         events.append(("execute_once", call_count, workflow_input))
         if call_count == 1:
+            if failure_shape == "error_result":
+                return SimpleNamespace(
+                    status="error",
+                    msg=(
+                        "Cannot connect to host 127.0.0.1:8001 "
+                        "ssl:default [remote computer refused the network connection]"
+                    ),
+                )
             key = ConnectionKey(
                 host="127.0.0.1",
                 port=8000,

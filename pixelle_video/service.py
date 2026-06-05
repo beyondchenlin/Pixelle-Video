@@ -1025,7 +1025,15 @@ def _local_comfykit_result_needs_transient_backend_retry(result: Any) -> bool:
     status = _local_comfykit_result_status(result)
     if not status or status == "completed":
         return False
-    return looks_like_transient_backend_execution_error(
+    message = _local_comfykit_result_message(result)
+    return looks_like_transient_backend_execution_error(message)
+
+
+def _local_comfykit_result_needs_connection_loss_retry(result: Any) -> bool:
+    status = _local_comfykit_result_status(result)
+    if not status or status == "completed":
+        return False
+    return looks_like_backend_connection_loss(
         _local_comfykit_result_message(result)
     )
 
@@ -1547,6 +1555,40 @@ class PixelleVideoCore:
         finally:
             if self._comfyui_restart_tasks.get(role) is task and task.done():
                 self._comfyui_restart_tasks.pop(role, None)
+
+    async def _ensure_comfyui_backend_started(
+        self,
+        backend_role: str,
+        *,
+        reason: str,
+    ) -> None:
+        role = self._normalize_comfyui_backend_role(backend_role)
+        await self.await_comfyui_backend_ready(role)
+        backend = self._get_managed_comfyui_backend(role)
+        if backend is None or not backend.can_manage():
+            return
+
+        try:
+            result = await backend.start(reason=reason)
+        except Exception as e:
+            detail = str(e).strip() or repr(e) or type(e).__name__
+            raise RuntimeError(
+                f"ComfyUI backend '{role}' could not be started before local "
+                f"workflow ({type(e).__name__}): {detail}"
+            ) from e
+
+        payload = result.payload or {}
+        if payload.get("started"):
+            logger.info(
+                f"Pixelle-managed ComfyUI backend '{role}' started before local workflow; "
+                "closing stale ComfyKit executors"
+            )
+            await self._close_comfykit_instance(role)
+        elif payload.get("already_running"):
+            logger.debug(
+                f"Pixelle-managed ComfyUI backend '{role}' is already running "
+                "before local workflow"
+            )
     
     def _compute_comfykit_config_hash(self, config: dict) -> str:
         """
@@ -1884,7 +1926,10 @@ class PixelleVideoCore:
     ) -> None:
         """Prepare self-hosted ComfyUI before a local workflow execution."""
         role = self._normalize_comfyui_backend_role(backend_role)
-        await self.await_comfyui_backend_ready(role)
+        await self._ensure_comfyui_backend_started(
+            role,
+            reason="pre-workflow",
+        )
         client = self._get_comfyui_maintenance_client(role)
         if client is None:
             return
@@ -1892,7 +1937,11 @@ class PixelleVideoCore:
         try:
             await client.cleanup_before_generation()
         except Exception as e:
-            raise RuntimeError(f"ComfyUI pre-workflow cleanup failed: {e}") from e
+            detail = str(e).strip() or repr(e) or type(e).__name__
+            raise RuntimeError(
+                "ComfyUI pre-workflow cleanup failed "
+                f"({type(e).__name__}): {detail}"
+            ) from e
 
     def _get_comfyui_backend_management_mode(self, comfyui_config: dict) -> str:
         mode = (comfyui_config.get("backend_management_mode") or "auto").lower()
@@ -2502,6 +2551,19 @@ class PixelleVideoCore:
                 workflow_params,
                 backend_role=role,
             )
+            if _local_comfykit_result_needs_connection_loss_retry(result):
+                retried, retry_result = await self._restart_local_comfykit_workflow_and_retry_once(
+                    workflow_input,
+                    workflow_params,
+                    backend_role=role,
+                    restart_reason="connection_lost_during_workflow",
+                    warning_message=(
+                        "Local ComfyUI workflow returned a backend connection loss; "
+                        "restarted managed backend and retrying once."
+                    ),
+                )
+                if retried:
+                    return retry_result
             if _local_comfykit_result_needs_transient_backend_retry(result):
                 retried, retry_result = await self._restart_local_comfykit_workflow_and_retry_once(
                     workflow_input,

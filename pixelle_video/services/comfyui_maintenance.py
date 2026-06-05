@@ -725,6 +725,17 @@ class ComfyUIMaintenanceClient:
             timeout=timeout,
             transport=self.transport,
         ) as client:
-            response = await client.request(method, path, **kwargs)
+            try:
+                response = await client.request(method, path, **kwargs)
+            except httpx.TimeoutException as exc:
+                raise TimeoutError(
+                    f"ComfyUI {method} {self.base_url}{path} timed out "
+                    f"after {self.timeout:g}s"
+                ) from exc
+            except httpx.RequestError as exc:
+                detail = str(exc).strip() or repr(exc) or type(exc).__name__
+                raise ConnectionError(
+                    f"ComfyUI {method} {self.base_url}{path} request failed: {detail}"
+                ) from exc
             response.raise_for_status()
             return response
