@@ -1,0 +1,3247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pixelle 文生图交互工作流观察台</title>
+  <style>
+    :root {
+      --bg: #f6f7f2;
+      --surface: #ffffff;
+      --surface-2: #f0f4f5;
+      --surface-3: #edf2ea;
+      --ink: #17201d;
+      --muted: #61706a;
+      --faint: #899791;
+      --line: #d6dfdb;
+      --line-strong: #afbbb6;
+      --teal: #15736d;
+      --blue: #315e9f;
+      --coral: #c45741;
+      --amber: #a36f14;
+      --green: #28784a;
+      --red: #b53e35;
+      --shadow: 0 18px 45px rgba(31, 45, 41, 0.08);
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(21, 115, 109, 0.05), transparent 30%, rgba(196, 87, 65, 0.05) 70%, transparent),
+        var(--bg);
+      font-family: var(--body);
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.62;
+    }
+
+    a {
+      color: var(--teal);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: minmax(210px, 300px) minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: center;
+      padding: 14px 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(246, 247, 242, 0.92);
+      backdrop-filter: blur(14px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #92aaa4;
+      color: var(--teal);
+      background: #e5efec;
+      font-weight: 800;
+      border-radius: 8px;
+    }
+
+    .brand-title {
+      min-width: 0;
+    }
+
+    .brand-title strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .brand-title span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .api-strip {
+      display: grid;
+      grid-template-columns: minmax(220px, 420px) auto auto;
+      gap: 10px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .field-inline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .field-inline label {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .field-inline input {
+      min-width: 0;
+      width: 100%;
+      border: 0;
+      outline: 0;
+      color: var(--ink);
+      background: transparent;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      height: 34px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      border-radius: 999px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--faint);
+    }
+
+    .status-pill.ok .status-dot {
+      background: var(--green);
+    }
+
+    .status-pill.error .status-dot {
+      background: var(--red);
+    }
+
+    .status-pill.running .status-dot {
+      background: var(--amber);
+      animation: breathe 0.9s ease-in-out infinite;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .ghost-link,
+    .small-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: #31433d;
+      border-radius: 8px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .small-btn:hover,
+    .ghost-link:hover {
+      border-color: var(--line-strong);
+      text-decoration: none;
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 300px minmax(600px, 1fr) 360px;
+      gap: 18px;
+      align-items: stretch;
+      padding: 18px;
+      height: calc(100vh - 66px);
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.82);
+      box-shadow: var(--shadow);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 54px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.74);
+    }
+
+    .panel-header h1,
+    .panel-header h2 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    .panel-header p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .panel-scroll {
+      min-height: 0;
+      max-height: none;
+      overflow: auto;
+    }
+
+    .controls {
+      padding: 16px;
+      display: grid;
+      gap: 15px;
+    }
+
+    .control-group {
+      display: grid;
+      gap: 7px;
+    }
+
+    .control-group label,
+    .switch-row span:first-child {
+      color: #33433e;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .control-group small,
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    textarea,
+    input[type="number"],
+    input[type="text"],
+    select {
+      width: 100%;
+      border: 1px solid var(--line);
+      outline: 0;
+      background: var(--surface);
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 10px 11px;
+      font-size: 13px;
+    }
+
+    textarea:focus,
+    input:focus,
+    select:focus {
+      border-color: #8bb0aa;
+      box-shadow: 0 0 0 3px rgba(21, 115, 109, 0.12);
+    }
+
+    textarea {
+      min-height: 136px;
+      resize: vertical;
+      line-height: 1.55;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      border-radius: 8px;
+    }
+
+    .switch-copy {
+      min-width: 0;
+    }
+
+    .switch-copy small {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .toggle {
+      position: relative;
+      width: 46px;
+      height: 26px;
+      flex: 0 0 auto;
+    }
+
+    .toggle input {
+      position: absolute;
+      opacity: 0;
+      inset: 0;
+    }
+
+    .toggle span {
+      position: absolute;
+      inset: 0;
+      border: 1px solid #b9c5c1;
+      background: #dfe7e4;
+      border-radius: 999px;
+      transition: 0.18s ease;
+    }
+
+    .toggle span::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 2px 7px rgba(0, 0, 0, 0.18);
+      transition: 0.18s ease;
+    }
+
+    .toggle input:checked + span {
+      background: var(--teal);
+      border-color: var(--teal);
+    }
+
+    .toggle input:checked + span::after {
+      transform: translateX(20px);
+    }
+
+    .primary-actions {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .primary-btn {
+      min-height: 42px;
+      background: var(--teal);
+      color: #fff;
+      border-radius: 8px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .primary-btn:hover {
+      background: #0f615d;
+    }
+
+    .danger-btn {
+      min-width: 70px;
+      min-height: 42px;
+      border: 1px solid #d8b8b3;
+      background: #fff5f3;
+      color: var(--red);
+      border-radius: 8px;
+      font-weight: 700;
+    }
+
+    .pipeline-wrap {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-height: 0;
+      max-height: 100%;
+    }
+
+    .run-summary {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfa;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .run-metrics-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      min-width: 0;
+      min-height: 56px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 10px 11px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 17px;
+      line-height: 1.15;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .llm-slot-grid {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+      grid-auto-rows: minmax(360px, 1fr);
+      gap: 12px;
+      align-content: start;
+      overflow: auto;
+      padding: 2px 4px 6px 0;
+    }
+
+    .llm-slot-grid .trace-item {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100%;
+      max-height: 470px;
+    }
+
+    .llm-slot-grid .trace-head {
+      padding: 10px 11px 9px;
+    }
+
+    .llm-slot-grid .trace-title {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .llm-slot-grid .trace-title code {
+      grid-column: 1 / -1;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .llm-slot-grid .trace-payloads {
+      min-height: 0;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr);
+      align-items: stretch;
+      overflow: hidden;
+    }
+
+    .llm-slot-grid .payload-block {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .llm-slot-grid .trace-pre {
+      min-height: 0;
+      max-height: none;
+      height: 100%;
+      overflow: auto;
+      font-size: 10px;
+      line-height: 1.48;
+    }
+
+    .llm-slot-grid .payload-head {
+      min-height: 30px;
+    }
+
+    .llm-slot-empty {
+      display: grid;
+      place-items: center;
+      min-height: 0;
+      height: 100%;
+      grid-column: 1 / -1;
+      padding: 28px;
+      border: 1px dashed #b8c6c1;
+      background: rgba(255, 255, 255, 0.76);
+      border-radius: 8px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .canvas {
+      position: relative;
+      min-height: 0;
+      overflow: auto;
+      padding: 12px 14px 14px;
+      display: grid;
+      align-content: start;
+      gap: 16px;
+      border-top: 1px solid var(--line);
+      background:
+        linear-gradient(rgba(33, 47, 43, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(33, 47, 43, 0.045) 1px, transparent 1px),
+        #f8faf7;
+      background-size: 28px 28px;
+    }
+
+    .pipeline {
+      min-width: 660px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(185px, 1fr));
+      gap: 38px 46px;
+      position: relative;
+    }
+
+    .pipeline.compact {
+      min-width: 1120px;
+      grid-template-columns: repeat(8, minmax(126px, 1fr));
+      gap: 8px;
+    }
+
+    .pipeline.compact .flow-card {
+      min-height: 78px;
+      padding: 9px;
+      box-shadow: none;
+    }
+
+    .pipeline.compact .flow-card::after,
+    .pipeline.compact .flow-card::before {
+      display: none;
+    }
+
+    .pipeline.compact .flow-card,
+    .pipeline.compact .flow-card:nth-child(4),
+    .pipeline.compact .flow-card:nth-child(5),
+    .pipeline.compact .flow-card:nth-child(6) {
+      grid-column: auto;
+      grid-row: auto;
+    }
+
+    .pipeline.compact .flow-card p {
+      display: none;
+    }
+
+    .pipeline.compact .step-badge {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+    }
+
+    .pipeline.compact h3 {
+      font-size: 12px;
+    }
+
+    .pipeline.compact .flow-kicker,
+    .pipeline.compact .flow-meta {
+      font-size: 10px;
+    }
+
+    .interaction-board {
+      display: grid;
+      gap: 14px;
+    }
+
+    .interaction-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+      border-radius: 8px;
+    }
+
+    .interaction-head h3 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.25;
+    }
+
+    .interaction-head p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .interaction-count {
+      min-height: 28px;
+      padding: 5px 9px;
+      border: 1px solid var(--line);
+      background: #f4f8f6;
+      color: var(--teal);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .interaction-empty {
+      min-height: 240px;
+      display: grid;
+      place-items: center;
+      padding: 34px;
+      border: 1px dashed #b8c6c1;
+      background: rgba(255, 255, 255, 0.76);
+      border-radius: 8px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .main-trace {
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 12px 30px rgba(31, 45, 41, 0.07);
+    }
+
+    .main-trace .trace-head {
+      background: linear-gradient(90deg, #eef6f3, #f8fbf9);
+    }
+
+    .main-trace .trace-title {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      justify-content: stretch;
+    }
+
+    .trace-index {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 44px;
+      height: 28px;
+      padding: 0 8px;
+      border-radius: 7px;
+      background: #dfeeea;
+      color: var(--teal);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .trace-name {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+
+    .trace-name strong {
+      font-size: 15px;
+      line-height: 1.25;
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+    }
+
+    .trace-name span {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .main-trace .trace-payloads {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .main-trace .trace-pre {
+      max-height: 520px;
+      min-height: 0;
+      background: #fbfdfc;
+    }
+
+    .llm-slot-grid .main-trace .trace-payloads {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .llm-slot-grid .main-trace .trace-pre {
+      min-height: 0;
+      max-height: none;
+      height: 100%;
+    }
+
+    .flow-card {
+      position: relative;
+      min-height: 152px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 10px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.94);
+      border-radius: 8px;
+      padding: 13px;
+      box-shadow: 0 8px 24px rgba(31, 45, 41, 0.06);
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .flow-card::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -47px;
+      width: 46px;
+      height: 2px;
+      background: var(--line-strong);
+      transform: translateY(-50%);
+    }
+
+    .flow-card:nth-child(3)::after,
+    .flow-card:nth-child(6)::after {
+      display: none;
+    }
+
+    .flow-card:nth-child(3)::before {
+      content: "";
+      position: absolute;
+      right: 50%;
+      bottom: -39px;
+      width: 2px;
+      height: 38px;
+      background: var(--line-strong);
+    }
+
+    .flow-card:nth-child(4)::after,
+    .flow-card:nth-child(5)::after {
+      left: -47px;
+      right: auto;
+    }
+
+    .flow-card:nth-child(4) {
+      grid-column: 3;
+      grid-row: 2;
+    }
+
+    .flow-card:nth-child(5) {
+      grid-column: 2;
+      grid-row: 2;
+    }
+
+    .flow-card:nth-child(6) {
+      grid-column: 1;
+      grid-row: 2;
+    }
+
+    .flow-card.selected {
+      border-color: #6b9e98;
+      box-shadow: 0 0 0 3px rgba(21, 115, 109, 0.13), 0 12px 30px rgba(31, 45, 41, 0.09);
+      transform: translateY(-2px);
+    }
+
+    .flow-card.running {
+      border-color: var(--amber);
+      box-shadow: 0 0 0 3px rgba(163, 111, 20, 0.14), 0 12px 30px rgba(31, 45, 41, 0.09);
+    }
+
+    .flow-card.running::after,
+    .flow-card.running::before {
+      background: linear-gradient(90deg, var(--amber), #e0b15f, var(--amber));
+      background-size: 220% 100%;
+      animation: lineFlow 1.1s linear infinite;
+    }
+
+    .flow-card.done {
+      border-color: #8ab49c;
+    }
+
+    .flow-card.error {
+      border-color: #d7a29b;
+      background: #fff8f6;
+    }
+
+    .flow-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .flow-kicker {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    .flow-card h3 {
+      margin: 3px 0 0;
+      font-size: 14px;
+      line-height: 1.3;
+    }
+
+    .step-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: #e5efec;
+      color: var(--teal);
+      font-weight: 800;
+      font-size: 12px;
+      flex: 0 0 auto;
+    }
+
+    .flow-card.running .step-badge {
+      background: #fff0d9;
+      color: var(--amber);
+      animation: breathe 0.9s ease-in-out infinite;
+    }
+
+    .flow-card.done .step-badge {
+      background: #e5f1e9;
+      color: var(--green);
+    }
+
+    .flow-card.error .step-badge {
+      background: #fde9e6;
+      color: var(--red);
+    }
+
+    .flow-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .flow-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      min-height: 19px;
+    }
+
+    .status-text {
+      font-weight: 700;
+    }
+
+    .status-text.pending {
+      color: var(--faint);
+    }
+
+    .status-text.running {
+      color: var(--amber);
+    }
+
+    .status-text.done {
+      color: var(--green);
+    }
+
+    .status-text.error {
+      color: var(--red);
+    }
+
+    .inspector {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    .result-stage {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfa;
+    }
+
+    .image-frame {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 210px;
+      aspect-ratio: 4 / 3;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(49, 94, 159, 0.09), rgba(21, 115, 109, 0.12)),
+        #f2f5f4;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .image-frame img {
+      display: none;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #fff;
+    }
+
+    .image-frame.has-image img {
+      display: block;
+    }
+
+    .image-placeholder {
+      padding: 20px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .image-frame.has-image .image-placeholder {
+      display: none;
+    }
+
+    .image-caption {
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .image-caption code {
+      padding: 1px 4px;
+      background: #eef3f0;
+      border-radius: 4px;
+      color: #30433d;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .image-strip {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(74px, 92px);
+      gap: 8px;
+      min-height: 0;
+      margin-top: 10px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .image-strip img,
+    .image-strip .frame-chip {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f5f8f6;
+      object-fit: cover;
+    }
+
+    .image-strip .frame-chip {
+      display: grid;
+      place-items: center;
+      padding: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      text-align: center;
+      line-height: 1.3;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      padding: 10px 16px 0;
+      background: #fbfcfa;
+    }
+
+    .tab-btn {
+      min-height: 32px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      border-radius: 8px 8px 0 0;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tab-btn.active {
+      color: var(--teal);
+      border-bottom-color: var(--surface);
+      background: var(--surface);
+    }
+
+    .detail-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 14px 16px 16px;
+      background: var(--surface);
+    }
+
+    .detail-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .detail-title strong {
+      font-size: 14px;
+    }
+
+    .detail-title span {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .prebox {
+      min-height: 180px;
+      margin: 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      background: #f7faf8;
+      border-radius: 8px;
+      color: #263832;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .empty {
+      color: var(--muted);
+    }
+
+    .trace-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .trace-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .trace-item {
+      border: 1px solid var(--line);
+      background: #fbfcfa;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .trace-head {
+      display: grid;
+      gap: 8px;
+      padding: 10px 11px;
+      border-bottom: 1px solid var(--line);
+      background: #f3f7f5;
+    }
+
+    .trace-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .trace-title strong {
+      min-width: 0;
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .trace-title code,
+    .trace-meta code {
+      padding: 1px 4px;
+      background: #e9efec;
+      border-radius: 4px;
+      color: #31433d;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .trace-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .trace-meta span {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 0 7px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 999px;
+    }
+
+    .trace-payloads {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      padding: 10px;
+    }
+
+    .payload-block {
+      display: grid;
+      gap: 7px;
+    }
+
+    .payload-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: #33433e;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .copy-btn {
+      min-height: 26px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      border-radius: 7px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .copy-btn:hover {
+      color: var(--teal);
+      border-color: #9dbab5;
+    }
+
+    .trace-pre {
+      max-height: 360px;
+      min-height: 140px;
+      overflow: auto;
+    }
+
+    .log-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .log-item {
+      display: grid;
+      grid-template-columns: 74px 1fr;
+      gap: 10px;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      background: #fbfcfa;
+      border-radius: 8px;
+      color: #34443f;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .log-item time {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 10px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 100%;
+      min-height: 26px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      background: #f5f8f6;
+      color: #34443f;
+      border-radius: 999px;
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .artifact-list {
+      display: grid;
+      gap: 9px;
+    }
+
+    .artifact {
+      border: 1px solid var(--line);
+      background: #fbfcfa;
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .artifact strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 12px;
+    }
+
+    .artifact p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      z-index: 50;
+      transform: translateX(-50%) translateY(18px);
+      max-width: min(560px, calc(100vw - 28px));
+      padding: 11px 13px;
+      border: 1px solid var(--line);
+      background: #17201d;
+      color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 16px 38px rgba(0, 0, 0, 0.18);
+      font-size: 13px;
+      line-height: 1.45;
+      opacity: 0;
+      pointer-events: none;
+      transition: 0.2s ease;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    @keyframes breathe {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+      50% {
+        transform: scale(1.12);
+        opacity: 0.74;
+      }
+    }
+
+    @keyframes lineFlow {
+      from {
+        background-position: 0 0;
+      }
+      to {
+        background-position: 220% 0;
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .main-grid {
+        height: auto;
+        overflow: visible;
+        grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+      }
+
+      .pipeline-wrap {
+        min-height: 760px;
+      }
+
+      .llm-slot-grid {
+        grid-template-columns: 1fr;
+        grid-auto-rows: minmax(430px, auto);
+      }
+
+      .inspector {
+        grid-column: 1 / -1;
+      }
+
+      .inspector .panel-scroll {
+        max-height: 620px;
+      }
+    }
+
+    @media (max-width: 840px) {
+      .topbar {
+        position: static;
+        grid-template-columns: 1fr;
+      }
+
+      .api-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .nav-actions {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .main-grid {
+        grid-template-columns: 1fr;
+        padding: 12px;
+      }
+
+      .panel-scroll {
+        max-height: none;
+      }
+
+      .run-metrics-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .llm-slot-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .llm-slot-grid .main-trace .trace-payloads {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+      }
+
+      .pipeline {
+        min-width: 0;
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+
+      .pipeline.compact {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .flow-card,
+      .flow-card:nth-child(4),
+      .flow-card:nth-child(5),
+      .flow-card:nth-child(6) {
+        grid-column: auto;
+        grid-row: auto;
+      }
+
+      .flow-card::after,
+      .flow-card::before {
+        display: none !important;
+      }
+
+      .interaction-head,
+      .main-trace .trace-title {
+        grid-template-columns: 1fr;
+        display: grid;
+        align-items: start;
+      }
+
+      .main-trace .trace-payloads {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">PX</div>
+        <div class="brand-title">
+          <strong>Pixelle 文生图工作流观察台</strong>
+          <span>把 API 调用、LLM 产物、Prompt 组装和出图过程串成可见链路</span>
+        </div>
+      </div>
+
+      <div class="api-strip">
+        <div class="field-inline">
+          <label for="apiBase">API</label>
+          <input id="apiBase" value="http://127.0.0.1:8899" spellcheck="false">
+        </div>
+        <button class="small-btn" id="healthBtn" type="button">检测连接</button>
+        <div class="status-pill" id="apiStatus">
+          <span class="status-dot"></span>
+          <span>未检测</span>
+        </div>
+      </div>
+
+      <nav class="nav-actions" aria-label="页面入口">
+        <a class="ghost-link" href="text-to-image-flow.html">流程图文档</a>
+        <button class="small-btn" id="resetBtn" type="button">重置</button>
+      </nav>
+    </header>
+
+    <main class="main-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h1>输入与参数</h1>
+            <p>填一个主题，页面会按真实接口顺序推进。</p>
+          </div>
+        </div>
+        <div class="panel-scroll controls">
+          <div class="control-group">
+            <label for="topic">主题或短文本</label>
+            <textarea id="topic">一位年轻设计师在雨后的未来城市里寻找灵感，霓虹倒映在街面上，画面有电影感和轻微科幻感。</textarea>
+            <small>会提交到 `/api/video/generate/async`，由标准 pipeline 自动生成脚本、分镜、标题、视觉规划和多帧图片。</small>
+          </div>
+
+          <div class="two-col">
+            <div class="control-group">
+              <label for="sceneCount">分镜数</label>
+              <input id="sceneCount" type="number" min="1" max="12" value="2">
+            </div>
+            <div class="control-group">
+              <label for="language">Prompt 语言</label>
+              <select id="language">
+                <option value="en_US" selected>English</option>
+                <option value="zh_CN">中文</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="two-col">
+            <div class="control-group">
+              <label for="minWords">Prompt 最少词数</label>
+              <input id="minWords" type="number" min="10" max="260" value="70">
+            </div>
+            <div class="control-group">
+              <label for="maxWords">Prompt 最多词数</label>
+              <input id="maxWords" type="number" min="20" max="360" value="120">
+            </div>
+          </div>
+
+          <div class="two-col">
+            <div class="control-group">
+              <label for="imageWidth">图片宽度</label>
+              <input id="imageWidth" type="number" min="256" max="2048" step="64" value="512">
+            </div>
+            <div class="control-group">
+              <label for="imageHeight">图片高度</label>
+              <input id="imageHeight" type="number" min="256" max="2048" step="64" value="512">
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="workflow">指定 workflow</label>
+            <input id="workflow" type="text" value="selfhost/image_z_image_turbo.json" placeholder="留空使用后端默认，例如 selfhost/image_z_image_turbo_gguf.json">
+            <small>这里会传给 `/api/video/generate/async` 的 `media_workflow` 字段；留空才使用后端默认。</small>
+          </div>
+
+          <div class="control-group">
+            <label for="workspaceId">Trace Workspace ID</label>
+            <input id="workspaceId" type="text" value="workspace_1" spellcheck="false">
+            <small>后端 LLM trace 默认写入 `workspace_1`；改 workspace 时这里要保持一致。</small>
+          </div>
+
+          <label class="switch-row">
+            <span class="switch-copy">
+              <span>演示模式</span>
+              <small>不调用后端，用模拟数据演示每一步产物。</small>
+            </span>
+            <span class="toggle">
+              <input id="demoMode" type="checkbox">
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+
+          <label class="switch-row">
+            <span class="switch-copy">
+              <span>失败后自动演示</span>
+              <small>API 未启动或请求失败时，保留错误并继续展示流程形态。</small>
+            </span>
+            <span class="toggle">
+              <input id="fallbackDemo" type="checkbox" checked>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+
+          <label class="switch-row">
+            <span class="switch-copy">
+              <span>拉取 LLM 原始提交/返回</span>
+              <small>通过 `/api/llm-traces/.../raw/request|response` 显示完整 prompt 和模型返回。</small>
+            </span>
+            <span class="toggle">
+              <input id="rawTraceMode" type="checkbox" checked>
+              <span aria-hidden="true"></span>
+            </span>
+          </label>
+
+          <div class="primary-actions">
+            <button class="primary-btn" id="runBtn" type="button">开始生成</button>
+            <button class="danger-btn" id="stopBtn" type="button" disabled>停止</button>
+          </div>
+
+          <p class="hint">
+            当前机器的 8888 端口可能被其他服务占用；如果 Pixelle API 用了新端口，直接在顶部 API 输入框调整。
+          </p>
+        </div>
+      </section>
+
+      <section class="panel pipeline-wrap">
+        <div class="panel-header">
+          <div>
+            <h2>动态链路</h2>
+            <p>按真实标准 pipeline 推进；中央区域保存本次每一次 LLM request/response。</p>
+          </div>
+          <button class="small-btn" id="copyStateBtn" type="button">复制状态</button>
+        </div>
+
+        <div class="run-summary">
+          <div class="run-metrics-strip">
+            <div class="metric">
+              <span>当前步骤</span>
+              <strong id="metricCurrent">待开始</strong>
+            </div>
+            <div class="metric">
+              <span>已完成</span>
+              <strong id="metricDone">0 / 8</strong>
+            </div>
+            <div class="metric">
+              <span>运行耗时</span>
+              <strong id="metricTime">0.0s</strong>
+            </div>
+            <div class="metric">
+              <span>大模型交互</span>
+              <strong id="metricImage">0 次</strong>
+            </div>
+          </div>
+          <div class="llm-slot-grid" id="interactionBoard" aria-label="本次大模型交互独立展示区"></div>
+        </div>
+
+        <div class="canvas">
+          <div class="pipeline compact" id="pipeline"></div>
+        </div>
+      </section>
+
+      <aside class="panel inspector">
+        <div class="panel-header">
+          <div>
+            <h2>节点观察器</h2>
+            <p>看每一步输入了什么、返回了什么、产生了哪些可调试线索。</p>
+          </div>
+        </div>
+
+        <div class="result-stage">
+          <div class="image-frame" id="imageFrame">
+            <img id="resultImage" alt="生成图片预览">
+            <div class="image-placeholder" id="imagePlaceholder">最终视频或多帧图片会在任务完成后显示。</div>
+          </div>
+          <div class="image-strip" id="imageStrip" aria-label="多帧图片预览"></div>
+          <div class="image-caption" id="imageCaption">
+            <span>结果路径：<code>暂无</code></span>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="节点详情">
+          <button class="tab-btn active" data-tab="summary" type="button">摘要</button>
+          <button class="tab-btn" data-tab="request" type="button">请求</button>
+          <button class="tab-btn" data-tab="response" type="button">响应</button>
+          <button class="tab-btn" data-tab="llm" type="button">LLM Trace</button>
+          <button class="tab-btn" data-tab="logs" type="button">日志</button>
+        </div>
+
+        <div class="detail-body panel-scroll">
+          <div class="detail-title">
+            <strong id="detailName">等待选择节点</strong>
+            <span id="detailMeta">pending</span>
+          </div>
+          <div id="summaryPane"></div>
+          <pre class="prebox" id="requestPane" hidden></pre>
+          <pre class="prebox" id="responsePane" hidden></pre>
+          <div id="llmPane" hidden></div>
+          <div id="logsPane" hidden></div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const steps = [
+      {
+        id: "health",
+        code: "00",
+        title: "API 健康检查",
+        subtitle: "确认 FastAPI 服务与 CORS 可用",
+        endpoint: "GET /health"
+      },
+      {
+        id: "submitTask",
+        code: "01",
+        title: "提交标准 Pipeline",
+        subtitle: "把一句主题提交为异步视频/多图生成任务",
+        endpoint: "POST /api/video/generate/async"
+      },
+      {
+        id: "scriptGeneration",
+        code: "02",
+        title: "脚本生成 LLM",
+        subtitle: "把主题扩写为完整 source text / script",
+        endpoint: "trace: script_generation"
+      },
+      {
+        id: "storyboardGeneration",
+        code: "03",
+        title: "分镜生成 LLM",
+        subtitle: "把脚本拆成多个 frame 的 storyboard plan",
+        endpoint: "trace: storyboard_generation"
+      },
+      {
+        id: "titleGeneration",
+        code: "04",
+        title: "标题生成 LLM",
+        subtitle: "根据主题和分镜生成视频标题",
+        endpoint: "trace: title_generation"
+      },
+      {
+        id: "visualPlanning",
+        code: "05",
+        title: "视觉 Prompt 规划 LLM",
+        subtitle: "生成风格、世界观、负向 prompt 和每帧图片 prompt",
+        endpoint: "trace: visual_prompt_planning"
+      },
+      {
+        id: "produceAssets",
+        code: "06",
+        title: "多帧图片生成",
+        subtitle: "按每帧 prompt 调用媒体工作流生成多张图片",
+        endpoint: "pipeline: produce_assets"
+      },
+      {
+        id: "result",
+        code: "07",
+        title: "结果与回溯",
+        subtitle: "展示任务结果、视频 URL、帧图路径和所有 LLM trace",
+        endpoint: "output"
+      }
+    ];
+
+    const statusLabel = {
+      pending: "等待",
+      running: "运行中",
+      done: "完成",
+      error: "错误",
+      skipped: "跳过"
+    };
+
+    const appState = {
+      selectedStep: "health",
+      activeTab: "summary",
+      running: false,
+      startedAt: 0,
+      timer: null,
+      controller: null,
+      runHeaders: {},
+      resultImagePath: "",
+      resultImageUrl: "",
+      resultImages: [],
+      videoUrl: "",
+      taskId: "",
+      logs: [],
+      llmTraces: new Map()
+    };
+
+    const stepState = new Map(steps.map((step) => [step.id, {
+      ...step,
+      status: "pending",
+      startedAt: null,
+      endedAt: null,
+      request: null,
+      response: null,
+      summary: "尚未开始。",
+      artifacts: [],
+      llmTraceIds: []
+    }]));
+
+    const $ = (selector) => document.querySelector(selector);
+    const pipelineEl = $("#pipeline");
+    const interactionBoardEl = $("#interactionBoard");
+    const toastEl = $("#toast");
+
+    function normalizeBase(value) {
+      return String(value || "http://127.0.0.1:8899").trim().replace(/\/+$/, "");
+    }
+
+    function nowTime() {
+      return new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    }
+
+    function clampNumber(value, fallback, min, max) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.max(min, Math.min(max, n));
+    }
+
+    function readInputs() {
+      const minWords = clampNumber($("#minWords").value, 70, 10, 360);
+      const maxWords = Math.max(minWords, clampNumber($("#maxWords").value, 120, 20, 420));
+      return {
+        apiBase: normalizeBase($("#apiBase").value),
+        topic: String($("#topic").value || "").trim(),
+        nScenes: clampNumber($("#sceneCount").value, 2, 1, 12),
+        language: $("#language").value,
+        minWords,
+        maxWords,
+        width: clampNumber($("#imageWidth").value, 512, 256, 2048),
+        height: clampNumber($("#imageHeight").value, 512, 256, 2048),
+        workflow: String($("#workflow").value || "").trim(),
+        workspaceId: String($("#workspaceId").value || "workspace_1").trim() || "workspace_1",
+        rawTraceMode: $("#rawTraceMode").checked,
+        demoMode: $("#demoMode").checked,
+        fallbackDemo: $("#fallbackDemo").checked
+      };
+    }
+
+    function renderPipeline() {
+      pipelineEl.innerHTML = "";
+      for (const step of steps) {
+        const state = stepState.get(step.id);
+        const card = document.createElement("button");
+        card.className = `flow-card ${state.status} ${appState.selectedStep === step.id ? "selected" : ""}`;
+        card.type = "button";
+        card.dataset.stepId = step.id;
+        card.innerHTML = `
+          <div class="flow-top">
+            <div>
+              <div class="flow-kicker">${step.endpoint}</div>
+              <h3>${step.title}</h3>
+            </div>
+            <span class="step-badge">${step.code}</span>
+          </div>
+          <p>${step.subtitle}</p>
+          <div class="flow-meta">
+            <span class="status-text ${state.status}">${statusLabel[state.status]}</span>
+            <span>${durationText(state)}</span>
+          </div>
+        `;
+        card.addEventListener("click", () => selectStep(step.id));
+        pipelineEl.appendChild(card);
+      }
+      renderMetrics();
+      renderInteractionBoard();
+    }
+
+    function durationText(state) {
+      if (state.status === "running" && state.startedAt) {
+        return `${((Date.now() - state.startedAt) / 1000).toFixed(1)}s`;
+      }
+      if (state.startedAt && state.endedAt) {
+        return `${((state.endedAt - state.startedAt) / 1000).toFixed(1)}s`;
+      }
+      return "--";
+    }
+
+    function renderMetrics() {
+      const current = steps.find((step) => stepState.get(step.id).status === "running")
+        || steps.find((step) => step.id === appState.selectedStep);
+      const done = steps.filter((step) => stepState.get(step.id).status === "done").length;
+      const traceCount = appState.llmTraces.size;
+      $("#metricCurrent").textContent = current ? current.title : "待开始";
+      $("#metricDone").textContent = `${done} / ${steps.length}`;
+      $("#metricImage").textContent = `${traceCount} 次`;
+      if (appState.startedAt) {
+        $("#metricTime").textContent = `${((Date.now() - appState.startedAt) / 1000).toFixed(1)}s`;
+      } else {
+        $("#metricTime").textContent = "0.0s";
+      }
+    }
+
+    function selectStep(id) {
+      appState.selectedStep = id;
+      renderPipeline();
+      renderInspector();
+    }
+
+    function setActiveTab(tab) {
+      appState.activeTab = tab;
+      document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.tab === tab);
+      });
+      renderInspector();
+    }
+
+    function renderInspector() {
+      const state = stepState.get(appState.selectedStep);
+      $("#detailName").textContent = state.title;
+      $("#detailMeta").textContent = `${state.endpoint} · ${statusLabel[state.status]} · ${durationText(state)}`;
+
+      const summaryPane = $("#summaryPane");
+      const requestPane = $("#requestPane");
+      const responsePane = $("#responsePane");
+      const llmPane = $("#llmPane");
+      const logsPane = $("#logsPane");
+      summaryPane.hidden = appState.activeTab !== "summary";
+      requestPane.hidden = appState.activeTab !== "request";
+      responsePane.hidden = appState.activeTab !== "response";
+      llmPane.hidden = appState.activeTab !== "llm";
+      logsPane.hidden = appState.activeTab !== "logs";
+
+      if (!summaryPane.hidden) {
+        summaryPane.innerHTML = "";
+        const artifacts = state.artifacts.length ? state.artifacts : [{ title: "当前摘要", value: state.summary || "暂无产物。" }];
+        const list = document.createElement("div");
+        list.className = "artifact-list";
+        for (const item of artifacts) {
+          const box = document.createElement("div");
+          box.className = "artifact";
+          const title = document.createElement("strong");
+          title.textContent = item.title;
+          const value = document.createElement("p");
+          value.textContent = item.value;
+          box.append(title, value);
+          list.appendChild(box);
+        }
+        const chips = traceChips(state.response);
+        summaryPane.appendChild(list);
+        if (chips.length) {
+          const chipBox = document.createElement("div");
+          chipBox.className = "chips";
+          for (const chipText of chips) {
+            const chip = document.createElement("span");
+            chip.className = "chip";
+            chip.textContent = chipText;
+            chipBox.appendChild(chip);
+          }
+          summaryPane.appendChild(chipBox);
+        }
+      }
+
+      requestPane.textContent = state.request ? JSON.stringify(state.request, null, 2) : "暂无请求。";
+      responsePane.textContent = state.response ? JSON.stringify(state.response, null, 2) : "暂无响应。";
+
+      if (!llmPane.hidden) {
+        renderLlmPane(llmPane, state);
+      }
+
+      if (!logsPane.hidden) {
+        logsPane.innerHTML = "";
+        const list = document.createElement("div");
+        list.className = "log-list";
+        const logs = appState.logs.length ? appState.logs : [{ time: "--", message: "还没有运行日志。" }];
+        for (const log of logs) {
+          const item = document.createElement("div");
+          item.className = "log-item";
+          const time = document.createElement("time");
+          time.textContent = log.time;
+          const msg = document.createElement("span");
+          msg.textContent = log.message;
+          item.append(time, msg);
+          list.appendChild(item);
+        }
+        logsPane.appendChild(list);
+      }
+    }
+
+    function traceChips(response) {
+      if (!response || typeof response !== "object") return [];
+      const chips = [];
+      const refs = collectTraceRefs(response);
+      if (refs.length) chips.push(`LLM traces: ${refs.length}`);
+      if (response.prompt_plan_bundle) chips.push("PromptPlanBundle");
+      if (response.planning_snapshot) chips.push("PlanningSnapshot");
+      if (response.negative_prompt) chips.push("Negative prompt");
+      if (response.image_path) chips.push("Image path");
+      return chips;
+    }
+
+    function renderInteractionBoard() {
+      if (!interactionBoardEl) return;
+      interactionBoardEl.innerHTML = "";
+      const traces = Array.from(appState.llmTraces.values());
+
+      if (!traces.length) {
+        const empty = document.createElement("div");
+        empty.className = "llm-slot-empty";
+        empty.textContent = "点击“开始生成”后，这里会按顺序生成独立槽位：每一次大模型交互一个槽位，槽位内保存本次提交和本次返回。";
+        interactionBoardEl.appendChild(empty);
+        return;
+      }
+
+      traces.forEach((trace, index) => {
+        interactionBoardEl.appendChild(renderTraceItem(trace, index, { main: true }));
+      });
+    }
+
+    function renderLlmPane(container, state) {
+      container.innerHTML = "";
+      const nodeTraces = (state.llmTraceIds || [])
+        .map((traceId) => appState.llmTraces.get(traceId))
+        .filter(Boolean);
+      const allTraces = Array.from(appState.llmTraces.values());
+      const traces = nodeTraces.length ? nodeTraces : allTraces;
+
+      const toolbar = document.createElement("div");
+      toolbar.className = "trace-toolbar";
+      const count = document.createElement("span");
+      count.textContent = nodeTraces.length
+        ? `当前节点捕获到 ${nodeTraces.length} 次 LLM 交互。`
+        : allTraces.length
+          ? `当前节点没有 trace，正在显示本次全部 ${allTraces.length} 次 LLM 交互。`
+        : "当前节点还没有捕获到 LLM trace。";
+      const hint = document.createElement("span");
+      hint.textContent = "原始 request/response 来自本机调试 trace API。";
+      toolbar.append(count, hint);
+      container.appendChild(toolbar);
+
+      if (!traces.length) {
+        const empty = document.createElement("pre");
+        empty.className = "prebox";
+        const refs = collectTraceRefs(state.response);
+        empty.textContent = refs.length
+          ? "这个节点返回了 trace_id，但原始 payload 还没有拉取成功。请看“日志”标签中的错误信息。"
+          : "还没有抓到本次 LLM 原始提交/返回。请确认：1. 页面已刷新到最新版本；2. 顶部 API 是 http://127.0.0.1:8899；3. 已关闭演示模式并点过开始生成。";
+        container.appendChild(empty);
+        return;
+      }
+
+      const list = document.createElement("div");
+      list.className = "trace-list";
+      for (const trace of traces) {
+        list.appendChild(renderTraceItem(trace, null, { main: false }));
+      }
+      container.appendChild(list);
+    }
+
+    function renderTraceItem(trace, index = null, options = {}) {
+      const item = document.createElement("section");
+      item.className = options.main ? "trace-item main-trace" : "trace-item";
+
+      const head = document.createElement("div");
+      head.className = "trace-head";
+
+      const title = document.createElement("div");
+      title.className = "trace-title";
+      if (options.main) {
+        const badge = document.createElement("span");
+        badge.className = "trace-index";
+        badge.textContent = `#${String((index ?? 0) + 1).padStart(2, "0")}`;
+        title.appendChild(badge);
+      }
+      const name = document.createElement("div");
+      name.className = "trace-name";
+      const strong = document.createElement("strong");
+      strong.textContent = traceDisplayName(trace);
+      const sub = document.createElement("span");
+      sub.textContent = traceStepLabel(trace);
+      name.append(strong, sub);
+      const traceId = document.createElement("code");
+      traceId.textContent = trace.trace_id;
+      title.append(name, traceId);
+
+      const meta = document.createElement("div");
+      meta.className = "trace-meta";
+      for (const text of traceMetaParts(trace)) {
+        const part = document.createElement("span");
+        part.textContent = text;
+        meta.appendChild(part);
+      }
+
+      head.append(title, meta);
+      item.appendChild(head);
+
+      const payloads = document.createElement("div");
+      payloads.className = "trace-payloads";
+      payloads.appendChild(renderPayloadBlock(trace, "request", "提交给大模型的内容"));
+      payloads.appendChild(renderPayloadBlock(trace, "response", "大模型返回的内容"));
+      if (trace.error) {
+        const errorBlock = document.createElement("pre");
+        errorBlock.className = "prebox trace-pre";
+        errorBlock.textContent = JSON.stringify(trace.error, null, 2);
+        payloads.appendChild(errorBlock);
+      }
+      item.appendChild(payloads);
+      return item;
+    }
+
+    function traceDisplayName(trace) {
+      const stage = trace.stage || trace.summary?.context?.stage || "llm";
+      const operation = trace.summary?.context?.operation || trace.operation || "";
+      const label = {
+        script_generation: "脚本生成",
+        storyboard_generation: "分镜生成",
+        title_generation: "标题生成",
+        visual_prompt_planning: "视觉 Prompt 规划",
+        content_world_planning: "内容世界规划",
+        article_concretization: "文章/主题具象化",
+        visual_anchor_planning: "视觉锚点规划",
+        series_visual_signature: "系列视觉签名",
+        narration_generation: "Narration 生成",
+        style_resolution: "风格解析",
+        image_prompt_batch: "图片 Prompt 批量生成",
+        api_narration_generation: "Narration 生成",
+        api_image_prompt_generation: "图片 Prompt 生成"
+      }[stage] || {
+        script_generation: "脚本生成",
+        storyboard_generation: "分镜生成",
+        title_generation: "标题生成",
+        visual_prompt_planning: "视觉 Prompt 规划"
+      }[operation] || stage || operation;
+      return label;
+    }
+
+    function traceStepLabel(trace) {
+      const stepIds = trace.stepIds || (trace.stepId ? [trace.stepId] : []);
+      const stepNames = stepIds
+        .map((id) => stepState.get(id)?.title || id)
+        .join(" / ");
+      const operation = trace.summary?.context?.operation || trace.operation || "";
+      return [stepNames, operation].filter(Boolean).join(" · ") || "LLM interaction";
+    }
+
+    function renderPayloadBlock(trace, kind, titleText) {
+      const block = document.createElement("div");
+      block.className = "payload-block";
+      const head = document.createElement("div");
+      head.className = "payload-head";
+      const label = document.createElement("span");
+      label.textContent = titleText;
+      const copy = document.createElement("button");
+      copy.className = "copy-btn";
+      copy.type = "button";
+      copy.dataset.copyTrace = trace.trace_id;
+      copy.dataset.copyKind = kind;
+      copy.textContent = "复制";
+      head.append(label, copy);
+
+      const pre = document.createElement("pre");
+      pre.className = "prebox trace-pre";
+      const payload = trace[kind]?.payload ?? trace[kind];
+      pre.textContent = payload ? stringifyPayload(payload) : `未拿到 ${kind} payload。`;
+      block.append(head, pre);
+      return block;
+    }
+
+    function traceMetaParts(trace) {
+      const summary = trace.summary || {};
+      const context = summary.context || {};
+      const usage = summary.token_usage || trace.response?.payload?.response?.usage || trace.response?.response?.usage;
+      const parts = [
+        `状态: ${summary.status || trace.status || "unknown"}`,
+        `操作: ${context.operation || trace.operation || "unknown"}`
+      ];
+      if (summary.model || trace.response?.payload?.response?.model) {
+        parts.push(`模型: ${summary.model || trace.response.payload.response.model}`);
+      }
+      if (summary.elapsed_ms != null) parts.push(`耗时: ${summary.elapsed_ms}ms`);
+      if (usage?.total_tokens != null) parts.push(`tokens: ${usage.total_tokens}`);
+      return parts;
+    }
+
+    function stringifyPayload(payload) {
+      if (payload == null) return "";
+      if (typeof payload === "string") return payload;
+      return JSON.stringify(payload, null, 2);
+    }
+
+    function log(message) {
+      appState.logs.unshift({ time: nowTime(), message });
+      appState.logs = appState.logs.slice(0, 120);
+      renderInspector();
+    }
+
+    function toast(message) {
+      toastEl.textContent = message;
+      toastEl.classList.add("show");
+      window.clearTimeout(toastEl._timer);
+      toastEl._timer = window.setTimeout(() => toastEl.classList.remove("show"), 2600);
+    }
+
+    function resetState() {
+      for (const step of steps) {
+        const state = stepState.get(step.id);
+        state.status = "pending";
+        state.startedAt = null;
+        state.endedAt = null;
+        state.request = null;
+        state.response = null;
+        state.summary = "尚未开始。";
+        state.artifacts = [];
+        state.llmTraceIds = [];
+      }
+      appState.selectedStep = "health";
+      appState.activeTab = "summary";
+      appState.running = false;
+      appState.startedAt = 0;
+      appState.runHeaders = {};
+      appState.resultImagePath = "";
+      appState.resultImageUrl = "";
+      appState.resultImages = [];
+      appState.videoUrl = "";
+      appState.taskId = "";
+      appState.logs = [];
+      appState.llmTraces = new Map();
+      if (appState.timer) window.clearInterval(appState.timer);
+      appState.timer = null;
+      $("#runBtn").disabled = false;
+      $("#stopBtn").disabled = true;
+      setApiStatus("idle", "未检测");
+      renderImage("", "");
+      renderImageGallery([], "");
+      setActiveTab("summary");
+      renderPipeline();
+      renderInspector();
+    }
+
+    function beginStep(id, request) {
+      const state = stepState.get(id);
+      state.status = "running";
+      state.startedAt = Date.now();
+      state.endedAt = null;
+      state.request = request || null;
+      state.response = null;
+      state.summary = "请求已发出，等待返回。";
+      state.artifacts = [{ title: "当前动作", value: state.summary }];
+      selectStep(id);
+      log(`${state.title} 开始`);
+    }
+
+    function completeStep(id, response, summary, artifacts) {
+      const state = stepState.get(id);
+      state.status = "done";
+      state.endedAt = Date.now();
+      state.response = response || null;
+      state.summary = summary || "完成。";
+      state.artifacts = artifacts && artifacts.length ? artifacts : [{ title: "当前摘要", value: state.summary }];
+      selectStep(id);
+      log(`${state.title} 完成`);
+    }
+
+    function failStep(id, error) {
+      const state = stepState.get(id);
+      state.status = "error";
+      state.endedAt = Date.now();
+      state.response = normalizeError(error);
+      state.summary = error?.message || "请求失败。";
+      state.artifacts = [
+        { title: "错误", value: state.summary },
+        { title: "排查方向", value: "确认 API 服务已启动、API Base 地址正确、LLM 与图片模型配置可用。" }
+      ];
+      selectStep(id);
+      log(`${state.title} 失败：${state.summary}`);
+    }
+
+    function normalizeError(error) {
+      if (!error) return { message: "Unknown error" };
+      if (error.name === "AbortError") return { message: "请求已停止" };
+      return {
+        message: error.message || String(error),
+        status: error.status,
+        body: error.body
+      };
+    }
+
+    function collectTraceRefs(value, refs = [], seen = new Set(), depth = 0) {
+      if (depth > 6 || value == null) return refs;
+      if (Array.isArray(value)) {
+        for (const item of value) collectTraceRefs(item, refs, seen, depth + 1);
+        return refs;
+      }
+      if (typeof value !== "object") return refs;
+
+      const traceId = typeof value.trace_id === "string" ? value.trace_id.trim() : "";
+      if (traceId) {
+        const stage = String(value.stage || value.operation || value.payload_kind || "llm").trim();
+        const key = `${traceId}:${stage}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          refs.push({ trace_id: traceId, stage });
+        }
+      }
+
+      for (const key of [
+        "llm_trace_refs",
+        "upstream_llm_trace_refs",
+        "prompt_generation_trace_refs_by_index",
+        "planning_snapshot",
+        "prompt_plan_bundle",
+        "metadata"
+      ]) {
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          collectTraceRefs(value[key], refs, seen, depth + 1);
+        }
+      }
+      return refs;
+    }
+
+    async function attachLlmTraces(stepId, response, inputs) {
+      const state = stepState.get(stepId);
+      if (!state || !inputs.rawTraceMode) return;
+      const refs = collectTraceRefs(response);
+      if (!refs.length) return;
+
+      log(`${state.title} 捕获到 ${refs.length} 个 LLM trace_id，开始拉取原始提交和返回。`);
+      const loadedIds = [];
+      for (const ref of refs) {
+        const traceId = ref.trace_id;
+        if (!traceId) continue;
+        const existing = appState.llmTraces.get(traceId);
+        if (existing) {
+          existing.stepIds = Array.from(new Set([...(existing.stepIds || []), stepId]));
+          loadedIds.push(traceId);
+          continue;
+        }
+        const record = {
+          trace_id: traceId,
+          stage: ref.stage || "llm",
+          stepId,
+          stepIds: [stepId],
+          summary: null,
+          request: null,
+          response: null,
+          error: null
+        };
+        appState.llmTraces.set(traceId, record);
+        try {
+          record.summary = await fetchTraceSummary(inputs.apiBase, inputs.workspaceId, traceId);
+          const [requestResult, responseResult] = await Promise.allSettled([
+            fetchLlmRawPayload(inputs.apiBase, inputs.workspaceId, traceId, "request"),
+            fetchLlmRawPayload(inputs.apiBase, inputs.workspaceId, traceId, "response")
+          ]);
+          if (requestResult.status === "fulfilled") {
+            record.request = requestResult.value;
+          }
+          if (responseResult.status === "fulfilled") {
+            record.response = responseResult.value;
+          }
+          const failures = [requestResult, responseResult].filter((result) => result.status === "rejected");
+          if (failures.length) {
+            record.error = failures.map((result) => normalizeError(result.reason));
+          }
+          if (!record.request && !record.response) {
+            throw failures[0]?.reason || new Error("raw payload was not found");
+          }
+          log(`LLM trace 已加载：${ref.stage || "llm"} / ${traceId}`);
+        } catch (error) {
+          record.error = normalizeError(error);
+          log(`LLM trace 加载失败：${traceId}，${error.message || error}`);
+        }
+        loadedIds.push(traceId);
+      }
+
+      state.llmTraceIds = Array.from(new Set([...(state.llmTraceIds || []), ...loadedIds]));
+      state.artifacts = [
+        ...state.artifacts.filter((item) => item.title !== "LLM Trace"),
+        {
+          title: "LLM Trace",
+          value: loadedIds.length
+            ? `已关联 ${loadedIds.length} 次大模型交互。切到右侧「LLM Trace」标签可查看每次提交和返回。`
+            : "没有成功关联到 LLM trace。"
+        }
+      ];
+      if (loadedIds.length) {
+        renderInteractionBoard();
+        selectStep(stepId);
+        setActiveTab("llm");
+      } else {
+        renderInteractionBoard();
+        renderInspector();
+      }
+    }
+
+    async function fetchTraceSummary(apiBase, workspaceId, traceId) {
+      try {
+        return await apiFetch(
+          apiBase,
+          `/api/llm-traces/${encodeURIComponent(workspaceId)}/${encodeURIComponent(traceId)}`,
+          { method: "GET" }
+        );
+      } catch (error) {
+        const data = await apiFetch(
+          apiBase,
+          `/api/llm-traces/${encodeURIComponent(workspaceId)}`,
+          { method: "GET" }
+        );
+        const traces = Array.isArray(data.traces) ? data.traces : [];
+        return traces.find((trace) => trace.trace_id === traceId) || null;
+      }
+    }
+
+    async function fetchLlmRawPayload(apiBase, workspaceId, traceId, kind) {
+      return apiFetch(
+        apiBase,
+        `/api/llm-traces/${encodeURIComponent(workspaceId)}/${encodeURIComponent(traceId)}/raw/${kind}`,
+        {
+          method: "GET",
+          headers: { "x-pixelle-local-debug": "true" }
+        }
+      );
+    }
+
+    function addLocalLlmTrace(stepId, { traceId, stage, request, response, model = "demo-model" }) {
+      const state = stepState.get(stepId);
+      if (!state) return;
+      const record = {
+        trace_id: traceId,
+        stage,
+        stepId,
+        stepIds: [stepId],
+        summary: {
+          trace_id: traceId,
+          context: {
+            workspace_id: "demo",
+            task_id: "demo",
+            operation: stepId,
+            stage
+          },
+          provider: "browser-demo",
+          model,
+          status: "success",
+          elapsed_ms: 0,
+          token_usage: null
+        },
+        request: { payload_kind: "request", payload: request },
+        response: { payload_kind: "response", payload: response },
+        error: null
+      };
+      appState.llmTraces.set(traceId, record);
+      state.llmTraceIds = Array.from(new Set([...(state.llmTraceIds || []), traceId]));
+      state.artifacts = [
+        ...state.artifacts.filter((item) => item.title !== "LLM Trace"),
+        { title: "LLM Trace", value: `演示模式关联了 ${state.llmTraceIds.length} 次大模型交互。` }
+      ];
+      renderInteractionBoard();
+      renderInspector();
+    }
+
+    async function apiFetch(apiBase, path, options = {}) {
+      const { expectJson = true, ...fetchOptions } = options;
+      const headers = {
+        "Accept": "application/json",
+        ...(fetchOptions.body ? { "Content-Type": "application/json" } : {}),
+        ...(fetchOptions.headers || {})
+      };
+      const res = await fetch(`${apiBase}${path}`, {
+        ...fetchOptions,
+        headers,
+        signal: appState.controller?.signal
+      });
+      const contentType = res.headers.get("content-type") || "";
+      const text = await res.text();
+      let body = text;
+      try {
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        body = text;
+      }
+      if (!res.ok) {
+        const error = new Error(`HTTP ${res.status} ${res.statusText}`);
+        error.status = res.status;
+        error.body = body;
+        throw error;
+      }
+      if (expectJson && typeof body === "string") {
+        const preview = body.trim().slice(0, 90).replace(/\s+/g, " ");
+        const error = new Error(`接口 ${path} 返回的不是 JSON，当前 API Base 可能指向了其他服务。`);
+        error.status = res.status;
+        error.body = {
+          content_type: contentType || "unknown",
+          preview
+        };
+        throw error;
+      }
+      return body;
+    }
+
+    function assertPixelleHealth(body, apiBase) {
+      if (!body || typeof body !== "object" || body.service !== "Pixelle-Video API") {
+        const error = new Error(`当前 API Base 不是 Pixelle API：${apiBase}`);
+        error.body = {
+          expected: { service: "Pixelle-Video API", path: "/health" },
+          received: typeof body === "string" ? body.slice(0, 140) : body
+        };
+        throw error;
+      }
+      return body;
+    }
+
+    async function checkHealth(silent = false) {
+      const { apiBase } = readInputs();
+      setApiStatus("running", "检测中");
+      try {
+        const body = assertPixelleHealth(
+          await apiFetch(apiBase, "/health", { method: "GET" }),
+          apiBase
+        );
+        setApiStatus("ok", "已连接");
+        if (!silent) toast("API 连接正常");
+        return body;
+      } catch (error) {
+        setApiStatus("error", "连接失败");
+        if (!silent) toast(error.message || "API 连接失败");
+        throw error;
+      }
+    }
+
+    function setApiStatus(status, label) {
+      const pill = $("#apiStatus");
+      pill.className = `status-pill ${status === "idle" ? "" : status}`;
+      pill.querySelector("span:last-child").textContent = label;
+    }
+
+    async function runWorkflow() {
+      const inputs = readInputs();
+      if (!inputs.topic) {
+        toast("请先输入主题或短文本");
+        return;
+      }
+      resetState();
+      appState.running = true;
+      appState.startedAt = Date.now();
+      appState.controller = new AbortController();
+      appState.runHeaders = {
+        "x-workspace-id": inputs.workspaceId,
+        "x-request-id": `workflow_lab_${Date.now().toString(36)}`,
+        "x-session-id": "workflow_lab"
+      };
+      $("#runBtn").disabled = true;
+      $("#stopBtn").disabled = false;
+      appState.timer = window.setInterval(() => {
+        renderPipeline();
+        renderMetrics();
+      }, 300);
+
+      try {
+        if (inputs.demoMode) {
+          await runDemo(inputs, false);
+        } else {
+          await runReal(inputs);
+        }
+        finishRun();
+      } catch (error) {
+        if (error.name === "AbortError") {
+          toast("已停止当前运行");
+        } else if (inputs.fallbackDemo && !inputs.demoMode && appState.llmTraces.size === 0) {
+          markRunningStepFailed(error);
+          toast("真实 API 调用失败，继续用演示数据跑完链路");
+          log("切换到演示模式继续展示流程。");
+          await runDemo(inputs, true, error);
+          finishRun();
+          return;
+        } else {
+          markRunningStepFailed(error);
+          toast(appState.llmTraces.size ? "流程失败，但已保留真实 LLM trace" : (error.message || "流程运行失败"));
+        }
+        finishRun();
+      }
+    }
+
+    function markRunningStepFailed(error) {
+      const current = steps.find((step) => stepState.get(step.id).status === "running");
+      if (current) failStep(current.id, error);
+    }
+
+    function finishRun() {
+      appState.running = false;
+      $("#runBtn").disabled = false;
+      $("#stopBtn").disabled = true;
+      if (appState.timer) window.clearInterval(appState.timer);
+      appState.timer = null;
+      renderPipeline();
+      renderMetrics();
+      renderInspector();
+    }
+
+    function buildVideoPayload(inputs) {
+      const payload = {
+        text: inputs.topic,
+        mode: "generate",
+        storyboard_mode: "smart",
+        storyboard_count_mode: "manual",
+        storyboard_scene_count: inputs.nScenes,
+        script_length_mode: inputs.nScenes <= 3 ? "short" : "medium",
+        tts_inference_mode: "local",
+        min_image_prompt_words: Math.min(inputs.minWords, 100),
+        max_image_prompt_words: Math.min(Math.max(inputs.maxWords, inputs.minWords), 200),
+        storyboard_prompt_language: inputs.language,
+        canvas_width: inputs.width,
+        canvas_height: inputs.height,
+        media_width: inputs.width,
+        media_height: inputs.height,
+        sync_media_size_to_canvas: true,
+        render_backend: "legacy",
+        preserve_natural_punctuation: true
+      };
+      if (inputs.workflow) {
+        payload.media_workflow = inputs.workflow;
+      }
+      return payload;
+    }
+
+    function setStepWaiting(id, request, summary) {
+      const state = stepState.get(id);
+      if (!state || state.status !== "pending") return;
+      state.status = "running";
+      state.startedAt = Date.now();
+      state.request = request || null;
+      state.summary = summary || "等待 pipeline 写入 trace。";
+      state.artifacts = [{ title: "等待对象", value: state.summary }];
+      log(`${state.title} 等待 trace`);
+      renderPipeline();
+      renderInspector();
+    }
+
+    async function pollVideoTask(inputs, taskId) {
+      if (!taskId) throw new Error("后端没有返回 task_id，无法轮询任务。");
+      let lastStatus = "";
+      let lastProgressText = "";
+
+      while (true) {
+        const task = await apiFetch(inputs.apiBase, `/api/tasks/${encodeURIComponent(taskId)}`, {
+          method: "GET",
+          headers: appState.runHeaders
+        });
+        const progressText = taskProgressText(task);
+        if (task.status !== lastStatus || progressText !== lastProgressText) {
+          log(`任务 ${task.task_id}：${task.status}${progressText ? ` · ${progressText}` : ""}`);
+          lastStatus = task.status;
+          lastProgressText = progressText;
+        }
+
+        updateProduceAssetsStep(task);
+        await refreshRunLlmTraces(inputs, { taskId });
+
+        if (task.status === "completed") {
+          completeStep("produceAssets", task, "多帧媒体生成和后处理完成。", [
+            { title: "任务状态", value: JSON.stringify({ status: task.status, progress: task.progress }, null, 2) },
+            { title: "任务结果", value: JSON.stringify(task.result || {}, null, 2) }
+          ]);
+          return task;
+        }
+        if (["failed", "cancelled"].includes(task.status)) {
+          const error = new Error(task.error || `任务状态为 ${task.status}`);
+          error.body = task;
+          failStep("produceAssets", error);
+          throw error;
+        }
+        await delay(1800);
+      }
+    }
+
+    function taskProgressText(task) {
+      const progress = task?.progress;
+      if (!progress) return "";
+      const pieces = [];
+      if (progress.message) pieces.push(progress.message);
+      if (progress.percentage != null) pieces.push(`${Math.round(progress.percentage)}%`);
+      if (progress.current != null && progress.total != null) pieces.push(`${progress.current}/${progress.total}`);
+      return pieces.join(" · ");
+    }
+
+    function updateProduceAssetsStep(task) {
+      const state = stepState.get("produceAssets");
+      if (!state || state.status === "done" || state.status === "error") return;
+      const visualDone = stepState.get("visualPlanning")?.status === "done";
+      if (state.status === "pending" && !visualDone && task?.status !== "completed") return;
+      state.status = "running";
+      state.startedAt ||= Date.now();
+      state.response = task;
+      state.summary = taskProgressText(task) || "任务运行中，等待多帧媒体生成结果。";
+      state.artifacts = [
+        { title: "任务状态", value: task.status || "unknown" },
+        { title: "进度", value: state.summary }
+      ];
+    }
+
+    async function refreshRunLlmTraces(inputs, { taskId = "", force = false } = {}) {
+      const queryByTask = new URLSearchParams();
+      queryByTask.set("pipeline", "standard");
+      if (taskId) queryByTask.set("api_task_id", taskId);
+
+      const traceLists = [];
+      if (taskId) {
+        traceLists.push(await listRunTraceSummaries(inputs, queryByTask));
+      }
+      if (!traceLists.flat().length || force) {
+        const queryByRequest = new URLSearchParams();
+        queryByRequest.set("pipeline", "standard");
+        queryByRequest.set("request_id", appState.runHeaders["x-request-id"] || "");
+        traceLists.push(await listRunTraceSummaries(inputs, queryByRequest));
+      }
+
+      const summaries = uniqueTraceSummaries(traceLists.flat())
+        .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+      let added = 0;
+      for (const summary of summaries) {
+        const wasNew = !appState.llmTraces.has(summary.trace_id);
+        await upsertTraceFromSummary(summary, inputs);
+        if (wasNew) added += 1;
+      }
+      if (added) {
+        log(`本次运行新增 ${added} 次 LLM 交互，已放入中央独立展示区。`);
+        renderInteractionBoard();
+        renderInspector();
+      }
+      return summaries.length;
+    }
+
+    async function listRunTraceSummaries(inputs, params) {
+      const query = params.toString();
+      try {
+        const data = await apiFetch(
+          inputs.apiBase,
+          `/api/llm-traces/${encodeURIComponent(inputs.workspaceId)}${query ? `?${query}` : ""}`,
+          { method: "GET" }
+        );
+        return Array.isArray(data.traces) ? data.traces : [];
+      } catch (error) {
+        log(`LLM trace 列表拉取失败：${error.message || error}`);
+        return [];
+      }
+    }
+
+    function uniqueTraceSummaries(summaries) {
+      const seen = new Set();
+      const result = [];
+      for (const summary of summaries) {
+        const traceId = summary?.trace_id;
+        if (!traceId || seen.has(traceId)) continue;
+        seen.add(traceId);
+        result.push(summary);
+      }
+      return result;
+    }
+
+    async function upsertTraceFromSummary(summary, inputs) {
+      const traceId = summary.trace_id;
+      const stepId = stepIdForTrace(summary);
+      const existing = appState.llmTraces.get(traceId);
+      const record = existing || {
+        trace_id: traceId,
+        stage: summary.context?.stage || summary.context?.operation || "llm",
+        stepId,
+        stepIds: [],
+        summary: null,
+        request: null,
+        response: null,
+        error: null
+      };
+      record.summary = summary;
+      record.stage = summary.context?.stage || record.stage;
+      record.operation = summary.context?.operation || record.operation;
+      record.stepId = stepId;
+      record.stepIds = Array.from(new Set([...(record.stepIds || []), stepId].filter(Boolean)));
+      appState.llmTraces.set(traceId, record);
+
+      if (inputs.rawTraceMode && (!record.request || !record.response)) {
+        const [requestResult, responseResult] = await Promise.allSettled([
+          record.request ? Promise.resolve(record.request) : fetchLlmRawPayload(inputs.apiBase, inputs.workspaceId, traceId, "request"),
+          record.response ? Promise.resolve(record.response) : fetchLlmRawPayload(inputs.apiBase, inputs.workspaceId, traceId, "response")
+        ]);
+        if (requestResult.status === "fulfilled") record.request = requestResult.value;
+        if (responseResult.status === "fulfilled") record.response = responseResult.value;
+        const failures = [requestResult, responseResult].filter((result) => result.status === "rejected");
+        if (failures.length) record.error = failures.map((result) => normalizeError(result.reason));
+      }
+
+      attachTraceToStep(record);
+    }
+
+    function stepIdForTrace(trace) {
+      const context = trace.context || trace.summary?.context || {};
+      const stage = context.stage || trace.stage || "";
+      const operation = context.operation || trace.operation || "";
+      const key = stage || operation;
+      if (operation === "script_generation" || key === "script_generation") return "scriptGeneration";
+      if (operation === "storyboard_generation" || key === "storyboard_generation") return "storyboardGeneration";
+      if (operation === "title_generation" || key === "title_generation") return "titleGeneration";
+      if (
+        operation === "visual_prompt_planning"
+        || [
+          "visual_prompt_planning",
+          "style_resolution",
+          "image_prompt_batch",
+          "content_world_planning",
+          "article_concretization",
+          "visual_anchor_planning",
+          "series_visual_signature",
+          "visual_signature_profile",
+          "visual_signature_anchor"
+        ].includes(key)
+      ) {
+        return "visualPlanning";
+      }
+      return "visualPlanning";
+    }
+
+    function attachTraceToStep(record) {
+      const stepId = record.stepId;
+      const state = stepState.get(stepId);
+      if (!state) return;
+      const traceIds = new Set(state.llmTraceIds || []);
+      traceIds.add(record.trace_id);
+      state.llmTraceIds = Array.from(traceIds);
+      state.status = record.summary?.status === "error" ? "error" : "done";
+      state.startedAt ||= Date.now();
+      state.endedAt = Date.now();
+      state.response = record.summary || record.response || null;
+      state.summary = `已捕获 ${state.llmTraceIds.length} 次相关大模型交互。`;
+      state.artifacts = [
+        { title: "关联 LLM Trace", value: state.llmTraceIds.join("\n") },
+        { title: "最新操作", value: record.summary?.context?.operation || record.operation || "unknown" },
+        { title: "最新阶段", value: record.summary?.context?.stage || record.stage || "unknown" }
+      ];
+    }
+
+    function extractImagePaths(value, paths = [], seen = new Set(), depth = 0) {
+      if (depth > 8 || value == null) return paths;
+      if (typeof value === "string") {
+        const text = value.trim();
+        if (/\.(png|jpe?g|webp|gif)(\?|$)/i.test(text) && !seen.has(text)) {
+          seen.add(text);
+          paths.push(text);
+        }
+        return paths;
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) extractImagePaths(item, paths, seen, depth + 1);
+        return paths;
+      }
+      if (typeof value !== "object") return paths;
+      for (const [key, nested] of Object.entries(value)) {
+        const lower = key.toLowerCase();
+        if (/(image|frame|thumbnail|preview).*(path|url|key)|^(image_path|image_url|path|url)$/.test(lower)) {
+          extractImagePaths(nested, paths, seen, depth + 1);
+        } else if (["result", "metadata", "frames", "storyboard", "artifacts", "outputs"].includes(lower)) {
+          extractImagePaths(nested, paths, seen, depth + 1);
+        }
+      }
+      return paths;
+    }
+
+    async function runReal(inputs) {
+      beginStep("health", { method: "GET", url: `${inputs.apiBase}/health` });
+      const health = await checkHealth(true);
+      completeStep("health", health, "FastAPI 服务可访问。", [
+        { title: "API Base", value: inputs.apiBase },
+        { title: "健康检查返回", value: JSON.stringify(health, null, 2) }
+      ]);
+
+      const videoPayload = buildVideoPayload(inputs);
+      beginStep("submitTask", videoPayload);
+      const submitResult = await apiFetch(inputs.apiBase, "/api/video/generate/async", {
+        method: "POST",
+        headers: appState.runHeaders,
+        body: JSON.stringify(videoPayload)
+      });
+      appState.taskId = submitResult.task_id || "";
+      completeStep("submitTask", submitResult, `异步任务已创建：${appState.taskId || "未知 task_id"}`, [
+        { title: "API Task ID", value: appState.taskId || "后端未返回 task_id" },
+        { title: "本次 Request ID", value: appState.runHeaders["x-request-id"] },
+        { title: "提交 payload", value: JSON.stringify(videoPayload, null, 2) }
+      ]);
+
+      setStepWaiting("scriptGeneration", {
+        trace_filter: "operation=script_generation",
+        api_task_id: appState.taskId,
+        request_id: appState.runHeaders["x-request-id"]
+      }, "等待 pipeline 内部脚本生成 LLM 写入 trace。");
+
+      const finalTask = await pollVideoTask(inputs, appState.taskId);
+      await refreshRunLlmTraces(inputs, { taskId: appState.taskId, force: true });
+      const result = finalTask?.result || {};
+      const videoUrl = result.video_url || "";
+      const imagePaths = extractImagePaths(finalTask);
+      appState.videoUrl = videoUrl;
+      appState.resultImages = imagePaths;
+      appState.resultImagePath = imagePaths[0] || videoUrl || "";
+      appState.resultImageUrl = imagePaths[0] ? imageUrlFromPath(imagePaths[0], inputs.apiBase) : "";
+      renderImage(appState.resultImageUrl, appState.resultImagePath);
+      renderImageGallery(imagePaths, inputs.apiBase);
+
+      beginStep("result", {
+        task_id: appState.taskId,
+        status: finalTask.status,
+        video_url: videoUrl,
+        image_paths: imagePaths,
+        llm_trace_count: appState.llmTraces.size
+      });
+      await delay(120);
+      completeStep("result", finalTask, "完整 pipeline 任务已完成，所有已抓到的 LLM 交互都保存在中央区域。", [
+        { title: "视频 URL", value: videoUrl || "任务结果中未返回 video_url。" },
+        { title: "多帧图片", value: imagePaths.length ? imagePaths.join("\n") : "任务返回中未直接暴露帧图路径；请继续看 LLM trace 和最终视频。" },
+        { title: "LLM 交互次数", value: `${appState.llmTraces.size} 次` }
+      ]);
+    }
+
+    async function runDemo(inputs, afterError, realError) {
+      const demoSuffix = afterError ? "（演示续跑）" : "";
+      beginStep("health", { mode: "demo", apiBase: inputs.apiBase });
+      await delay(360);
+      const healthArtifacts = [
+        { title: "说明", value: "此模式不调用后端，只用于确认完整 pipeline 的交互展示方式。" }
+      ];
+      if (realError) {
+        healthArtifacts.unshift({
+          title: "真实调用失败",
+          value: `${realError.message || realError}\n\n当前保留错误并用演示数据展示完整链路形态。`
+        });
+      }
+      completeStep("health", { demo: true, status: "ok", real_error: normalizeError(realError) }, `演示模式已准备${demoSuffix}。`, healthArtifacts);
+
+      const submitPayload = buildVideoPayload(inputs);
+      beginStep("submitTask", submitPayload);
+      await delay(420);
+      appState.taskId = `demo_task_${Date.now().toString(36)}`;
+      completeStep("submitTask", { success: true, task_id: appState.taskId }, `演示任务已创建：${appState.taskId}`, [
+        { title: "API Task ID", value: appState.taskId },
+        { title: "提交 payload", value: JSON.stringify(submitPayload, null, 2) }
+      ]);
+
+      const fakeScript = `${inputs.topic}\n\n完整脚本：主角在城市中观察雨水、光线和人群，从迷茫走向清晰，并把灵感凝结为一组视觉画面。`;
+      beginStep("scriptGeneration", { operation: "script_generation", text: inputs.topic });
+      await delay(680);
+      addLocalLlmTrace("scriptGeneration", {
+        traceId: "demo_trace_script_generation",
+        stage: "script_generation",
+        request: {
+          messages: [
+            { role: "system", content: "Generate a complete source text script for visual storytelling." },
+            { role: "user", content: inputs.topic }
+          ],
+          script_length_mode: submitPayload.script_length_mode
+        },
+        response: { source_text: fakeScript }
+      });
+      completeStep("scriptGeneration", { source_text: fakeScript }, "生成完整 source text。", [
+        { title: "Source Text", value: fakeScript }
+      ]);
+
+      const fakeFrames = Array.from({ length: inputs.nScenes }, (_, index) => ({
+        frame_id: `frame_${String(index + 1).padStart(2, "0")}`,
+        source_text: `第 ${index + 1} 幕：${inputs.topic}。镜头突出人物行动、环境变化和情绪推进。`,
+        visual_goal: index === 0 ? "建立世界与主角" : index === inputs.nScenes - 1 ? "形成视觉结论" : "推进观察与发现"
+      }));
+      beginStep("storyboardGeneration", { operation: "storyboard_generation", source_text: fakeScript });
+      await delay(720);
+      addLocalLlmTrace("storyboardGeneration", {
+        traceId: "demo_trace_storyboard_generation",
+        stage: "storyboard_generation",
+        request: {
+          messages: [
+            { role: "system", content: "Split the source text into a structured storyboard plan." },
+            { role: "user", content: fakeScript }
+          ],
+          storyboard_scene_count: inputs.nScenes
+        },
+        response: {
+          plan_id: "demo_storyboard_plan",
+          resolved_scene_count: inputs.nScenes,
+          frames: fakeFrames
+        }
+      });
+      completeStep("storyboardGeneration", { frames: fakeFrames }, `生成 ${fakeFrames.length} 个分镜 frame。`, fakeFrames.map((frame, index) => ({
+        title: `Frame ${index + 1}`,
+        value: `${frame.source_text}\nvisual_goal: ${frame.visual_goal}`
+      })));
+
+      beginStep("titleGeneration", { operation: "title_generation", source_text: fakeScript });
+      await delay(420);
+      const fakeTitle = "雨后城市里的灵感";
+      addLocalLlmTrace("titleGeneration", {
+        traceId: "demo_trace_title_generation",
+        stage: "title_generation",
+        request: {
+          messages: [
+            { role: "system", content: "Generate a concise video title." },
+            { role: "user", content: fakeScript }
+          ]
+        },
+        response: { title: fakeTitle }
+      });
+      completeStep("titleGeneration", { title: fakeTitle }, "标题生成完成。", [
+        { title: "标题", value: fakeTitle }
+      ]);
+
+      const fakePrompts = fakeFrames.map((frame, index) => ({
+        frame_id: frame.frame_id,
+        prompt: `cinematic keyframe, ${inputs.topic}, ${frame.visual_goal}, frame ${index + 1}, coherent subject, layered urban depth, wet reflections, controlled lighting, high quality visual composition`
+      }));
+      beginStep("visualPlanning", {
+        operation: "visual_prompt_planning",
+        frames: fakeFrames,
+        prompt_language: inputs.language
+      });
+      await delay(860);
+      addLocalLlmTrace("visualPlanning", {
+        traceId: "demo_trace_style_resolution",
+        stage: "style_resolution",
+        request: {
+          messages: [
+            { role: "system", content: "Resolve visual style and negative constraints." },
+            { role: "user", content: inputs.topic }
+          ]
+        },
+        response: {
+          style_kind: "cinematic_neon_city",
+          negative_prompt: "low quality, blurry, broken anatomy, noisy background"
+        }
+      });
+      addLocalLlmTrace("visualPlanning", {
+        traceId: "demo_trace_image_prompt_batch",
+        stage: "image_prompt_batch",
+        request: {
+          messages: [
+            { role: "system", content: "Create one image prompt for every storyboard frame." },
+            { role: "user", content: JSON.stringify(fakeFrames, null, 2) }
+          ],
+          min_image_prompt_words: inputs.minWords,
+          max_image_prompt_words: inputs.maxWords
+        },
+        response: {
+          image_prompts: fakePrompts,
+          negative_prompt: "low quality, blurry, broken anatomy, noisy background"
+        }
+      });
+      completeStep("visualPlanning", {
+        image_prompts: fakePrompts,
+        negative_prompt: "low quality, blurry, broken anatomy, noisy background"
+      }, `生成 ${fakePrompts.length} 条每帧图片 prompt。`, [
+        { title: "负向 Prompt", value: "low quality, blurry, broken anatomy, noisy background" },
+        ...fakePrompts.map((item, index) => ({ title: `Frame ${index + 1} Prompt`, value: item.prompt }))
+      ]);
+
+      beginStep("produceAssets", { task_id: appState.taskId, frame_prompts: fakePrompts });
+      await delay(980);
+      const demoImages = fakePrompts.map((item, index) => demoImageDataUrl(`${item.frame_id}\n${inputs.topic}`, index));
+      appState.resultImages = demoImages;
+      appState.resultImagePath = "demo://browser-generated-frame-01";
+      appState.resultImageUrl = demoImages[0] || "";
+      renderImage(appState.resultImageUrl, appState.resultImagePath);
+      renderImageGallery(demoImages, inputs.apiBase);
+      completeStep("produceAssets", {
+        task_id: appState.taskId,
+        image_paths: demoImages.map((_, index) => `demo://browser-generated-frame-${String(index + 1).padStart(2, "0")}`)
+      }, `生成 ${demoImages.length} 张模拟帧图。`, demoImages.map((_, index) => ({
+        title: `Frame ${index + 1}`,
+        value: `demo://browser-generated-frame-${String(index + 1).padStart(2, "0")}`
+      })));
+
+      beginStep("result", { task_id: appState.taskId, llm_trace_count: appState.llmTraces.size });
+      await delay(260);
+      completeStep("result", {
+        task_id: appState.taskId,
+        image_count: demoImages.length,
+        llm_trace_count: appState.llmTraces.size
+      }, "演示完整 pipeline 已完成。", [
+        { title: "LLM 交互", value: `${appState.llmTraces.size} 次，每次都在中央独立槽位保存 request/response。` },
+        { title: "下一步", value: "关闭演示模式并运行真实 API，可看到 pipeline 内部真实提交和返回。" }
+      ]);
+    }
+
+    function promptText(item) {
+      if (!item) return "";
+      if (typeof item === "string") return item;
+      return item.final_prompt || item.prompt || item.image_prompt || item.text || JSON.stringify(item, null, 2);
+    }
+
+    function mergeTraceRefs(...groups) {
+      return groups.flatMap((group) => Array.isArray(group) ? group : []).filter(Boolean);
+    }
+
+    function imageUrlFromPath(path, apiBase) {
+      if (!path) return "";
+      const raw = String(path).trim();
+      if (/^(https?:|data:|blob:)/i.test(raw)) return raw;
+      const base = normalizeBase(apiBase);
+      if (raw.startsWith("/api/")) return `${base}${raw}`;
+      if (raw.startsWith("/")) return `${base}${raw}`;
+      let normalized = raw.replace(/\\/g, "/");
+      const outputIndex = normalized.toLowerCase().lastIndexOf("/output/");
+      if (outputIndex >= 0) normalized = normalized.slice(outputIndex + 1);
+      const encoded = normalized.split("/").map(encodeURIComponent).join("/");
+      return `${base}/api/files/${encoded}`;
+    }
+
+    function renderImage(url, path) {
+      const frame = $("#imageFrame");
+      const img = $("#resultImage");
+      const caption = $("#imageCaption");
+      if (url) {
+        img.src = url;
+        frame.classList.add("has-image");
+      } else {
+        img.removeAttribute("src");
+        frame.classList.remove("has-image");
+      }
+      caption.innerHTML = "";
+      const line = document.createElement("span");
+      line.append("结果路径：");
+      const code = document.createElement("code");
+      code.textContent = path || "暂无";
+      line.appendChild(code);
+      caption.appendChild(line);
+      if (url && url !== path) {
+        const urlLine = document.createElement("span");
+        urlLine.append("预览 URL：");
+        const urlCode = document.createElement("code");
+        urlCode.textContent = url.slice(0, 180);
+        urlLine.appendChild(urlCode);
+        caption.appendChild(urlLine);
+      }
+    }
+
+    function renderImageGallery(paths, apiBase) {
+      const strip = $("#imageStrip");
+      if (!strip) return;
+      strip.innerHTML = "";
+      const items = Array.isArray(paths) ? paths : [];
+      if (!items.length) {
+        const empty = document.createElement("div");
+        empty.className = "frame-chip";
+        empty.textContent = "暂无帧图";
+        strip.appendChild(empty);
+        return;
+      }
+      items.slice(0, 16).forEach((path, index) => {
+        const url = imageUrlFromPath(path, apiBase);
+        if (url) {
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = `Frame ${index + 1}`;
+          img.title = String(path);
+          strip.appendChild(img);
+        } else {
+          const chip = document.createElement("div");
+          chip.className = "frame-chip";
+          chip.textContent = `Frame ${index + 1}`;
+          strip.appendChild(chip);
+        }
+      });
+    }
+
+    function demoImageDataUrl(topic, seed = 0) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1024;
+      canvas.height = 768;
+      const ctx = canvas.getContext("2d");
+      const grad = ctx.createLinearGradient(0, 0, 1024, 768);
+      const palettes = [
+        ["#0f4643", "#315e9f", "#c45741"],
+        ["#204b57", "#7d6a2f", "#b85b45"],
+        ["#293b32", "#5c6f93", "#d6a24b"],
+        ["#243f61", "#2e7a69", "#b64b5a"]
+      ];
+      const palette = palettes[seed % palettes.length];
+      grad.addColorStop(0, palette[0]);
+      grad.addColorStop(0.5, palette[1]);
+      grad.addColorStop(1, palette[2]);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1024, 768);
+      ctx.globalAlpha = 0.18;
+      for (let i = 0; i < 90; i += 1) {
+        ctx.fillStyle = i % 2 ? "#ffffff" : "#ffe1b8";
+        ctx.fillRect((i * 83) % 1024, (i * 47) % 768, 180 + (i % 5) * 36, 2 + (i % 7));
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.fillRect(72, 78, 880, 612);
+      ctx.fillStyle = "#17201d";
+      ctx.font = "700 52px Inter, sans-serif";
+      ctx.fillText(`Pixelle Frame ${seed + 1}`, 116, 170);
+      ctx.font = "30px Inter, sans-serif";
+      wrapCanvasText(ctx, topic, 116, 245, 780, 44);
+      ctx.font = "22px Consolas, monospace";
+      ctx.fillStyle = "#15736d";
+      ctx.fillText("script -> storyboard -> title -> visual prompts -> frames", 116, 604);
+      ctx.fillStyle = "#c45741";
+      ctx.fillText("真实模式会展示后端任务结果和 LLM trace", 116, 642);
+      return canvas.toDataURL("image/png");
+    }
+
+    function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+      const chars = String(text || "Untitled").split("");
+      let line = "";
+      let currentY = y;
+      for (const ch of chars) {
+        const testLine = line + ch;
+        if (ctx.measureText(testLine).width > maxWidth && line) {
+          ctx.fillText(line, x, currentY);
+          line = ch;
+          currentY += lineHeight;
+          if (currentY > y + lineHeight * 5) break;
+        } else {
+          line = testLine;
+        }
+      }
+      if (line) ctx.fillText(line, x, currentY);
+    }
+
+    function delay(ms) {
+      return new Promise((resolve, reject) => {
+        const timer = window.setTimeout(resolve, ms);
+        appState.controller?.signal.addEventListener("abort", () => {
+          window.clearTimeout(timer);
+          reject(new DOMException("Aborted", "AbortError"));
+        }, { once: true });
+      });
+    }
+
+    async function copyState() {
+      const snapshot = {
+        generated_at: new Date().toISOString(),
+        api_base: normalizeBase($("#apiBase").value),
+        selected_step: appState.selectedStep,
+        api_task_id: appState.taskId,
+        video_url: appState.videoUrl,
+        result_image_path: appState.resultImagePath,
+        result_images: appState.resultImages,
+        llm_traces: Array.from(appState.llmTraces.values()),
+        steps: Object.fromEntries(Array.from(stepState.entries()).map(([id, state]) => [id, {
+          status: state.status,
+          endpoint: state.endpoint,
+          request: state.request,
+          response: state.response,
+          summary: state.summary,
+          llm_trace_ids: state.llmTraceIds || []
+        }]))
+      };
+      await navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2));
+      toast("状态已复制到剪贴板");
+    }
+
+    async function copyTracePayload(traceId, kind) {
+      const trace = appState.llmTraces.get(traceId);
+      if (!trace) throw new Error("没有找到这个 trace");
+      const payload = trace[kind]?.payload ?? trace[kind];
+      await navigator.clipboard.writeText(stringifyPayload(payload || ""));
+      toast(`${kind === "request" ? "提交内容" : "返回内容"}已复制`);
+    }
+
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+    });
+
+    $("#runBtn").addEventListener("click", runWorkflow);
+    $("#stopBtn").addEventListener("click", () => {
+      appState.controller?.abort();
+      $("#stopBtn").disabled = true;
+    });
+    $("#healthBtn").addEventListener("click", () => checkHealth(false).catch(() => {}));
+    $("#resetBtn").addEventListener("click", resetState);
+    $("#copyStateBtn").addEventListener("click", () => copyState().catch((error) => toast(error.message || "复制失败")));
+    document.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+      const button = target?.closest("[data-copy-trace]");
+      if (!button) return;
+      copyTracePayload(button.dataset.copyTrace, button.dataset.copyKind)
+        .catch((error) => toast(error.message || "复制失败"));
+    });
+    $("#apiBase").addEventListener("change", () => {
+      localStorage.setItem("pixelle.workflowLab.apiBase", normalizeBase($("#apiBase").value));
+    });
+
+    const savedApiBase = localStorage.getItem("pixelle.workflowLab.apiBase");
+    if (savedApiBase && savedApiBase !== "http://127.0.0.1:8888") {
+      $("#apiBase").value = savedApiBase;
+    } else if (savedApiBase === "http://127.0.0.1:8888") {
+      localStorage.removeItem("pixelle.workflowLab.apiBase");
+    }
+    resetState();
+  </script>
+</body>
+</html>

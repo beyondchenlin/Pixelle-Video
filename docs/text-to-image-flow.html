@@ -1,0 +1,1001 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pixelle 文本到图片生成流程图</title>
+  <style>
+    :root {
+      --bg: #f7f8f4;
+      --surface: #ffffff;
+      --surface-soft: #f0f4ee;
+      --ink: #17201b;
+      --muted: #617067;
+      --line: #d8dfd7;
+      --teal: #247b73;
+      --coral: #c6533c;
+      --amber: #b47a18;
+      --blue: #365c9a;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--body);
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.72;
+    }
+
+    a {
+      color: var(--teal);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    code,
+    pre {
+      font-family: var(--mono);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(210px, 250px) minmax(0, 760px) minmax(190px, 240px);
+      gap: 34px;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 28px 24px 64px;
+    }
+
+    .rail {
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      max-height: calc(100vh - 48px);
+      overflow: auto;
+      padding-block: 8px;
+    }
+
+    .brand {
+      margin-block: 0 20px;
+      padding-block-end: 18px;
+      border-block-end: 1px solid var(--line);
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .brand span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      margin-block-start: 4px;
+    }
+
+    .nav-group {
+      margin-block: 0 22px;
+    }
+
+    .nav-title,
+    .toc-title {
+      color: #47564d;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      margin-block-end: 8px;
+    }
+
+    .rail a {
+      display: block;
+      padding: 6px 10px;
+      border-inline-start: 3px solid transparent;
+      border-radius: 0 6px 6px 0;
+      color: #35453b;
+      font-size: 14px;
+    }
+
+    .rail a.current {
+      border-inline-start-color: var(--teal);
+      background: #e5f0ed;
+      color: #123f3b;
+      font-weight: 700;
+    }
+
+    main {
+      min-width: 0;
+    }
+
+    .hero {
+      padding-block: 12px 28px;
+      border-block-end: 1px solid var(--line);
+      margin-block-end: 30px;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      color: var(--coral);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0;
+      margin-block-end: 10px;
+    }
+
+    h1 {
+      font-size: 42px;
+      line-height: 1.12;
+      margin: 0;
+      max-width: 680px;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      color: #405047;
+      font-size: 18px;
+      max-width: 700px;
+      margin-block: 18px 0;
+    }
+
+    h2 {
+      font-size: 25px;
+      line-height: 1.28;
+      margin-block: 46px 12px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 18px;
+      line-height: 1.35;
+      margin-block: 30px 10px;
+      letter-spacing: 0;
+    }
+
+    p {
+      max-width: 720px;
+      margin-block: 0 16px;
+    }
+
+    .note,
+    .warning {
+      border-inline-start: 4px solid var(--teal);
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-block: 18px;
+      box-shadow: 0 1px 0 rgba(23, 32, 27, 0.04);
+    }
+
+    .warning {
+      border-inline-start-color: var(--amber);
+      background: #fff9ea;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-block: 22px 8px;
+    }
+
+    .metric {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 21px;
+      line-height: 1.2;
+      margin-block-end: 6px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .flow-wrap {
+      margin-block: 22px 28px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .lane-head {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border-block-end: 1px solid var(--line);
+      background: #edf3ee;
+    }
+
+    .lane-head div {
+      padding: 10px 12px;
+      font-weight: 800;
+      font-size: 13px;
+      color: #314137;
+      border-inline-end: 1px solid var(--line);
+    }
+
+    .lane-head div:last-child {
+      border-inline-end: 0;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      padding: 14px;
+      align-items: stretch;
+    }
+
+    .flow-node {
+      position: relative;
+      min-height: 128px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfa;
+    }
+
+    .flow-node::after {
+      content: "";
+      position: absolute;
+      inline-size: 12px;
+      block-size: 12px;
+      border-block-start: 2px solid var(--muted);
+      border-inline-end: 2px solid var(--muted);
+      inset-inline-end: -13px;
+      top: 50%;
+      transform: translateY(-50%) rotate(45deg);
+      background: var(--surface);
+    }
+
+    .flow-node:nth-child(4n)::after,
+    .flow-node.no-arrow::after {
+      display: none;
+    }
+
+    .node-id {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      inline-size: 28px;
+      block-size: 28px;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--teal);
+      font-weight: 800;
+      font-size: 12px;
+      margin-block-end: 8px;
+    }
+
+    .node-id.coral {
+      background: var(--coral);
+    }
+
+    .node-id.amber {
+      background: var(--amber);
+    }
+
+    .node-id.blue {
+      background: var(--blue);
+    }
+
+    .flow-node strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.35;
+      margin-block-end: 6px;
+    }
+
+    .flow-node p {
+      font-size: 13px;
+      color: #516057;
+      margin: 0;
+    }
+
+    .branch-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-block: 18px;
+    }
+
+    .path-box {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .path-box h3 {
+      margin-block-start: 0;
+    }
+
+    .path-box ol {
+      padding-inline-start: 22px;
+      margin-block: 10px 0;
+    }
+
+    .path-box li {
+      margin-block: 7px;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: #415148;
+      background: #f6f8f5;
+      font-size: 12px;
+      font-family: var(--mono);
+      white-space: nowrap;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-block: 18px 26px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      display: table;
+    }
+
+    th,
+    td {
+      padding: 11px 12px;
+      border-block-end: 1px solid var(--line);
+      text-align: start;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    th {
+      background: #edf3ee;
+      color: #26362d;
+      font-size: 13px;
+    }
+
+    tr:last-child td {
+      border-block-end: 0;
+    }
+
+    .code-wrap {
+      position: relative;
+      margin-block: 16px 24px;
+    }
+
+    .copy-chip {
+      position: absolute;
+      inset-block-start: 8px;
+      inset-inline-end: 8px;
+      border: 1px solid #ccd7cf;
+      background: #f7faf8;
+      border-radius: 6px;
+      padding: 3px 7px;
+      color: #526259;
+      font-size: 12px;
+      font-family: var(--mono);
+    }
+
+    pre {
+      overflow-x: auto;
+      padding: 18px 16px;
+      background: #14201b;
+      color: #e9f2ed;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    .where-list {
+      display: grid;
+      gap: 10px;
+      margin-block: 18px;
+    }
+
+    .where-item {
+      display: grid;
+      grid-template-columns: 170px minmax(0, 1fr);
+      gap: 14px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .where-item strong {
+      color: #26362d;
+    }
+
+    .where-item p {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .toc a {
+      font-size: 13px;
+      padding-block: 5px;
+    }
+
+    @media (max-width: 1060px) {
+      .layout {
+        grid-template-columns: minmax(0, 1fr);
+        max-width: 860px;
+      }
+
+      .rail {
+        position: static;
+        max-height: none;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .toc {
+        order: -1;
+        border-block-end: 1px solid var(--line);
+        padding-block-end: 12px;
+      }
+
+      .toc a {
+        display: inline-block;
+        margin-inline-end: 8px;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .layout {
+        padding: 18px 14px 42px;
+      }
+
+      h1 {
+        font-size: 32px;
+      }
+
+      .summary-grid,
+      .branch-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .lane-head {
+        display: none;
+      }
+
+      .flow-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-node {
+        min-height: auto;
+      }
+
+      .flow-node::after {
+        inset-inline-end: auto;
+        inset-block-end: -12px;
+        top: auto;
+        inset-inline-start: 28px;
+        transform: rotate(135deg);
+      }
+
+      .flow-node:nth-child(4n)::after {
+        display: block;
+      }
+
+      .flow-node.no-arrow::after,
+      .flow-node:last-child::after {
+        display: none;
+      }
+
+      table {
+        display: block;
+        overflow-x: auto;
+      }
+
+      .where-item {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="rail sidebar" data-od-id="nav">
+      <div class="brand">
+        <strong>Pixelle Flow</strong>
+        <span>Text input to image generation</span>
+      </div>
+      <nav>
+        <div class="nav-group">
+          <div class="nav-title">Overview</div>
+          <a class="current" href="#overview">链路总览</a>
+          <a href="text-to-image-workflow-lab.html">交互工作流观察台</a>
+          <a href="#entrypoints">两个入口</a>
+          <a href="#main-flow">主流程图</a>
+          <a href="#llm-steps">LLM 交互</a>
+        </div>
+        <div class="nav-group">
+          <div class="nav-title">Prompt</div>
+          <a href="#prompt-assembly">Prompt 组装</a>
+          <a href="#media-boundary">媒体生成边界</a>
+          <a href="#change-points">修改点地图</a>
+          <a href="#trace-debug">Trace 调试</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main data-od-id="article">
+      <header class="hero" id="overview">
+        <span class="eyebrow">工程链路说明</span>
+        <h1>Pixelle 从文本输入到图片生成的流程图</h1>
+        <p class="lede">
+          这页把项目里“用户文本 - LLM 规划 - 最终图片 prompt - ComfyUI 或 RunningHub 出图”的路径拆开，
+          方便定位每一步如何改提示词、样式规则、negative prompt、workflow 和追踪日志。
+        </p>
+        <div class="note">
+          <strong>想直接看每一步产物？</strong>
+          打开 <a href="text-to-image-workflow-lab.html">文生图交互工作流观察台</a>，
+          输入主题后会按现有 API 串联健康检查、narration、图片 prompt、出图和结果回溯。
+        </div>
+        <div class="summary-grid">
+          <div class="metric">
+            <strong>2 条入口</strong>
+            <span>完整标准 pipeline 与直接图片 API</span>
+          </div>
+          <div class="metric">
+            <strong>多次 LLM</strong>
+            <span>脚本、分镜、标题、风格、图片 prompt 等阶段</span>
+          </div>
+          <div class="metric">
+            <strong>1 个媒体边界</strong>
+            <span><code>MediaService</code> 统一调用 workflow</span>
+          </div>
+        </div>
+      </header>
+
+      <section id="entrypoints">
+        <h2>两个入口</h2>
+        <p>
+          项目里有两种常见路径。第一种是完整生产链路，用户输入主题或脚本文本后，
+          <code>StandardPipeline</code> 负责生成脚本、分镜、图片提示词并逐帧出图。第二种是单张图片 API，
+          调用方已经有最终 prompt，直接交给 <code>/image/generate</code> 出图。
+        </p>
+        <div class="branch-grid">
+          <div class="path-box">
+            <h3>完整文本到分镜出图</h3>
+            <ol>
+              <li><span class="tag">input text</span> 进入 <code>StandardPipeline</code>。</li>
+              <li>必要时用 LLM 生成完整脚本，再生成 storyboard plan。</li>
+              <li>每个 frame 进入 <code>ImagePromptComposer</code> 生成最终图片 prompt。</li>
+              <li><code>FrameProcessor</code> 逐帧调用 <code>core.media</code>。</li>
+            </ol>
+          </div>
+          <div class="path-box">
+            <h3>直接单图生成</h3>
+            <ol>
+              <li><span class="tag">POST /image/generate</span> 接收 prompt、尺寸、workflow。</li>
+              <li>先写 <code>final_visual_prompts.md</code> trace。</li>
+              <li>调用 <code>pixelle_video.media(...)</code>。</li>
+              <li>返回 <code>image_path</code>，不再走脚本和 storyboard LLM。</li>
+            </ol>
+          </div>
+        </div>
+        <div class="note">
+          <strong>判断依据：</strong>
+          如果你要改“从一段文字理解成画面”的逻辑，重点看完整 pipeline。
+          如果你只要改“一个最终 prompt 如何进 ComfyUI workflow”，重点看 <code>/image/generate</code> 和 <code>MediaService</code>。
+        </div>
+      </section>
+
+      <section id="main-flow">
+        <h2>主流程图</h2>
+        <p>
+          下面按真实代码的职责边界画流程。绿色是输入和编排，红色是 LLM 交互，
+          蓝色是 prompt 结构化与 trace，黄色是 workflow 执行和结果落地。
+        </p>
+        <div class="flow-wrap">
+          <div class="lane-head">
+            <div>输入/API</div>
+            <div>LLM 规划</div>
+            <div>Prompt 组装与追踪</div>
+            <div>媒体生成</div>
+          </div>
+          <div class="flow-grid">
+            <div class="flow-node">
+              <span class="node-id">01</span>
+              <strong>用户输入文本</strong>
+              <p>主题、脚本、分镜参数、语言、模板、workflow、尺寸和 style/prefix 选择。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id coral">02</span>
+              <strong>脚本生成或 fixed 文本</strong>
+              <p><code>mode=generate</code> 时调用 LLM 生成 <code>source_text</code>；<code>fixed</code> 直接使用用户文本。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id blue">03</span>
+              <strong>任务目录与 trace 上下文</strong>
+              <p>创建 <code>task_id</code>、运行日志、AI creation log，并准备 LLM trace recorder。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id amber">04</span>
+              <strong>模板类型决定是否出图</strong>
+              <p><code>image/video</code> 模板继续媒体生成；<code>static</code> 模板跳过图片 prompt 和 ComfyUI。</p>
+            </div>
+
+            <div class="flow-node">
+              <span class="node-id">05</span>
+              <strong>Storyboard 参数</strong>
+              <p>解析 <code>world_preset</code>、<code>shot_preset</code>、语言、镜头数量、IP 控制等。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id coral">06</span>
+              <strong>分镜规划</strong>
+              <p><code>smart</code> 模式调用 LLM 输出 frame，其他模式按标点或句子拆分。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id blue">07</span>
+              <strong>Prompt contexts</strong>
+              <p>每帧汇总 <code>source_text</code>、<code>visual_goal</code>、<code>prompt_intent</code>、主体和连续性锚点。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id amber">08</span>
+              <strong>工作流默认值</strong>
+              <p>默认图片 workflow 来自 <code>config.yaml</code> 的 <code>comfyui.image.default_workflow</code>。</p>
+            </div>
+
+            <div class="flow-node">
+              <span class="node-id">09</span>
+              <strong>样式与文本策略</strong>
+              <p>读取 active prompt prefix、visual profile、text rendering 和是否允许图片内文字。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id coral">10</span>
+              <strong>图片 prompt 批量生成</strong>
+              <p>LLM 使用 <code>image_generation.md</code>，按 frame 生成 base image prompts。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id blue">11</span>
+              <strong>Final visual prompt</strong>
+              <p>合成 scene、composition、style、world layer、negative rules，并形成 <code>PromptPlanBundle</code>。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id amber">12</span>
+              <strong>逐帧媒体参数</strong>
+              <p><code>FrameProcessor</code> 构造 prompt、negative prompt、width、height、index、duration。</p>
+            </div>
+
+            <div class="flow-node">
+              <span class="node-id">13</span>
+              <strong>Prompt trace artifact</strong>
+              <p>写入 <code>prompt_traces/final_visual_prompts.md</code>，记录最终 prompt 与 workflow 上下文。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id coral">14</span>
+              <strong>可选 IP/视觉锚点规划</strong>
+              <p>开启系列视觉签名时，LLM/规划器决定锚点如何融入每帧场景。</p>
+            </div>
+            <div class="flow-node">
+              <span class="node-id blue">15</span>
+              <strong>校验 trace 和 prompt</strong>
+              <p><code>MediaService</code> 校验 artifact、hash、workflow、尺寸和 workflow 参数一致性。</p>
+            </div>
+            <div class="flow-node no-arrow">
+              <span class="node-id amber">16</span>
+              <strong>ComfyUI 或 RunningHub 出图</strong>
+              <p>selfhost 传 workflow JSON 路径；RunningHub 传 workflow_id；结果取 <code>images[0]</code> 并下载本地。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="llm-steps">
+        <h2>LLM 交互</h2>
+        <p>
+          所有 LLM 调用最终都要经过 <code>pixelle_video/services/llm_service.py</code>。
+          这个边界要求传入 <code>trace_context</code> 和 <code>trace_recorder</code>，所以每次 LLM 请求和响应都可以被追踪。
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>阶段</th>
+              <th>什么时候发生</th>
+              <th>主要输入</th>
+              <th>输出</th>
+              <th>修改入口</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>script_generation</code></td>
+              <td><code>mode=generate</code></td>
+              <td>用户主题、长度模式</td>
+              <td>完整 <code>source_text</code></td>
+              <td><code>pixelle_video/prompts/templates/script_generation.md</code></td>
+            </tr>
+            <tr>
+              <td><code>storyboard_generation</code></td>
+              <td><code>storyboard_mode=smart</code></td>
+              <td>完整 source text、句子、帧数规则、语言</td>
+              <td>每帧 <code>source_text</code>、<code>visual_goal</code>、<code>prompt_intent</code></td>
+              <td><code>pixelle_video/prompts/templates/storyboard_generation.md</code></td>
+            </tr>
+            <tr>
+              <td><code>title_generation</code></td>
+              <td>用户未提供 title</td>
+              <td>主题或脚本文本</td>
+              <td>标题</td>
+              <td><code>generate_title</code> 相关 prompt 模板</td>
+            </tr>
+            <tr>
+              <td><code>style_resolution</code></td>
+              <td>存在 prompt prefix 或样式来源</td>
+              <td>active prefix、style source、media type</td>
+              <td><code>resolved_style</code> 和 <code>style_profile</code></td>
+              <td><code>config.yaml</code> 的 <code>prompt_prefix_library</code></td>
+            </tr>
+            <tr>
+              <td><code>image_prompt_batch</code></td>
+              <td>模板需要 image/video 媒体</td>
+              <td>每帧 source、visual_goal、prompt_intent、style profile、prompt contexts</td>
+              <td>base image prompts</td>
+              <td><code>pixelle_video/prompts/templates/image_generation.md</code></td>
+            </tr>
+            <tr>
+              <td><code>visual_anchor_integration</code></td>
+              <td>启用系列视觉签名或 IP 锚点</td>
+              <td>base visual brief、IP profile、frame context</td>
+              <td>锚点放置方案和补充 prompt clause</td>
+              <td><code>pixelle_video/prompts/templates/visual_anchor_integration.md</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="warning">
+          <strong>不要只改最终 prompt：</strong>
+          如果画面理解偏了，通常要先看 storyboard 的 <code>visual_goal</code> 和 <code>prompt_intent</code>。
+          如果画风偏了，再看 style/prefix 和 final visual prompt 组装。
+        </div>
+      </section>
+
+      <section id="prompt-assembly">
+        <h2>Prompt 组装</h2>
+        <p>
+          图片 prompt 不是一次 LLM 输出后直接送模型。当前链路会先得到 base prompt，再经过视觉计划、
+          供应商投影、文本策略、negative prompt 策略和 workflow 能力适配，最后才形成 provider-facing prompt。
+        </p>
+        <div class="where-list">
+          <div class="where-item">
+            <strong>Base prompt</strong>
+            <p><code>generate_image_prompts</code> 调用 <code>image_generation.md</code>，要求每个 frame 输出纯视觉描述。</p>
+          </div>
+          <div class="where-item">
+            <strong>Prompt context</strong>
+            <p><code>ImagePromptComposer</code> 把 frame source、visual goal、primary subject、continuity anchors 等合并给 LLM。</p>
+          </div>
+          <div class="where-item">
+            <strong>Final contract</strong>
+            <p><code>FinalVisualPromptContract</code> 保存 scene、composition、style assignment、character/world layer 和 integration priority。</p>
+          </div>
+          <div class="where-item">
+            <strong>Provider projection</strong>
+            <p><code>ProviderPromptProjector</code> 把内部 contract 投影成真正发给图片模型的文字，避免泄露内部字段名。</p>
+          </div>
+          <div class="where-item">
+            <strong>Negative prompt</strong>
+            <p>如果 workflow 支持 negative prompt，就单独传；如果是 Z-Image 这类 positive-only，则把约束合并回正向 prompt。</p>
+          </div>
+        </div>
+        <div class="code-wrap">
+          <span class="copy-chip">snippet</span>
+          <pre><code>{
+  "image_prompts": ["每一帧的最终图片提示词"],
+  "negative_prompt": "共享负面提示词，可能为空",
+  "planning_snapshot": {
+    "llm_trace_refs": [],
+    "final_visual_prompt_template": {},
+    "storyboard_generation": {}
+  },
+  "prompt_plan_bundle": {
+    "image_prompt_drafts": [],
+    "prompt_plans": []
+  }
+}</code></pre>
+        </div>
+      </section>
+
+      <section id="media-boundary">
+        <h2>媒体生成边界</h2>
+        <p>
+          真正调用图片模型的地方是 <code>pixelle_video/services/media.py</code>。
+          它先解析 workflow，再构造 <code>workflow_params</code>，校验 trace artifact，最后交给
+          <code>core.execute_comfykit_workflow</code>。这层是 ComfyUI 和 RunningHub 的共同边界。
+        </p>
+        <div class="code-wrap">
+          <span class="copy-chip">media params</span>
+          <pre><code>media_params = {
+  "prompt": frame.image_prompt,
+  "workflow": config.media_workflow,
+  "media_type": "image",
+  "negative_prompt": frame.negative_prompt,
+  "width": config.media_width,
+  "height": config.media_height,
+  "index": frame.index + 1,
+  "media_prompt_trace_context": trace_context
+}
+
+media_result = await self.core.media(**media_params)</code></pre>
+        </div>
+        <p>
+          self-hosted workflow 通过 JSON 里的占位标题接收参数，例如默认 Z-Image workflow 的
+          <code>PrimitiveStringMultiline</code> 节点标题是 <code>$prompt.value!</code>，
+          宽高节点标题是 <code>$width.value</code> 和 <code>$height.value</code>。
+          RunningHub workflow 文件则是描述符，核心字段是 <code>workflow_id</code> 和 <code>media_type</code>。
+        </p>
+      </section>
+
+      <section id="change-points">
+        <h2>修改点地图</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>想改什么</th>
+              <th>优先看哪里</th>
+              <th>影响范围</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>用户主题如何变成脚本</td>
+              <td><code>pixelle_video/prompts/templates/script_generation.md</code></td>
+              <td>影响 <code>mode=generate</code> 的完整 source text。</td>
+            </tr>
+            <tr>
+              <td>分镜数量、覆盖方式、每帧意图</td>
+              <td><code>storyboard_generation.md</code> 和 <code>StoryboardGenerationService</code></td>
+              <td>影响后面所有图片 prompt 的上下文。</td>
+            </tr>
+            <tr>
+              <td>图片 prompt 的描述结构和语言</td>
+              <td><code>image_generation.md</code></td>
+              <td>影响 base prompt，适合修正“画面该画什么”。</td>
+            </tr>
+            <tr>
+              <td>最终 prompt 的章节结构</td>
+              <td><code>final_visual_prompt.md</code>、<code>FinalVisualPromptContract</code></td>
+              <td>影响 provider-facing prompt 和 PromptPlan 记录。</td>
+            </tr>
+            <tr>
+              <td>画风、统一视觉语言</td>
+              <td><code>config.yaml</code> 的 <code>comfyui.image.prompt_prefix_library</code> 或 visual profile</td>
+              <td>影响 style resolution、quality gate 和最终 prompt。</td>
+            </tr>
+            <tr>
+              <td>模型、采样、宽高、workflow 绑定</td>
+              <td><code>workflows/selfhost/*.json</code>、<code>config.yaml</code>、<code>MediaService</code></td>
+              <td>影响 ComfyUI 或 RunningHub 的实际执行。</td>
+            </tr>
+            <tr>
+              <td>日志和可回放能力</td>
+              <td><code>prompt_trace_artifacts.py</code>、<code>llm_service.py</code></td>
+              <td>影响 prompt trace、LLM trace 和调试闭环。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="trace-debug">
+        <h2>Trace 调试</h2>
+        <p>
+          调 prompt 时建议先看最终 trace，再回溯 LLM trace。最终图片不好，不一定是图片模型问题；
+          有可能是分镜意图、base prompt、style profile、negative prompt 或 workflow 参数在中间被改了。
+        </p>
+        <div class="where-list">
+          <div class="where-item">
+            <strong>最终 prompt</strong>
+            <p><code>output/&lt;task_id&gt;/prompt_traces/final_visual_prompts.md</code>，检查每帧正向和负向 prompt。</p>
+          </div>
+          <div class="where-item">
+            <strong>媒体调用 trace</strong>
+            <p><code>media_prompt_traces</code> 或每帧 <code>prompt_traces/c*</code>，检查 workflow、尺寸、参数 hash。</p>
+          </div>
+          <div class="where-item">
+            <strong>LLM trace refs</strong>
+            <p><code>planning_snapshot.llm_trace_refs</code> 连接脚本、分镜、prompt batch 等上游 LLM 请求。</p>
+          </div>
+          <div class="where-item">
+            <strong>PromptPlanBundle</strong>
+            <p>查看 <code>prompt_sections</code> 与 <code>final_prompt</code>，判断是哪个 section 带偏了结果。</p>
+          </div>
+        </div>
+        <div class="note">
+          <strong>推荐调试顺序：</strong>
+          先看 <code>final_prompt</code> 是否表达了想要的画面，再看 <code>prompt_sections</code> 哪一段导致偏差；
+          如果最终 prompt 没问题，再检查 workflow 参数、模型和 ComfyUI 运行结果。
+        </div>
+      </section>
+
+      <section id="sources">
+        <h2>源码索引</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>文件</th>
+              <th>职责</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="../pixelle_video/pipelines/standard.py"><code>pixelle_video/pipelines/standard.py</code></a></td>
+              <td>完整文本到分镜、prompt、逐帧素材生产的主流程。</td>
+            </tr>
+            <tr>
+              <td><a href="../api/routers/content.py"><code>api/routers/content.py</code></a></td>
+              <td><code>/content/image-prompt</code> 入口，调用 LLM 生成图片 prompt。</td>
+            </tr>
+            <tr>
+              <td><a href="../api/routers/image.py"><code>api/routers/image.py</code></a></td>
+              <td><code>/image/generate</code> 单图入口，写 trace 后调用 media。</td>
+            </tr>
+            <tr>
+              <td><a href="../pixelle_video/services/image_prompt_composer.py"><code>pixelle_video/services/image_prompt_composer.py</code></a></td>
+              <td>把 storyboard plan、style、IP、文本策略组合成最终 prompt batch。</td>
+            </tr>
+            <tr>
+              <td><a href="../pixelle_video/utils/content_generators.py"><code>pixelle_video/utils/content_generators.py</code></a></td>
+              <td>批量 LLM prompt 生成、style resolution、prompt assembly。</td>
+            </tr>
+            <tr>
+              <td><a href="../pixelle_video/services/media.py"><code>pixelle_video/services/media.py</code></a></td>
+              <td>图片/视频 workflow 的统一执行边界。</td>
+            </tr>
+            <tr>
+              <td><a href="../workflows/selfhost/image_z_image_turbo_gguf.json"><code>workflows/selfhost/image_z_image_turbo_gguf.json</code></a></td>
+              <td>默认本地图片 workflow，包含 <code>$prompt.value!</code> 和宽高参数绑定。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <aside class="rail toc" data-od-id="toc">
+      <div class="toc-title">On this page</div>
+      <a class="current" href="#overview">链路总览</a>
+      <a href="#entrypoints">两个入口</a>
+      <a href="#main-flow">主流程图</a>
+      <a href="#llm-steps">LLM 交互</a>
+      <a href="#prompt-assembly">Prompt 组装</a>
+      <a href="#media-boundary">媒体生成边界</a>
+      <a href="#change-points">修改点地图</a>
+      <a href="#trace-debug">Trace 调试</a>
+      <a href="#sources">源码索引</a>
+    </aside>
+  </div>
+</body>
+</html>

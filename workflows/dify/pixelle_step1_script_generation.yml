@@ -1,0 +1,1913 @@
+app:
+  description: 'Pixelle 第一步：用户输入一句话或主题，生成完整 source_text 文案。提示词复制自 pixelle_video/prompts/templates/script_generation.md。'
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  mode: workflow
+  name: 文案生成
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 15
+        image_file_size_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 10
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: code
+      id: start_node-source-topic_json_node-target
+      source: start_node
+      sourceHandle: source
+      target: topic_json_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: llm
+      id: topic_json_node-source-script_generation_node-target
+      source: topic_json_node
+      sourceHandle: source
+      target: script_generation_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: script_generation_node-source-parse_script_json_node-target
+      source: script_generation_node
+      sourceHandle: source
+      target: parse_script_json_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: code
+      id: parse_script_json_node-source-prepare_storyboard_input_node-target
+      source: parse_script_json_node
+      sourceHandle: source
+      target: prepare_storyboard_input_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: if-else
+      id: prepare_storyboard_input_node-source-storyboard_route_node-target
+      source: prepare_storyboard_input_node
+      sourceHandle: source
+      target: storyboard_route_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: llm
+      id: storyboard_route_node-true-smart_storyboard_generation_node-target
+      source: storyboard_route_node
+      sourceHandle: 'true'
+      target: smart_storyboard_generation_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: code
+      id: smart_storyboard_generation_node-source-parse_smart_storyboard_json_node-target
+      source: smart_storyboard_generation_node
+      sourceHandle: source
+      target: parse_smart_storyboard_json_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: code
+      id: storyboard_route_node-false-deterministic_storyboard_passthrough_node-target
+      source: storyboard_route_node
+      sourceHandle: 'false'
+      target: deterministic_storyboard_passthrough_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: variable-aggregator
+      id: parse_smart_storyboard_json_node-source-storyboard_plan_aggregator_node-target
+      source: parse_smart_storyboard_json_node
+      sourceHandle: source
+      target: storyboard_plan_aggregator_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: variable-aggregator
+      id: deterministic_storyboard_passthrough_node-source-storyboard_plan_aggregator_node-target
+      source: deterministic_storyboard_passthrough_node
+      sourceHandle: source
+      target: storyboard_plan_aggregator_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: variable-aggregator
+        targetType: code
+      id: storyboard_plan_aggregator_node-source-extract_segments_node-target
+      source: storyboard_plan_aggregator_node
+      sourceHandle: source
+      target: extract_segments_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: code
+      id: extract_segments_node-source-extract_visual_goals_node-target
+      source: extract_segments_node
+      sourceHandle: source
+      target: extract_visual_goals_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: code
+      id: extract_visual_goals_node-source-extract_prompt_intents_node-target
+      source: extract_visual_goals_node
+      sourceHandle: source
+      target: extract_prompt_intents_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: extract_prompt_intents_node-source-end_node-target
+      source: extract_prompt_intents_node
+      sourceHandle: source
+      target: end_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: 开始
+        type: start
+        variables:
+        - default: 百年孤独
+          hint: ''
+          label: 只需要输入一个主题
+          max_length: null
+          options: []
+          placeholder: ''
+          required: true
+          type: paragraph
+          variable: user_text
+        - default: Smart
+          hint: Smart 会进入 AI 分镜生成；按所有标点和按句末标点会按 Pixelle 规则直接切分。
+          label: 分镜模式
+          max_length: null
+          options:
+          - Smart
+          - 按所有标点（中英文）
+          - 按句末标点（。.!?！？）
+          placeholder: ''
+          required: true
+          type: select
+          variable: storyboard_mode
+        - default: 自动
+          hint: 仅 Smart 模式生效；规则切分模式固定使用自动。
+          label: 分镜数量模式
+          max_length: null
+          options:
+          - 自动
+          - 分镜数
+          placeholder: ''
+          required: true
+          type: select
+          variable: storyboard_count_mode
+        - default: 5
+          hint: 仅 Smart + 分镜数模式生效。Pixelle 默认范围是 1-30。
+          label: 手动分镜数
+          max_length: null
+          options: []
+          placeholder: ''
+          required: false
+          type: number
+          variable: storyboard_scene_count
+        - default: 60
+          hint: 仅按所有标点和按句末标点模式生效。Pixelle 默认值是 60。
+          label: 最大分镜数
+          max_length: null
+          options: []
+          placeholder: ''
+          required: false
+          type: number
+          variable: storyboard_max_scene_count
+        - default: 中文
+          hint: 控制分镜字段和后续图片提示词的生成语言。
+          label: 提示词语言
+          max_length: null
+          options:
+          - 中文
+          - 英文
+          placeholder: ''
+          required: true
+          type: select
+          variable: storyboard_prompt_language
+      height: 310
+      id: start_node
+      position:
+        x: 30
+        y: 240
+      positionAbsolute:
+        x: 30
+        y: 240
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        code: "import json\n\n\ndef main(user_text: str) -> dict:\n    text = str(user_text or '').strip()\n    return {\n        'topic_json': json.dumps(text, ensure_ascii=False),\n    }\n"
+        code_language: python3
+        desc: '匹配 Pixelle 的 script_generation.md 输入变量：{topic_json}。'
+        outputs:
+          topic_json:
+            children: null
+            type: string
+        selected: false
+        title: 用户输入转 JSON
+        type: code
+        variables:
+        - value_selector:
+          - start_node
+          - user_text
+          value_type: string
+          variable: user_text
+      height: 80
+      id: topic_json_node
+      position:
+        x: 334
+        y: 240
+      positionAbsolute:
+        x: 334
+        y: 240
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: '提示词正文复制自 pixelle_video/prompts/templates/script_generation.md。这里只把运行时变量和长度分支适配为 Dify 可用格式。'
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: qwen3.6-plus
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: 7f28e9fc-1136-4e8c-a74c-c3fa5dcb89e1
+          role: system
+          text: |
+            你是一位有 10 年经验的短视频编导、爆款文案策划、口播脚本专家，同时也是中文内容润色专家。
+
+            你擅长为抖音、视频号、小红书、快手生成自然、有节奏、适合真人口播的短视频文案。你的目标不是写一篇漂亮文章，而是写出一段观众愿意听下去、博主能直接开拍的口播脚本。
+
+            用户只会输入一个主题。你不能追问用户，需要在内部完成判断，然后直接输出最终文案。
+
+            你需要先在内部判断：
+
+            1. 这个主题最可能面向哪类人；
+            2. 这类人真正关心的痛点、困惑、欲望或情绪是什么；
+            3. 这个主题适合用哪种内容结构：观点型、知识型、故事型、产品型、避坑型、干货型或情绪共鸣型；
+            4. 第一句话用哪种开头最容易抓住人；
+            5. 这段内容应该保持什么语气：犀利、温和、共情、专业、生活化、故事感，或轻微吐槽。
+
+            然后只输出一段最终可直接用于短视频口播和分镜的完整文案。
+
+            不要输出分析过程。
+            不要输出写作思路。
+            不要输出标题。
+            不要输出提纲。
+            不要解释你为什么这样写。
+
+            ---
+
+            # 一、开头要求
+
+            不能使用这些普通开场：
+
+            - 大家好
+            - 今天我们来聊聊
+            - 你知道吗
+            - 最近很多人问我
+            - 今天给大家分享
+            - 哈喽大家好
+
+            开头要直接，不要铺垫。
+            第一句话要有冲击力，但不能夸张到失真。
+
+            ---
+
+            # 二、内容推进逻辑
+
+            文案必须有清晰递进，不能平铺直叙。
+
+            整体按照这个顺序推进：
+
+            开头钩子
+            ↓
+            点出问题
+            ↓
+            解释原因
+            ↓
+            给出核心观点
+            ↓
+            给出方法、例子或判断标准
+            ↓
+            总结一句容易记住的话
+            ↓
+            自然收尾
+
+            每一段都要自然接上上一段。
+            不要写成小作文。
+            不要堆概念。
+            不要空泛喊口号。
+            不要突然升华。
+            不要用“未来趋势”“行业价值”“深远意义”这类空话结尾。
+
+            结尾不要引导点赞、关注、收藏。
+            可以自然收住，也可以留一个轻量问题，但不要像营销号。
+
+            ---
+
+            # 三、口播表达要求
+
+            文案必须适合真人口播：
+
+            1. 语言口语化，像一个懂行的人在认真说话；
+            2. 多用短句，每句话尽量控制在10到25个字；
+            3. 句子长短要有变化，不要全都一样整齐；
+            4. 可以有停顿感，但不要频繁使用破折号；
+            5. 允许出现一点真实表达里的转折、犹豫和判断；
+            6. 不要写得像论文、公众号长文或新闻稿；
+            7. 不要使用过于书面化、官方化、模板化的表达；
+            8. 每隔一小段设置一个小转折、小疑问或小结论，避免观众划走。
+
+            ---
+
+            # 四、生成文案时，不要出现以下问题：
+
+            1. 不要过度拔高主题；
+            2. 不要空喊意义、价值、格局、未来；
+            3. 不要堆砌漂亮但没用的形容词；
+            4. 不要写成“正确但无聊”的说明文；
+            5. 不要使用宣传广告式夸张话术；
+            6. 不要用假大空结论；
+            7. 不要使用生硬的排比；
+            8. 不要频繁出现三段式工整句；
+            9. 不要写“这不仅仅是……更是……”；
+            10. 不要用“作为……”“充当……”这类生硬表达，能说“是”就直接说“是”；
+            11. 不要反复换同义词，能用直白词就用直白词；
+            12. 不要用模糊归因，比如“相关研究表明”“业内人士认为”，除非用户提供了来源；
+            13. 不要编造具体数据、机构、人物、案例；
+            14. 不要用“挑战与未来展望”这类模板化结构；
+            15. 不要滥用粗体、表情符号、编号和标题；
+            16. 不要使用不符合中文习惯的翻译腔；
+            17. 不要用讨好式语气；
+            18. 不要输出免责声明、知识截止日期或 AI 身份相关内容。
+
+            ---
+
+            # 五、禁用或尽量规避的高频词
+
+            全文尽量不要使用以下词语，能删除就删除，能替换就替换：
+
+            此外、至关重要、深入探讨、强调、持久的、增强、培养、获得、突出、相互作用、复杂、复杂性、格局、关键性的、展示、织锦、证明、宝贵的、充满活力的、赋能、闭环、抓手、基石、赛道、深耕
+
+            如果必须表达类似意思，换成更自然的中文说法。
+
+            例如：
+
+            - 不说“至关重要”，改成“很重要”或直接说明为什么重要；
+            - 不说“赋能”，改成“帮你解决什么问题”；
+            - 不说“闭环”，改成“这件事才算做完”；
+            - 不说“抓手”，改成“先做哪一步”；
+            - 不说“深耕”，改成“长期做”“一直做”“做得更细”。
+
+            ---
+
+            # 六、事实与案例要求
+
+            不能编造具体数据、机构、名人、实验、案例。
+
+            如果用户没有提供来源，只能使用模糊但真实的表达，例如：
+
+            - 很多人会遇到这种情况
+            - 常见的问题是
+            - 你可能会发现
+            - 不少人第一步就做错了
+            - 现实里经常是这样
+            - 对普通人来说，最麻烦的地方在于
+
+            如果主题需要案例，可以用生活化、泛化的例子，不要虚构具体品牌、人物或数字。
+
+            ---
+
+            # 七、最终自检
+
+            输出前，你需要在内部检查一遍：
+
+            1. 第一句话有没有抓人；
+            2. 内容有没有按逻辑推进；
+            3. 有没有像真人口播；
+            4. 有没有编造数据或案例；
+            5. 结尾有没有自然收住；
+            6. 有没有出现点赞、关注、收藏引导。
+
+            检查完后，只输出最终文案。
+        - id: 313b8ae6-6f23-4d65-8f20-fd7bc931c84c
+          role: user
+          text: |
+            ---
+            prompt_id: script_generation
+            version: 1
+            stage: script_generation
+            purpose: Generate one complete source text script for a video topic.
+            output_contract: JSON object with source_text only.
+            ---
+
+            <!-- template-loader:strip # script_generation -->
+            {{
+              "task": "generate_complete_video_script_source_text",
+              "topic": {{#topic_json_node.topic_json#}}
+              ,"length_instruction": "Use a natural length for the topic.",
+              "requirements": [
+                "Generate one complete source_text for the whole video script.",
+                "The source_text must be coherent as a complete script before storyboard splitting.",
+                "Do not split the script into storyboard frames.",
+                "Do not generate image prompts.",
+                "Return JSON only."
+              ],
+              "output_contract": {{
+                "type": "json_object",
+                "must_return_json_only": true,
+                "allowed_top_level_keys": ["source_text"],
+                "forbidden_output": [
+                  "markdown fences",
+                  "explanatory text outside the JSON object",
+                  "section headings inside source_text"
+                ]
+              }},
+              "output_schema": {{
+                "source_text": "The complete source_text script for the video."
+              }}
+            }}
+        selected: false
+        title: 文案生成
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 90
+      id: script_generation_node
+      position:
+        x: 638
+        y: 240
+      positionAbsolute:
+        x: 638
+        y: 240
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        code: "import json\nimport re\nfrom typing import Any\n\n\ndef _load_json(text: str) -> dict[str, Any]:\n    cleaned = str(text or '').strip()\n    if cleaned.startswith('```'):\n        cleaned = re.sub(r'^```(?:json)?\\s*', '', cleaned)\n        cleaned = re.sub(r'\\s*```$', '', cleaned).strip()\n    try:\n        value = json.loads(cleaned)\n        return value if isinstance(value, dict) else {}\n    except Exception:\n        match = re.search(r'\\{.*\\}', cleaned, flags=re.S)\n        if match:\n            try:\n                value = json.loads(match.group(0))\n                return value if isinstance(value, dict) else {}\n            except Exception:\n                return {}\n        return {}\n\n\ndef main(llm_text: str) -> dict:\n    raw = str(llm_text or '').strip()\n    data = _load_json(raw)\n    source_text = str(data.get('source_text') or '').strip()\n    if not source_text:\n        source_text = raw\n    return {\n        'source_text': source_text,\n        'source_text_candidate_json': json.dumps({'source_text': source_text}, ensure_ascii=False),\n        'raw_llm_output': raw,\n    }\n"
+        code_language: python3
+        desc: '解析 Pixelle script_generation 提示词返回的 JSON 对象。'
+        outputs:
+          raw_llm_output:
+            children: null
+            type: string
+          source_text:
+            children: null
+            type: string
+          source_text_candidate_json:
+            children: null
+            type: string
+        selected: false
+        title: 解析文案 JSON
+        type: code
+        variables:
+        - value_selector:
+          - script_generation_node
+          - text
+          value_type: string
+          variable: llm_text
+      height: 80
+      id: parse_script_json_node
+      position:
+        x: 942
+        y: 240
+      positionAbsolute:
+        x: 942
+        y: 240
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        code: |
+          import hashlib
+          import json
+          import re
+          import unicodedata
+          from typing import Any
+
+
+          SENTENCE_TERMINATORS = '。！？.!?'
+          CLOSING_PUNCTUATION = '”’"\'）)]}》】」』'
+          SMART_MIN_SCENE_COUNT = 1
+          SMART_MAX_SCENE_COUNT = 30
+          DETERMINISTIC_MAX_SCENE_COUNT_DEFAULT = 60
+          DETERMINISTIC_MAX_SCENE_COUNT_LIMIT = 200
+
+
+          def _normalize_generated_source_text(text: str) -> str:
+              cleaned = re.sub(r'\\u([0-9a-fA-F]{4})', lambda match: chr(int(match.group(1), 16)), text or '')
+              cleaned = cleaned.replace('\r\n', '\n').replace('\r', '\n')
+              cleaned = re.sub(r'[\\/]+n', ' ', cleaned, flags=re.IGNORECASE)
+              cleaned = re.sub(r'[\\/]+(?=\s|$)', ' ', cleaned)
+              return re.sub(r'\s+', ' ', cleaned.strip())
+
+
+          def _is_unicode_punctuation(char: str) -> bool:
+              return unicodedata.category(char).startswith('P')
+
+
+          def _is_storyboard_split_punctuation(char: str) -> bool:
+              return _is_unicode_punctuation(char) and char not in {'%', '％', '《', '》'}
+
+
+          def _split_with_predicate(source_text: str, predicate) -> list[tuple[str, int, int]]:
+              cleaned = _normalize_generated_source_text(source_text)
+              if not cleaned:
+                  return []
+
+              segments = []
+              current_start = None
+              has_text = False
+
+              for index, char in enumerate(cleaned):
+                  if current_start is None:
+                      if char.isspace():
+                          continue
+                      current_start = index
+
+                  if not char.isspace() and not _is_unicode_punctuation(char):
+                      has_text = True
+
+                  next_char = cleaned[index + 1] if index + 1 < len(cleaned) else ''
+                  should_split = has_text and predicate(char) and (
+                      not next_char or not predicate(next_char)
+                  )
+                  if should_split and current_start is not None:
+                      end = index + 1
+                      segments.append((cleaned[current_start:end], current_start, end))
+                      current_start = None
+                      has_text = False
+
+              if current_start is not None and has_text:
+                  segments.append((cleaned[current_start:], current_start, len(cleaned)))
+
+              return segments
+
+
+          def _sentence_segments(source_text: str) -> list[tuple[str, int, int]]:
+              cleaned = _normalize_generated_source_text(source_text)
+              if not cleaned:
+                  return []
+
+              segments = []
+              current_start = None
+              index = 0
+              has_text = False
+              while index < len(cleaned):
+                  char = cleaned[index]
+                  if current_start is None:
+                      if char.isspace():
+                          index += 1
+                          continue
+                      current_start = index
+
+                  if not char.isspace() and not _is_unicode_punctuation(char):
+                      has_text = True
+
+                  if has_text and char in SENTENCE_TERMINATORS:
+                      end = index + 1
+                      while end < len(cleaned) and cleaned[end] in SENTENCE_TERMINATORS:
+                          end += 1
+                      while end < len(cleaned) and cleaned[end] in CLOSING_PUNCTUATION:
+                          end += 1
+                      segments.append((cleaned[current_start:end], current_start, end))
+                      current_start = None
+                      has_text = False
+                      index = end
+                      continue
+
+                  index += 1
+
+              if current_start is not None and has_text:
+                  segments.append((cleaned[current_start:], current_start, len(cleaned)))
+
+              return segments
+
+
+          def _split_into_sentences_for_smart_prompt(text: str) -> list[tuple[str, int, int]]:
+              sentence_end_pattern = r'[。！？.!?]+[\s"\'"\'）)}】」』]*'
+              sentences = []
+              last_end = 0
+
+              for match in re.finditer(sentence_end_pattern, text):
+                  end = match.end()
+                  sentence = text[last_end:end].strip()
+                  if sentence:
+                      actual_start = last_end
+                      while actual_start < end and text[actual_start].isspace():
+                          actual_start += 1
+                      sentences.append((sentence, actual_start, end))
+                  last_end = end
+
+              if last_end < len(text):
+                  remaining = text[last_end:].strip()
+                  if remaining:
+                      actual_start = last_end
+                      while actual_start < len(text) and text[actual_start].isspace():
+                          actual_start += 1
+                      sentences.append((remaining, actual_start, len(text)))
+
+              return sentences
+
+
+          def _is_boundary_char(char: str) -> bool:
+              return char.isspace() or unicodedata.category(char).startswith('P')
+
+
+          def _nearest_source_span_boundary(text: str, ideal: int, lower: int, upper: int) -> int:
+              if upper - lower <= 1:
+                  return upper
+
+              radius = max(1, len(text) // 20)
+              start = max(lower + 1, ideal - radius)
+              end = min(upper - 1, ideal + radius)
+              candidates = []
+              for index in range(start, end + 1):
+                  previous_char = text[index - 1] if index > 0 else ''
+                  next_char = text[index] if index < len(text) else ''
+                  if previous_char and _is_boundary_char(previous_char):
+                      candidates.append(index)
+                  elif next_char and _is_boundary_char(next_char):
+                      candidates.append(index)
+
+              if not candidates:
+                  return min(max(ideal, lower + 1), upper - 1)
+              return min(candidates, key=lambda index: abs(index - ideal))
+
+
+          def _split_into_source_spans(text: str, span_count: int) -> list[tuple[str, int, int]]:
+              if span_count <= 0 or not text:
+                  return []
+              if span_count == 1:
+                  return [(text, 0, len(text))]
+              if span_count > len(text):
+                  raise ValueError('requested_scene_count cannot exceed source_text length')
+
+              spans = []
+              start = 0
+              for span_index in range(1, span_count):
+                  remaining_spans = span_count - span_index
+                  min_end = start + 1
+                  max_end = len(text) - remaining_spans
+                  ideal = round(len(text) * span_index / span_count)
+                  end = _nearest_source_span_boundary(text, ideal, start, max_end)
+                  end = min(max(end, min_end), max_end)
+                  spans.append((text[start:end], start, end))
+                  start = end
+              spans.append((text[start:], start, len(text)))
+              return spans
+
+
+          def _coerce_int(value: Any, default: int | None = None) -> int | None:
+              if value is None or value == '':
+                  return default
+              try:
+                  return int(value)
+              except Exception:
+                  return default
+
+
+          def _normalize_storyboard_mode(value: str) -> str:
+              raw = str(value or '').strip()
+              lowered = raw.lower()
+              if lowered == 'punctuation' or '所有标点' in raw:
+                  return 'punctuation'
+              if lowered == 'sentence' or '句末标点' in raw:
+                  return 'sentence'
+              return 'smart'
+
+
+          def _normalize_count_mode(value: str) -> str:
+              raw = str(value or '').strip().lower()
+              if raw == 'manual' or '分镜数' in str(value or ''):
+                  return 'manual'
+              return 'auto'
+
+
+          def _normalize_prompt_language(value: str) -> str:
+              raw = str(value or '').strip()
+              if raw == 'en_US' or raw == '英文':
+                  return 'en_US'
+              return 'zh_CN'
+
+
+          def _source_digest(text: str) -> str:
+              return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+          def _frame_dict(index: int, segment: str, start: int, end: int, language: str, strategy: str) -> dict:
+              if language == 'zh_CN':
+                  visual_goal = f'用画面表达第 {index} 个分镜段落。'
+                  prompt_intent = f'创建一个连贯的画面来传达：{segment}'
+              else:
+                  visual_goal = f'Visualize storyboard segment {index}.'
+                  prompt_intent = f'Create a coherent scene that communicates: {segment}'
+              return {
+                  'frame_id': '',
+                  'index': index,
+                  'source_text': segment,
+                  'visual_goal': visual_goal,
+                  'prompt_intent': prompt_intent,
+                  'shot_type': None,
+                  'shot_purpose': None,
+                  'primary_subject': None,
+                  'secondary_subjects': [],
+                  'continuity_anchors': [],
+                  'world_elements': [],
+                  'source_start': start,
+                  'source_end': end,
+                  'metadata': {'strategy': strategy},
+              }
+
+
+          def _build_deterministic_plan(
+              *,
+              mode: str,
+              count_mode: str,
+              requested_scene_count: int | None,
+              source_text: str,
+              segments: list[tuple[str, int, int]],
+              max_scene_count: int,
+              prompt_language: str,
+          ) -> dict:
+              effective_segments = segments or [(source_text, 0, len(source_text))]
+              if len(effective_segments) > max_scene_count:
+                  raise ValueError('too many storyboard frames; use smart storyboard mode or shorten the text')
+
+              digest = _source_digest(source_text)
+              frames = [
+                  _frame_dict(index, segment, start, end, prompt_language, mode)
+                  for index, (segment, start, end) in enumerate(effective_segments, start=1)
+              ]
+              plan_id = f'storyboard_{mode}_{digest}'
+              for frame in frames:
+                  frame['frame_id'] = f"{plan_id}_frame_{frame['index']:03d}"
+              return {
+                  'plan_id': plan_id,
+                  'revision': 1,
+                  'mode': mode,
+                  'count_mode': count_mode,
+                  'requested_scene_count': requested_scene_count,
+                  'resolved_scene_count': len(frames),
+                  'source_text': source_text,
+                  'source_digest': digest,
+                  'frames': frames,
+                  'diagnostics': {
+                      'strategy': mode,
+                      'split_count': len(frames),
+                      'max_scene_count': max_scene_count,
+                  },
+              }
+
+
+          def _render_smart_storyboard_prompt(
+              *,
+              prompt_language: str,
+              source_text: str,
+              sentences: list[dict],
+              count_instruction: str,
+              use_source_spans: bool,
+              source_spans: list[dict],
+          ) -> str:
+              requirements = [
+                  'Understand the complete source_text before creating frames.',
+                  'The returned frames must cover the entire source_text in source order.',
+                  'Do not omit meaningful source_text; only whitespace-only gaps between frames are allowed.',
+                  'Maintain continuity of style, subjects, and visual logic across all frames.',
+                  'Do not rewrite or summarize voiceover text; speech and captions are planned separately from source_text.',
+                  'Do not generate final image prompts.',
+                  'Return JSON only.',
+              ]
+              frame_schema = {
+                  'source_text': 'Text preview covered by this frame (for reference).',
+                  'visual_goal': (
+                      '这一帧需要传达的视觉重点'
+                      if prompt_language == 'zh_CN'
+                      else 'What this frame should communicate visually.'
+                  ),
+                  'prompt_intent': 'Guidance for later image prompt composition.',
+              }
+              if use_source_spans:
+                  requirements.extend([
+                      'Use source_span_indices, not sentence_indices, because the requested frame count exceeds the sentence count.',
+                      'Each frame must cover one or more consecutive source_spans.',
+                      'All source_span_indices must be covered by exactly one frame in source order (no gaps, no overlaps).',
+                      'When using source_span_indices, omit source_start and source_end entirely unless you can provide both integers together.',
+                  ])
+                  frame_schema['source_span_indices'] = 'Required: consecutive source_spans covered by this frame (e.g., [0] or [1, 2]).'
+              else:
+                  requirements.extend([
+                      'Use sentence_indices to specify which sentences each frame covers.',
+                      'Frames may cover multiple consecutive sentences (e.g., [0, 1, 2]).',
+                      'Do not split one sentence across multiple frames when using sentence_indices.',
+                      'All sentence indices must be covered by exactly one frame (no gaps, no overlaps).',
+                      'When using sentence_indices, omit source_start and source_end entirely unless you can provide both integers together.',
+                  ])
+                  frame_schema['sentence_indices'] = 'Required: consecutive sentence indices covered by this frame (e.g., [0, 1] or [3]).'
+              if prompt_language == 'zh_CN':
+                  requirements.append('Write visual_goal and prompt_intent in Chinese.')
+
+              payload = {
+                  'task': 'create_storyboard_plan_from_complete_source_text',
+                  'prompt_language': prompt_language,
+                  'source_text': source_text,
+                  'sentences': sentences,
+                  'count_instruction': count_instruction,
+                  'requirements': requirements,
+                  'frame_schema': frame_schema,
+              }
+              if use_source_spans:
+                  payload['source_spans'] = source_spans
+              return (
+                  '---\n'
+                  'prompt_id: storyboard_generation\n'
+                  'version: 1\n'
+                  'stage: storyboard_generation\n'
+                  'purpose: Create a storyboard plan from complete source text.\n'
+                  'output_contract: JSON storyboard plan payload.\n'
+                  '---\n\n'
+                  '<!-- template-loader:strip # storyboard_generation -->\n'
+                  + json.dumps(payload, ensure_ascii=False, indent=2)
+              )
+
+
+          def main(
+              source_text: str,
+              storyboard_mode: str = 'Smart',
+              storyboard_count_mode: str = '自动',
+              storyboard_scene_count: int | float | str | None = None,
+              storyboard_max_scene_count: int | float | str | None = None,
+              storyboard_prompt_language: str = '中文',
+          ) -> dict:
+              text = _normalize_generated_source_text(str(source_text or ''))
+              mode = _normalize_storyboard_mode(storyboard_mode)
+              prompt_language = _normalize_prompt_language(storyboard_prompt_language)
+
+              smart_sentences = [
+                  {'index': index, 'text': sentence}
+                  for index, (sentence, _start, _end) in enumerate(_split_into_sentences_for_smart_prompt(text))
+              ]
+
+              count_mode = _normalize_count_mode(storyboard_count_mode)
+              requested_scene_count = _coerce_int(storyboard_scene_count)
+              use_source_spans = False
+              source_spans = []
+              deterministic_plan = {}
+
+              if mode == 'smart':
+                  if count_mode == 'manual':
+                      requested_scene_count = requested_scene_count or 5
+                      requested_scene_count = min(max(requested_scene_count, SMART_MIN_SCENE_COUNT), SMART_MAX_SCENE_COUNT)
+                  else:
+                      count_mode = 'auto'
+                      requested_scene_count = None
+                  max_scene_count = SMART_MAX_SCENE_COUNT
+                  use_source_spans = (
+                      count_mode == 'manual'
+                      and requested_scene_count is not None
+                      and requested_scene_count > len(smart_sentences)
+                  )
+                  if use_source_spans:
+                      source_spans = [
+                          {
+                              'index': index,
+                              'text': span_text,
+                              'source_start': start,
+                              'source_end': end,
+                          }
+                          for index, (span_text, start, end) in enumerate(_split_into_source_spans(text, requested_scene_count))
+                      ]
+                  if count_mode == 'manual':
+                      count_instruction = f'Create exactly {requested_scene_count} storyboard frames.'
+                  else:
+                      count_instruction = f'Choose the best storyboard frame count between {SMART_MIN_SCENE_COUNT} and {SMART_MAX_SCENE_COUNT}.'
+                  storyboard_route = 'smart'
+              else:
+                  count_mode = 'auto'
+                  requested_scene_count = None
+                  max_scene_count = _coerce_int(storyboard_max_scene_count, DETERMINISTIC_MAX_SCENE_COUNT_DEFAULT) or DETERMINISTIC_MAX_SCENE_COUNT_DEFAULT
+                  max_scene_count = min(max(max_scene_count, 1), DETERMINISTIC_MAX_SCENE_COUNT_LIMIT)
+                  segments = (
+                      _split_with_predicate(text, _is_storyboard_split_punctuation)
+                      if mode == 'punctuation'
+                      else _sentence_segments(text)
+                  )
+                  deterministic_plan = _build_deterministic_plan(
+                      mode=mode,
+                      count_mode=count_mode,
+                      requested_scene_count=requested_scene_count,
+                      source_text=text,
+                      segments=segments,
+                      max_scene_count=max_scene_count,
+                      prompt_language=prompt_language,
+                  )
+                  count_instruction = ''
+                  storyboard_route = 'deterministic'
+
+              smart_storyboard_prompt = (
+                  _render_smart_storyboard_prompt(
+                      prompt_language=prompt_language,
+                      source_text=text,
+                      sentences=smart_sentences,
+                      count_instruction=count_instruction,
+                      use_source_spans=use_source_spans,
+                      source_spans=source_spans,
+                  )
+                  if storyboard_route == 'smart'
+                  else ''
+              )
+
+              return {
+                  'source_text': text,
+                  'source_text_json': json.dumps(text, ensure_ascii=False),
+                  'sentences_json': json.dumps(smart_sentences, ensure_ascii=False, indent=2),
+                  'smart_storyboard_prompt': smart_storyboard_prompt,
+                  'prompt_language_json': json.dumps(prompt_language, ensure_ascii=False),
+                  'storyboard_prompt_language': prompt_language,
+                  'storyboard_mode': mode,
+                  'storyboard_route': storyboard_route,
+                  'storyboard_count_mode': count_mode,
+                  'requested_scene_count': str(requested_scene_count) if requested_scene_count is not None else '',
+                  'min_scene_count': SMART_MIN_SCENE_COUNT,
+                  'max_scene_count': max_scene_count,
+                  'source_spans_json': json.dumps(source_spans, ensure_ascii=False, indent=2),
+                  'use_source_spans': 'true' if use_source_spans else 'false',
+                  'use_sentence_indices': 'false' if use_source_spans else 'true',
+                  'count_instruction': count_instruction,
+                  'deterministic_storyboard_plan_json': json.dumps(deterministic_plan, ensure_ascii=False, indent=2),
+              }
+        code_language: python3
+        desc: '按 Pixelle 分镜规划选项预处理：这里先把完整 source_text 切成带 index 的 sentences/source_spans，作用是给 Smart 大模型一个可追踪的坐标参考，不是最终分镜，也不是简单按句号输出。Smart 模式只准备 Pixelle storyboard_generation 提示词和 count_instruction；按标点/按句末标点模式才在这里直接生成确定性 storyboard_plan。'
+        outputs:
+          count_instruction:
+            children: null
+            type: string
+          deterministic_storyboard_plan_json:
+            children: null
+            type: string
+          max_scene_count:
+            children: null
+            type: number
+          min_scene_count:
+            children: null
+            type: number
+          prompt_language_json:
+            children: null
+            type: string
+          requested_scene_count:
+            children: null
+            type: string
+          sentences_json:
+            children: null
+            type: string
+          smart_storyboard_prompt:
+            children: null
+            type: string
+          source_spans_json:
+            children: null
+            type: string
+          source_text:
+            children: null
+            type: string
+          source_text_json:
+            children: null
+            type: string
+          storyboard_count_mode:
+            children: null
+            type: string
+          storyboard_mode:
+            children: null
+            type: string
+          storyboard_prompt_language:
+            children: null
+            type: string
+          storyboard_route:
+            children: null
+            type: string
+          use_sentence_indices:
+            children: null
+            type: string
+          use_source_spans:
+            children: null
+            type: string
+        selected: false
+        title: 分镜模式预处理
+        type: code
+        variables:
+        - value_selector:
+          - parse_script_json_node
+          - source_text
+          value_type: string
+          variable: source_text
+        - value_selector:
+          - start_node
+          - storyboard_mode
+          value_type: string
+          variable: storyboard_mode
+        - value_selector:
+          - start_node
+          - storyboard_count_mode
+          value_type: string
+          variable: storyboard_count_mode
+        - value_selector:
+          - start_node
+          - storyboard_scene_count
+          value_type: number
+          variable: storyboard_scene_count
+        - value_selector:
+          - start_node
+          - storyboard_max_scene_count
+          value_type: number
+          variable: storyboard_max_scene_count
+        - value_selector:
+          - start_node
+          - storyboard_prompt_language
+          value_type: string
+          variable: storyboard_prompt_language
+      height: 80
+      id: prepare_storyboard_input_node
+      position:
+        x: 1246
+        y: 240
+      positionAbsolute:
+        x: 1246
+        y: 240
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: is
+            id: storyboard-route-smart-condition
+            value: smart
+            varType: string
+            variable_selector:
+            - prepare_storyboard_input_node
+            - storyboard_route
+          id: 'true'
+          logical_operator: and
+        desc: '只负责选择 Pixelle 的三种分镜路径：storyboard_route 为 smart 时进入 Smart 大模型分镜；punctuation 和 sentence 走规则分镜 plan。这里的 IF 比较必须用字符串 is smart。'
+        selected: false
+        title: 分镜路由判断
+        type: if-else
+      height: 126
+      id: storyboard_route_node
+      position:
+        x: 1550
+        y: 240
+      positionAbsolute:
+        x: 1550
+        y: 240
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 'Smart 的最终分镜在这个节点生成：输入是上一步按 Pixelle 原逻辑渲染出的 storyboard_generation 提示词。模型根据语义把 sentence_indices/source_span_indices 组合成 frames；Auto 模式是在 1-30 帧之间自选，不保证压缩成很少帧，Manual 模式才会要求 exactly N 帧。'
+        model:
+          completion_params:
+            max_tokens: 8192
+            temperature: 0.3
+          mode: chat
+          name: qwen3.6-plus
+          provider: langgenius/tongyi/tongyi
+        prompt_template:
+        - id: smart-storyboard-generation-user-prompt
+          role: user
+          text: '{{#prepare_storyboard_input_node.smart_storyboard_prompt#}}'
+        selected: false
+        title: Smart 分镜生成
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 112
+      id: smart_storyboard_generation_node
+      position:
+        x: 1850
+        y: 120
+      positionAbsolute:
+        x: 1850
+        y: 120
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        code: |
+          import hashlib
+          import json
+          import re
+          from typing import Any
+
+
+          SENTENCE_END_PATTERN = r'[。！？.!?]+[\s"\'"\'）)}】」』]*'
+
+
+          def _extract_json_object(text: str) -> dict:
+              raw = str(text or '').strip()
+              fence_match = re.search(r'```(?:json)?\s*(.*?)```', raw, flags=re.S | re.I)
+              if fence_match:
+                  raw = fence_match.group(1).strip()
+              try:
+                  payload = json.loads(raw)
+              except Exception:
+                  start = raw.find('{')
+                  end = raw.rfind('}')
+                  if start < 0 or end <= start:
+                      raise ValueError('smart storyboard response must be a JSON object')
+                  payload = json.loads(raw[start:end + 1])
+              if not isinstance(payload, dict):
+                  raise ValueError('smart storyboard response must be a JSON object')
+              return payload
+
+
+          def _split_into_sentences(text: str) -> list[tuple[str, int, int]]:
+              sentences = []
+              last_end = 0
+              for match in re.finditer(SENTENCE_END_PATTERN, text):
+                  end = match.end()
+                  sentence = text[last_end:end].strip()
+                  if sentence:
+                      actual_start = last_end
+                      while actual_start < end and text[actual_start].isspace():
+                          actual_start += 1
+                      sentences.append((sentence, actual_start, end))
+                  last_end = end
+              if last_end < len(text):
+                  remaining = text[last_end:].strip()
+                  if remaining:
+                      actual_start = last_end
+                      while actual_start < len(text) and text[actual_start].isspace():
+                          actual_start += 1
+                      sentences.append((remaining, actual_start, len(text)))
+              return sentences
+
+
+          def _coerce_int(value: Any) -> int | None:
+              if value is None or value == '':
+                  return None
+              try:
+                  return int(value)
+              except Exception:
+                  return None
+
+
+          def _normalize_indices(value: Any, field_name: str) -> list[int] | None:
+              if value is None:
+                  return None
+              if isinstance(value, int):
+                  return [value]
+              if isinstance(value, str):
+                  try:
+                      value = json.loads(value)
+                  except Exception as exc:
+                      raise ValueError(f'Cannot parse {field_name}: {value}') from exc
+              if not isinstance(value, list) or not value:
+                  return None
+              return [int(item) for item in value]
+
+
+          def _require_consecutive(indices: list[int], label: str) -> tuple[int, int]:
+              first = min(indices)
+              last = max(indices)
+              if indices != list(range(first, last + 1)):
+                  raise ValueError(f'{label} must be consecutive')
+              return first, last
+
+
+          def _sha256(text: str) -> str:
+              return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+          def _frame_id(mode: str, count_mode: str, requested_scene_count: int | None, digest: str, frame: dict) -> str:
+              seed = '|'.join([
+                  mode,
+                  count_mode,
+                  '' if requested_scene_count is None else str(requested_scene_count),
+                  digest,
+                  str(frame['index']),
+                  '' if frame.get('source_start') is None else str(frame.get('source_start')),
+                  '' if frame.get('source_end') is None else str(frame.get('source_end')),
+                  _sha256(frame['source_text']),
+              ])
+              return f"frame_{frame['index']:04d}_{_sha256(seed)[:12]}"
+
+
+          def _build_plan(
+              *,
+              mode: str,
+              count_mode: str,
+              requested_scene_count: int | None,
+              source_text: str,
+              frames: list[dict],
+              strategy: str,
+          ) -> dict:
+              digest = _sha256(source_text)
+              for frame in frames:
+                  frame['frame_id'] = _frame_id(mode, count_mode, requested_scene_count, digest, frame)
+              identity = '|'.join([
+                  mode,
+                  count_mode,
+                  '' if requested_scene_count is None else str(requested_scene_count),
+                  digest,
+                  str(len(frames)),
+                  *[
+                      '|'.join([
+                          str(frame['index']),
+                          str(frame.get('source_start')),
+                          str(frame.get('source_end')),
+                          _sha256(frame['source_text']),
+                      ])
+                      for frame in frames
+                  ],
+              ])
+              return {
+                  'plan_id': f'plan_{_sha256(identity)[:16]}',
+                  'revision': 1,
+                  'mode': mode,
+                  'count_mode': count_mode,
+                  'requested_scene_count': requested_scene_count,
+                  'resolved_scene_count': len(frames),
+                  'source_text': source_text,
+                  'source_digest': digest,
+                  'frames': frames,
+                  'diagnostics': {
+                      'strategy': strategy,
+                      'requested_scene_count': requested_scene_count,
+                      'split_count': len(frames),
+                  },
+              }
+
+
+          def _frame_from_payload(index: int, payload: dict, source_text: str, start: int, end: int, metadata: dict) -> dict:
+              return {
+                  'frame_id': '',
+                  'index': index,
+                  'source_text': source_text[start:end],
+                  'visual_goal': str(payload.get('visual_goal') or '').strip(),
+                  'prompt_intent': str(payload.get('prompt_intent') or '').strip(),
+                  'shot_type': None,
+                  'shot_purpose': None,
+                  'primary_subject': None,
+                  'secondary_subjects': [],
+                  'continuity_anchors': [],
+                  'world_elements': [],
+                  'source_start': start,
+                  'source_end': end,
+                  'metadata': metadata,
+              }
+
+
+          def _frames_from_source_spans(response_frames: list[dict], source_text: str, source_spans: list[dict]) -> list[dict]:
+              frames = []
+              covered = set()
+              next_expected = 0
+              for index, frame_payload in enumerate(response_frames, start=1):
+                  indices = _normalize_indices(frame_payload.get('source_span_indices'), 'source_span_indices')
+                  if not indices:
+                      raise ValueError(f'Frame {index} missing source_span_indices')
+                  first, last = _require_consecutive(indices, 'source_span_indices')
+                  if first != next_expected:
+                      raise ValueError('source_span_indices must cover source_text in source order')
+                  for span_index in indices:
+                      if span_index < 0 or span_index >= len(source_spans):
+                          raise ValueError(f'Frame {index} has invalid source span index: {span_index}')
+                      if span_index in covered:
+                          raise ValueError(f'Frame {index} overlaps source span {span_index}')
+                      covered.add(span_index)
+                  start = int(source_spans[first]['source_start'])
+                  end = int(source_spans[last]['source_end'])
+                  next_expected = last + 1
+                  frames.append(_frame_from_payload(index, frame_payload, source_text, start, end, {
+                      'strategy': 'smart_source_spans',
+                      'source_span_indices': indices,
+                  }))
+              if len(covered) != len(source_spans):
+                  raise ValueError('Some source spans were not covered')
+              return frames
+
+
+          def _frames_from_sentence_indices(response_frames: list[dict], source_text: str, sentences: list[tuple[str, int, int]]) -> list[dict] | None:
+              frames = []
+              covered = set()
+              next_expected = 0
+              for index, frame_payload in enumerate(response_frames, start=1):
+                  indices = _normalize_indices(frame_payload.get('sentence_indices'), 'sentence_indices')
+                  if not indices:
+                      return None
+                  first, last = _require_consecutive(indices, 'sentence_indices')
+                  if first != next_expected:
+                      return None
+                  for sentence_index in indices:
+                      if sentence_index < 0 or sentence_index >= len(sentences):
+                          return None
+                      if sentence_index in covered:
+                          return None
+                      covered.add(sentence_index)
+                  start = sentences[first][1]
+                  end = sentences[last][2]
+                  next_expected = last + 1
+                  frames.append(_frame_from_payload(index, frame_payload, source_text, start, end, {
+                      'strategy': 'smart',
+                      'sentence_indices': indices,
+                  }))
+              if len(covered) != len(sentences):
+                  return None
+              return frames
+
+
+          def _frames_from_char_offsets(response_frames: list[dict], source_text: str) -> list[dict]:
+              frames = []
+              search_start = 0
+              for index, frame_payload in enumerate(response_frames, start=1):
+                  fragment = str(frame_payload.get('source_text') or '').strip()
+                  if not fragment:
+                      raise ValueError(f'Frame {index} source_text must not be empty')
+                  start = source_text.find(fragment, search_start)
+                  if start < 0:
+                      raise ValueError('smart storyboard frame source_text must be traceable')
+                  end = start + len(fragment)
+                  if start > search_start and frames:
+                      frames[-1]['source_end'] = start
+                      frames[-1]['source_text'] = source_text[frames[-1]['source_start']:start]
+                  search_start = max(search_start, end)
+                  frames.append(_frame_from_payload(index, frame_payload, source_text, start, end, {'strategy': 'smart'}))
+              if frames and search_start < len(source_text):
+                  frames[-1]['source_end'] = len(source_text)
+                  frames[-1]['source_text'] = source_text[frames[-1]['source_start']:]
+              return frames
+
+
+          def main(
+              raw_llm_output: str,
+              source_text: str,
+              storyboard_count_mode: str,
+              requested_scene_count: str = '',
+              min_scene_count: int | float | str = 1,
+              max_scene_count: int | float | str = 30,
+              source_spans_json: str = '[]',
+          ) -> dict:
+              response = _extract_json_object(raw_llm_output)
+              response_frames = response.get('frames')
+              if not isinstance(response_frames, list) or not response_frames:
+                  raise ValueError('smart storyboard response must include non-empty frames')
+
+              count_mode = str(storyboard_count_mode or 'auto').strip() or 'auto'
+              requested = _coerce_int(requested_scene_count)
+              min_count = _coerce_int(min_scene_count) or 1
+              max_count = _coerce_int(max_scene_count) or 30
+              if count_mode == 'manual' and len(response_frames) != requested:
+                  raise ValueError(f'expected {requested} smart storyboard frames')
+              if len(response_frames) > max_count:
+                  raise ValueError('too many storyboard frames')
+              if count_mode == 'auto' and len(response_frames) < min_count:
+                  raise ValueError('too few storyboard frames')
+
+              text = str(source_text or '').strip()
+              source_spans = json.loads(source_spans_json or '[]')
+              sentences = _split_into_sentences(text)
+              use_source_spans = bool(source_spans) and any(
+                  frame.get('source_span_indices') is not None for frame in response_frames
+              )
+              if use_source_spans:
+                  frames = _frames_from_source_spans(response_frames, text, source_spans)
+                  strategy = 'smart_source_spans'
+              else:
+                  frames = _frames_from_sentence_indices(response_frames, text, sentences)
+                  strategy = 'smart'
+                  if frames is None:
+                      frames = _frames_from_char_offsets(response_frames, text)
+                      strategy = 'smart_char_offsets'
+
+              for frame in frames:
+                  if not frame['visual_goal']:
+                      raise ValueError('smart storyboard visual_goal must not be empty')
+                  if not frame['prompt_intent']:
+                      raise ValueError('smart storyboard prompt_intent must not be empty')
+
+              plan = _build_plan(
+                  mode='smart',
+                  count_mode=count_mode,
+                  requested_scene_count=requested,
+                  source_text=text,
+                  frames=frames,
+                  strategy=strategy,
+              )
+              return {
+                  'raw_llm_output': str(raw_llm_output or ''),
+                  'storyboard_plan_json': json.dumps(plan, ensure_ascii=False, indent=2),
+                  'frames_json': json.dumps(frames, ensure_ascii=False, indent=2),
+                  'resolved_scene_count': len(frames),
+                  'parse_strategy': strategy,
+              }
+        code_language: python3
+        desc: '按 Pixelle Smart 后处理逻辑解析 LLM 返回的 JSON，校验 sentence_indices/source_span_indices 是否连续覆盖，并用这些索引回填每帧 source_text。最终如果看起来接近按句号分割，通常是 Auto 模式下模型选择了细粒度分镜，不是预处理代码绕过了 Smart。'
+        outputs:
+          frames_json:
+            children: null
+            type: string
+          parse_strategy:
+            children: null
+            type: string
+          raw_llm_output:
+            children: null
+            type: string
+          resolved_scene_count:
+            children: null
+            type: number
+          storyboard_plan_json:
+            children: null
+            type: string
+        selected: false
+        title: 解析 Smart 分镜 JSON
+        type: code
+        variables:
+        - value_selector:
+          - smart_storyboard_generation_node
+          - text
+          value_type: string
+          variable: raw_llm_output
+        - value_selector:
+          - prepare_storyboard_input_node
+          - source_text
+          value_type: string
+          variable: source_text
+        - value_selector:
+          - prepare_storyboard_input_node
+          - storyboard_count_mode
+          value_type: string
+          variable: storyboard_count_mode
+        - value_selector:
+          - prepare_storyboard_input_node
+          - requested_scene_count
+          value_type: string
+          variable: requested_scene_count
+        - value_selector:
+          - prepare_storyboard_input_node
+          - min_scene_count
+          value_type: number
+          variable: min_scene_count
+        - value_selector:
+          - prepare_storyboard_input_node
+          - max_scene_count
+          value_type: number
+          variable: max_scene_count
+        - value_selector:
+          - prepare_storyboard_input_node
+          - source_spans_json
+          value_type: string
+          variable: source_spans_json
+      height: 80
+      id: parse_smart_storyboard_json_node
+      position:
+        x: 2150
+        y: 120
+      positionAbsolute:
+        x: 2150
+        y: 120
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        code: |
+          def main(deterministic_storyboard_plan_json: str) -> dict:
+              return {
+                  'storyboard_plan_json': deterministic_storyboard_plan_json or '{}'
+              }
+        code_language: python3
+        desc: 规则切分模式已在预处理节点生成 storyboard_plan，这里只透传给统一输出。
+        outputs:
+          storyboard_plan_json:
+            children: null
+            type: string
+        selected: false
+        title: 规则分镜透传
+        type: code
+        variables:
+        - value_selector:
+          - prepare_storyboard_input_node
+          - deterministic_storyboard_plan_json
+          value_type: string
+          variable: deterministic_storyboard_plan_json
+      height: 80
+      id: deterministic_storyboard_passthrough_node
+      position:
+        x: 1850
+        y: 430
+      positionAbsolute:
+        x: 1850
+        y: 430
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        advanced_settings:
+          group_enabled: false
+          groups:
+          - groupId: storyboard-plan-group
+            group_name: storyboard_plan
+            output_type: string
+            variables:
+            - - parse_smart_storyboard_json_node
+              - storyboard_plan_json
+            - - deterministic_storyboard_passthrough_node
+              - storyboard_plan_json
+        desc: '合并 Smart 分镜和规则分镜两条路径，向后续图片提示词节点提供统一 storyboard_plan_json。后续节点只应读取这个统一结果，而不是直接拿 sentences_json 当最终分镜。'
+        output_type: string
+        selected: false
+        title: 分镜计划聚合
+        type: variable-aggregator
+        variables:
+        - - parse_smart_storyboard_json_node
+          - storyboard_plan_json
+        - - deterministic_storyboard_passthrough_node
+          - storyboard_plan_json
+      height: 129
+      id: storyboard_plan_aggregator_node
+      position:
+        x: 2450
+        y: 240
+      positionAbsolute:
+        x: 2450
+        y: 240
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        code: |
+          import json
+          from typing import Any
+
+
+          def _load_plan(storyboard_plan_json: str) -> dict[str, Any]:
+              raw = (storyboard_plan_json or '').strip()
+              if not raw:
+                  return {}
+              plan = json.loads(raw)
+              if not isinstance(plan, dict):
+                  raise ValueError('storyboard_plan_json must be a JSON object')
+              return plan
+
+
+          def _frames(plan: dict[str, Any]) -> list[dict[str, Any]]:
+              frames = plan.get('frames') or []
+              if not isinstance(frames, list):
+                  raise ValueError('storyboard_plan.frames must be a list')
+              normalized = []
+              for frame in frames:
+                  if not isinstance(frame, dict):
+                      raise ValueError('each storyboard frame must be an object')
+                  normalized.append(frame)
+              return normalized
+
+
+          def main(storyboard_plan_json: str) -> dict:
+              segments = []
+              for position, frame in enumerate(_frames(_load_plan(storyboard_plan_json)), start=1):
+                  index = frame.get('index') or position
+                  frame_id = str(frame.get('frame_id') or f'frame_{int(index):04d}')
+                  segments.append({
+                      'frame_id': frame_id,
+                      'index': index,
+                      'source_text': str(frame.get('source_text') or '').strip(),
+                  })
+              return {
+                  'segment_count': len(segments),
+                  'segments_json': json.dumps(segments, ensure_ascii=False, indent=2),
+              }
+        code_language: python3
+        desc: '从统一 storyboard_plan_json 中只提取每帧 source_text，形成干净的分段结果。这个输出是后续所有视觉字段和图片提示词处理的主轴。'
+        outputs:
+          segment_count:
+            children: null
+            type: number
+          segments_json:
+            children: null
+            type: string
+        selected: false
+        title: 分段文本提取
+        type: code
+        variables:
+        - value_selector:
+          - storyboard_plan_aggregator_node
+          - output
+          value_type: string
+          variable: storyboard_plan_json
+      height: 80
+      id: extract_segments_node
+      position:
+        x: 2750
+        y: 120
+      positionAbsolute:
+        x: 2750
+        y: 120
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        code: |
+          import json
+          from typing import Any
+
+
+          def _load_plan(storyboard_plan_json: str) -> dict[str, Any]:
+              raw = (storyboard_plan_json or '').strip()
+              if not raw:
+                  return {}
+              plan = json.loads(raw)
+              if not isinstance(plan, dict):
+                  raise ValueError('storyboard_plan_json must be a JSON object')
+              return plan
+
+
+          def main(storyboard_plan_json: str) -> dict:
+              frames = _load_plan(storyboard_plan_json).get('frames') or []
+              if not isinstance(frames, list):
+                  raise ValueError('storyboard_plan.frames must be a list')
+              visual_goals = []
+              for position, frame in enumerate(frames, start=1):
+                  if not isinstance(frame, dict):
+                      raise ValueError('each storyboard frame must be an object')
+                  index = frame.get('index') or position
+                  frame_id = str(frame.get('frame_id') or f'frame_{int(index):04d}')
+                  visual_goals.append({
+                      'frame_id': frame_id,
+                      'index': index,
+                      'visual_goal': str(frame.get('visual_goal') or '').strip(),
+                  })
+              return {
+                  'visual_goals_json': json.dumps(visual_goals, ensure_ascii=False, indent=2),
+              }
+        code_language: python3
+        desc: '单独提取每帧 visual_goal，供后续独立优化视觉目标。保留 frame_id/index，确保它能和分段文本一一对齐。'
+        outputs:
+          visual_goals_json:
+            children: null
+            type: string
+        selected: false
+        title: visual_goal 提取
+        type: code
+        variables:
+        - value_selector:
+          - storyboard_plan_aggregator_node
+          - output
+          value_type: string
+          variable: storyboard_plan_json
+      height: 80
+      id: extract_visual_goals_node
+      position:
+        x: 3050
+        y: 120
+      positionAbsolute:
+        x: 3050
+        y: 120
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        code: |
+          import json
+          from typing import Any
+
+
+          def _load_plan(storyboard_plan_json: str) -> dict[str, Any]:
+              raw = (storyboard_plan_json or '').strip()
+              if not raw:
+                  return {}
+              plan = json.loads(raw)
+              if not isinstance(plan, dict):
+                  raise ValueError('storyboard_plan_json must be a JSON object')
+              return plan
+
+
+          def main(storyboard_plan_json: str) -> dict:
+              frames = _load_plan(storyboard_plan_json).get('frames') or []
+              if not isinstance(frames, list):
+                  raise ValueError('storyboard_plan.frames must be a list')
+              prompt_intents = []
+              for position, frame in enumerate(frames, start=1):
+                  if not isinstance(frame, dict):
+                      raise ValueError('each storyboard frame must be an object')
+                  index = frame.get('index') or position
+                  frame_id = str(frame.get('frame_id') or f'frame_{int(index):04d}')
+                  prompt_intents.append({
+                      'frame_id': frame_id,
+                      'index': index,
+                      'prompt_intent': str(frame.get('prompt_intent') or '').strip(),
+                  })
+              return {
+                  'prompt_intents_json': json.dumps(prompt_intents, ensure_ascii=False, indent=2),
+              }
+        code_language: python3
+        desc: '单独提取每帧 prompt_intent，供后续独立优化画面提示词意图。保留 frame_id/index，后面可以再和 source_text、visual_goal 合并。'
+        outputs:
+          prompt_intents_json:
+            children: null
+            type: string
+        selected: false
+        title: prompt_intent 提取
+        type: code
+        variables:
+        - value_selector:
+          - storyboard_plan_aggregator_node
+          - output
+          value_type: string
+          variable: storyboard_plan_json
+      height: 80
+      id: extract_prompt_intents_node
+      position:
+        x: 3350
+        y: 120
+      positionAbsolute:
+        x: 3350
+        y: 120
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        desc: '最终只输出拆分后的干净结果：分段文本、visual_goal、prompt_intent。完整 storyboard_plan_json 保留在上游节点中，后续需要合并时再读取。'
+        outputs:
+        - value_selector:
+          - extract_segments_node
+          - segment_count
+          value_type: number
+          variable: segment_count
+        - value_selector:
+          - extract_segments_node
+          - segments_json
+          value_type: string
+          variable: segments_json
+        - value_selector:
+          - extract_visual_goals_node
+          - visual_goals_json
+          value_type: string
+          variable: visual_goals_json
+        - value_selector:
+          - extract_prompt_intents_node
+          - prompt_intents_json
+          value_type: string
+          variable: prompt_intents_json
+        selected: false
+        title: 结束
+        type: end
+      height: 180
+      id: end_node
+      position:
+        x: 3650
+        y: 240
+      positionAbsolute:
+        x: 3650
+        y: 240
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    viewport:
+      x: 0
+      y: 0
+      zoom: 0.7
