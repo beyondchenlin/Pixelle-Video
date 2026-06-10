@@ -29,6 +29,7 @@ from pixelle_video.services.visual_profile_registry import resolve_visual_profil
 from pixelle_video.services.visual_prompt_profile_projector import apply_visual_profile_to_batch
 from pixelle_video.services.visual_quality_gate import VisualQualityGate
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
+from pixelle_video.services.visual_story_prompt_context import attach_visual_story_context
 from pixelle_video.utils.prompt_helper import (
     final_visual_prompt_clause_template_metadata,
     final_visual_prompt_template_metadata,
@@ -79,6 +80,7 @@ class ImagePromptComposer:
         series_visual_signature_consistency_mode: str | None = None,
         article_concretization_plans: Sequence[ArticleConcretizationPlan] = (),
         scene_casts_by_frame=None,
+        visual_story_context: Optional[Mapping[str, Any]] = None,
         stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
         upstream_llm_trace_refs: Optional[Sequence[Mapping[str, str]]] = None,
         trace_context: LLMTraceContext | None = None,
@@ -92,6 +94,10 @@ class ImagePromptComposer:
             storyboard_plan=storyboard_plan,
             frame_overrides=normalized_overrides,
             article_concretization_plans=article_concretization_plans,
+        )
+        prompt_contexts = attach_visual_story_context(
+            prompt_contexts,
+            visual_story_context,
         )
         batch = await generate_styled_image_prompt_batch(
             llm_service=llm_service,

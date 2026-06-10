@@ -11,6 +11,7 @@ from typing import Any, DefaultDict, List, Mapping, Protocol, Sequence
 from loguru import logger
 
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
+from pixelle_video.utils.proxy_util import adaptive_proxy_env
 
 DEFAULT_ALIGNMENT_MODEL_PATH = "Qwen/Qwen3-ForcedAligner-0.6B"
 DEFAULT_ALIGNMENT_MODELSCOPE_ID = "Qwen/Qwen3-ForcedAligner-0.6B"
@@ -100,10 +101,13 @@ class _QwenForcedAlignerClient:
 
             logger.info(f"Downloading model from ModelScope: {DEFAULT_ALIGNMENT_MODELSCOPE_ID}")
             cache_dir = os.path.expanduser("~/.cache/modelscope/hub")
-            local_path = snapshot_download(
-                DEFAULT_ALIGNMENT_MODELSCOPE_ID,
-                cache_dir=cache_dir,
-            )
+
+            # 使用自适应代理配置
+            with adaptive_proxy_env():
+                local_path = snapshot_download(
+                    DEFAULT_ALIGNMENT_MODELSCOPE_ID,
+                    cache_dir=cache_dir,
+                )
             logger.info(f"Model downloaded to {local_path}")
             return local_path, True
         except Exception as exc:

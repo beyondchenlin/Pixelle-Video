@@ -40,10 +40,27 @@ Your job is to make the identity appear naturally while preserving the source vi
 
 {repair_context_json}
 
+# Selected Article Visual Route
+
+{selected_visual_route_json}
+
+# Frame Contexts
+
+{frame_contexts_json}
+
+# Visual Story Frame Plans
+
+{visual_story_frame_plans_json}
+
+# Visual Story IP Fusion Plans
+
+{visual_story_ip_fusion_plans_json}
+
 # Mandatory task
 
 For every frame, produce a final image prompt that visibly integrates the configured
-visual identity while preserving the source visual intent.
+visual identity while preserving the source visual intent, selected article visual route,
+frame visual plan, and frame IP fusion plan.
 
 Never return hidden, suppressed, absent, skipped, no anchor, no signature, fallback, or
 "not suitable" as a successful answer. If the scene lacks a natural carrier, actively

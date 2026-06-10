@@ -38,6 +38,7 @@ from pixelle_video.services.visual_signature_fallback_planner import (
     merge_visual_anchor_plans_by_frame,
 )
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
+from pixelle_video.services.visual_story_context_budget import compact_visual_anchor_contexts
 
 
 @dataclass(frozen=True)
@@ -67,8 +68,16 @@ class VisualAnchorIntegrationPlanner:
         trace_context: Any = None,
         trace_recorder: Any = None,
     ) -> tuple[VisualAnchorPlacementPlan, ...]:
-        del base_packages, frame_contexts, frame_plans
+        del base_packages
         briefs = tuple(base_visual_briefs)
+        compact_visual_story_context = compact_visual_anchor_contexts(
+            frame_contexts=frame_contexts,
+            max_total_chars=9000,
+        )
+        normalized_frame_contexts = compact_visual_story_context["frame_contexts"]
+        selected_visual_route = compact_visual_story_context["selected_visual_route"]
+        visual_story_frame_plans = compact_visual_story_context["visual_story_frame_plans"]
+        visual_story_ip_fusion_plans = compact_visual_story_context["visual_story_ip_fusion_plans"]
         if not briefs:
             return ()
         if anchor_profile is None:
@@ -104,6 +113,10 @@ class VisualAnchorIntegrationPlanner:
                 presentation_policy_json=presentation_policy.to_prompt_policy(),
                 visual_identity_kernel_json=list(identity_kernel),
                 repair_context_json=repair_context,
+                frame_contexts_json=normalized_frame_contexts,
+                selected_visual_route_json=selected_visual_route,
+                visual_story_frame_plans_json=visual_story_frame_plans,
+                visual_story_ip_fusion_plans_json=visual_story_ip_fusion_plans,
             )
             try:
                 raw_response = await self.llm_service(
@@ -183,6 +196,120 @@ class VisualAnchorIntegrationPlanner:
             accepted_plans=accepted_by_frame,
             fallback_plans=fallback_plans,
         )
+
+
+
+def _compact_visual_story_frame_context(context: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep only the frame-level fields needed by visual anchor integration.
+
+    The upstream prompt context can include full article text, full base prompts,
+    long storyboard fields, and route plans. Passing all of it to the visual
+    anchor LLM easily exceeds provider input limits. This compact form preserves
+    the selected route and per-frame IP/visual-story decision while trimming the
+    rest.
+    """
+    source = dict(context)
+    keep_keys = (
+        "frame_id",
+        "frame_index",
+        "source_text",
+        "frame_source_text",
+        "visual_goal",
+        "prompt_intent",
+        "primary_subject",
+        "secondary_subjects",
+        "continuity_anchors",
+        "selected_visual_route",
+        "visual_story_frame_plan",
+        "visual_story_ip_fusion_plan",
+    )
+    compact: dict[str, Any] = {}
+    for key in keep_keys:
+        if key in source:
+            compact[key] = _compact_visual_story_value(source[key])
+    return compact
+
+
+def _compact_visual_story_value(value: Any, *, max_text: int = 520, depth: int = 0) -> Any:
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        return text if len(text) <= max_text else f"{text[:max_text].rstrip()}..."
+    if isinstance(value, Mapping):
+        if depth >= 2:
+            return _compact_visual_story_value(str(dict(value)), max_text=max_text)
+        preferred_keys = (
+            "route_id",
+            "route_name",
+            "route_type",
+            "visual_premise",
+            "frame_storytelling_logic",
+            "style_family",
+            "recommended_ip_role",
+            "scores",
+            "frame_id",
+            "frame_index",
+            "local_claim",
+            "visual_task",
+            "visual_logic",
+            "required_subjects",
+            "forbidden_losses",
+            "ip_role",
+            "ip_visibility",
+            "placement_logic",
+            "action_or_function",
+            "relation_to_article_subject",
+            "positive_prompt_clause",
+            "negative_constraints",
+        )
+        result: dict[str, Any] = {}
+        for key in preferred_keys:
+            if key in value:
+                result[key] = _compact_visual_story_value(value[key], max_text=max_text, depth=depth + 1)
+        if result:
+            return result
+        for index, (key, item) in enumerate(value.items()):
+            if index >= 8:
+                break
+            result[str(key)] = _compact_visual_story_value(item, max_text=max_text, depth=depth + 1)
+        return result
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return [_compact_visual_story_value(item, max_text=max_text, depth=depth + 1) for item in list(value)[:8]]
+    text = str(value).strip()
+    return text if len(text) <= max_text else f"{text[:max_text].rstrip()}..."
+
+
+def _selected_visual_route_from_contexts(
+    frame_contexts: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    for context in frame_contexts:
+        value = context.get("selected_visual_route")
+        if isinstance(value, Mapping):
+            return dict(value)
+    return {}
+
+
+def _visual_story_frame_plans_from_contexts(
+    frame_contexts: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for context in frame_contexts:
+        value = context.get("visual_story_frame_plan")
+        if isinstance(value, Mapping):
+            result.append(dict(value))
+    return result
+
+
+def _visual_story_ip_fusion_plans_from_contexts(
+    frame_contexts: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for context in frame_contexts:
+        value = context.get("visual_story_ip_fusion_plan")
+        if isinstance(value, Mapping):
+            result.append(dict(value))
+    return result
 
 
 def _exception_summary(exc: Exception) -> str:

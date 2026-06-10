@@ -32,6 +32,9 @@ All final image prompt strings must be written in English.
 - Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the image from an isolated text fragment alone.
 - Preserve continuity across frames by respecting shared subjects, world elements, and any `locked_fields` in the matching prompt_context.
 - When `plan_context.generation_world_profile` exists, use generation_world_profile as the script world profile; it refines world_preset and must preserve any protected original source subject.
+- When `plan_context.visual_story_engine` exists, treat it as the upstream article visual route decision. Preserve `selected_visual_route`, `style_harmonization`, `frame_storytelling_logic`, route-specific rules, and channel-memory intent.
+- When a frame contains `visual_story_frame_plan`, it is the authoritative local visual task. The image must express its `local_claim`, `visual_task`, `visual_logic`, required_subjects, and forbidden_losses.
+- When a frame contains `visual_story_ip_fusion_plan`, integrate the channel IP or visual signature according to its role, visibility, placement_logic, action_or_function, relation_to_article_subject, and positive_prompt_clause. The IP must support the article logic and must not replace article subjects.
 - Use `story_constraints` to protect original landmarks, buildings, people, and other protected subjects.
 # Base Image Boundary
 - This stage generates the subject-first base image prompt only.
