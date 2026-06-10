@@ -131,6 +131,7 @@ from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
 from pixelle_video.services.visual_story_engine import VisualStoryEngineService
+from pixelle_video.services.visual_story_batch_orchestrator import VisualStoryBatchOrchestrator
 from pixelle_video.services.visual_story_prompt_context import visual_story_context_from_plan
 from pixelle_video.tts_audio_strategy import (
     AUTO_TTS_AUDIO_STRATEGY,
@@ -712,12 +713,32 @@ class StandardPipeline(LinearVideoPipeline):
                     operation="visual_story_engine",
                 ),
                 trace_recorder=route_trace_collector,
+                enable_frame_planning=not bool(ctx.params.get("visual_story_loop_enabled", True)),
             )
             self._merge_runtime_llm_trace_refs(ctx, route_trace_collector)
             ctx.params["visual_story_engine_plan"] = visual_story_plan.to_dict()
             ctx.params["visual_story_route_selection"] = visual_story_plan.selection.to_dict()
             ctx.params["selected_visual_route"] = visual_story_plan.selected_route.to_dict()
             visual_story_context = visual_story_context_from_plan(visual_story_plan)
+            if bool(ctx.params.get("visual_story_loop_enabled", True)) and template_requires_media:
+                visual_story_loop_result = await VisualStoryBatchOrchestrator().prepare(
+                    llm_service=self.llm,
+                    source_text=ctx.source_text or ctx.input_text,
+                    storyboard_plan=ctx.storyboard_plan,
+                    visual_story_plan=visual_story_plan,
+                    ip_profile=ip_profile,
+                    batch_size=ctx.params.get("visual_story_batch_size", 4),
+                    max_context_chars=ctx.params.get("visual_story_context_budget", 9000),
+                    target_language=storyboard_contract.storyboard_prompt_language,
+                    trace_context=self._llm_trace_context(
+                        ctx,
+                        operation="visual_story_batch_loop",
+                    ),
+                    trace_recorder=route_trace_collector,
+                )
+                visual_story_context.update(dict(visual_story_loop_result.prompt_context))
+                ctx.observability["visual_story_execution"] = visual_story_loop_result.to_dict()
+                self._merge_runtime_llm_trace_refs(ctx, route_trace_collector)
             ctx.params["visual_story_prompt_context"] = visual_story_context
             ctx.observability["visual_story_engine"] = visual_story_plan.to_dict()
 

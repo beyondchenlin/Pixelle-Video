@@ -70,6 +70,7 @@ class VisualStoryEngineService:
         auto_select_after_seconds: int = DEFAULT_WEB_AUTO_SELECT_SECONDS,
         trace_context: Any = None,
         trace_recorder: LLMInteractionRecorder | None = None,
+        enable_frame_planning: bool = True,
     ) -> VisualStoryEnginePlan:
         normalized_source = str(source_text or "").strip()
         if not normalized_source:
@@ -116,22 +117,29 @@ class VisualStoryEngineService:
             trace_context=trace_context,
             trace_recorder=trace_recorder,
         )
-        frame_visual_plans = self._frame_visual_plans(
-            storyboard_plan=storyboard_plan,
-            selected_route=selected_route,
-            article=analysis,
-        )
-        frame_ip_fusion_plans = await self._frame_ip_fusion(
-            llm_service=llm_service,
-            selected_route=selected_route,
-            style_plan=style_plan,
-            frame_visual_plans=frame_visual_plans,
-            ip_profile=ip_profile_payload,
-            compatibility_report=selected_compatibility,
-            target_language=target_language,
-            trace_context=trace_context,
-            trace_recorder=trace_recorder,
-        )
+        if enable_frame_planning:
+            frame_visual_plans = self._frame_visual_plans(
+                storyboard_plan=storyboard_plan,
+                selected_route=selected_route,
+                article=analysis,
+            )
+            frame_ip_fusion_plans = await self._frame_ip_fusion(
+                llm_service=llm_service,
+                selected_route=selected_route,
+                style_plan=style_plan,
+                frame_visual_plans=frame_visual_plans,
+                ip_profile=ip_profile_payload,
+                compatibility_report=selected_compatibility,
+                target_language=target_language,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+            )
+        else:
+            # Frame-level plans are owned by VisualStoryBatchOrchestrator. The route
+            # engine stops at article route selection + style harmonization to avoid
+            # duplicate frame planning LLM calls and duplicated prompt context.
+            frame_visual_plans = ()
+            frame_ip_fusion_plans = ()
         plan = VisualStoryEnginePlan(
             plan_id="visual-story-engine-v2",
             article=analysis,
