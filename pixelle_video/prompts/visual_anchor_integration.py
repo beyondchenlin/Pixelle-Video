@@ -16,6 +16,10 @@ def render_visual_anchor_integration_prompt(
     presentation_policy_json: dict[str, Any] | None = None,
     visual_identity_kernel_json: Sequence[str] = (),
     repair_context_json: dict[str, Any] | None = None,
+    frame_contexts_json: Sequence[dict[str, Any]] = (),
+    selected_visual_route_json: dict[str, Any] | None = None,
+    visual_story_frame_plans_json: Sequence[dict[str, Any]] = (),
+    visual_story_ip_fusion_plans_json: Sequence[dict[str, Any]] = (),
 ) -> RenderedPrompt:
     return render_prompt_template(
         "visual_anchor_integration",
@@ -28,6 +32,10 @@ def render_visual_anchor_integration_prompt(
             "presentation_policy_json": json.dumps(dict(presentation_policy_json or {}), ensure_ascii=False, indent=2),
             "visual_identity_kernel_json": json.dumps(list(visual_identity_kernel_json or ()), ensure_ascii=False, indent=2),
             "repair_context_json": json.dumps(dict(repair_context_json or {}), ensure_ascii=False, indent=2),
+            "frame_contexts_json": json.dumps(list(frame_contexts_json or ()), ensure_ascii=False, indent=2),
+            "selected_visual_route_json": json.dumps(dict(selected_visual_route_json or {}), ensure_ascii=False, indent=2),
+            "visual_story_frame_plans_json": json.dumps(list(visual_story_frame_plans_json or ()), ensure_ascii=False, indent=2),
+            "visual_story_ip_fusion_plans_json": json.dumps(list(visual_story_ip_fusion_plans_json or ()), ensure_ascii=False, indent=2),
         },
     )
 

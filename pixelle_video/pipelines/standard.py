@@ -130,6 +130,9 @@ from pixelle_video.services.text_rendering_orchestrator import TextRenderingOrch
 from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
+from pixelle_video.services.visual_story_engine import VisualStoryEngineService
+from pixelle_video.services.visual_story_batch_orchestrator import VisualStoryBatchOrchestrator
+from pixelle_video.services.visual_story_prompt_context import visual_story_context_from_plan
 from pixelle_video.tts_audio_strategy import (
     AUTO_TTS_AUDIO_STRATEGY,
     MASTER_TRACK_TTS_AUDIO_STRATEGY,
@@ -682,6 +685,63 @@ class StandardPipeline(LinearVideoPipeline):
             ),
         )
 
+        visual_story_context = None
+        if bool(ctx.params.get("visual_story_engine_enabled", True)):
+            route_trace_collector = LLMTraceCollector(self._llm_trace_recorder(ctx))
+            visual_story_plan = await VisualStoryEngineService().prepare(
+                llm_service=self.llm,
+                source_text=ctx.source_text or ctx.input_text,
+                storyboard_plan=ctx.storyboard_plan,
+                title=ctx.title,
+                ip_profile=ip_profile,
+                image_config=self.core.config.get("comfyui", {}).get(
+                    "video" if template_type == "video" else "image",
+                    {},
+                ),
+                channel_strategy=ctx.params.get("channel_strategy"),
+                user_selected_route_id=ctx.params.get("visual_story_selected_route_id"),
+                user_intent_hint=ctx.params.get("user_intent_hint")
+                or storyboard_contract.generation_world_hint,
+                candidate_count=ctx.params.get("visual_story_candidate_count", 5),
+                target_language=storyboard_contract.storyboard_prompt_language,
+                auto_select_after_seconds=ctx.params.get(
+                    "visual_story_auto_select_seconds",
+                    10,
+                ),
+                trace_context=self._llm_trace_context(
+                    ctx,
+                    operation="visual_story_engine",
+                ),
+                trace_recorder=route_trace_collector,
+                enable_frame_planning=not bool(ctx.params.get("visual_story_loop_enabled", True)),
+            )
+            self._merge_runtime_llm_trace_refs(ctx, route_trace_collector)
+            ctx.params["visual_story_engine_plan"] = visual_story_plan.to_dict()
+            ctx.params["visual_story_route_selection"] = visual_story_plan.selection.to_dict()
+            ctx.params["selected_visual_route"] = visual_story_plan.selected_route.to_dict()
+            visual_story_context = visual_story_context_from_plan(visual_story_plan)
+            if bool(ctx.params.get("visual_story_loop_enabled", True)) and template_requires_media:
+                visual_story_loop_result = await VisualStoryBatchOrchestrator().prepare(
+                    llm_service=self.llm,
+                    source_text=ctx.source_text or ctx.input_text,
+                    storyboard_plan=ctx.storyboard_plan,
+                    visual_story_plan=visual_story_plan,
+                    ip_profile=ip_profile,
+                    batch_size=ctx.params.get("visual_story_batch_size", 4),
+                    max_context_chars=ctx.params.get("visual_story_context_budget", 9000),
+                    target_language=storyboard_contract.storyboard_prompt_language,
+                    trace_context=self._llm_trace_context(
+                        ctx,
+                        operation="visual_story_batch_loop",
+                    ),
+                    trace_recorder=route_trace_collector,
+                )
+                visual_story_context.update(dict(visual_story_loop_result.prompt_context))
+                ctx.observability["visual_story_execution"] = visual_story_loop_result.to_dict()
+                self._merge_runtime_llm_trace_refs(ctx, route_trace_collector)
+            ctx.params["visual_story_prompt_context"] = visual_story_context
+            ctx.observability["visual_story_engine"] = visual_story_plan.to_dict()
+
         if template_requires_media:
             trace_recorder = self._llm_trace_recorder(ctx)
             self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_IMAGE_PROMPTS, 0.15)
@@ -762,6 +822,7 @@ class StandardPipeline(LinearVideoPipeline):
                 series_visual_signature_request=series_visual_signature_request,
                 article_concretization_plans=article_concretization_plans,
                 scene_casts_by_frame=scene_casts_by_frame,
+                visual_story_context=visual_story_context,
                 stage_callback=stage_callback,
                 upstream_llm_trace_refs=ctx.llm_trace_refs,
                 trace_context=self._llm_trace_context(ctx, operation="visual_prompt_planning"),
@@ -1193,6 +1254,8 @@ class StandardPipeline(LinearVideoPipeline):
                 "ip_controls": ip_controls,
                 "storyboard_controls": storyboard_controls,
                 "series_visual_signature_request": series_visual_signature_request.to_dict(),
+                "visual_story_engine": ctx.params.get("visual_story_engine_plan"),
+                "selected_visual_route": ctx.params.get("selected_visual_route"),
             },
             "resolved_style": resolved_style,
             "planning_snapshot": ctx.planning_snapshot or {},

@@ -45,6 +45,7 @@ from pixelle_video.services.llm_capabilities import (
 )
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.utils.json_parsing import parse_llm_json_response
+from pixelle_video.utils.network_proxy import apply_adaptive_proxy_env
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -124,6 +125,10 @@ class LLMService:
         )
         
         # Create client
+        # Best practice: keep proxy behavior adaptive for local development.
+        # If a loopback proxy env var points to a closed port, disable it for
+        # this process so DashScope/OpenAI-compatible providers can be reached directly.
+        apply_adaptive_proxy_env(provider_base_url=final_base_url)
         client_kwargs = {"api_key": final_api_key}
         if final_base_url:
             client_kwargs["base_url"] = final_base_url
@@ -891,7 +896,14 @@ class LLMService:
                 validation_errors=validation_errors,
             )
         except Exception as exc:
-            raise LLMTraceRecordingError(f"Failed to record LLM interaction trace: {exc}") from exc
+            # Observability must not become a single point of failure for generation.
+            # Broken local trace storage is quarantined by the repository layer;
+            # remaining recorder failures are logged and generation continues.
+            logger.warning(
+                "Failed to record LLM interaction trace; generation will continue: %s",
+                exc,
+            )
+            return
     
     @property
     def active(self) -> str:

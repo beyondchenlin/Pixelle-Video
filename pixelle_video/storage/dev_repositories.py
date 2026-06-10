@@ -7,6 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pixelle_video.storage.resilient_json_store import (
+    load_json_with_quarantine,
+    save_json_atomic,
+)
+
 from pixelle_video.models.artifact import Artifact, ArtifactVersion
 from pixelle_video.models.asset_bible import AssetBible
 from pixelle_video.models.generation_event import GenerationEvent
@@ -406,19 +411,11 @@ class _JsonFileStore:
 
     def load(self, name: str, default: Any) -> Any:
         path = self._path(name)
-        if not path.exists():
-            return deepcopy(default)
-        with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
+        return load_json_with_quarantine(path, default)
 
     def save(self, name: str, payload: Any) -> None:
         path = self._path(name)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = path.with_name(f"{path.name}.tmp")
-        with temp_path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-        temp_path.replace(path)
+        save_json_atomic(path, payload, ensure_ascii=False, indent=2, sort_keys=True)
 
     def update(self, name: str, default: Any, updater: Callable[[Any], Any]) -> Any:
         payload = self.load(name, default)
