@@ -8,6 +8,7 @@ from pathlib import Path
 
 from modelscope.hub.file_download import model_file_download
 
+from pixelle_video.utils.proxy_util import adaptive_proxy_env
 from pixelle_video.utils.z_image_downloads import (
     DEFAULT_COMFYUI_MODEL_ROOT,
     build_z_image_download_tasks,
@@ -74,13 +75,16 @@ def download_tasks(
             for attempt in range(1, retries + 1):
                 try:
                     print(f"DOWNLOADING {task.file_path} | attempt {attempt}")
-                    downloaded_path = Path(
-                        model_file_download(
-                            model_id=task.repo_id,
-                            file_path=task.file_path,
-                            local_dir=str(temp_root),
+
+                    # 使用自适应代理配置
+                    with adaptive_proxy_env():
+                        downloaded_path = Path(
+                            model_file_download(
+                                model_id=task.repo_id,
+                                file_path=task.file_path,
+                                local_dir=str(temp_root),
+                            )
                         )
-                    )
 
                     if not downloaded_path.exists():
                         raise FileNotFoundError(f"Downloaded file missing: {downloaded_path}")
