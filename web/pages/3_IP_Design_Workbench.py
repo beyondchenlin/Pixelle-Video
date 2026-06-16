@@ -53,7 +53,7 @@ def render_ip_design_workbench_page(
 
 def main() -> None:
     st.set_page_config(
-        page_title=tr("ip_design.browser.title"),
+        page_title="IP Design - 懒人同城",
         page_icon="🎭",
         layout="wide",
         initial_sidebar_state="collapsed",
