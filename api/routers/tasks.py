@@ -29,24 +29,24 @@ router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 @router.get("", response_model=list[TaskResponse])
 async def list_tasks(
-    request: Request,
+    request: Request = None,
     status: Optional[TaskStatus] = Query(None, description="Filter by status"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of tasks")
 ):
     """
     List tasks
-    
+
     Retrieve list of tasks with optional filtering.
-    
+
     - **status**: Optional filter by status (pending/running/completed/failed/cancelled)
     - **limit**: Maximum number of tasks to return (default 100)
-    
+
     Returns list of tasks sorted by creation time (newest first).
     """
     try:
         tasks = await task_manager.list_tasks(status=status, limit=limit)
         return [present_task(task, request=request) for task in tasks]
-        
+
     except Exception as e:
         logger.error(f"List tasks error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -54,7 +54,7 @@ async def list_tasks(
 
 @router.get("/page", response_model=TaskListResponse)
 async def list_tasks_page(
-    request: Request,
+    request: Request = None,
     status: Optional[TaskStatus] = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=1000, description="Tasks per page"),
@@ -82,21 +82,21 @@ async def list_tasks_page(
 async def get_task(task_id: str, request: Request):
     """
     Get task details
-    
+
     Retrieve detailed information about a specific task.
-    
+
     - **task_id**: Task ID
-    
+
     Returns task details including status, progress, and result (if completed).
     """
     try:
         task = await task_manager.get_task(task_id)
-        
+
         if not task:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-        
+
         return present_task(task, request=request)
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -108,24 +108,24 @@ async def get_task(task_id: str, request: Request):
 async def cancel_task(task_id: str):
     """
     Cancel task
-    
+
     Cancel a running or pending task.
-    
+
     - **task_id**: Task ID
-    
+
     Returns success status.
     """
     try:
         success = await task_manager.cancel_task(task_id)
-        
+
         if not success:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-        
+
         return {
             "success": True,
             "message": f"Task {task_id} cancelled successfully"
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -133,15 +133,17 @@ async def cancel_task(task_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def task_storage_key_to_url(request: Request, storage_key: str) -> str:
+def task_storage_key_to_url(request: Request | None, storage_key: str) -> str:
+    if request is None:
+        return f"/api/files/{storage_key.lstrip('/')}"
     base_url = str(request.base_url).rstrip("/")
     return f"{base_url}/api/files/{storage_key.lstrip('/')}"
 
 
-def present_task(task: Task, *, request: Request) -> TaskResponse:
+def present_task(task: Task, *, request: Request | None = None) -> TaskResponse:
     result = task.result
     if (
-        task.task_type is TaskType.VIDEO_GENERATION
+        task.task_type == TaskType.VIDEO_GENERATION
         and isinstance(result, dict)
         and result.get("storage_key")
         and "video_url" not in result
