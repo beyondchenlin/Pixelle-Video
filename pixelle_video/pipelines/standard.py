@@ -130,8 +130,8 @@ from pixelle_video.services.text_rendering_orchestrator import TextRenderingOrch
 from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
-from pixelle_video.services.visual_story_engine import VisualStoryEngineService
 from pixelle_video.services.visual_story_batch_orchestrator import VisualStoryBatchOrchestrator
+from pixelle_video.services.visual_story_engine import VisualStoryEngineService
 from pixelle_video.services.visual_story_prompt_context import visual_story_context_from_plan
 from pixelle_video.tts_audio_strategy import (
     AUTO_TTS_AUDIO_STRATEGY,
@@ -365,7 +365,7 @@ def _resolve_template_type_from_params(
 class StandardPipeline(LinearVideoPipeline):
     """
     Standard video generation pipeline
-    
+
     Workflow:
     1. Generate/determine title
     2. Generate narrations (from topic or split fixed script)
@@ -377,7 +377,7 @@ class StandardPipeline(LinearVideoPipeline):
        - Create video segment
     5. Concatenate all segments
     6. Add BGM (optional)
-    
+
     Supports two modes:
     - "generate": LLM generates narrations from topic
     - "fixed": Use provided script as-is (each line = one narration)
@@ -447,19 +447,66 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.llm_trace_refs,
             llm_trace_refs_from_records(collector.records),
         )
-    
+
+
+    @staticmethod
+    def _same_resolved_path(left: str | os.PathLike, right: str | os.PathLike) -> bool:
+        try:
+            return Path(left).resolve() == Path(right).resolve()
+        except OSError:
+            return False
+
+    def _copy_final_video_to_user_output_if_needed(
+        self,
+        final_video_path: str,
+        user_specified_output: str | os.PathLike | None,
+        *,
+        log_prefix: str = "Copied final video to user path",
+    ) -> str:
+        """Copy a generated video to an explicit output path when it differs.
+
+        Async API execution can use the API task id as the canonical pipeline
+        task id. In that path, executor-provided output_path may be the same file
+        as the pipeline final path; blindly copy2() would raise SameFileError and
+        mark an otherwise successful generation as failed.
+        """
+        if not user_specified_output:
+            return final_video_path
+
+        output_text = str(user_specified_output)
+        if self._same_resolved_path(final_video_path, output_text):
+            logger.debug(f"{log_prefix}: source and target are identical ({output_text})")
+            return final_video_path
+
+        Path(output_text).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(final_video_path, output_text)
+        logger.info(f"{log_prefix}: {output_text}")
+        return output_text
+
     # ==================== Lifecycle Methods ====================
 
     async def setup_environment(self, ctx: PipelineContext):
         """Step 1: Setup task directory and environment."""
         text = ctx.input_text
         mode = ctx.params.get("mode", "generate")
-        
+
         logger.info(f"🚀 Starting StandardPipeline in '{mode}' mode")
         logger.info(f"   Text length: {len(text)} chars")
-        
-        # Create isolated task directory
-        task_dir, task_id = create_task_output_dir()
+
+        # Create isolated task directory. API/worker execution should use the
+        # API task id as the canonical generation id so task status, artifacts,
+        # metadata, logs, prompt traces, and workbench state point to one id.
+        canonical_task_id = str(ctx.api_task_id or "").strip()
+        if canonical_task_id:
+            try:
+                task_dir, task_id = create_task_output_dir(canonical_task_id)
+            except TypeError:
+                # Compatibility with tests or older monkeypatches that replace
+                # create_task_output_dir with a no-argument callable. Real
+                # runtime still uses the canonical API task id path.
+                task_dir, task_id = create_task_output_dir()
+        else:
+            task_dir, task_id = create_task_output_dir()
         ctx.task_id = task_id
         ctx.task_dir = task_dir
         ctx.observability.update(
@@ -483,17 +530,17 @@ class StandardPipeline(LinearVideoPipeline):
             task_id=task_id,
             pipeline="standard",
         ).info("task log context bound")
-        
+
         logger.info(f"📁 Task directory created: {task_dir}")
         logger.info(f"   Task ID: {task_id}")
-        
+
         # Determine final video path
         output_path = ctx.params.get("output_path")
         if output_path is None:
             ctx.final_video_path = get_task_final_video_path(task_id)
         else:
             # We will copy to this path in finalize/post_production
-            # For internal processing, we still use the task dir path? 
+            # For internal processing, we still use the task dir path?
             # Actually StandardPipeline logic used get_task_final_video_path as the target for concat
             # and then copied. Let's stick to that.
             ctx.final_video_path = get_task_final_video_path(task_id)
@@ -528,7 +575,7 @@ class StandardPipeline(LinearVideoPipeline):
                 workflow=ctx.params.get("media_workflow"),
                 template=ctx.params.get("frame_template"),
             )
-        
+
         if mode == "generate":
             trace_collector = LLMTraceCollector(self._llm_trace_recorder(ctx))
             self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_SOURCE_TEXT, 0.05)
@@ -585,16 +632,16 @@ class StandardPipeline(LinearVideoPipeline):
 
     async def determine_title(self, ctx: PipelineContext):
         """Step 3: Determine or generate video title."""
-        # Note: Swapped order with generate_content in base class call, 
+        # Note: Swapped order with generate_content in base class call,
         # but in StandardPipeline original code, title was determined BEFORE narrations.
         # However, LinearVideoPipeline defines generate_content BEFORE determine_title.
         # This is fine as they are independent in StandardPipeline logic.
-        
+
         title = ctx.params.get("title")
         mode = ctx.params.get("mode", "generate")
         text = ctx.input_text
         stage_callback = self._ai_stage_callback(ctx)
-        
+
         if title:
             ctx.title = title
             emit_stage_event(
@@ -647,12 +694,12 @@ class StandardPipeline(LinearVideoPipeline):
             _size_params_with_template_defaults(ctx.params)
         )
         frame_template = _resolve_frame_template_for_size_contract(ctx.params, size_contract)
-        
+
         template_type = _resolve_template_type_from_params(ctx.params, frame_template)
         template_requires_media = (template_type in ["image", "video"])
         stage_callback = self._ai_stage_callback(ctx)
         text_rendering_result = self._get_text_rendering_result(ctx)
-        
+
         if template_type == "image":
             logger.info("📸 Template requires image generation")
         elif template_type == "video":
@@ -660,7 +707,7 @@ class StandardPipeline(LinearVideoPipeline):
         else:  # static
             logger.info("⚡ Static template - skipping media generation pipeline")
             logger.info("   💡 Benefits: Faster generation + Lower cost + No ComfyUI dependency")
-        
+
         # Only generate image prompts if template requires media
         if ctx.storyboard_plan is None:
             raise ValueError("storyboard_plan must be generated before visual planning")
@@ -745,12 +792,12 @@ class StandardPipeline(LinearVideoPipeline):
         if template_requires_media:
             trace_recorder = self._llm_trace_recorder(ctx)
             self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_IMAGE_PROMPTS, 0.15)
-            
+
             prompt_prefix = ctx.params.get("prompt_prefix")
             min_words = ctx.params.get("min_image_prompt_words", 30)
             max_words = ctx.params.get("max_image_prompt_words", 60)
             media_type = "video" if template_type == "video" else "image"
-            
+
             if prompt_prefix is not None:
                 logger.bind(
                     channel="runtime",
@@ -771,7 +818,7 @@ class StandardPipeline(LinearVideoPipeline):
                     overall_progress,
                     extra_info=message
                 )
-            
+
             image_config = self.core.config.get("comfyui", {}).get(media_type, {})
             native_hints = NativePromptProjection().project(
                 plan=text_rendering_result.overlay_plan,
@@ -836,7 +883,7 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.planning_snapshot = dict(styled_batch.planning_snapshot or {}) or None
             ctx.prompt_plan_bundle = styled_batch.prompt_plan_bundle
             await self._persist_prompt_plan_bundle(ctx)
-            
+
             logger.info(f"✅ Generated {len(ctx.image_prompts)} image prompts")
         else:
             # Static template - skip image prompt generation entirely
@@ -892,10 +939,10 @@ class StandardPipeline(LinearVideoPipeline):
             self.core.config,
             requested_tts_inference_mode,
         )
-        
+
         final_voice_id = None
         final_tts_workflow = tts_workflow
-        
+
         if resolved_tts_inference_mode == "local":
             final_voice_id = tts_voice or voice_id or "zh-CN-YunjianNeural"
             final_tts_workflow = None
@@ -903,7 +950,7 @@ class StandardPipeline(LinearVideoPipeline):
         elif resolved_tts_inference_mode == "comfyui":
             final_voice_id = None
             logger.debug(f"TTS Mode: comfyui (workflow={final_tts_workflow})")
-            
+
         if ctx.storyboard_plan is None:
             raise ValueError("storyboard_plan must be generated before storyboard initialization")
         if ctx.caption_speech_plan is None:
@@ -961,7 +1008,7 @@ class StandardPipeline(LinearVideoPipeline):
             visual_quality_gate_strict=ctx.params.get("visual_quality_gate_strict", False),
             **build_storyboard_config_planning_kwargs(ctx.planning_snapshot, planning_params),
         )
-        
+
         # Create storyboard
         ctx.storyboard = Storyboard(
             title=ctx.title,
@@ -970,8 +1017,12 @@ class StandardPipeline(LinearVideoPipeline):
             created_at=datetime.now(),
             planning_snapshot=dict(ctx.planning_snapshot or {}) or None,
         )
-        
+
         # Create frames
+        if len(ctx.image_prompts) != frame_count:
+            raise ValueError(
+                "image_prompts must match storyboard frame count before storyboard initialization"
+            )
         for i, (plan_frame, image_prompt) in enumerate(zip(ctx.storyboard_plan.frames, ctx.image_prompts)):
             frame_negative_prompt = None
             if i < len(ctx.rendered_media_prompts):
@@ -1248,7 +1299,9 @@ class StandardPipeline(LinearVideoPipeline):
                 **media_workflow_context,
                 **media_dimensions,
                 "media_type": resolved_media_type,
-                "prompt_language": ctx.params.get("prompt_language"),
+                "storyboard_prompt_language": storyboard_contract.storyboard_prompt_language,
+                # Backward-compatible alias for historical consumers of prompt artifacts.
+                "prompt_language": storyboard_contract.storyboard_prompt_language,
                 "generation_world_hint": ctx.params.get("generation_world_hint"),
                 "prompt_prefix": ctx.params.get("prompt_prefix"),
                 "ip_controls": ip_controls,
@@ -2569,7 +2622,7 @@ class StandardPipeline(LinearVideoPipeline):
         )
 
         execution_mode = self._resolve_asset_execution_mode(ctx)
-        
+
         # Get concurrent limit from config_manager (supports hot reload without restart)
         from pixelle_video.config import config_manager
         runninghub_concurrent_limit = config_manager.config.comfyui.runninghub_concurrent_limit or 1
@@ -2588,20 +2641,20 @@ class StandardPipeline(LinearVideoPipeline):
 
         async def element_motion_materializer(frame_to_materialize: StoryboardFrame) -> None:
             await self._materialize_element_motion_for_frame(ctx, frame_to_materialize)
-        
+
         if execution_mode.use_runninghub_parallel and runninghub_concurrent_limit > 1:
             logger.info(f"🚀 Using parallel processing for RunningHub workflows (max {runninghub_concurrent_limit} concurrent)")
-            
+
             semaphore = asyncio.Semaphore(runninghub_concurrent_limit)
             completed_count = 0
-            
+
             async def process_frame_with_semaphore(i: int, frame: StoryboardFrame):
                 nonlocal completed_count
                 async with semaphore:
                     base_progress = 0.2
                     frame_range = 0.6
                     per_frame_progress = frame_range / len(storyboard.frames)
-                    
+
                     # Create frame-specific progress callback
                     def frame_progress_callback(event: ProgressEvent):
                         overall_progress = base_progress + (per_frame_progress * completed_count) + (per_frame_progress * event.progress)
@@ -2615,7 +2668,7 @@ class StandardPipeline(LinearVideoPipeline):
                                 action=event.action
                             )
                             ctx.progress_callback(adjusted_event)
-                    
+
                     # Report frame start
                     self._report_progress(
                         ctx.progress_callback,
@@ -2624,7 +2677,7 @@ class StandardPipeline(LinearVideoPipeline):
                         frame_current=i+1,
                         frame_total=len(storyboard.frames)
                     )
-                    
+
                     frame_processor_kwargs = {
                         "frame": frame,
                         "storyboard": storyboard,
@@ -2641,31 +2694,31 @@ class StandardPipeline(LinearVideoPipeline):
                     processed_frame = await self.core.frame_processor(
                         **frame_processor_kwargs
                     )
-                    
+
                     completed_count += 1
                     logger.info(f"✅ Frame {i+1} completed ({processed_frame.duration:.2f}s) [{completed_count}/{len(storyboard.frames)}]")
                     return i, processed_frame
-            
+
             # Create all tasks and execute in parallel
             tasks = [process_frame_with_semaphore(i, frame) for i, frame in enumerate(storyboard.frames)]
             results = await asyncio.gather(*tasks)
-            
+
             # Update frames in order and calculate total duration
             for idx, processed_frame in sorted(results, key=lambda x: x[0]):
                 storyboard.frames[idx] = processed_frame
                 storyboard.total_duration += processed_frame.duration
             await self._register_storyboard_workbench_parallel_results(ctx, results)
-            
+
             logger.info(f"✅ All frames processed in parallel (total duration: {storyboard.total_duration:.2f}s)")
         else:
             # Serial processing for non-RunningHub workflows
             logger.info("⚙️ Using serial processing (non-RunningHub workflow)")
-            
+
             for i, frame in enumerate(storyboard.frames):
                 base_progress = 0.2
                 frame_range = 0.6
                 per_frame_progress = frame_range / len(storyboard.frames)
-                
+
                 # Create frame-specific progress callback
                 def frame_progress_callback(event: ProgressEvent):
                     overall_progress = base_progress + (per_frame_progress * i) + (per_frame_progress * event.progress)
@@ -2679,7 +2732,7 @@ class StandardPipeline(LinearVideoPipeline):
                             action=event.action
                         )
                         ctx.progress_callback(adjusted_event)
-                
+
                 # Report frame start
                 self._report_progress(
                     ctx.progress_callback,
@@ -2688,7 +2741,7 @@ class StandardPipeline(LinearVideoPipeline):
                     frame_current=i+1,
                     frame_total=len(storyboard.frames)
                 )
-                
+
                 frame_processor_kwargs = {
                     "frame": frame,
                     "storyboard": storyboard,
@@ -2798,12 +2851,12 @@ class StandardPipeline(LinearVideoPipeline):
                 )
 
         self._report_progress(ctx.progress_callback, ProgressEventType.CONCATENATING, 0.85)
-        
+
         storyboard = ctx.storyboard
         segment_paths = [frame.video_segment_path for frame in storyboard.frames]
-        
+
         video_service = VideoService()
-        
+
         final_video_path = video_service.concat_videos(
             videos=segment_paths,
             output=ctx.final_video_path,
@@ -2902,19 +2955,21 @@ class StandardPipeline(LinearVideoPipeline):
                 else ()
             ),
         )
-        
+
         storyboard.final_video_path = final_video_path
         storyboard.completed_at = datetime.now()
-        
+
         # Copy to user-specified path if provided
         user_specified_output = ctx.params.get("output_path")
         if user_specified_output:
-            Path(user_specified_output).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(final_video_path, user_specified_output)
-            logger.info(f"📹 Final video copied to: {user_specified_output}")
-            ctx.final_video_path = user_specified_output
-            storyboard.final_video_path = user_specified_output
-        
+            resolved_final_video_path = self._copy_final_video_to_user_output_if_needed(
+                final_video_path,
+                user_specified_output,
+                log_prefix="📹 Final video copied to",
+            )
+            ctx.final_video_path = resolved_final_video_path
+            storyboard.final_video_path = resolved_final_video_path
+
         logger.success(f"🎬 Video generation completed: {ctx.final_video_path}")
 
     async def _post_production_ffmpeg_manifest(self, ctx: PipelineContext):
@@ -2942,11 +2997,12 @@ class StandardPipeline(LinearVideoPipeline):
 
         user_specified_output = ctx.params.get("output_path")
         if user_specified_output:
-            Path(user_specified_output).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(final_video_path, user_specified_output)
-            logger.info(f"Copied final video to user path: {user_specified_output}")
-            ctx.final_video_path = user_specified_output
-            ctx.storyboard.final_video_path = user_specified_output
+            resolved_final_video_path = self._copy_final_video_to_user_output_if_needed(
+                final_video_path,
+                user_specified_output,
+            )
+            ctx.final_video_path = resolved_final_video_path
+            ctx.storyboard.final_video_path = resolved_final_video_path
         else:
             ctx.final_video_path = final_video_path
             ctx.storyboard.final_video_path = final_video_path
@@ -3590,11 +3646,12 @@ class StandardPipeline(LinearVideoPipeline):
 
         user_specified_output = ctx.params.get("output_path")
         if user_specified_output:
-            Path(user_specified_output).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(final_video_path, user_specified_output)
-            logger.info(f"Copied final video to user path: {user_specified_output}")
-            ctx.final_video_path = user_specified_output
-            storyboard.final_video_path = user_specified_output
+            resolved_final_video_path = self._copy_final_video_to_user_output_if_needed(
+                final_video_path,
+                user_specified_output,
+            )
+            ctx.final_video_path = resolved_final_video_path
+            storyboard.final_video_path = resolved_final_video_path
         else:
             ctx.final_video_path = final_video_path
             storyboard.final_video_path = final_video_path
@@ -4717,27 +4774,27 @@ class StandardPipeline(LinearVideoPipeline):
     async def finalize(self, ctx: PipelineContext) -> VideoGenerationResult:
         """Step 8: Create result object and persist metadata."""
         self._report_progress(ctx.progress_callback, ProgressEventType.COMPLETED, 1.0)
-        
+
         video_path_obj = Path(ctx.final_video_path)
         file_size = video_path_obj.stat().st_size
-        
+
         result = VideoGenerationResult(
             video_path=ctx.final_video_path,
             storyboard=ctx.storyboard,
             duration=ctx.storyboard.total_duration,
             file_size=file_size
         )
-        
+
         ctx.result = result
-        
+
         logger.info(f"✅ Generated video: {ctx.final_video_path}")
         logger.info(f"   Duration: {ctx.storyboard.total_duration:.2f}s")
         logger.info(f"   Size: {file_size / (1024*1024):.2f} MB")
         logger.info(f"   Frames: {len(ctx.storyboard.frames)}")
-        
+
         # Persist metadata
         await self._persist_task_data(ctx)
-        
+
         return result
 
     async def _persist_task_data(self, ctx: PipelineContext):
@@ -4748,11 +4805,11 @@ class StandardPipeline(LinearVideoPipeline):
             storyboard = ctx.storyboard
             result = ctx.result
             task_id = storyboard.config.task_id
-            
+
             if not task_id:
                 logger.warning("No task_id in storyboard, skipping persistence")
                 return
-            
+
             # Build metadata
             input_with_title = ctx.params.copy()
             input_with_title.pop("forbid_embedded_text_in_image", None)
@@ -4776,17 +4833,17 @@ class StandardPipeline(LinearVideoPipeline):
                     text_render_package_path=TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
                 ),
             }
-            
+
             metadata = {
                 "task_id": task_id,
                 "created_at": storyboard.created_at.isoformat() if storyboard.created_at else None,
                 "completed_at": storyboard.completed_at.isoformat() if storyboard.completed_at else None,
                 "status": "completed",
-                
+
                 "input": input_with_title,
-                
+
                 "result": result_metadata,
-                
+
                 "config": {
                     "llm_model": self.core.config.get("llm", {}).get("model", "unknown"),
                     "llm_base_url": self.core.config.get("llm", {}).get("base_url", "unknown"),
@@ -4798,15 +4855,15 @@ class StandardPipeline(LinearVideoPipeline):
                 },
                 "observability": ctx.observability,
             }
-            
+
             # Save metadata
             await self.core.persistence.save_task_metadata(task_id, metadata)
             logger.info(f"💾 Saved task metadata: {task_id}")
-            
+
             # Save storyboard
             await self.core.persistence.save_storyboard(task_id, storyboard)
             logger.info(f"💾 Saved storyboard: {task_id}")
-            
+
         except Exception as e:
             logger.error(f"Failed to persist task data: {e}")
             # Don't raise - persistence failure shouldn't break video generation

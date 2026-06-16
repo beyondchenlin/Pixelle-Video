@@ -192,10 +192,10 @@ class VideoGenerateRequest(BaseModel):
             }
         }
     )
-    
+
     # === Input ===
     text: str = Field(..., description="Source text for video generation")
-    
+
     # === Processing Mode ===
     mode: Literal["generate", "fixed"] = Field(
         "generate",
@@ -204,10 +204,20 @@ class VideoGenerateRequest(BaseModel):
             "'fixed' uses text as the complete source_text."
         ),
     )
-    
+
     # === Optional Title ===
     title: Optional[str] = Field(None, description="Video title (auto-generated if not provided)")
-    
+
+    # === Business Context ===
+    workspace_id: Optional[str] = Field(
+        None,
+        description="Workspace context for generated assets, traces, prompt plans, and IP resources.",
+    )
+    project_id: Optional[str] = Field(
+        None,
+        description="Project context for Asset Bible / IP prompt-chain resources.",
+    )
+
     # === Storyboard Generation ===
     storyboard_mode: Literal["smart", "punctuation", "sentence"] = Field(
         "smart",
@@ -240,7 +250,7 @@ class VideoGenerateRequest(BaseModel):
         le=SCRIPT_TARGET_WORDS_MAX,
         description="Custom target word count. Only valid with generate + custom script length mode.",
     )
-    
+
     # === TTS Parameters ===
     tts_inference_mode: Optional[Literal["local", "comfyui"]] = Field(
         None,
@@ -430,7 +440,7 @@ class VideoGenerateRequest(BaseModel):
             "for downstream speech and captions"
         ),
     )
-    
+
     # === LLM Parameters ===
     min_image_prompt_words: int = Field(30, ge=10, le=100, description="Min image prompt words")
     max_image_prompt_words: int = Field(60, ge=10, le=200, description="Max image prompt words")
@@ -446,7 +456,7 @@ class VideoGenerateRequest(BaseModel):
         le=PROMPT_BATCH_CONCURRENT_LIMIT_MAX,
         description="Request-scoped LLM prompt batch concurrency override",
     )
-    
+
     # === Size Parameters ===
     canvas_width: Optional[int] = Field(
         None,
@@ -495,7 +505,7 @@ class VideoGenerateRequest(BaseModel):
 
     # === Video Parameters ===
     video_fps: int = Field(30, ge=15, le=60, description="Video FPS")
-    
+
     # === Frame Template ===
     # === Template Custom Parameters ===
     template_params: Optional[Dict[str, Any]] = Field(
@@ -513,7 +523,7 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="Render backend: 'legacy' or 'hyperframes_compiled'",
     )
-    
+
     # === Storyboard Planning ===
     world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
     generation_world_hint: Optional[str] = Field(
@@ -556,11 +566,13 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="Selected layered template preset id",
     )
-    
+
     # === BGM ===
     bgm_volume: float = Field(0.3, ge=0.0, le=1.0, description="BGM volume (0.0-1.0)")
 
     @field_validator(
+        "workspace_id",
+        "project_id",
         "voice_id",
         "style_id",
         "template_id",

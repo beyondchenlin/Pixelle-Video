@@ -159,6 +159,11 @@ def build_video_generation_params(
         "request_id": request_id,
     }
 
+    if request_body.workspace_id is not None:
+        video_params["workspace_id"] = request_body.workspace_id
+    if request_body.project_id is not None:
+        video_params["project_id"] = request_body.project_id
+
     for key in (
         "series_visual_signature_expression_mode",
         "series_visual_signature_structure_mode",
@@ -230,9 +235,12 @@ def _request_correlation_id(request: Request) -> str:
 
 def _apply_trace_request_context(request: Request, video_params: dict) -> None:
     workspace_id = _request_header(request, "x-workspace-id")
+    project_id = _request_header(request, "x-project-id")
     session_id = _request_header(request, "x-session-id")
-    if workspace_id:
+    if workspace_id and not video_params.get("workspace_id"):
         video_params["workspace_id"] = workspace_id
+    if project_id and not video_params.get("project_id"):
+        video_params["project_id"] = project_id
     if session_id:
         video_params["session_id"] = session_id
 
@@ -373,24 +381,24 @@ def path_to_storage_key(file_path: str) -> str:
 def path_to_url(request: Request, file_path: str) -> str:
     """
     Convert file path to accessible URL
-    
+
     Handles both absolute and relative paths, extracting the path relative
     to the output directory for URL construction.
-    
+
     Args:
         request: FastAPI Request object (provides base_url from actual request)
         file_path: Absolute or relative file path
-    
+
     Returns:
         Full URL to access the file
-    
+
     Examples:
         Windows: G:\\...\\output\\20251205_233630_c939\\final.mp4
               -> http://localhost:8000/api/files/20251205_233630_c939/final.mp4
-        
+
         Linux:   /home/user/.../output/20251205_233630_c939/final.mp4
               -> http://localhost:8000/api/files/20251205_233630_c939/final.mp4
-        
+
         Domain:  With domain request -> https://your-domain.com/api/files/...
     """
     # Build URL using request's base_url (automatically matches the request host)
@@ -406,15 +414,15 @@ async def generate_video_sync(
 ):
     """
     Generate video synchronously
-    
+
     This endpoint blocks until video generation is complete.
     Suitable for small videos (< 30 seconds).
-    
+
     **Note**: May timeout for large videos. Use `/generate/async` instead.
-    
+
     Request body includes all video generation parameters.
     See VideoGenerateRequest schema for details.
-    
+
     Returns path to generated video, duration, and file size.
     """
     try:
@@ -433,22 +441,22 @@ async def generate_video_sync(
         )
         _apply_trace_request_context(request, video_params)
         validate_video_tts_contract(video_params)
-        
+
         # Call video generator service
         result = await pixelle_video.generate_video(**video_params)
-        
+
         # Get file size
         file_size = os.path.getsize(result.video_path) if os.path.exists(result.video_path) else 0
-        
+
         # Convert path to URL
         video_url = path_to_url(request, result.video_path)
-        
+
         return VideoGenerateResponse(
             video_url=video_url,
             duration=result.duration,
             file_size=file_size
         )
-        
+
     except HTTPException:
         raise
     except ResourceResolverError as e:
@@ -460,30 +468,30 @@ async def generate_video_sync(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/generate/async", response_model=VideoGenerateAsyncResponse)
-async def generate_video_async(
+async def _generate_video_async_impl(
     request_body: VideoGenerateRequest,
-    pixelle_video: PixelleVideoDep,
-    request: Request
-):
+    request: Request,
+) -> VideoGenerateAsyncResponse:
     """
     Generate video asynchronously
-    
+
     Creates a background task for video generation.
     Returns immediately with a task_id for tracking progress.
-    
+
     **Workflow:**
     1. Submit video generation request
     2. Receive task_id in response
     3. Poll `/api/tasks/{task_id}` to check status
     4. When status is "completed", retrieve video from result
-    
+
     Request body includes all video generation parameters.
     See VideoGenerateRequest schema for details.
-    
+
     Returns task_id for tracking progress.
     """
     try:
+        if request is None:
+            raise HTTPException(status_code=500, detail="request context is required")
         request_id = _request_correlation_id(request)
         logger.bind(
             channel="runtime",
@@ -530,7 +538,7 @@ async def generate_video_async(
         return VideoGenerateAsyncResponse(
             task_id=task.task_id
         )
-        
+
     except HTTPException:
         raise
     except ResourceResolverError as e:
@@ -540,3 +548,25 @@ async def generate_video_async(
     except Exception as e:
         logger.error(f"Async video generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate/async", response_model=VideoGenerateAsyncResponse)
+async def generate_video_async_route(
+    request_body: VideoGenerateRequest,
+    request: Request,
+) -> VideoGenerateAsyncResponse:
+    return await _generate_video_async_impl(request_body, request)
+
+
+async def generate_video_async(
+    request_body: VideoGenerateRequest,
+    pixelle_video=None,
+    request=None,
+) -> VideoGenerateAsyncResponse:
+    """Compatibility wrapper for direct tests and legacy internal callers."""
+    resolved_request = request
+    if resolved_request is None:
+        resolved_request = pixelle_video
+    if resolved_request is None:
+        raise TypeError("request is required")
+    return await _generate_video_async_impl(request_body, resolved_request)
