@@ -246,6 +246,18 @@ sudo apt install ffmpeg
 
 安装完成后，在终端中运行 `ffmpeg -version` 验证安装成功。
 
+##### 安装 Puppeteer Chrome（用于 HyperFrames 渲染）
+
+项目使用 Puppeteer 进行视频帧渲染，需要安装 Chrome 浏览器：
+
+```bash
+cd tools/hyperframes_bridge
+npx puppeteer browsers install chrome
+cd ../..
+```
+
+> 注意：如果跳过此步骤，在渲染视频时会报错 `Could not find Chrome`。
+
 
 #### 第一步：下载项目
 
