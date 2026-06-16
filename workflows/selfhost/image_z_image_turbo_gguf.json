@@ -75,7 +75,7 @@
   },
   "37": {
     "inputs": {
-      "unet_name": "z-image-turbo-Q8_0.gguf"
+      "unet_name": "z-image-turbo-Q4_K_M.gguf"
     },
     "class_type": "UnetLoaderGGUF",
     "_meta": {
@@ -84,7 +84,7 @@
   },
   "38": {
     "inputs": {
-      "clip_name": "Qwen3-4B-Q8_0.gguf",
+      "clip_name": "Qwen3-4B-Q4_K_M.gguf",
       "type": "lumina2",
       "device": "default"
     },
@@ -149,27 +149,27 @@
         0
       ]
     },
-    "class_type": "ModelSamplingAuraFlow",
+    "class_type": "ModelSamplingSD3",
     "_meta": {
-      "title": "ModelSamplingAuraFlow"
+      "title": "ModelSamplingSD3"
     }
   },
   "90": {
     "inputs": {
-      "value": 768
+      "value": 1024
     },
-    "class_type": "easy int",
+    "class_type": "PrimitiveInt",
     "_meta": {
-      "title": "$width.value"
+      "title": "$width.value!"
     }
   },
   "91": {
     "inputs": {
-      "value": 768
+      "value": 1024
     },
-    "class_type": "easy int",
+    "class_type": "PrimitiveInt",
     "_meta": {
-      "title": "$height.value"
+      "title": "$height.value!"
     }
   }
 }
