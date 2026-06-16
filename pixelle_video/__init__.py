@@ -13,9 +13,10 @@
 
 import os
 
-# Use ModelScope mirror for HuggingFace downloads in China
-if not os.environ.get("HF_ENDPOINT"):
-    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+# 注意：不再默认设置 HF_ENDPOINT
+# 模型下载优先使用 ModelScope，详见 alignment_service.py 中的 _ensure_model_local 方法
+# 如需使用 Hugging Face 镜像，请手动设置环境变量：
+# export HF_ENDPOINT=https://hf-mirror.com
 
 from pixelle_video.utils.os_util import configure_runtime_environment
 

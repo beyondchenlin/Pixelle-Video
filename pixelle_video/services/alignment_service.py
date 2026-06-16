@@ -66,7 +66,9 @@ class _QwenForcedAlignerClient:
 
         load_kwargs = dict(self.model_kwargs)
         if local_files_only:
-            load_kwargs.setdefault("local_files_only", True)
+            load_kwargs["local_files_only"] = True
+            # 禁用 Hugging Face 在线连接，强制使用本地模型
+            load_kwargs["trust_remote_code"] = True
 
         self._aligner = Qwen3ForcedAligner.from_pretrained(
             model_source,
