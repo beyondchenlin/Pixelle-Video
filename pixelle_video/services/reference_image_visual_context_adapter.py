@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -26,12 +27,25 @@ from pixelle_video.models.reference_image_visual_context import (
     ReferenceImageVisualContext,
 )
 
+_REFERENCE_IMAGE_VISUAL_STORY_CONTEXT_PATCH: ContextVar[dict[str, Any]] = ContextVar(
+    "reference_image_visual_story_context_patch",
+    default={},
+)
+
 
 @dataclass(frozen=True)
 class ReferenceImageContextBuildResult:
     visual_context: ReferenceImageVisualContext
     ip_profile: IPProfile | None
     visual_story_context_patch: dict[str, Any]
+
+
+def set_reference_image_visual_story_context_patch(patch: Mapping[str, Any] | None) -> None:
+    _REFERENCE_IMAGE_VISUAL_STORY_CONTEXT_PATCH.set(dict(patch or {}))
+
+
+def current_reference_image_visual_story_context_patch() -> dict[str, Any]:
+    return dict(_REFERENCE_IMAGE_VISUAL_STORY_CONTEXT_PATCH.get() or {})
 
 
 class ReferenceImageVisualContextAdapter:
@@ -200,7 +214,7 @@ def _build_prompt_hint(analysis_result: ReferenceImageAnalysisResult) -> str:
         "风格锚点: " + ", ".join(analysis.style_anchors[:6]) if analysis.style_anchors else "",
         "避免: " + ", ".join(analysis.negative_constraints[:6]) if analysis.negative_constraints else "",
     ]
-    return "；".join(part.strip() for part in parts if isinstance(part, str) and part.strip())
+    return "；".join(part.strip() for part in parts if isinstance(part, str) and part.strip())[:2000]
 
 
 def _dedupe_strings(values: Iterable[Any]) -> tuple[str, ...]:
