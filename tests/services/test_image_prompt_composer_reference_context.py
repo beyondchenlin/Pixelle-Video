@@ -14,6 +14,7 @@ from pixelle_video.services import image_prompt_composer as composer_module
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.services.reference_image_visual_context_adapter import (
     ReferenceImageVisualContextAdapter,
+    reset_reference_image_visual_story_context_patch,
     set_reference_image_visual_story_context_patch,
 )
 
@@ -91,15 +92,7 @@ def _ip_profile() -> IPProfile:
     )
 
 
-@pytest.mark.asyncio
-async def test_image_prompt_composer_applies_runtime_reference_context(monkeypatch):
-    build_result = ReferenceImageVisualContextAdapter().build(
-        asset=_asset(),
-        analysis_result=_analysis_result(),
-        ip_profile=None,
-        merge_mode="supplement",
-    )
-    set_reference_image_visual_story_context_patch(build_result.visual_story_context_patch)
+async def _compose_with_captured_batch(monkeypatch, **compose_kwargs):
     captured = {}
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
@@ -116,17 +109,35 @@ async def test_image_prompt_composer_applies_runtime_reference_context(monkeypat
         "generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
+    result = await ImagePromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan(),
+        image_config={},
+        **compose_kwargs,
+    )
+    return result, captured
+
+
+@pytest.mark.asyncio
+async def test_image_prompt_composer_applies_runtime_reference_context(monkeypatch):
+    build_result = ReferenceImageVisualContextAdapter().build(
+        asset=_asset(),
+        analysis_result=_analysis_result(),
+        ip_profile=None,
+        merge_mode="supplement",
+    )
+    token = set_reference_image_visual_story_context_patch(
+        build_result.visual_story_context_patch
+    )
 
     try:
-        result = await ImagePromptComposer().compose(
-            llm_service=None,
-            storyboard_plan=_storyboard_plan(),
-            image_config={},
+        result, captured = await _compose_with_captured_batch(
+            monkeypatch,
             ip_profile=_ip_profile(),
             visual_story_context={},
         )
     finally:
-        set_reference_image_visual_story_context_patch({})
+        reset_reference_image_visual_story_context_patch(token)
 
     passed_profile = captured["ip_profile"]
     assert "圆脸" in passed_profile.identity_anchors
@@ -141,3 +152,22 @@ async def test_image_prompt_composer_applies_runtime_reference_context(monkeypat
     assert "/home/user" not in payload
     assert "data:image" not in payload
     assert "base64," not in payload
+
+
+@pytest.mark.asyncio
+async def test_no_reference_patch_keeps_image_prompt_composer_unchanged(monkeypatch):
+    token = set_reference_image_visual_story_context_patch({})
+    profile = _ip_profile()
+    try:
+        result, captured = await _compose_with_captured_batch(
+            monkeypatch,
+            ip_profile=profile,
+            visual_story_context={},
+        )
+    finally:
+        reset_reference_image_visual_story_context_patch(token)
+
+    assert captured["ip_profile"] == profile
+    assert "reference_image" not in captured["prompt_contexts"].plan_context
+    assert "reference_image" not in captured["prompt_contexts"].frame_contexts[0]
+    assert "reference_image_visual_context" not in result.planning_snapshot
