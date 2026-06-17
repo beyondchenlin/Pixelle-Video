@@ -54,6 +54,7 @@ from pixelle_video.services.reference_image_asset_service import (
 )
 from pixelle_video.services.reference_image_visual_context_adapter import (
     ReferenceImageVisualContextAdapter,
+    set_reference_image_visual_story_context_patch,
 )
 from pixelle_video.services.timing_planner import TimingPlan
 from pixelle_video.services.vision_llm_service import VisionLLMService
@@ -230,6 +231,8 @@ class LinearVideoPipeline(BasePipeline):
             if key != "progress_dispatcher"
         }
 
+        set_reference_image_visual_story_context_patch({})
+
         # 1. Initialize context
         ctx = PipelineContext(
             input_text=text,
@@ -282,6 +285,7 @@ class LinearVideoPipeline(BasePipeline):
             finally:
                 if ctx.task_log_session is not None:
                     ctx.task_log_session.close()
+                set_reference_image_visual_story_context_patch({})
 
     # ==================== Lifecycle Methods ====================
 
@@ -369,6 +373,7 @@ class LinearVideoPipeline(BasePipeline):
             or ctx.reference_image_analysis_result is None
             or not ctx.task_dir
         ):
+            set_reference_image_visual_story_context_patch({})
             return
 
         reference_image_config = _resolve_reference_image_config(getattr(self.core, "config", None))
@@ -379,6 +384,7 @@ class LinearVideoPipeline(BasePipeline):
             ip_profile=None,
             merge_mode=merge_mode,
         )
+        set_reference_image_visual_story_context_patch(build_result.visual_story_context_patch)
         visual_context = ReferenceImageVisualContextAdapter.write_artifact(
             ctx.task_dir,
             build_result.visual_context,
