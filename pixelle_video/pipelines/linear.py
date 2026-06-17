@@ -9,8 +9,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """
+
 Linear Video Pipeline Base Class
 
 This module defines the template method pattern for linear video generation workflows.
@@ -20,10 +20,11 @@ process orchestration.
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from loguru import logger
 
+from pixelle_video.config import config_manager
 from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
@@ -33,12 +34,24 @@ from pixelle_video.models.progress import (
     ProgressEvent,
 )
 from pixelle_video.models.prompt_plan import PromptPlanBundle
+from pixelle_video.models.reference_image import ReferenceImageAsset
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoGenerationResult
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
 from pixelle_video.pipelines.base import BasePipeline
+from pixelle_video.services.reference_image_asset_service import (
+    ReferenceImageAssetService,
+    resolve_reference_image_input,
+)
 from pixelle_video.services.timing_planner import TimingPlan
 from pixelle_video.utils.logging_util import bind_log_context
+
+
+_REFERENCE_IMAGE_ENABLED_PARAM_NAMES = (
+    "reference_image_enabled",
+    "enable_reference_image",
+    "ref_image_enabled",
+)
 
 
 @asynccontextmanager
@@ -46,11 +59,37 @@ async def _noop_async_context():
     yield
 
 
+def _config_mapping_get(config: Any, key: str, default: Any = None) -> Any:
+    if isinstance(config, Mapping):
+        return config.get(key, default)
+    return getattr(config, key, default)
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return bool(value)
+
+
+def _resolve_reference_image_config(core_config: Any) -> Any:
+    reference_image_config = _config_mapping_get(core_config, "reference_image")
+    if reference_image_config is not None:
+        return reference_image_config
+    return config_manager.get("reference_image", {})
+
+
+def _reference_image_enabled(params: Mapping[str, Any], reference_image_config: Any) -> bool:
+    for param_name in _REFERENCE_IMAGE_ENABLED_PARAM_NAMES:
+        if param_name in params and params[param_name] is not None:
+            return _coerce_bool(params[param_name])
+    return _coerce_bool(_config_mapping_get(reference_image_config, "enabled", False))
+
+
 @dataclass
 class PipelineContext:
     """
     Context object holding the state of a single pipeline execution.
-    
+
     This object is passed between steps in the LinearVideoPipeline lifecycle.
     """
     # === Input ===
@@ -61,19 +100,19 @@ class PipelineContext:
     request_id: Optional[str] = None
     session_id: Optional[str] = None
     api_task_id: Optional[str] = None
-    
+
     # === Task State ===
     task_id: Optional[str] = None
     task_dir: Optional[str] = None
     task_log_session: Any = None
     observability: Dict[str, Any] = field(default_factory=dict)
-    
+
     # === Content ===
     title: Optional[str] = None
     source_text: Optional[str] = None
     caption_speech_plan: Optional[CaptionSpeechPlan] = None
     storyboard_plan: Optional[StoryboardPlan] = None
-    
+
     # === Visuals ===
     image_prompts: List[Optional[str]] = field(default_factory=list)
     rendered_media_prompts: List[RenderedMediaPrompt] = field(default_factory=list)
@@ -84,11 +123,12 @@ class PipelineContext:
     llm_trace_refs: List[Dict[str, str]] = field(default_factory=list)
     creation_package: Optional[CreationPackage] = None
     timing_plan: Optional[TimingPlan] = None
-    
+    reference_image_asset: Optional[ReferenceImageAsset] = None
+
     # === Configuration & Storyboard ===
     config: Optional[StoryboardConfig] = None
     storyboard: Optional[Storyboard] = None
-    
+
     # === Output ===
     final_video_path: Optional[str] = None
     result: Optional[VideoGenerationResult] = None
@@ -97,7 +137,7 @@ class PipelineContext:
 class LinearVideoPipeline(BasePipeline):
     """
     Base class for linear video generation pipelines using the Template Method pattern.
-    
+
     This class orchestrates the video generation process into distinct lifecycle steps:
     1. setup_environment
     2. generate_content
@@ -107,11 +147,11 @@ class LinearVideoPipeline(BasePipeline):
     6. produce_assets
     7. post_production
     8. finalize
-    
+
     Subclasses should override specific steps to customize behavior while maintaining
     the overall workflow structure.
     """
-    
+
     async def __call__(
         self,
         text: str,
@@ -147,7 +187,7 @@ class LinearVideoPipeline(BasePipeline):
             session_id=pipeline_params.get("session_id"),
             api_task_id=pipeline_params.get("api_task_id"),
         )
-        
+
         with bind_log_context(
             request_id=ctx.request_id,
             session_id=ctx.session_id,
@@ -159,6 +199,7 @@ class LinearVideoPipeline(BasePipeline):
                 async with scope_manager:
                     # === Phase 1: Preparation ===
                     await self.setup_environment(ctx)
+                    await self.prepare_reference_image(ctx)
 
                     # === Phase 2: Content Creation ===
                     await self.generate_content(ctx)
@@ -188,35 +229,67 @@ class LinearVideoPipeline(BasePipeline):
                     ctx.task_log_session.close()
 
     # ==================== Lifecycle Methods ====================
-    
+
     async def setup_environment(self, ctx: PipelineContext):
         """Step 1: Setup task directory and environment."""
         pass
-        
+
+    async def prepare_reference_image(self, ctx: PipelineContext):
+        """Prepare an optional reference image as a task-local asset."""
+
+        raw_reference_image = resolve_reference_image_input(ctx.params)
+        if raw_reference_image is None:
+            return
+
+        reference_image_config = _resolve_reference_image_config(getattr(self.core, "config", None))
+        if not _reference_image_enabled(ctx.params, reference_image_config):
+            ctx.observability.setdefault("reference_image", {})["status"] = "disabled"
+            ctx.params.pop("ref_image_asset", None)
+            ctx.params.pop("ref_image", None)
+            logger.info("Reference image supplied but reference_image.enabled is false; ignoring it")
+            return
+
+        if not ctx.task_dir:
+            raise ValueError("task_dir is required before reference image assetization")
+
+        asset = ReferenceImageAssetService(reference_image_config).prepare(
+            raw_reference_image,
+            task_dir=ctx.task_dir,
+        )
+        ctx.reference_image_asset = asset
+        trace_payload = asset.to_trace_dict()
+        ctx.params["ref_image"] = asset.workflow_asset_path
+        ctx.params["ref_image_asset"] = trace_payload
+        ctx.observability["reference_image_asset"] = trace_payload
+        logger.info(
+            "Reference image assetized: {}",
+            asset.workflow_asset_relative_path,
+        )
+
     async def generate_content(self, ctx: PipelineContext):
         """Step 2: Generate or process script/narrations."""
         pass
-        
+
     async def determine_title(self, ctx: PipelineContext):
         """Step 3: Determine or generate video title."""
         pass
-        
+
     async def plan_visuals(self, ctx: PipelineContext):
         """Step 4: Generate image prompts or visual descriptions."""
         pass
-        
+
     async def initialize_storyboard(self, ctx: PipelineContext):
         """Step 5: Create Storyboard object and frames."""
         pass
-        
+
     async def produce_assets(self, ctx: PipelineContext):
         """Step 6: Generate audio, images, and render frames (Core processing)."""
         pass
-        
+
     async def post_production(self, ctx: PipelineContext):
         """Step 7: Concatenate videos and add BGM."""
         pass
-        
+
     async def finalize(self, ctx: PipelineContext) -> VideoGenerationResult:
         """Step 8: Create result object and persist metadata."""
         raise NotImplementedError("finalize must be implemented by subclass")

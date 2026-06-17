@@ -9,7 +9,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """
 Configuration Manager - Singleton pattern
 
@@ -24,44 +23,47 @@ from .loader import load_config_dict, save_config_dict
 from .schema import PixelleVideoConfig
 
 _UNSET = object()
+_RAW_EXTENSION_CONFIG_KEYS = ("reference_image", "vision_llm")
 
 
 class ConfigManager:
     """
     Configuration Manager (Singleton)
-    
+
     Provides unified access to configuration with automatic validation.
     """
     _instance: Optional['ConfigManager'] = None
-    
+
     def __new__(cls, config_path: str = "config.yaml"):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self, config_path: str = "config.yaml"):
         # Only initialize once
         if hasattr(self, '_initialized'):
             return
-        
+
         self.config_path = Path(config_path)
+        self.raw_config: dict[str, Any] = {}
         self.config: PixelleVideoConfig = self._load()
         self._initialized = True
-    
+
     def _load(self) -> PixelleVideoConfig:
         """Load configuration from file"""
         data = load_config_dict(str(self.config_path))
+        self.raw_config = dict(data or {}) if isinstance(data, dict) else {}
         config = PixelleVideoConfig(**data)
-        
+
         # Validate template path exists
         self._validate_template(config.template.default_template)
-        
+
         return config
-    
+
     def _validate_template(self, template_path: str):
         """Validate that the configured template exists"""
         from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE, resolve_template_path
-        
+
         try:
             # Try to resolve the template path
             resolved_path = resolve_template_path(template_path)
@@ -71,25 +73,32 @@ class ConfigManager:
                 f"Configured default template '{template_path}' not found. "
                 f"Will fall back to '{DEFAULT_IMAGE_TEMPLATE}' if needed. Error: {e}"
             )
-    
+
+    def _config_with_raw_extensions(self) -> dict[str, Any]:
+        payload = self.config.to_dict()
+        for key in _RAW_EXTENSION_CONFIG_KEYS:
+            if key in self.raw_config and key not in payload:
+                payload[key] = self.raw_config[key]
+        return payload
+
     def reload(self):
         """Reload configuration from file"""
         self.config = self._load()
         logger.info("Configuration reloaded")
-    
+
     def save(self):
         """Save current configuration to file"""
-        save_config_dict(self.config.to_dict(), str(self.config_path))
-    
+        save_config_dict(self._config_with_raw_extensions(), str(self.config_path))
+
     def update(self, updates: dict):
         """
         Update configuration with new values
-        
+
         Args:
             updates: Dictionary of updates (e.g., {"llm": {"api_key": "xxx"}})
         """
-        current = self.config.to_dict()
-        
+        current = self._config_with_raw_extensions()
+
         # Deep merge
         def deep_merge(base: dict, updates: dict) -> dict:
             for key, value in updates.items():
@@ -98,18 +107,23 @@ class ConfigManager:
                 else:
                     base[key] = value
             return base
-        
+
         merged = deep_merge(current, updates)
+        self.raw_config = dict(merged)
         self.config = PixelleVideoConfig(**merged)
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         """Dict-like access (for backward compatibility)"""
-        return self.config.to_dict().get(key, default)
-    
+        return self._config_with_raw_extensions().get(key, default)
+
+    def get_raw(self, key: str, default: Any = None) -> Any:
+        """Return raw config data, including top-level keys not yet in schema."""
+        return self.raw_config.get(key, default)
+
     def validate(self) -> bool:
         """Validate configuration completeness"""
         return self.config.validate_required()
-    
+
     def get_llm_config(self) -> dict:
         """Get LLM configuration as dict"""
         return {
@@ -119,7 +133,7 @@ class ConfigManager:
             "max_input_tokens": self.config.llm.max_input_tokens,
             "max_output_tokens": self.config.llm.max_output_tokens,
         }
-    
+
     def set_llm_config(
         self,
         api_key: str,
@@ -139,7 +153,7 @@ class ConfigManager:
         if max_output_tokens is not None:
             updates["max_output_tokens"] = max_output_tokens
         self.update({"llm": updates})
-    
+
     def get_comfyui_config(self) -> dict:
         """Get ComfyUI configuration as dict"""
         return {
@@ -193,7 +207,7 @@ class ConfigManager:
         library = self.get_image_prompt_prefix_library()
         library["active_prefix_id"] = prefix_id
         self.set_image_prompt_prefix_library(library)
-    
+
     def set_comfyui_config(
         self, 
         comfyui_url: Optional[str] = None,
@@ -243,14 +257,15 @@ class ConfigManager:
             }
         if workflow_routing is not _UNSET:
             updates["workflow_routing"] = workflow_routing
-        
+
         if updates:
             if "backends" in updates or "workflow_routing" in updates:
-                current = self.config.to_dict()
+                current = self._config_with_raw_extensions()
                 comfyui_updates = dict(updates)
                 current_comfyui = dict(current.get("comfyui", {}))
                 current_comfyui.update(comfyui_updates)
                 current["comfyui"] = current_comfyui
+                self.raw_config = dict(current)
                 self.config = PixelleVideoConfig(**current)
             else:
                 self.update({"comfyui": updates})
