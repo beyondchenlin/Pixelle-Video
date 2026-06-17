@@ -533,25 +533,29 @@ class LLMService:
         ) if trace_context is not None else None
         enhanced_prompt = rendered_prompt.text
 
-        request_payload = self._build_request_payload(
+        capabilities = structured_output_capabilities(
+            base_url=str(client.base_url or ""),
             model=model,
-            messages=[{"role": "user", "content": enhanced_prompt}],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            extra_parameters=kwargs,
-            response_format={"type": "json_object"},
         )
+
+        request_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": [{"role": "user", "content": enhanced_prompt}],
+            "temperature": temperature,
+            **kwargs,
+        }
+        if capabilities.supports_json_object_response_format:
+            request_kwargs["response_format"] = {"type": "json_object"}
+            if not capabilities.omit_max_tokens_with_json_object:
+                request_kwargs["max_tokens"] = max_tokens
+        else:
+            request_kwargs["max_tokens"] = max_tokens
+
+        request_payload = _json_safe_copy(request_kwargs)
 
         started_at = perf_counter()
         try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": enhanced_prompt}],
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-                **kwargs
-            )
+            response = await client.chat.completions.create(**request_kwargs)
         except Exception as exc:
             await self._record_llm_trace(
                 trace_context=trace_context,
@@ -566,7 +570,12 @@ class LLMService:
             )
             raise
 
-        content = response.choices[0].message.content or "{}"
+        content = "{}"
+        if response.choices:
+            content = response.choices[0].message.content or "{}"
+        else:
+            logger.warning("LLM response has no choices; using empty dict fallback: model={}", model)
+
         elapsed_ms = _elapsed_ms(started_at)
         token_usage = _extract_token_usage(response)
 
@@ -589,14 +598,19 @@ class LLMService:
                     "You MUST return a JSON object with a named key wrapping your data. "
                     "DO NOT return a raw JSON array."
                 )
-                retry_response = await client.chat.completions.create(
-                    model=model,
-                    messages=[{"role": "user", "content": retry_prompt}],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    **kwargs
-                )
-                retry_content = retry_response.choices[0].message.content or "{}"
+                retry_request_kwargs: dict[str, Any] = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": retry_prompt}],
+                    "temperature": temperature,
+                    **kwargs,
+                }
+                retry_request_kwargs["max_tokens"] = max_tokens
+                retry_response = await client.chat.completions.create(**retry_request_kwargs)
+                if retry_response.choices:
+                    retry_content = retry_response.choices[0].message.content or "{}"
+                else:
+                    retry_content = "{}"
+                    logger.warning("Retry response has no choices; using empty dict: model={}", model)
                 parsed = parse_llm_json_response(
                     retry_content,
                     allow_code_fence=True,
