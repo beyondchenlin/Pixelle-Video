@@ -9,7 +9,17 @@ from pixelle_video.models.reference_image_analysis import (
     ReferenceImageAnalysisResult,
 )
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
+from pixelle_video.services.reference_image_visual_context_adapter import (
+    current_reference_image_visual_story_context_patch,
+    reset_reference_image_visual_story_context_patch,
+    set_reference_image_visual_story_context_patch,
+)
 from pixelle_video.services.visual_story_prompt_context import attach_visual_story_context
+
+
+class _NoopPipeline(LinearVideoPipeline):
+    async def finalize(self, ctx):
+        return "ok"
 
 
 def _asset() -> ReferenceImageAsset:
@@ -51,72 +61,92 @@ def _analysis_result() -> ReferenceImageAnalysisResult:
     )
 
 
+def _core_config():
+    return SimpleNamespace(
+        config={"reference_image": {"profile_merge_mode": "supplement"}},
+        llm=None,
+        tts=None,
+        media=None,
+        video=None,
+    )
+
+
 @pytest.mark.asyncio
 async def test_prepare_reference_image_visual_context_injects_generation_world_hint(tmp_path):
-    pipeline = LinearVideoPipeline(
-        SimpleNamespace(
-            config={"reference_image": {"profile_merge_mode": "supplement"}},
-            llm=None,
-            tts=None,
-            media=None,
-            video=None,
+    token = set_reference_image_visual_story_context_patch({})
+    try:
+        pipeline = LinearVideoPipeline(_core_config())
+        ctx = PipelineContext(
+            input_text="生成一个儿童故事",
+            params={"generation_world_hint": "原始世界观提示"},
+            task_dir=str(tmp_path),
         )
-    )
-    ctx = PipelineContext(
-        input_text="生成一个儿童故事",
-        params={"generation_world_hint": "原始世界观提示"},
-        task_dir=str(tmp_path),
-    )
-    ctx.reference_image_asset = _asset()
-    ctx.reference_image_analysis_result = _analysis_result()
+        ctx.reference_image_asset = _asset()
+        ctx.reference_image_analysis_result = _analysis_result()
 
-    await pipeline.prepare_reference_image_visual_context(ctx)
+        await pipeline.prepare_reference_image_visual_context(ctx)
 
-    assert ctx.reference_image_visual_context is not None
-    assert ctx.reference_image_visual_context.enabled is True
-    assert "原始世界观提示" in ctx.params["generation_world_hint"]
-    assert "参考图视觉一致性提示" in ctx.params["generation_world_hint"]
-    assert "柔和童话绘本风" in ctx.params["generation_world_hint"]
-    assert ctx.params["reference_image_prompt_fallback_hint"]
-    assert ctx.params["reference_image_visual_story_context_patch"]["reference_image"]["enabled"] is True
-    assert (tmp_path / "reference_image" / "visual_context.json").is_file()
+        assert ctx.reference_image_visual_context is not None
+        assert ctx.reference_image_visual_context.enabled is True
+        assert "原始世界观提示" in ctx.params["generation_world_hint"]
+        assert "参考图视觉一致性提示" in ctx.params["generation_world_hint"]
+        assert "柔和童话绘本风" in ctx.params["generation_world_hint"]
+        assert ctx.params["reference_image_prompt_fallback_hint"]
+        assert ctx.params["reference_image_visual_story_context_patch"]["reference_image"]["enabled"] is True
+        assert (tmp_path / "reference_image" / "visual_context.json").is_file()
 
-    prompt_contexts = PromptContextEnvelope(
-        plan_context={"plan_id": "plan"},
-        frame_contexts=[{"frame_id": "frame_0", "source_text": "hello"}],
-    )
-    enriched = attach_visual_story_context(prompt_contexts, {})
-    assert enriched.plan_context["reference_image"]["enabled"] is True
-    assert enriched.frame_contexts[0]["reference_image"]["identity_anchors"] == ["圆脸", "白色服饰"]
+        prompt_contexts = PromptContextEnvelope(
+            plan_context={"plan_id": "plan"},
+            frame_contexts=[{"frame_id": "frame_0", "source_text": "hello"}],
+        )
+        enriched = attach_visual_story_context(prompt_contexts, {})
+        assert enriched.plan_context["reference_image"]["enabled"] is True
+        assert enriched.frame_contexts[0]["reference_image"]["identity_anchors"] == ["圆脸", "白色服饰"]
+    finally:
+        reset_reference_image_visual_story_context_patch(token)
 
 
 @pytest.mark.asyncio
 async def test_prepare_reference_image_visual_context_does_not_inject_when_analysis_skipped(tmp_path):
-    pipeline = LinearVideoPipeline(
-        SimpleNamespace(
-            config={"reference_image": {"profile_merge_mode": "supplement"}},
-            llm=None,
-            tts=None,
-            media=None,
-            video=None,
+    token = set_reference_image_visual_story_context_patch({"sentinel": {"enabled": True}})
+    try:
+        pipeline = LinearVideoPipeline(_core_config())
+        ctx = PipelineContext(
+            input_text="生成一个儿童故事",
+            params={"generation_world_hint": "原始世界观提示"},
+            task_dir=str(tmp_path),
         )
-    )
-    ctx = PipelineContext(
-        input_text="生成一个儿童故事",
-        params={"generation_world_hint": "原始世界观提示"},
-        task_dir=str(tmp_path),
-    )
-    ctx.reference_image_asset = _asset()
-    ctx.reference_image_analysis_result = ReferenceImageAnalysisResult(
-        status="skipped",
-        analysis_mode="auto",
-        image_sha256="a" * 64,
-        reason="vision_llm_disabled",
-    )
+        ctx.reference_image_asset = _asset()
+        ctx.reference_image_analysis_result = ReferenceImageAnalysisResult(
+            status="skipped",
+            analysis_mode="auto",
+            image_sha256="a" * 64,
+            reason="vision_llm_disabled",
+        )
 
-    await pipeline.prepare_reference_image_visual_context(ctx)
+        await pipeline.prepare_reference_image_visual_context(ctx)
 
-    assert ctx.reference_image_visual_context is not None
-    assert ctx.reference_image_visual_context.enabled is False
-    assert ctx.params["generation_world_hint"] == "原始世界观提示"
-    assert "reference_image_prompt_fallback_hint" not in ctx.params
+        assert ctx.reference_image_visual_context is not None
+        assert ctx.reference_image_visual_context.enabled is False
+        assert ctx.params["generation_world_hint"] == "原始世界观提示"
+        assert "reference_image_prompt_fallback_hint" not in ctx.params
+        assert current_reference_image_visual_story_context_patch() == {}
+    finally:
+        reset_reference_image_visual_story_context_patch(token)
+
+
+@pytest.mark.asyncio
+async def test_reference_patch_context_is_restored_after_pipeline_call():
+    token = set_reference_image_visual_story_context_patch(
+        {"sentinel": {"enabled": True}}
+    )
+    try:
+        pipeline = _NoopPipeline(_core_config())
+        result = await pipeline("hello")
+
+        assert result == "ok"
+        assert current_reference_image_visual_story_context_patch() == {
+            "sentinel": {"enabled": True}
+        }
+    finally:
+        reset_reference_image_visual_story_context_patch(token)
