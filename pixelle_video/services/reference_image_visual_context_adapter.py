@@ -13,8 +13,9 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Mapping
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,10 @@ _REFERENCE_IMAGE_VISUAL_STORY_CONTEXT_PATCH: ContextVar[dict[str, Any]] = Contex
     "reference_image_visual_story_context_patch",
     default={},
 )
+_DATA_IMAGE_RE = re.compile(r"data:image/[^;,\s]+;base64,[A-Za-z0-9+/=]+", re.IGNORECASE)
+_ABSOLUTE_PATH_HINT_RE = re.compile(
+    r"([A-Za-z]:\\[^ \n\r\t]+|/(?:Users|home|mnt|var|tmp|etc)/[^ \n\r\t]+)"
+)
 
 
 @dataclass(frozen=True)
@@ -40,8 +45,14 @@ class ReferenceImageContextBuildResult:
     visual_story_context_patch: dict[str, Any]
 
 
-def set_reference_image_visual_story_context_patch(patch: Mapping[str, Any] | None) -> None:
-    _REFERENCE_IMAGE_VISUAL_STORY_CONTEXT_PATCH.set(dict(patch or {}))
+def set_reference_image_visual_story_context_patch(
+    patch: Mapping[str, Any] | None,
+) -> Token:
+    return _REFERENCE_IMAGE_VISUAL_STORY_CONTEXT_PATCH.set(dict(patch or {}))
+
+
+def reset_reference_image_visual_story_context_patch(token: Token) -> None:
+    _REFERENCE_IMAGE_VISUAL_STORY_CONTEXT_PATCH.reset(token)
 
 
 def current_reference_image_visual_story_context_patch() -> dict[str, Any]:
@@ -97,6 +108,7 @@ class ReferenceImageVisualContextAdapter:
                 "prompt_fallback_hint": prompt_hint,
                 "confidence": analysis.confidence,
                 "limitations": list(analysis.limitations),
+                "merge_mode": merge_mode,
             }
         }
 
@@ -109,7 +121,7 @@ class ReferenceImageVisualContextAdapter:
                 merged_profile = self._override_ip_profile(ip_profile, analysis_result)
             else:
                 merged_profile = self._supplement_ip_profile(ip_profile, analysis_result)
-            merged_ip_profile = merged_profile.to_dict()
+            merged_ip_profile = _profile_trace_dict(merged_profile)
         else:
             merged_profile = None
 
@@ -199,6 +211,88 @@ class ReferenceImageVisualContextAdapter:
             encoding="utf-8",
         )
         return visual_context
+
+
+def merge_ip_profile_from_reference_patch(
+    ip_profile: IPProfile | None,
+    visual_story_context_patch: Mapping[str, Any] | None,
+) -> IPProfile | None:
+    if ip_profile is None or not isinstance(visual_story_context_patch, Mapping):
+        return ip_profile
+    reference_payload = visual_story_context_patch.get("reference_image")
+    if not isinstance(reference_payload, Mapping) or not reference_payload.get("enabled"):
+        return ip_profile
+
+    merge_mode = str(reference_payload.get("merge_mode") or "supplement").strip().lower()
+    identity_anchors = _dedupe_strings(reference_payload.get("identity_anchors") or ())
+    style_anchors = _dedupe_strings(reference_payload.get("style_anchors") or ())
+    negative_constraints = _dedupe_strings(reference_payload.get("negative_constraints") or ())
+    subject_summary = str(reference_payload.get("subject_summary") or "").strip()
+    style_summary = str(reference_payload.get("style_summary") or "").strip()
+    color_atmosphere = str(reference_payload.get("color_atmosphere") or "").strip()
+    composition_summary = str(reference_payload.get("composition_summary") or "").strip()
+    metadata = {
+        **dict(ip_profile.metadata),
+        "reference_image_visual_context": {
+            "asset_sha256": str(reference_payload.get("asset_sha256") or ""),
+            "merge_mode": merge_mode,
+        },
+    }
+
+    if merge_mode == "strict":
+        return replace(ip_profile, metadata=metadata)
+    if merge_mode == "override":
+        return replace(
+            ip_profile,
+            visual_summary=subject_summary or ip_profile.visual_summary,
+            style_hint=style_summary or ip_profile.style_hint,
+            identity_anchors=identity_anchors or ip_profile.identity_anchors,
+            style_boundary_rules=style_anchors or ip_profile.style_boundary_rules,
+            negative_constraints=negative_constraints or ip_profile.negative_constraints,
+            minimal_traits=_dedupe_strings((subject_summary, color_atmosphere, composition_summary)),
+            metadata=metadata,
+        )
+    return replace(
+        ip_profile,
+        visual_summary=ip_profile.visual_summary or subject_summary or None,
+        style_hint=ip_profile.style_hint or style_summary or None,
+        identity_anchors=_dedupe_strings((*ip_profile.identity_anchors, *identity_anchors)),
+        style_boundary_rules=_dedupe_strings((*ip_profile.style_boundary_rules, *style_anchors)),
+        negative_constraints=_dedupe_strings((*ip_profile.negative_constraints, *negative_constraints)),
+        minimal_traits=_dedupe_strings((*ip_profile.minimal_traits, subject_summary, color_atmosphere)),
+        metadata=metadata,
+    )
+
+
+def reference_image_prompt_planning_snapshot(
+    visual_story_context_patch: Mapping[str, Any] | None,
+    *,
+    ip_profile: IPProfile | None = None,
+) -> dict[str, Any]:
+    if not isinstance(visual_story_context_patch, Mapping) or not visual_story_context_patch:
+        return {}
+    payload: dict[str, Any] = {
+        "visual_story_context_patch": _redact_trace_value(dict(visual_story_context_patch)),
+    }
+    if ip_profile is not None:
+        payload["merged_ip_profile"] = _profile_trace_dict(ip_profile)
+    return payload
+
+
+def _profile_trace_dict(ip_profile: IPProfile) -> dict[str, Any]:
+    return _redact_trace_value(ip_profile.to_dict())
+
+
+def _redact_trace_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _redact_trace_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_trace_value(item) for item in value]
+    if isinstance(value, str):
+        text = _DATA_IMAGE_RE.sub("<redacted:data-url>", value)
+        text = _ABSOLUTE_PATH_HINT_RE.sub("<redacted:absolute-path>", text)
+        return text
+    return value
 
 
 def _build_prompt_hint(analysis_result: ReferenceImageAnalysisResult) -> str:

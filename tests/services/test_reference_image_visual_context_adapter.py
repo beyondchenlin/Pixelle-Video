@@ -9,6 +9,8 @@ from pixelle_video.models.reference_image_analysis import (
 )
 from pixelle_video.services.reference_image_visual_context_adapter import (
     ReferenceImageVisualContextAdapter,
+    merge_ip_profile_from_reference_patch,
+    reference_image_prompt_planning_snapshot,
 )
 
 
@@ -52,16 +54,18 @@ def _analysis_result() -> ReferenceImageAnalysisResult:
     )
 
 
-def _ip_profile() -> IPProfile:
-    return IPProfile(
-        series_visual_signature_profile_id="profile_ref",
-        workspace_id="workspace",
-        project_id="project",
-        name="Existing Role",
-        style_hint="用户明确风格",
-        identity_anchors=("用户锚点",),
-        negative_constraints=("避免低清晰度",),
-    )
+def _ip_profile(**overrides) -> IPProfile:
+    payload = {
+        "series_visual_signature_profile_id": "profile_ref",
+        "workspace_id": "workspace",
+        "project_id": "project",
+        "name": "Existing Role",
+        "style_hint": "用户明确风格",
+        "identity_anchors": ("用户锚点",),
+        "negative_constraints": ("避免低清晰度",),
+    }
+    payload.update(overrides)
+    return IPProfile(**payload)
 
 
 def test_adapter_builds_prompt_only_context_without_ip_profile(tmp_path):
@@ -105,7 +109,7 @@ def test_adapter_supplements_ip_profile_without_overwriting_explicit_fields():
     assert result.visual_context.merged_ip_profile is not None
 
 
-def test_adapter_strict_mode_keeps_ip_profile_unchanged():
+def test_adapter_strict_mode_keeps_ip_profile_unchanged_except_metadata_marker():
     original = _ip_profile()
     result = ReferenceImageVisualContextAdapter().build(
         asset=_asset(),
@@ -130,3 +134,68 @@ def test_visual_context_json_is_trace_safe():
     assert "base64," not in payload
     assert "/home/user" not in payload
     assert "reference_image/vision_abcd1234.jpg" in payload
+
+
+def test_visual_context_redacts_ip_profile_metadata_paths():
+    profile = _ip_profile(
+        metadata={
+            "debug_path": "/home/user/private/ref.png",
+            "raw": "data:image/png;base64,AAAA",
+        }
+    )
+    result = ReferenceImageVisualContextAdapter().build(
+        asset=_asset(),
+        analysis_result=_analysis_result(),
+        ip_profile=profile,
+        merge_mode="supplement",
+    )
+
+    payload = json.dumps(result.visual_context.to_trace_dict(), ensure_ascii=False)
+    assert "/home/user" not in payload
+    assert "data:image" not in payload
+    assert "base64," not in payload
+    assert "<redacted:absolute-path>" in payload
+    assert "<redacted:data-url>" in payload
+
+
+def test_runtime_merge_ip_profile_from_reference_patch():
+    result = ReferenceImageVisualContextAdapter().build(
+        asset=_asset(),
+        analysis_result=_analysis_result(),
+        ip_profile=None,
+        merge_mode="supplement",
+    )
+    merged = merge_ip_profile_from_reference_patch(_ip_profile(), result.visual_story_context_patch)
+
+    assert merged is not None
+    assert merged.style_hint == "用户明确风格"
+    assert "圆脸" in merged.identity_anchors
+    assert "柔和绘本" in merged.style_boundary_rules
+    assert merged.metadata["reference_image_visual_context"]["asset_sha256"] == "a" * 64
+
+
+def test_reference_image_planning_snapshot_is_trace_safe():
+    result = ReferenceImageVisualContextAdapter().build(
+        asset=_asset(),
+        analysis_result=_analysis_result(),
+        ip_profile=None,
+        merge_mode="supplement",
+    )
+    profile = _ip_profile(
+        metadata={
+            "debug_path": "/home/user/private/ref.png",
+            "raw": "data:image/png;base64,AAAA",
+        }
+    )
+    merged = merge_ip_profile_from_reference_patch(profile, result.visual_story_context_patch)
+    snapshot = reference_image_prompt_planning_snapshot(
+        result.visual_story_context_patch,
+        ip_profile=merged,
+    )
+    payload = json.dumps(snapshot, ensure_ascii=False)
+
+    assert snapshot["visual_story_context_patch"]["reference_image"]["enabled"] is True
+    assert "merged_ip_profile" in snapshot
+    assert "/home/user" not in payload
+    assert "data:image" not in payload
+    assert "base64," not in payload
