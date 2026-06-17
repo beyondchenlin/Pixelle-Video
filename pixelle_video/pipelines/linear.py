@@ -54,6 +54,7 @@ from pixelle_video.services.reference_image_asset_service import (
 )
 from pixelle_video.services.reference_image_visual_context_adapter import (
     ReferenceImageVisualContextAdapter,
+    reset_reference_image_visual_story_context_patch,
     set_reference_image_visual_story_context_patch,
 )
 from pixelle_video.services.timing_planner import TimingPlan
@@ -231,7 +232,7 @@ class LinearVideoPipeline(BasePipeline):
             if key != "progress_dispatcher"
         }
 
-        set_reference_image_visual_story_context_patch({})
+        reference_patch_token = set_reference_image_visual_story_context_patch({})
 
         # 1. Initialize context
         ctx = PipelineContext(
@@ -285,7 +286,7 @@ class LinearVideoPipeline(BasePipeline):
             finally:
                 if ctx.task_log_session is not None:
                     ctx.task_log_session.close()
-                set_reference_image_visual_story_context_patch({})
+                reset_reference_image_visual_story_context_patch(reference_patch_token)
 
     # ==================== Lifecycle Methods ====================
 
