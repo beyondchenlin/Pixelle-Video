@@ -2,12 +2,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.reference_image import ReferenceImageAsset
 from pixelle_video.models.reference_image_analysis import (
     ReferenceImageAnalysis,
     ReferenceImageAnalysisResult,
 )
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
+from pixelle_video.services.visual_story_prompt_context import attach_visual_story_context
 
 
 def _asset() -> ReferenceImageAsset:
@@ -78,6 +80,14 @@ async def test_prepare_reference_image_visual_context_injects_generation_world_h
     assert ctx.params["reference_image_prompt_fallback_hint"]
     assert ctx.params["reference_image_visual_story_context_patch"]["reference_image"]["enabled"] is True
     assert (tmp_path / "reference_image" / "visual_context.json").is_file()
+
+    prompt_contexts = PromptContextEnvelope(
+        plan_context={"plan_id": "plan"},
+        frame_contexts=[{"frame_id": "frame_0", "source_text": "hello"}],
+    )
+    enriched = attach_visual_story_context(prompt_contexts, {})
+    assert enriched.plan_context["reference_image"]["enabled"] is True
+    assert enriched.frame_contexts[0]["reference_image"]["identity_anchors"] == ["圆脸", "白色服饰"]
 
 
 @pytest.mark.asyncio
