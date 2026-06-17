@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Mapping, Sequence
 
+from loguru import logger
+
 from pixelle_video.config import config_manager
 from pixelle_video.config.storyboard_preset_library import load_shot_preset_map, lookup_world_preset
 from pixelle_video.models.content_world import ContentWorldProfile
@@ -387,7 +389,11 @@ async def plan_storyboard_batch(
     narration_batches = _chunk_narrations(narrations, STORYBOARD_PLANNING_BATCH_SIZE)
     planning_semaphore = asyncio.Semaphore(STORYBOARD_PLANNING_MAX_CONCURRENCY)
 
-    async def plan_batch(start_index: int, batch_narrations: list[str]) -> tuple[int, list[FramePlan]]:
+    async def plan_batch(
+        start_index: int,
+        batch_narrations: list[str],
+        attempt: int = 1,
+    ) -> tuple[int, list[FramePlan]]:
         scene_id_start = start_index + 1
         batch_prompt_contexts = slice_prompt_contexts(
             normalized_prompt_contexts,
@@ -409,27 +415,44 @@ async def plan_storyboard_batch(
             prompt_language=resolved_prompt_language,
         )
         async with planning_semaphore:
-            llm_response = await llm_service(
-                prompt=rendered_prompt.text,
-                response_type=StoryboardPlanningResponse,
-                temperature=0.2,
-                max_tokens=_storyboard_planning_max_tokens(len(batch_narrations)),
-                trace_context=(
-                    trace_context_with_prompt_template(
-                        trace_context,
-                        rendered_prompt=rendered_prompt,
-                        attempt=1,
-                        stage="storyboard_planning",
-                        metadata={
-                            "batch_start_index": start_index,
-                            "batch_size": len(batch_narrations),
-                        },
-                    )
-                    if trace_context is not None
-                    else None
-                ),
-                trace_recorder=trace_recorder,
-            )
+            try:
+                llm_response = await llm_service(
+                    prompt=rendered_prompt.text,
+                    response_type=StoryboardPlanningResponse,
+                    temperature=0.2,
+                    max_tokens=_storyboard_planning_max_tokens(len(batch_narrations)),
+                    trace_context=(
+                        trace_context_with_prompt_template(
+                            trace_context,
+                            rendered_prompt=rendered_prompt,
+                            attempt=attempt,
+                            stage="storyboard_planning",
+                            metadata={
+                                "batch_start_index": start_index,
+                                "batch_size": len(batch_narrations),
+                            },
+                        )
+                        if trace_context is not None
+                        else None
+                    ),
+                    trace_recorder=trace_recorder,
+                )
+            except ValueError as exc:
+                if len(batch_narrations) <= 1:
+                    raise
+                logger.warning(
+                    "Token limit exceeded for batch size %d; splitting in half "
+                    "and retrying (attempt=%d, error=%s)",
+                    len(batch_narrations), attempt, exc,
+                )
+                mid = len(batch_narrations) // 2
+                left_half = batch_narrations[:mid]
+                right_half = batch_narrations[mid:]
+                left_result = await plan_batch(start_index, left_half, attempt + 1)
+                right_result = await plan_batch(start_index + mid, right_half, attempt + 1)
+                _, left_frames = left_result
+                _, right_frames = right_result
+                return start_index, left_frames + right_frames
         frame_batch = _validate_frame_batch(
             frame_plans=_coerce_storyboard_frame_plans(llm_response),
             expected_narrations=batch_narrations,

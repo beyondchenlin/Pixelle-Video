@@ -15,7 +15,7 @@ class StructuredOutputCapabilities:
 
 
 _MAX_INPUT_TOKENS_BY_MODEL: dict[str, int] = {
-    "qwen-max": 50000,
+    "qwen-max": 30720,
     "qwen-plus": 131072,
     "qwen-turbo": 131072,
     "gpt-4o": 128000,
@@ -40,7 +40,7 @@ _MAX_INPUT_TOKENS_BY_MODEL: dict[str, int] = {
 }
 
 _MAX_OUTPUT_TOKENS_BY_MODEL: dict[str, int] = {
-    "qwen-max": 50000,
+    "qwen-max": 8192,
     "qwen-plus": 8192,
     "qwen-turbo": 8192,
     "gpt-4o": 16384,
