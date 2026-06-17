@@ -16,7 +16,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from api.schemas.video import validate_public_resource_id
+from pixelle_video.services.resource_resolver import RESOURCE_ID_PATTERN
 
 ReferenceImageAnalysisModeRequest = Literal["off", "auto", "required"]
 ReferenceImageWorkflowInjectionModeRequest = Literal["off", "auto", "required"]
@@ -56,9 +56,9 @@ class ReferenceImageInputRequest(BaseModel):
     @model_validator(mode="after")
     def validate_selector(self) -> "ReferenceImageInputRequest":
         if self.upload_id is not None:
-            self.upload_id = validate_public_resource_id("reference_image.upload_id", self.upload_id)
+            self.upload_id = _validate_public_reference_id("reference_image.upload_id", self.upload_id)
         if self.artifact_id is not None:
-            self.artifact_id = validate_public_resource_id("reference_image.artifact_id", self.artifact_id)
+            self.artifact_id = _validate_public_reference_id("reference_image.artifact_id", self.artifact_id)
         count = sum(1 for value in (self.upload_id, self.artifact_id) if value)
         if count != 1:
             raise ValueError("reference_image must include exactly one of upload_id or artifact_id")
@@ -75,3 +75,11 @@ class ReferenceImageUploadResponse(BaseModel):
     height: int
     byte_size: int
     original_display_name: str
+
+
+def _validate_public_reference_id(field_name: str, value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not RESOURCE_ID_PATTERN.fullmatch(value):
+        raise ValueError(f"{field_name} must be a public reference image ID")
+    return value
