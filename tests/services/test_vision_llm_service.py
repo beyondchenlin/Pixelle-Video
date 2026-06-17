@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
+from pixelle_video.config import config_manager
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceRequiredError
 from pixelle_video.services.vision_llm_service import VisionLLMService
 
@@ -109,3 +110,28 @@ async def test_vision_llm_service_rejects_unknown_text_model():
             trace_context=_trace_context(),
             trace_recorder=_FakeRecorder(),
         )
+
+
+def test_constructor_config_overrides_global_vision_config(monkeypatch):
+    def fake_get(key, default=None):
+        if key == "vision_llm":
+            return {
+                "model": "deepseek-chat",
+                "force_supports_vision": None,
+                "temperature": 0.9,
+            }
+        return default
+
+    monkeypatch.setattr(config_manager, "get", fake_get)
+
+    service = VisionLLMService(
+        {
+            "model": "qwen-vl-max",
+            "force_supports_vision": True,
+        }
+    )
+
+    resolved = service._get_vision_config()
+    assert resolved["model"] == "qwen-vl-max"
+    assert resolved["force_supports_vision"] is True
+    assert resolved["temperature"] == 0.9
