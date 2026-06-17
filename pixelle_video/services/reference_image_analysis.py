@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
-from pixelle_video.models.llm_interaction_trace import LLMTraceContext
+from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceRequiredError
 from pixelle_video.models.reference_image import ReferenceImageAsset
 from pixelle_video.models.reference_image_analysis import (
     REFERENCE_IMAGE_ANALYSIS_ARTIFACT_VERSION,
@@ -40,6 +41,11 @@ _IMAGE_MIME_BY_SUFFIX = {
     ".png": "image/png",
     ".webp": "image/webp",
 }
+_DATA_IMAGE_RE = re.compile(r"data:image/[^;,\s]+;base64,[A-Za-z0-9+/=]+", re.IGNORECASE)
+_ABSOLUTE_PATH_HINT_RE = re.compile(
+    r"([A-Za-z]:\\[^ \n\r\t]+|/(?:Users|home|mnt|var|tmp|etc)/[^ \n\r\t]+)"
+)
+_MAX_ERROR_MESSAGE_CHARS = 2000
 
 _SYSTEM_PROMPT = """You are analyzing a reference image for consistent AI video storyboard generation.
 Return ONLY a valid JSON object.
@@ -101,9 +107,48 @@ def vision_config_enabled(vision_config: Mapping[str, Any] | Any | None) -> bool
 
 
 def vision_config_model(vision_config: Mapping[str, Any] | Any | None) -> str:
+    return str(_vision_config_value(vision_config, "model", "") or "").strip()
+
+
+def sanitize_reference_image_analysis_error(message: object) -> str:
+    text = str(message or "")
+    text = _DATA_IMAGE_RE.sub("<redacted:data-url>", text)
+    text = _ABSOLUTE_PATH_HINT_RE.sub("<redacted:absolute-path>", text)
+    return text[:_MAX_ERROR_MESSAGE_CHARS]
+
+
+def _vision_config_value(
+    vision_config: Mapping[str, Any] | Any | None,
+    key: str,
+    default: Any = None,
+) -> Any:
     if isinstance(vision_config, Mapping):
-        return str(vision_config.get("model") or "").strip()
-    return str(getattr(vision_config, "model", "") or "").strip()
+        return vision_config.get(key, default)
+    return getattr(vision_config, key, default)
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _vision_chat_kwargs(vision_config: Mapping[str, Any] | None) -> dict[str, Any]:
+    return {
+        "api_key": _vision_config_value(vision_config, "api_key"),
+        "base_url": _vision_config_value(vision_config, "base_url"),
+        "model": vision_config_model(vision_config),
+        "temperature": _safe_float(_vision_config_value(vision_config, "temperature", 0.2), 0.2),
+        "max_tokens": _safe_int(_vision_config_value(vision_config, "max_tokens", 1200), 1200),
+    }
 
 
 class ReferenceImageAnalysisService:
@@ -157,13 +202,17 @@ class ReferenceImageAnalysisService:
             asset=asset,
             prompt_language=prompt_language,
         )
+        vision_chat_kwargs = _vision_chat_kwargs(vision_config)
         try:
             content = await vision_llm_service.chat(
                 messages=messages,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
+                **vision_chat_kwargs,
             )
             analysis = self._parse_analysis(content)
+        except LLMTraceRequiredError:
+            raise
         except Exception as first_exc:
             try:
                 retry_messages = [*messages, {"role": "user", "content": "The previous response was invalid. Return ONLY one valid JSON object matching the requested schema."}]
@@ -171,10 +220,14 @@ class ReferenceImageAnalysisService:
                     messages=retry_messages,
                     trace_context=trace_context,
                     trace_recorder=trace_recorder,
+                    **vision_chat_kwargs,
                 )
                 analysis = self._parse_analysis(content)
+            except LLMTraceRequiredError:
+                raise
             except Exception as retry_exc:
-                error_message = str(retry_exc) or str(first_exc)
+                error_message = sanitize_reference_image_analysis_error(retry_exc) or sanitize_reference_image_analysis_error(first_exc)
+                first_warning = sanitize_reference_image_analysis_error(first_exc)
                 result = self._write_result(
                     task_root,
                     ReferenceImageAnalysisResult(
@@ -185,7 +238,7 @@ class ReferenceImageAnalysisService:
                         analysis_language=prompt_language,
                         reason="vision_analysis_failed",
                         error=error_message,
-                        warnings=[str(first_exc)] if str(first_exc) != error_message else [],
+                        warnings=[first_warning] if first_warning and first_warning != error_message else [],
                     ),
                 )
                 if analysis_mode == "required":
