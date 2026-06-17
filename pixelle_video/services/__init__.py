@@ -19,6 +19,7 @@ Services:
 - LLMService: LLM text generation
 - VisionLLMService: Multimodal LLM calls for reference-image analysis
 - ReferenceImageAnalysisService: Structured Vision analysis + analysis artifact
+- ReferenceImageVisualContextAdapter: Reference analysis to prompt-planning context
 - TTSService: Text-to-speech
 - MediaService: Media generation (image & video)
 - VideoService: Video processing
@@ -35,6 +36,9 @@ from pixelle_video.services.llm_service import LLMService
 from pixelle_video.services.media import MediaService
 from pixelle_video.services.persistence import PersistenceService
 from pixelle_video.services.reference_image_analysis import ReferenceImageAnalysisService
+from pixelle_video.services.reference_image_visual_context_adapter import (
+    ReferenceImageVisualContextAdapter,
+)
 from pixelle_video.services.tts_service import TTSService
 from pixelle_video.services.video import VideoService
 from pixelle_video.services.vision_llm_service import VisionLLMService
@@ -47,6 +51,7 @@ __all__ = [
     "LLMService",
     "VisionLLMService",
     "ReferenceImageAnalysisService",
+    "ReferenceImageVisualContextAdapter",
     "TTSService",
     "MediaService",
     "ImageService",  # Backward compatibility
