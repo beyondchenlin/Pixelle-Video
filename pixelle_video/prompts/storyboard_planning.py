@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from pydantic import ValidationError
 
-from pixelle_video.models.prompt_context import PromptContextInput, prompt_context_payload
+from pixelle_video.models.prompt_context import PromptContextInput, llm_prompt_context_payload
 from pixelle_video.models.storyboard_planning import FramePlan, StoryboardPlanningResponse
 from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
@@ -52,7 +52,7 @@ def render_storyboard_planning_prompt(
         {"scene_id": str(scene_id_start + index), "text": frame_source_text}
         for index, frame_source_text in enumerate(narrations)
     ]
-    context_payload = prompt_context_payload(
+    context_payload = llm_prompt_context_payload(
         prompt_contexts,
         len(narrations),
         error_prefix="storyboard prompt_contexts",
