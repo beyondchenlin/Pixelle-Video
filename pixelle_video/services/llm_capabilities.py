@@ -39,11 +39,46 @@ _MAX_INPUT_TOKENS_BY_MODEL: dict[str, int] = {
     "llama3": 8192,
 }
 
+_MAX_OUTPUT_TOKENS_BY_MODEL: dict[str, int] = {
+    "qwen-max": 8192,
+    "qwen-plus": 8192,
+    "qwen-turbo": 8192,
+    "gpt-4o": 16384,
+    "gpt-4o-mini": 16384,
+    "gpt-4": 8192,
+    "deepseek-chat": 8192,
+    "deepseek-reasoner": 8192,
+    "claude-sonnet-4-5": 8192,
+    "claude-3-5-sonnet": 8192,
+    "claude-3-opus": 4096,
+    "claude-3-haiku": 4096,
+    "moonshot-v1-8k": 8192,
+    "moonshot-v1-32k": 8192,
+    "moonshot-v1-128k": 8192,
+}
+
 _DEFAULT_MAX_INPUT_TOKENS = 128000
-_DEFAULT_MAX_OUTPUT_TOKENS = 4096
+_DEFAULT_MAX_OUTPUT_TOKENS = 8192
+
+
+def _resolve_max_model_value(
+    model: str | None,
+    table: dict[str, int],
+    default: int,
+) -> int:
+    if not model:
+        return default
+    normalized = model.strip().lower()
+    if normalized in table:
+        return table[normalized]
+    for prefix, limit in sorted(table.items(), key=lambda x: -len(x[0])):
+        if normalized.startswith(prefix):
+            return limit
+    return default
 
 
 def _resolve_max_input_tokens(model: str | None) -> int:
+    return _resolve_max_model_value(model, _MAX_INPUT_TOKENS_BY_MODEL, _DEFAULT_MAX_INPUT_TOKENS)
     if not model:
         return _DEFAULT_MAX_INPUT_TOKENS
     normalized = model.strip().lower()
@@ -63,20 +98,22 @@ def structured_output_capabilities(
     hostname = urlparse(str(base_url or "").strip().lower()).hostname or ""
     normalized_model = str(model or "").strip().lower()
     max_input = _resolve_max_input_tokens(model)
+    max_output = _resolve_max_model_value(model, _MAX_OUTPUT_TOKENS_BY_MODEL, _DEFAULT_MAX_OUTPUT_TOKENS)
 
     if hostname.startswith("dashscope") and hostname.endswith("aliyuncs.com"):
         return StructuredOutputCapabilities(
             omit_max_tokens_with_json_object=True,
             max_input_tokens=max_input,
+            max_output_tokens=max_output,
         )
 
     if hostname in {"localhost", "127.0.0.1", "::1"} or hostname.endswith(".local"):
-        return StructuredOutputCapabilities(max_input_tokens=max_input)
+        return StructuredOutputCapabilities(max_input_tokens=max_input, max_output_tokens=max_output)
 
     if normalized_model.startswith(("deepseek-", "moonshot-", "kimi-")):
-        return StructuredOutputCapabilities(max_input_tokens=max_input)
+        return StructuredOutputCapabilities(max_input_tokens=max_input, max_output_tokens=max_output)
 
-    return StructuredOutputCapabilities(max_input_tokens=max_input)
+    return StructuredOutputCapabilities(max_input_tokens=max_input, max_output_tokens=max_output)
 
 
 def is_json_object_response_format_unsupported_error(exc: Exception) -> bool:
