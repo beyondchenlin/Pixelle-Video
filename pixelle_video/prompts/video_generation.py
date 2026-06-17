@@ -19,7 +19,7 @@ For generating video prompts from storyboard frame context.
 import json
 from typing import Any, List, Optional
 
-from pixelle_video.models.prompt_context import PromptContextInput, prompt_context_payload
+from pixelle_video.models.prompt_context import PromptContextInput, llm_prompt_context_payload
 from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
     DEFAULT_PROMPT_LANGUAGE,
@@ -51,7 +51,7 @@ def render_video_prompt_prompt(
     Example:
         >>> build_video_prompt_prompt(narrations, 50, 100)
     """
-    context_payload = prompt_context_payload(prompt_contexts, len(narrations))
+    context_payload = llm_prompt_context_payload(prompt_contexts, len(narrations))
     payload: dict[str, Any] = (
         {"frame_source_texts": narrations}
         if context_payload is not None

@@ -59,6 +59,7 @@ from pixelle_video.models.text_overlay import (
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
 from pixelle_video.services.content_world_planner import ContentWorldPlanner
+from pixelle_video.services.llm_capabilities import estimate_input_tokens
 from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
 )
@@ -99,6 +100,11 @@ from pixelle_video.utils.prompt_helper import (
     select_image_text_negative_prompt,
     select_negative_text_rules,
 )
+
+# Conservative safety margin for pre-flight batch sizing.
+# The authoritative guard lives in LLMService.__call__ using per-model limits.
+_LLM_BATCH_SAFE_TOKENS = 25000
+
 from pixelle_video.utils.style_resolution import (
     normalize_storyboard_style,
     resolve_style_source,
@@ -1104,6 +1110,32 @@ async def generate_image_prompts(
         max_concurrency=resolved_max_concurrency,
     )
 
+    if resolved_batch_size > 1 and narrations:
+        sample_items = narrations[:resolved_batch_size]
+        sample_prompt = render_image_prompt_prompt(
+            narrations=sample_items,
+            min_words=min_words,
+            max_words=max_words,
+            style_profile=style_profile,
+            prompt_contexts=_slice_prompt_contexts(normalized_prompt_contexts, 0, len(sample_items)),
+            prompt_language=prompt_language,
+        )
+        est_tokens = estimate_input_tokens(sample_prompt.text)
+        if est_tokens > _LLM_BATCH_SAFE_TOKENS:
+            new_size = max(1, int(resolved_batch_size * _LLM_BATCH_SAFE_TOKENS / est_tokens))
+            if new_size < resolved_batch_size:
+                logger.warning(
+                    f"Estimated prompt {est_tokens}tok exceeds safety margin "
+                    f"{_LLM_BATCH_SAFE_TOKENS}tok; "
+                    f"reducing batch_size from {resolved_batch_size} to {new_size}"
+                )
+                resolved_batch_size = new_size
+                batch_total = (
+                    (len(narrations) + resolved_batch_size - 1) // resolved_batch_size
+                    if narrations
+                    else 0
+                )
+
     logger.info(f"Split into {batch_total} batches")
     async def run_batch(batch: PromptBatch[str], attempt: int) -> list[str]:
         logger.info(
@@ -2003,6 +2035,32 @@ async def generate_video_prompts(
         batch_size=resolved_batch_size,
         max_concurrency=resolved_max_concurrency,
     )
+
+    if resolved_batch_size > 1 and narrations:
+        sample_items = narrations[:resolved_batch_size]
+        sample_prompt = render_video_prompt_prompt(
+            narrations=sample_items,
+            min_words=min_words,
+            max_words=max_words,
+            style_profile=style_profile,
+            prompt_contexts=_slice_prompt_contexts(normalized_prompt_contexts, 0, len(sample_items)),
+            prompt_language=prompt_language,
+        )
+        est_tokens = estimate_input_tokens(sample_prompt.text)
+        if est_tokens > _LLM_BATCH_SAFE_TOKENS:
+            new_size = max(1, int(resolved_batch_size * _LLM_BATCH_SAFE_TOKENS / est_tokens))
+            if new_size < resolved_batch_size:
+                logger.warning(
+                    f"Estimated prompt {est_tokens}tok exceeds safety margin "
+                    f"{_LLM_BATCH_SAFE_TOKENS}tok; "
+                    f"reducing batch_size from {resolved_batch_size} to {new_size}"
+                )
+                resolved_batch_size = new_size
+                batch_total = (
+                    (len(narrations) + resolved_batch_size - 1) // resolved_batch_size
+                    if narrations
+                    else 0
+                )
 
     logger.info(f"Split into {batch_total} batches")
     async def run_batch(batch: PromptBatch[str], attempt: int) -> list[str]:

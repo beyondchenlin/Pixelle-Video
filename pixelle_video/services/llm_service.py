@@ -40,6 +40,7 @@ from pixelle_video.prompts.structured_output import (
     render_structured_schema_output_prompt,
 )
 from pixelle_video.services.llm_capabilities import (
+    estimate_input_tokens,
     is_json_object_response_format_unsupported_error,
     structured_output_capabilities,
 )
@@ -208,7 +209,29 @@ class LLMService:
         )
         
         logger.debug(f"LLM call: model={final_model}, base_url={client.base_url}, response_type={response_type}")
-        
+
+        # Pre-flight: reject oversized prompts before wasting an API call
+        final_base_url = str(client.base_url or "") if client.base_url else None
+        capabilities = structured_output_capabilities(
+            base_url=final_base_url,
+            model=final_model,
+        )
+        est_tokens = estimate_input_tokens(prompt)
+        if est_tokens > capabilities.max_input_tokens:
+            raise ValueError(
+                f"Estimated input token count ({est_tokens}) exceeds model "
+                f"'{final_model}' maximum input tokens "
+                f"({capabilities.max_input_tokens}). "
+                "Reduce the input length or split into smaller batches."
+            )
+        if max_tokens > capabilities.max_output_tokens:
+            logger.warning(
+                f"Requested max_tokens ({max_tokens}) exceeds model "
+                f"'{final_model}' max output tokens "
+                f"({capabilities.max_output_tokens}); clamping."
+            )
+            max_tokens = capabilities.max_output_tokens
+
         try:
             if response_type is not None:
                 # Check if response_type is dict (raw JSON dict mode)

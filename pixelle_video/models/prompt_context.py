@@ -13,6 +13,19 @@ _PLAN_CONTEXT_KEYS = frozenset(
     }
 )
 
+# Frame context fields that add no value to LLM prompt templates.
+# Dropping them saves tokens with zero quality impact.
+_LLM_DROP_FRAME_KEYS: frozenset[str] = frozenset({
+    "source_text",      # duplicate of frame_source_text
+    "frame_id",         # internal tracking key, not consumed by templates
+    "source_start",     # text position metadata, not visual
+    "source_end",       # same
+    "metadata",         # generic dict; focus_detail is extracted as top-level key
+    "override_source",  # internal override tracking, not consumed by templates
+})
+
+_LLM_DROP_PLAN_KEYS: frozenset[str] = frozenset()
+
 
 @dataclass(frozen=True)
 class PromptContextEnvelope:
@@ -45,6 +58,29 @@ class PromptContextEnvelope:
         return {
             "plan_context": dict(self.plan_context),
             "prompt_contexts": [dict(context) for context in self.frame_contexts],
+        }
+
+    def to_llm_payload(self) -> dict[str, Any]:
+        """Return payload trimmed to fields LLM templates actually consume.
+
+        Strips internal-only and duplicate keys that waste input tokens.
+        Python-side consumers that need the full envelope continue using
+        ``self.frame_contexts``; only the serialised JSON shrinks.
+        """
+        return {
+            "plan_context": {
+                k: v
+                for k, v in self.plan_context.items()
+                if k not in _LLM_DROP_PLAN_KEYS
+            },
+            "prompt_contexts": [
+                {
+                    k: v
+                    for k, v in context.items()
+                    if k not in _LLM_DROP_FRAME_KEYS
+                }
+                for context in self.frame_contexts
+            ],
         }
 
 
@@ -96,6 +132,23 @@ def prompt_context_payload(
     return envelope.to_prompt_payload()
 
 
+def llm_prompt_context_payload(
+    prompt_contexts: PromptContextInput | None,
+    expected_count: int,
+    *,
+    error_prefix: str = "prompt_contexts",
+) -> dict[str, Any] | None:
+    """Like :func:`prompt_context_payload` but strips fields not needed by LLM templates."""
+    envelope = normalize_prompt_contexts(
+        prompt_contexts,
+        expected_count,
+        error_prefix=error_prefix,
+    )
+    if envelope is None:
+        return None
+    return envelope.to_llm_payload()
+
+
 def _compact_legacy_contexts(
     prompt_contexts: Sequence[Mapping[str, Any]],
     *,
@@ -130,5 +183,6 @@ __all__ = [
     "PromptContextInput",
     "normalize_prompt_contexts",
     "prompt_context_payload",
+    "llm_prompt_context_payload",
     "slice_prompt_contexts",
 ]
