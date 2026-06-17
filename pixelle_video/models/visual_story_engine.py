@@ -163,6 +163,8 @@ class ArticleVisualUnderstanding:
 
     @classmethod
     def from_mapping(cls, source: Mapping[str, Any]) -> "ArticleVisualUnderstanding":
+        if not isinstance(source, Mapping):
+            source = {}
         return cls(
             input_kind=source.get("input_kind") or source.get("source_kind") or ArticleInputKind.UNKNOWN,
             summary=source.get("summary") or source.get("article_summary") or source.get("core_claim") or "article summary",

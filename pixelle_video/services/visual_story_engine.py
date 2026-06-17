@@ -190,7 +190,8 @@ class VisualStoryEngineService:
                 trace_recorder=trace_recorder,
             )
             payload = _coerce_mapping_response(response)
-            article = ArticleVisualUnderstanding.from_mapping(payload.get("article_understanding") or payload.get("article") or {})
+            article_raw = payload.get("article_understanding") or payload.get("article") or {}
+            article = ArticleVisualUnderstanding.from_mapping(article_raw if isinstance(article_raw, Mapping) else {})
             candidates = tuple(
                 VisualRouteCandidate.from_mapping(item)
                 for item in payload.get("candidate_routes") or payload.get("routes") or ()
