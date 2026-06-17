@@ -24,6 +24,15 @@ from pixelle_video.utils.workflow_capabilities import get_workflow_capabilities
 
 REFERENCE_IMAGE_WORKFLOW_BINDING_PARAM = "_reference_image_workflow_binding_trace"
 _ALLOWED_INJECTION_MODES = {"off", "auto", "required"}
+_REFERENCE_PARAM_PRIORITY = (
+    "reference_image",
+    "reference_image_path",
+    "ref_image",
+    "source_image",
+    "input_image",
+    "init_image",
+    "start_image",
+)
 
 
 def normalize_reference_image_workflow_injection_mode(
@@ -121,7 +130,7 @@ def build_reference_image_workflow_binding(
         workflow_param_overrides or {},
         workflow_key=workflow_key,
     )
-    candidate_param_names = explicit_names or capabilities.reference_image_param_names
+    candidate_param_names = explicit_names or _select_reference_image_param(capabilities.reference_image_param_names)
     if not candidate_param_names:
         return _handle_unavailable(
             injection_mode=injection_mode,
@@ -151,6 +160,8 @@ def build_reference_image_workflow_binding(
         workflow_param_trace_values=workflow_param_trace_values,
         summary={
             "param_names": list(candidate_param_names),
+            "param_selection": "override" if explicit_names else "capability_priority",
+            "declared_reference_params": list(capabilities.reference_image_param_names),
             "asset": asset_trace,
             "workflow_source": source,
         },
@@ -172,6 +183,14 @@ def apply_reference_image_workflow_binding_trace(
         if name and name in params:
             params[name] = value
     return params
+
+
+def _select_reference_image_param(param_names: Sequence[str]) -> tuple[str, ...]:
+    normalized = {str(name).lower(): str(name).strip() for name in param_names if str(name).strip()}
+    for candidate in _REFERENCE_PARAM_PRIORITY:
+        if candidate in normalized:
+            return (normalized[candidate],)
+    return tuple(str(name).strip() for name in param_names if str(name).strip())[:1]
 
 
 def _resolve_workflow_info(media_service: Any, *, workflow: str | None, media_type: str) -> Mapping[str, Any]:
