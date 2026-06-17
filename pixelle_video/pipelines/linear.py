@@ -35,16 +35,28 @@ from pixelle_video.models.progress import (
 )
 from pixelle_video.models.prompt_plan import PromptPlanBundle
 from pixelle_video.models.reference_image import ReferenceImageAsset
-from pixelle_video.models.reference_image_analysis import ReferenceImageAnalysis
+from pixelle_video.models.reference_image_analysis import (
+    ReferenceImageAnalysis,
+    ReferenceImageAnalysisResult,
+)
+from pixelle_video.models.reference_image_visual_context import ReferenceImageVisualContext
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoGenerationResult
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
 from pixelle_video.pipelines.base import BasePipeline
+from pixelle_video.services.reference_image_analysis import (
+    ReferenceImageAnalysisService,
+    resolve_reference_image_analysis_mode,
+)
 from pixelle_video.services.reference_image_asset_service import (
     ReferenceImageAssetService,
     resolve_reference_image_input,
 )
+from pixelle_video.services.reference_image_visual_context_adapter import (
+    ReferenceImageVisualContextAdapter,
+)
 from pixelle_video.services.timing_planner import TimingPlan
+from pixelle_video.services.vision_llm_service import VisionLLMService
 from pixelle_video.utils.logging_util import bind_log_context
 
 
@@ -79,11 +91,48 @@ def _resolve_reference_image_config(core_config: Any) -> Any:
     return config_manager.get("reference_image", {})
 
 
+def _resolve_vision_llm_config(core_config: Any) -> Mapping[str, Any]:
+    vision_config = _config_mapping_get(core_config, "vision_llm")
+    if isinstance(vision_config, Mapping):
+        return dict(vision_config)
+    configured = config_manager.get("vision_llm", {})
+    return dict(configured) if isinstance(configured, Mapping) else {}
+
+
 def _reference_image_enabled(params: Mapping[str, Any], reference_image_config: Any) -> bool:
     for param_name in _REFERENCE_IMAGE_ENABLED_PARAM_NAMES:
         if param_name in params and params[param_name] is not None:
             return _coerce_bool(params[param_name])
     return _coerce_bool(_config_mapping_get(reference_image_config, "enabled", False))
+
+
+def _resolve_reference_image_merge_mode(params: Mapping[str, Any], reference_image_config: Any) -> str:
+    explicit_mode = params.get("reference_image_profile_merge_mode") or params.get("profile_merge_mode")
+    if explicit_mode is None:
+        structured_input = params.get("reference_image")
+        if isinstance(structured_input, Mapping):
+            explicit_mode = structured_input.get("profile_merge_mode")
+    configured_mode = explicit_mode or _config_mapping_get(
+        reference_image_config,
+        "profile_merge_mode",
+        "supplement",
+    )
+    normalized = str(configured_mode or "supplement").strip().lower()
+    return normalized if normalized in {"supplement", "override", "strict"} else "supplement"
+
+
+def _append_reference_image_hint(existing_hint: Any, prompt_hint: str) -> str:
+    prompt_hint = str(prompt_hint or "").strip()
+    if not prompt_hint:
+        return str(existing_hint or "").strip()
+    prefix = "参考图视觉一致性提示："
+    existing = str(existing_hint or "").strip()
+    reference_clause = f"{prefix}{prompt_hint}"
+    if not existing:
+        return reference_clause
+    if reference_clause in existing:
+        return existing
+    return f"{existing}\n\n{reference_clause}"
 
 
 @dataclass
@@ -126,6 +175,8 @@ class PipelineContext:
     timing_plan: Optional[TimingPlan] = None
     reference_image_asset: Optional[ReferenceImageAsset] = None
     reference_image_analysis: Optional[ReferenceImageAnalysis] = None
+    reference_image_analysis_result: Optional[ReferenceImageAnalysisResult] = None
+    reference_image_visual_context: Optional[ReferenceImageVisualContext] = None
 
     # === Configuration & Storyboard ===
     config: Optional[StoryboardConfig] = None
@@ -206,6 +257,8 @@ class LinearVideoPipeline(BasePipeline):
                     # === Phase 2: Content Creation ===
                     await self.generate_content(ctx)
                     await self.determine_title(ctx)
+                    await self.analyze_reference_image(ctx)
+                    await self.prepare_reference_image_visual_context(ctx)
 
                     # === Phase 3: Visual Planning ===
                     await self.plan_visuals(ctx)
@@ -267,6 +320,81 @@ class LinearVideoPipeline(BasePipeline):
             "Reference image assetized: {}",
             asset.workflow_asset_relative_path,
         )
+
+    async def analyze_reference_image(self, ctx: PipelineContext):
+        """Run optional structured reference image analysis before visual planning."""
+        if ctx.reference_image_asset is None or not ctx.task_dir:
+            return
+
+        reference_image_config = _resolve_reference_image_config(getattr(self.core, "config", None))
+        analysis_mode = resolve_reference_image_analysis_mode(
+            ctx.params,
+            reference_image_config,
+        )
+        vision_config = _resolve_vision_llm_config(getattr(self.core, "config", None))
+        prompt_language = str(ctx.params.get("storyboard_prompt_language") or "zh_CN")
+
+        trace_context = None
+        trace_context_factory = getattr(self, "_llm_trace_context", None)
+        if callable(trace_context_factory) and ctx.task_id:
+            trace_context = trace_context_factory(
+                ctx,
+                operation="reference_image_analysis",
+            )
+        trace_recorder = None
+        trace_recorder_factory = getattr(self, "_llm_trace_recorder", None)
+        if callable(trace_recorder_factory):
+            trace_recorder = trace_recorder_factory(ctx)
+
+        result = await ReferenceImageAnalysisService().analyze(
+            vision_llm_service=VisionLLMService(vision_config),
+            asset=ctx.reference_image_asset,
+            prompt_language=prompt_language,
+            task_dir=ctx.task_dir,
+            analysis_mode=analysis_mode,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+            vision_config=vision_config,
+        )
+        ctx.reference_image_analysis_result = result
+        ctx.reference_image_analysis = result.analysis
+        trace_payload = result.to_trace_dict()
+        ctx.params["reference_image_analysis"] = trace_payload
+        ctx.observability["reference_image_analysis"] = trace_payload
+
+    async def prepare_reference_image_visual_context(self, ctx: PipelineContext):
+        """Build prompt-only visual context and inject it into visual planning params."""
+        if (
+            ctx.reference_image_asset is None
+            or ctx.reference_image_analysis_result is None
+            or not ctx.task_dir
+        ):
+            return
+
+        reference_image_config = _resolve_reference_image_config(getattr(self.core, "config", None))
+        merge_mode = _resolve_reference_image_merge_mode(ctx.params, reference_image_config)
+        build_result = ReferenceImageVisualContextAdapter().build(
+            asset=ctx.reference_image_asset,
+            analysis_result=ctx.reference_image_analysis_result,
+            ip_profile=None,
+            merge_mode=merge_mode,
+        )
+        visual_context = ReferenceImageVisualContextAdapter.write_artifact(
+            ctx.task_dir,
+            build_result.visual_context,
+        )
+        ctx.reference_image_visual_context = visual_context
+        visual_context_payload = visual_context.to_trace_dict()
+        ctx.params["reference_image_visual_context"] = visual_context_payload
+        ctx.params["reference_image_visual_story_context_patch"] = build_result.visual_story_context_patch
+        ctx.observability["reference_image_visual_context"] = visual_context_payload
+
+        if visual_context.enabled and visual_context.prompt_fallback_hint:
+            ctx.params["reference_image_prompt_fallback_hint"] = visual_context.prompt_fallback_hint
+            ctx.params["generation_world_hint"] = _append_reference_image_hint(
+                ctx.params.get("generation_world_hint"),
+                visual_context.prompt_fallback_hint,
+            )
 
     async def generate_content(self, ctx: PipelineContext):
         """Step 2: Generate or process script/narrations."""
