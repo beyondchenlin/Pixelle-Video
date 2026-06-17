@@ -10,6 +10,10 @@ from pixelle_video.services.reference_image_workflow_binding import (
     normalize_reference_image_workflow_injection_mode,
     resolve_reference_image_workflow_injection_mode,
 )
+from pixelle_video.utils.workflow_capabilities import (
+    _declared_reference_image_param_names,
+    _reference_image_param_names,
+)
 
 
 class _FakeMediaService:
@@ -96,6 +100,42 @@ def test_workflow_binding_override_param_names(monkeypatch, tmp_path):
 
     assert binding.status == "injected"
     assert binding.injected_params == {"init_image": str(asset_path)}
+
+
+def test_ambiguous_image_param_not_injected_without_override(monkeypatch, tmp_path):
+    assert _reference_image_param_names(("image",)) == ()
+    assert _declared_reference_image_param_names({"image": {}}) == ()
+    assert _declared_reference_image_param_names({"image": {"role": "reference_image"}}) == ("image",)
+    monkeypatch.setattr(
+        binding_module,
+        "get_workflow_capabilities",
+        lambda workflow_info: SimpleNamespace(reference_image_param_names=()),
+    )
+    asset_path = tmp_path / "workflow.jpg"
+    asset_path.write_bytes(b"fake-image")
+
+    binding = build_reference_image_workflow_binding(
+        media_service=_FakeMediaService(),
+        workflow="selfhost/custom.json",
+        media_type="image",
+        injection_mode="auto",
+        reference_image_asset_path=str(asset_path),
+        reference_image_asset_trace=_asset_trace(),
+    )
+    assert binding.status == "skipped"
+    assert binding.reason == "workflow_does_not_declare_reference_image_param"
+
+    override_binding = build_reference_image_workflow_binding(
+        media_service=_FakeMediaService(),
+        workflow="selfhost/custom.json",
+        media_type="image",
+        injection_mode="auto",
+        reference_image_asset_path=str(asset_path),
+        reference_image_asset_trace=_asset_trace(),
+        workflow_param_overrides={"selfhost/custom.json": ["image"]},
+    )
+    assert override_binding.status == "injected"
+    assert override_binding.injected_params == {"image": str(asset_path)}
 
 
 def test_apply_reference_binding_trace_replaces_absolute_path(tmp_path):
