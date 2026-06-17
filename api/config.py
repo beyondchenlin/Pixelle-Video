@@ -58,6 +58,11 @@ class APIConfig(BaseModel):
     
     # File upload settings
     max_upload_size: int = 100 * 1024 * 1024  # 100MB
+
+    # Reference image gray API settings
+    reference_image_api_enabled: bool = False
+    reference_image_upload_base_path: str = "_runtime/reference_image_uploads"
+    reference_image_max_upload_size_mb: int = 20
     
     # API settings
     api_prefix: str = "/api"
@@ -112,6 +117,18 @@ class APIConfig(BaseModel):
                 "PIXELLE_ARTIFACT_OBJECT_STORE_ENDPOINT_URL"
             ),
             artifact_object_store_bucket=os.getenv("PIXELLE_ARTIFACT_OBJECT_STORE_BUCKET"),
+            reference_image_api_enabled=_env_bool(
+                "PIXELLE_REFERENCE_IMAGE_API_ENABLED",
+                default=False,
+            ),
+            reference_image_upload_base_path=_env_str(
+                "PIXELLE_REFERENCE_IMAGE_UPLOAD_BASE_PATH",
+                default="_runtime/reference_image_uploads",
+            ),
+            reference_image_max_upload_size_mb=_env_int(
+                "PIXELLE_REFERENCE_IMAGE_MAX_UPLOAD_SIZE_MB",
+                default=20,
+            ),
         )
 
     @model_validator(mode="after")
@@ -126,6 +143,12 @@ class APIConfig(BaseModel):
             raise ValueError(
                 "generation_submit_lock_wait_seconds must be greater than or equal to generation_submit_lock_poll_seconds"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_reference_image_upload_settings(self) -> "APIConfig":
+        if self.reference_image_max_upload_size_mb < 1:
+            raise ValueError("reference_image_max_upload_size_mb must be at least 1")
         return self
 
     @model_validator(mode="after")
