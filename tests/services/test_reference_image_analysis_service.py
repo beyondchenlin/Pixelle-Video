@@ -4,13 +4,14 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from pixelle_video.models.llm_interaction_trace import LLMTraceContext
+from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceRequiredError
 from pixelle_video.models.reference_image import ReferenceImageAsset
 from pixelle_video.models.reference_image_analysis import ReferenceImageAnalysis
 from pixelle_video.services.reference_image_analysis import (
     ReferenceImageAnalysisService,
     resolve_reference_image_analysis_mode,
 )
+from pixelle_video.services.vision_llm_service import VisionLLMService
 
 
 class _FakeVisionLLMService:
@@ -83,6 +84,19 @@ def _valid_analysis_json() -> str:
     )
 
 
+def _vision_config(**overrides):
+    config = {
+        "enabled": True,
+        "api_key": "vision-key",
+        "base_url": "https://vision.example/v1",
+        "model": "qwen-vl-max",
+        "temperature": 0.11,
+        "max_tokens": 321,
+    }
+    config.update(overrides)
+    return config
+
+
 @pytest.mark.asyncio
 async def test_reference_image_analysis_success_writes_artifact(tmp_path):
     asset = _asset(tmp_path)
@@ -96,13 +110,19 @@ async def test_reference_image_analysis_success_writes_artifact(tmp_path):
         analysis_mode="auto",
         trace_context=_trace_context(),
         trace_recorder=_FakeRecorder(),
-        vision_config={"enabled": True, "model": "qwen-vl-max"},
+        vision_config=_vision_config(),
     )
 
     assert result.status == "success"
     assert isinstance(result.analysis, ReferenceImageAnalysis)
     assert result.analysis.prompt_hint_zh.startswith("柔和")
     assert result.artifact_relative_path == "reference_image/analysis.json"
+    call = fake_vision.calls[0]
+    assert call["api_key"] == "vision-key"
+    assert call["base_url"] == "https://vision.example/v1"
+    assert call["model"] == "qwen-vl-max"
+    assert call["temperature"] == 0.11
+    assert call["max_tokens"] == 321
     artifact = json.loads((tmp_path / "task" / "reference_image" / "analysis.json").read_text(encoding="utf-8"))
     assert artifact["status"] == "success"
     artifact_json = json.dumps(artifact, ensure_ascii=False)
@@ -163,11 +183,91 @@ async def test_reference_image_analysis_retries_invalid_json_once(tmp_path):
         analysis_mode="auto",
         trace_context=_trace_context(),
         trace_recorder=_FakeRecorder(),
-        vision_config={"enabled": True, "model": "qwen-vl-max"},
+        vision_config=_vision_config(),
     )
 
     assert result.status == "success"
     assert len(fake_vision.calls) == 2
+    for call in fake_vision.calls:
+        assert call["model"] == "qwen-vl-max"
+        assert call["base_url"] == "https://vision.example/v1"
+
+
+@pytest.mark.asyncio
+async def test_analysis_failure_artifact_redacts_exception_payload(tmp_path):
+    asset = _asset(tmp_path)
+    fake_vision = _FakeVisionLLMService(
+        [
+            RuntimeError("first failure data:image/png;base64,AAAA /home/user/secret.png"),
+            RuntimeError("retry failure data:image/png;base64,BBBB /home/user/secret.png"),
+        ]
+    )
+
+    result = await ReferenceImageAnalysisService().analyze(
+        vision_llm_service=fake_vision,
+        asset=asset,
+        prompt_language="zh_CN",
+        task_dir=tmp_path / "task",
+        analysis_mode="auto",
+        trace_context=_trace_context(),
+        trace_recorder=_FakeRecorder(),
+        vision_config=_vision_config(),
+    )
+
+    assert result.status == "skipped"
+    artifact_text = (tmp_path / "task" / "reference_image" / "analysis.json").read_text(encoding="utf-8")
+    assert "base64," not in artifact_text
+    assert "data:image" not in artifact_text
+    assert "/home/user" not in artifact_text
+    assert "secret.png" not in artifact_text
+    assert "<redacted:data-url>" in artifact_text
+    assert "<redacted:absolute-path>" in artifact_text
+
+
+@pytest.mark.asyncio
+async def test_missing_trace_is_not_swallowed_when_vision_enabled(tmp_path):
+    asset = _asset(tmp_path)
+
+    with pytest.raises(LLMTraceRequiredError):
+        await ReferenceImageAnalysisService().analyze(
+            vision_llm_service=VisionLLMService({"force_supports_vision": True}),
+            asset=asset,
+            prompt_language="zh_CN",
+            task_dir=tmp_path / "task",
+            analysis_mode="auto",
+            trace_context=None,
+            trace_recorder=None,
+            vision_config=_vision_config(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_required_failure_raises_sanitized_error(tmp_path):
+    asset = _asset(tmp_path)
+    fake_vision = _FakeVisionLLMService(
+        [
+            RuntimeError("first failure data:image/png;base64,AAAA /home/user/secret.png"),
+            RuntimeError("retry failure data:image/png;base64,BBBB /home/user/secret.png"),
+        ]
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        await ReferenceImageAnalysisService().analyze(
+            vision_llm_service=fake_vision,
+            asset=asset,
+            prompt_language="zh_CN",
+            task_dir=tmp_path / "task",
+            analysis_mode="required",
+            trace_context=_trace_context(),
+            trace_recorder=_FakeRecorder(),
+            vision_config=_vision_config(),
+        )
+
+    message = str(exc_info.value)
+    assert "base64," not in message
+    assert "data:image" not in message
+    assert "/home/user" not in message
+    assert "<redacted:data-url>" in message
 
 
 def test_resolve_reference_image_analysis_mode_from_params_and_config():
