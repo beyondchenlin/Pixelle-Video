@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Mapping
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -45,8 +45,14 @@ class ReferenceImageContextBuildResult:
     visual_story_context_patch: dict[str, Any]
 
 
-def set_reference_image_visual_story_context_patch(patch: Mapping[str, Any] | None) -> None:
-    _REFERENCE_IMAGE_VISUAL_STORY_CONTEXT_PATCH.set(dict(patch or {}))
+def set_reference_image_visual_story_context_patch(
+    patch: Mapping[str, Any] | None,
+) -> Token:
+    return _REFERENCE_IMAGE_VISUAL_STORY_CONTEXT_PATCH.set(dict(patch or {}))
+
+
+def reset_reference_image_visual_story_context_patch(token: Token) -> None:
+    _REFERENCE_IMAGE_VISUAL_STORY_CONTEXT_PATCH.reset(token)
 
 
 def current_reference_image_visual_story_context_patch() -> dict[str, Any]:
