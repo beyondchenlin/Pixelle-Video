@@ -39,6 +39,7 @@ _KNOWN_NON_VISION_MODEL_PREFIXES = (
     "qwen-plus",
     "qwen-turbo",
 )
+_REMOTE_URL_SCHEMES = ("http://", "https://")
 
 
 def detect_vision_capabilities(
@@ -126,7 +127,7 @@ def estimate_messages_text_tokens(messages: list[Mapping[str, Any]]) -> int:
 
 
 def redact_multimodal_messages_for_trace(messages: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Return a trace-safe copy of multimodal messages without image base64."""
+    """Return a trace-safe copy of multimodal messages without image URLs/base64."""
 
     redacted: list[dict[str, Any]] = []
     for message in messages:
@@ -138,11 +139,30 @@ def redact_multimodal_messages_for_trace(messages: list[Mapping[str, Any]]) -> l
     return redacted
 
 
+def validate_multimodal_image_inputs(messages: list[Mapping[str, Any]]) -> None:
+    """Validate first-phase Vision image transport.
+
+    PR2 supports only inline ``data:image/...;base64`` inputs. Remote image URLs
+    are intentionally rejected because signed URLs or local-gateway URLs can leak
+    secrets into traces, logs, provider calls, and retry payloads.
+    """
+
+    for image_url in _iter_image_urls(messages):
+        if _is_remote_url(image_url):
+            raise ValueError("remote image URLs are not supported for Vision LLM calls in this phase")
+        if not _is_image_data_url(image_url):
+            raise ValueError("vision image inputs must use data:image base64 URLs in this phase")
+        summary = summarize_data_url_image(image_url)
+        if summary.get("decode_error"):
+            raise ValueError("invalid vision image data URL")
+
+
 def validate_multimodal_image_limits(
     messages: list[Mapping[str, Any]],
     *,
     max_image_size_mb: int | None,
 ) -> None:
+    validate_multimodal_image_inputs(messages)
     if max_image_size_mb is None:
         return
     max_bytes = max(1, int(max_image_size_mb)) * 1024 * 1024
@@ -185,26 +205,44 @@ def summarize_data_url_image(data_url: str) -> dict[str, Any]:
     }
 
 
+def summarize_remote_image_url(url: str) -> dict[str, Any]:
+    parsed = urlparse(str(url or "").strip())
+    return {
+        "url": "<redacted:remote-image-url>",
+        "domain": parsed.hostname or "",
+        "url_sha256": hashlib.sha256(str(url or "").encode("utf-8")).hexdigest(),
+    }
+
+
 def _redact_message_value(value: Any) -> Any:
     if isinstance(value, Mapping):
-        if "url" in value and _is_image_data_url(value.get("url")):
-            summary = summarize_data_url_image(str(value.get("url") or ""))
-            return {
-                **{str(key): _redact_message_value(item) for key, item in value.items() if key != "url"},
-                **summary,
-            }
+        if "url" in value:
+            raw_url = value.get("url")
+            if _is_image_data_url(raw_url):
+                summary = summarize_data_url_image(str(raw_url or ""))
+                return {
+                    **{str(key): _redact_message_value(item) for key, item in value.items() if key != "url"},
+                    **summary,
+                }
+            if _is_remote_url(raw_url):
+                return {
+                    **{str(key): _redact_message_value(item) for key, item in value.items() if key != "url"},
+                    **summarize_remote_image_url(str(raw_url or "")),
+                }
         return {str(key): _redact_message_value(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_redact_message_value(item) for item in value]
     if isinstance(value, str) and _is_image_data_url(value):
         return summarize_data_url_image(value)
+    if isinstance(value, str) and _is_remote_url(value):
+        return summarize_remote_image_url(value)
     return value
 
 
-def _iter_image_data_urls(messages: list[Mapping[str, Any]]):
+def _iter_image_urls(messages: list[Mapping[str, Any]]):
     for message in messages:
         content = message.get("content")
-        if isinstance(content, str) and _is_image_data_url(content):
+        if isinstance(content, str) and (_is_image_data_url(content) or _is_remote_url(content)):
             yield content
             continue
         if not isinstance(content, list):
@@ -212,15 +250,27 @@ def _iter_image_data_urls(messages: list[Mapping[str, Any]]):
         for part in content:
             if not isinstance(part, Mapping):
                 continue
-            if _is_image_data_url(part.get("image_url")):
-                yield str(part.get("image_url") or "")
             image_url = part.get("image_url")
-            if isinstance(image_url, Mapping) and _is_image_data_url(image_url.get("url")):
-                yield str(image_url.get("url") or "")
+            if isinstance(image_url, str):
+                yield image_url
+            elif isinstance(image_url, Mapping):
+                raw_url = image_url.get("url")
+                if isinstance(raw_url, str):
+                    yield raw_url
+
+
+def _iter_image_data_urls(messages: list[Mapping[str, Any]]):
+    for image_url in _iter_image_urls(messages):
+        if _is_image_data_url(image_url):
+            yield image_url
 
 
 def _is_image_data_url(value: Any) -> bool:
     return isinstance(value, str) and value.strip().lower().startswith("data:image/")
+
+
+def _is_remote_url(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower().startswith(_REMOTE_URL_SCHEMES)
 
 
 def _probe_image_dimensions(raw: bytes) -> tuple[int | None, int | None]:
