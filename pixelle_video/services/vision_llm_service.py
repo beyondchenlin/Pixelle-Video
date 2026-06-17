@@ -61,8 +61,8 @@ class VisionLLMService:
 
         configured = config_manager.get("vision_llm", {})
         if isinstance(configured, Mapping):
-            merged = dict(self._initial_config)
-            merged.update(dict(configured))
+            merged = dict(configured)
+            merged.update(self._initial_config)
             return merged
         return self._initial_config
 
