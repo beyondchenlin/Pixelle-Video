@@ -38,9 +38,11 @@ from pixelle_video.services.prompt_trace_artifacts import (
     summarize_media_workflow_result,
     validate_media_prompt_trace_artifact,
     write_media_result_artifact,
+    write_single_media_prompt_trace_context,
 )
 from pixelle_video.services.reference_image_workflow_binding import (
     REFERENCE_IMAGE_WORKFLOW_BINDING_PARAM,
+    apply_reference_image_workflow_binding_trace,
     build_reference_image_workflow_binding,
     resolve_reference_image_workflow_injection_mode,
     workflow_param_overrides_from_config,
@@ -59,6 +61,11 @@ _MEDIA_PROMPT_ALIAS_PARAM_KEYS = frozenset(
         "video_prompt",
         "text_prompt",
     }
+)
+_REFERENCE_IMAGE_MODE_PARAM_KEYS = (
+    "reference_image_workflow_injection_mode",
+    "workflow_injection_mode",
+    "ref_image_workflow_injection_mode",
 )
 SELFHOST_MEDIA_WORKFLOW_PREFIXES = ("image_", "video_")
 
@@ -171,6 +178,17 @@ def _media_workflow_execution_input(workflow_info: Mapping[str, Any]) -> str:
     return str(workflow_info["path"])
 
 
+def _extract_reference_image_mode_params(params: dict[str, Any]) -> dict[str, Any]:
+    extracted: dict[str, Any] = {}
+    for key in _REFERENCE_IMAGE_MODE_PARAM_KEYS:
+        if key in params:
+            extracted[key] = params.pop(key)
+    structured = params.get("reference_image")
+    if isinstance(structured, Mapping):
+        extracted["reference_image"] = params.pop("reference_image")
+    return extracted
+
+
 def _task_root_from_media_prompt_trace_context(context: Mapping[str, Any]) -> Path | None:
     artifact_path = Path(str(context.get("artifact_path") or ""))
     if not artifact_path.name:
@@ -180,8 +198,18 @@ def _task_root_from_media_prompt_trace_context(context: Mapping[str, Any]) -> Pa
         None,
     )
     if prompt_trace_root is None:
-        return artifact_path.parent
-    return prompt_trace_root.parent
+        return artifact_path.parent.resolve()
+    return prompt_trace_root.parent.resolve()
+
+
+def _safe_task_relative_path(task_root: Path, relative_path: str) -> Path | None:
+    try:
+        root = task_root.resolve()
+        candidate = (root / relative_path).resolve()
+        candidate.relative_to(root)
+        return candidate
+    except (OSError, ValueError):
+        return None
 
 
 def _reference_image_asset_from_task_root(task_root: Path | None) -> tuple[str | None, dict[str, Any]]:
@@ -200,7 +228,10 @@ def _reference_image_asset_from_task_root(task_root: Path | None) -> tuple[str |
     relative_path = asset_trace.get("workflow_asset_relative_path") or asset_trace.get("task_asset_relative_path")
     if not isinstance(relative_path, str) or not relative_path.strip():
         return None, dict(asset_trace)
-    return str((task_root / relative_path).resolve()), dict(asset_trace)
+    safe_path = _safe_task_relative_path(task_root, relative_path.strip())
+    if safe_path is None:
+        return None, dict(asset_trace)
+    return str(safe_path), dict(asset_trace)
 
 
 def _reference_image_config_from_service(service: "MediaService") -> Mapping[str, Any]:
@@ -212,19 +243,11 @@ def _reference_image_config_from_service(service: "MediaService") -> Mapping[str
     return {}
 
 
-def _workflow_params_without_reference_binding(
-    workflow_params: Mapping[str, Any],
-    binding_trace: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    params = dict(workflow_params or {})
-    if not isinstance(binding_trace, Mapping):
-        return params
-    trace_values = binding_trace.get("workflow_param_trace_values")
-    if not isinstance(trace_values, Mapping):
-        return params
-    for key in trace_values:
-        params.pop(str(key), None)
-    return params
+def _reference_binding_trace_output_dir(context: Mapping[str, Any]) -> Path:
+    artifact_path = Path(str(context.get("artifact_path") or ""))
+    if artifact_path.name:
+        return artifact_path.parent / "reference_image_binding"
+    return Path(".") / "reference_image_binding"
 
 
 def _result_with_reference_binding(
@@ -363,6 +386,7 @@ class MediaService(ComfyBaseService):
         **params
     ) -> MediaResult:
         reference_binding_trace = params.pop(REFERENCE_IMAGE_WORKFLOW_BINDING_PARAM, None)
+        reference_mode_params = _extract_reference_image_mode_params(params)
         trace_context = require_media_prompt_trace_context(
             media_prompt_trace_context,
             prompt=prompt,
@@ -383,7 +407,10 @@ class MediaService(ComfyBaseService):
 
         if not isinstance(reference_binding_trace, Mapping):
             reference_config = _reference_image_config_from_service(self)
-            injection_mode = resolve_reference_image_workflow_injection_mode({}, reference_config)
+            injection_mode = resolve_reference_image_workflow_injection_mode(
+                reference_mode_params,
+                reference_config,
+            )
             asset_path, asset_trace = _reference_image_asset_from_task_root(
                 _task_root_from_media_prompt_trace_context(trace_context)
             )
@@ -425,9 +452,33 @@ class MediaService(ComfyBaseService):
             workflow_params["duration"] = duration
             if media_type == "video":
                 logger.info(f"Target video duration: {duration:.2f}s (from TTS audio)")
-        validation_workflow_params = _workflow_params_without_reference_binding(
+
+        trace_safe_workflow_params = apply_reference_image_workflow_binding_trace(
             workflow_params,
             reference_binding_trace if isinstance(reference_binding_trace, Mapping) else None,
+        )
+        if isinstance(reference_binding_trace, Mapping) and reference_binding_trace.get("status") == "injected":
+            trace_context = write_single_media_prompt_trace_context(
+                _reference_binding_trace_output_dir(trace_context),
+                task_id=trace_context.get("task_id") or "",
+                prompt=prompt,
+                negative_prompt=negative_prompt or "",
+                workflow=str(workflow_info["key"]),
+                workflow_input=workflow_input,
+                media_type=media_type,
+                source="reference_image_workflow_binding",
+                frame_id=str(trace_context.get("frame_id") or ""),
+                media_width=width,
+                media_height=height,
+                generation_context={
+                    "source_artifact_path": trace_context.get("artifact_path"),
+                    "reference_image_workflow_binding": dict(reference_binding_trace),
+                },
+                workflow_params=trace_safe_workflow_params,
+            )
+        workflow_param_trace = build_workflow_params_trace(
+            trace_safe_workflow_params,
+            prompt=prompt,
         )
         validate_media_prompt_trace_artifact(
             trace_context,
@@ -438,10 +489,7 @@ class MediaService(ComfyBaseService):
             width=width,
             height=height,
             negative_prompt=negative_prompt,
-            workflow_param_trace=build_workflow_params_trace(
-                validation_workflow_params,
-                prompt=prompt,
-            ),
+            workflow_param_trace=workflow_param_trace,
             workflow_file_trace=workflow_file_trace,
         )
         backend_role = "default"
@@ -451,7 +499,7 @@ class MediaService(ComfyBaseService):
                 workflow_info["key"],
                 media_type,
             )
-        logger.debug(f"Workflow parameters: {workflow_params}")
+        logger.debug(f"Workflow parameters: {trace_safe_workflow_params}")
         result_artifact_written = False
 
         try:
