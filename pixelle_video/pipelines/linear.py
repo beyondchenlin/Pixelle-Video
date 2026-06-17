@@ -244,6 +244,8 @@ class LinearVideoPipeline(BasePipeline):
         reference_image_config = _resolve_reference_image_config(getattr(self.core, "config", None))
         if not _reference_image_enabled(ctx.params, reference_image_config):
             ctx.observability.setdefault("reference_image", {})["status"] = "disabled"
+            ctx.params.pop("ref_image_asset", None)
+            ctx.params.pop("ref_image", None)
             logger.info("Reference image supplied but reference_image.enabled is false; ignoring it")
             return
 
