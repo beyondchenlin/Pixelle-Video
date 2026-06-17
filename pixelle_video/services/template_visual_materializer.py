@@ -53,10 +53,17 @@ class TemplateVisualMaterializer:
         template_display: TemplateDisplaySettings | Mapping[str, Any] | None = None,
         layered_template_spec: LayeredTemplateSpec | Mapping[str, Any] | None = None,
     ) -> TemplateVisualAsset:
-        body_text = resolve_template_body_text(template_body_text, text_policy)
+        normalized_text_policy = str(text_policy or "").strip()
+        if normalized_text_policy not in VALID_TEMPLATE_TEXT_POLICIES:
+            raise ValueError(
+                "Invalid template text policy: "
+                f"{text_policy!r}; expected one of {sorted(VALID_TEMPLATE_TEXT_POLICIES)}"
+            )
+
+        body_text = resolve_template_body_text(template_body_text, normalized_text_policy)
         caption_render_text = resolve_caption_renderer_text(
             caption_text if caption_text is not None else template_body_text,
-            text_policy,
+            normalized_text_policy,
         )
         raw_template_params, display_settings = resolve_template_params_and_display(
             template_params,
@@ -86,7 +93,7 @@ class TemplateVisualMaterializer:
                 width=spec.canvas_width,
                 height=spec.canvas_height,
                 media_path=media_path,
-                text_policy=text_policy,
+                text_policy=normalized_text_policy,
                 diagnostics={
                     "layered_template_id": spec.template_id,
                     "layered_template_fingerprint": layered_template_fingerprint(spec),
@@ -127,7 +134,7 @@ class TemplateVisualMaterializer:
             width=int(generator.width),
             height=int(generator.height),
             media_path=media_path,
-            text_policy=text_policy,
+            text_policy=normalized_text_policy,
             diagnostics={
                 "template_params_count": len(validated_template_params),
                 "template_display": display_settings.to_dict(),
