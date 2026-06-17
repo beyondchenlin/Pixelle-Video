@@ -35,6 +35,7 @@ from pixelle_video.models.progress import (
 )
 from pixelle_video.models.prompt_plan import PromptPlanBundle
 from pixelle_video.models.reference_image import ReferenceImageAsset
+from pixelle_video.models.reference_image_analysis import ReferenceImageAnalysis
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoGenerationResult
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
@@ -124,6 +125,7 @@ class PipelineContext:
     creation_package: Optional[CreationPackage] = None
     timing_plan: Optional[TimingPlan] = None
     reference_image_asset: Optional[ReferenceImageAsset] = None
+    reference_image_analysis: Optional[ReferenceImageAnalysis] = None
 
     # === Configuration & Storyboard ===
     config: Optional[StoryboardConfig] = None
