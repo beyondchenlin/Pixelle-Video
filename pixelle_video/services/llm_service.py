@@ -576,7 +576,46 @@ class LLMService:
                 allow_code_fence=True,
                 allow_embedded_json=False,
             )
-            if not isinstance(parsed, dict):
+            if isinstance(parsed, dict):
+                pass
+            elif isinstance(parsed, list):
+                logger.warning(
+                    "LLM returned JSON array instead of object; "
+                    "retrying without response_format: model={} base_url={}",
+                    model, client.base_url,
+                )
+                retry_prompt = enhanced_prompt + (
+                    "\n\n## CRITICAL: Return a JSON Object, NOT an Array\n"
+                    "You MUST return a JSON object with a named key wrapping your data. "
+                    "DO NOT return a raw JSON array."
+                )
+                retry_response = await client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": retry_prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs
+                )
+                retry_content = retry_response.choices[0].message.content or "{}"
+                parsed = parse_llm_json_response(
+                    retry_content,
+                    allow_code_fence=True,
+                    allow_embedded_json=False,
+                )
+                if isinstance(parsed, dict):
+                    content = retry_content
+                    response = retry_response
+                elif isinstance(parsed, list):
+                    parsed = {"data": parsed}
+                    content = retry_content
+                    response = retry_response
+                    logger.warning(
+                        "Retry also returned array; wrapping in dict as last resort: model={}",
+                        model,
+                    )
+                else:
+                    raise ValueError(f"Expected JSON object, got {type(parsed).__name__} (retry)")
+            else:
                 raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
         except Exception as exc:
             await self._record_llm_trace(

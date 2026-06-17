@@ -435,7 +435,13 @@ def _coerce_mapping_response(response: Any) -> dict[str, Any]:
             parsed = json.loads(text)
         except Exception:
             return {}
-        return dict(parsed) if isinstance(parsed, Mapping) else {}
+        if isinstance(parsed, Mapping):
+            return dict(parsed)
+        if isinstance(parsed, list):
+            return {"items": parsed}
+        return {}
+    if isinstance(response, list):
+        return {"items": list(response)}
     return {}
 
 def _fallback_article_and_routes(source_text: str, title: str | None, candidate_count: int) -> tuple[ArticleVisualUnderstanding, tuple[VisualRouteCandidate, ...], str]:
