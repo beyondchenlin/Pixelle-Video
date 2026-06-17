@@ -762,7 +762,7 @@ async def generate_narrations_from_topic(
             prompt=rendered_prompt.text,
             response_type=NarrationBatchResponse,
             temperature=0.8,
-            max_tokens=2000,
+            max_tokens=10000,
             trace_context=_trace_context_for_rendered_prompt(
                 trace_context,
                 rendered_prompt=rendered_prompt,
@@ -865,7 +865,7 @@ async def generate_narrations_from_content(
             prompt=rendered_prompt.text,
             response_type=NarrationBatchResponse,
             temperature=0.8,
-            max_tokens=2000,
+            max_tokens=10000,
             trace_context=_trace_context_for_rendered_prompt(
                 trace_context,
                 rendered_prompt=rendered_prompt,

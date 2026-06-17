@@ -143,7 +143,7 @@ class LLMService:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2000,
+        max_tokens: int = 10000,
         response_type: Optional[Type[T] | Type[dict]] = None,
         trace_context: Optional[LLMTraceContext] = None,
         trace_recorder: Optional[LLMInteractionRecorder] = None,
