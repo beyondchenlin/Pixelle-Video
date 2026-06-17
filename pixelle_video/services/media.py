@@ -17,6 +17,7 @@ Supports both image and video generation workflows.
 Automatically detects output type based on ExecuteResult.
 """
 
+import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -37,6 +38,14 @@ from pixelle_video.services.prompt_trace_artifacts import (
     summarize_media_workflow_result,
     validate_media_prompt_trace_artifact,
     write_media_result_artifact,
+    write_single_media_prompt_trace_context,
+)
+from pixelle_video.services.reference_image_workflow_binding import (
+    REFERENCE_IMAGE_WORKFLOW_BINDING_PARAM,
+    apply_reference_image_workflow_binding_trace,
+    build_reference_image_workflow_binding,
+    resolve_reference_image_workflow_injection_mode,
+    workflow_param_overrides_from_config,
 )
 from pixelle_video.utils.os_util import (
     get_resource_path,
@@ -52,6 +61,11 @@ _MEDIA_PROMPT_ALIAS_PARAM_KEYS = frozenset(
         "video_prompt",
         "text_prompt",
     }
+)
+_REFERENCE_IMAGE_MODE_PARAM_KEYS = (
+    "reference_image_workflow_injection_mode",
+    "workflow_injection_mode",
+    "ref_image_workflow_injection_mode",
 )
 SELFHOST_MEDIA_WORKFLOW_PREFIXES = ("image_", "video_")
 
@@ -98,6 +112,8 @@ def _reject_media_prompt_alias_params(params: Mapping[str, Any]) -> None:
         name = str(key or "").strip()
         normalized_name = name.lower()
         if not name or value in (None, "", [], {}):
+            continue
+        if name.startswith("_"):
             continue
         if (
             normalized_name in _MEDIA_PROMPT_ALIAS_PARAM_KEYS
@@ -162,55 +178,112 @@ def _media_workflow_execution_input(workflow_info: Mapping[str, Any]) -> str:
     return str(workflow_info["path"])
 
 
+def _extract_reference_image_mode_params(params: dict[str, Any]) -> dict[str, Any]:
+    extracted: dict[str, Any] = {}
+    for key in _REFERENCE_IMAGE_MODE_PARAM_KEYS:
+        if key in params:
+            extracted[key] = params.pop(key)
+    structured = params.get("reference_image")
+    if isinstance(structured, Mapping):
+        extracted["reference_image"] = params.pop("reference_image")
+    return extracted
+
+
+def _task_root_from_media_prompt_trace_context(context: Mapping[str, Any]) -> Path | None:
+    artifact_path = Path(str(context.get("artifact_path") or ""))
+    if not artifact_path.name:
+        return None
+    prompt_trace_root = next(
+        (parent for parent in artifact_path.parents if parent.name == "prompt_traces"),
+        None,
+    )
+    if prompt_trace_root is None:
+        return artifact_path.parent.resolve()
+    return prompt_trace_root.parent.resolve()
+
+
+def _safe_task_relative_path(task_root: Path, relative_path: str) -> Path | None:
+    try:
+        root = task_root.resolve()
+        candidate = (root / relative_path).resolve()
+        candidate.relative_to(root)
+        return candidate
+    except (OSError, ValueError):
+        return None
+
+
+def _reference_image_asset_from_task_root(task_root: Path | None) -> tuple[str | None, dict[str, Any]]:
+    if task_root is None:
+        return None, {}
+    asset_path = task_root / "reference_image" / "asset.json"
+    if not asset_path.is_file():
+        return None, {}
+    try:
+        payload = json.loads(asset_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, {}
+    asset_trace = payload.get("asset") if isinstance(payload, Mapping) else None
+    if not isinstance(asset_trace, Mapping):
+        return None, {}
+    relative_path = asset_trace.get("workflow_asset_relative_path") or asset_trace.get("task_asset_relative_path")
+    if not isinstance(relative_path, str) or not relative_path.strip():
+        return None, dict(asset_trace)
+    safe_path = _safe_task_relative_path(task_root, relative_path.strip())
+    if safe_path is None:
+        return None, dict(asset_trace)
+    return str(safe_path), dict(asset_trace)
+
+
+def _reference_image_config_from_service(service: "MediaService") -> Mapping[str, Any]:
+    core_config = getattr(getattr(service, "core", None), "config", None)
+    if isinstance(core_config, Mapping) and isinstance(core_config.get("reference_image"), Mapping):
+        return dict(core_config["reference_image"])
+    if isinstance(service.app_config, Mapping) and isinstance(service.app_config.get("reference_image"), Mapping):
+        return dict(service.app_config["reference_image"])
+    return {}
+
+
+def _reference_binding_trace_output_dir(context: Mapping[str, Any]) -> Path:
+    artifact_path = Path(str(context.get("artifact_path") or ""))
+    if artifact_path.name:
+        return artifact_path.parent / "reference_image_binding"
+    return Path(".") / "reference_image_binding"
+
+
+def _result_with_reference_binding(
+    result_summary: Mapping[str, Any],
+    binding_trace: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    payload = dict(result_summary or {})
+    if isinstance(binding_trace, Mapping) and binding_trace:
+        payload["reference_image_workflow_binding"] = dict(binding_trace)
+    return payload
+
+
 class MediaService(ComfyBaseService):
     """
     Media generation service - Workflow-based
-    
-    Uses ComfyKit to execute image/video generation workflows.
-    Supports both image_ and video_ workflow prefixes.
-    
-    Usage:
-        # Media calls require a saved final prompt trace context. Prefer the
-        # standard pipeline, image API, workbench regeneration, or preview
-        # helpers so the exact prompt artifact is written before ComfyUI runs.
-        #
-        # List available workflows
-        workflows = pixelle_video.media.list_workflows()
     """
-    
+
     WORKFLOW_PREFIX = ""  # Will be overridden by _scan_workflows
     DEFAULT_WORKFLOW = None  # No hardcoded default, must be configured
     WORKFLOWS_DIR = "workflows"
-    
+
     def __init__(self, config: dict, core=None):
-        """
-        Initialize media service
-        
-        Args:
-            config: Full application config dict
-            core: PixelleVideoCore instance (for accessing shared ComfyKit)
-        """
         super().__init__(config, service_name="image", core=core)  # Keep "image" for config compatibility
-    
+        self.app_config = config
+
     def _scan_workflows(self):
-        """
-        Scan workflows for both image_ and video_ prefixes
-        
-        Override parent method to support multiple prefixes
-        """
         if self._workflows_cache is not None:
             return self._workflows_cache
 
         workflows = []
-        
-        # Get all workflow source directories
         source_dirs = list_resource_dirs("workflows")
-        
+
         if not source_dirs:
             logger.warning("No workflow source directories found")
             return workflows
-        
-        # Scan each source directory for workflow files
+
         for source_name in source_dirs:
             if source_name == RUNNINGHUB_SOURCE:
                 registry_root = runninghub_registry_root()
@@ -252,8 +325,7 @@ class MediaService(ComfyBaseService):
                     logger.debug(f"Found workflow: {workflow_info['key']}")
                 except Exception as e:
                     logger.error(f"Failed to parse workflow {source_name}/{filename}: {e}")
-        
-        # Sort by key (source/name)
+
         self._workflows_cache = sorted(workflows, key=lambda w: w["key"])
         return self._workflows_cache
 
@@ -294,20 +366,17 @@ class MediaService(ComfyBaseService):
             "workflow_input": workflow_input,
             **workflow_file_trace,
         }
-    
+
     async def __call__(
         self,
         prompt: str,
         workflow: Optional[str] = None,
-        # Media type specification (required for proper handling)
-        media_type: str = "image",  # "image" or "video"
-        # ComfyUI connection (optional overrides)
+        media_type: str = "image",
         comfyui_url: Optional[str] = None,
         runninghub_api_key: Optional[str] = None,
-        # Common workflow parameters
         width: Optional[int] = None,
         height: Optional[int] = None,
-        duration: Optional[float] = None,  # Video duration in seconds (for video workflows)
+        duration: Optional[float] = None,
         negative_prompt: Optional[str] = None,
         steps: Optional[int] = None,
         seed: Optional[int] = None,
@@ -316,36 +385,8 @@ class MediaService(ComfyBaseService):
         media_prompt_trace_context: Mapping[str, Any] | None = None,
         **params
     ) -> MediaResult:
-        """
-        Generate media (image or video) using workflow
-        
-        Media type must be specified explicitly via media_type parameter.
-        Returns a MediaResult object containing media type and URL.
-        
-        Args:
-            prompt: Media generation prompt
-            workflow: Workflow filename (default: from config or "selfhost/image_z_image_turbo_gguf.json")
-            media_type: Type of media to generate - "image" or "video" (default: "image")
-            comfyui_url: ComfyUI URL (optional, overrides config)
-            runninghub_api_key: RunningHub API key (optional, overrides config)
-            width: Media width
-            height: Media height
-            duration: Target video duration in seconds (only for video workflows, typically from TTS audio duration)
-            negative_prompt: Negative prompt
-            steps: Sampling steps
-            seed: Random seed
-            cfg: CFG scale
-            sampler: Sampler name
-            **params: Additional workflow parameters
-        
-        Returns:
-            MediaResult object with media_type ("image" or "video") and url
-        
-        Examples:
-            MediaService is the low-level boundary to ComfyUI. Callers must
-            write the final prompt artifact first and pass
-            media_prompt_trace_context so prompt provenance cannot be bypassed.
-        """
+        reference_binding_trace = params.pop(REFERENCE_IMAGE_WORKFLOW_BINDING_PARAM, None)
+        reference_mode_params = _extract_reference_image_mode_params(params)
         trace_context = require_media_prompt_trace_context(
             media_prompt_trace_context,
             prompt=prompt,
@@ -354,7 +395,6 @@ class MediaService(ComfyBaseService):
             height=height,
             negative_prompt=negative_prompt,
         )
-        # 1. Resolve workflow (returns structured info)
         workflow_info = self._resolve_workflow(
             workflow=workflow,
             workflow_domain=media_type,
@@ -364,6 +404,33 @@ class MediaService(ComfyBaseService):
             workflow_info,
             workflow_input,
         )
+
+        if not isinstance(reference_binding_trace, Mapping):
+            reference_config = _reference_image_config_from_service(self)
+            injection_mode = resolve_reference_image_workflow_injection_mode(
+                reference_mode_params,
+                reference_config,
+            )
+            asset_path, asset_trace = _reference_image_asset_from_task_root(
+                _task_root_from_media_prompt_trace_context(trace_context)
+            )
+            binding = build_reference_image_workflow_binding(
+                media_service=self,
+                workflow=workflow,
+                media_type=media_type,
+                injection_mode=injection_mode,
+                reference_image_asset_path=asset_path,
+                reference_image_asset_trace=asset_trace,
+                workflow_param_overrides=workflow_param_overrides_from_config(reference_config),
+            )
+            if binding.status == "failed":
+                raise ValueError(f"reference image workflow injection failed: {binding.reason}")
+            if binding.injected:
+                params.update(binding.injected_params)
+                reference_binding_trace = binding.to_trace_dict()
+            else:
+                reference_binding_trace = binding.to_trace_dict() if binding.reason else None
+
         _reject_media_prompt_alias_params(params)
         workflow_params = {"prompt": prompt}
         if negative_prompt is not None:
@@ -385,6 +452,34 @@ class MediaService(ComfyBaseService):
             workflow_params["duration"] = duration
             if media_type == "video":
                 logger.info(f"Target video duration: {duration:.2f}s (from TTS audio)")
+
+        trace_safe_workflow_params = apply_reference_image_workflow_binding_trace(
+            workflow_params,
+            reference_binding_trace if isinstance(reference_binding_trace, Mapping) else None,
+        )
+        if isinstance(reference_binding_trace, Mapping) and reference_binding_trace.get("status") == "injected":
+            trace_context = write_single_media_prompt_trace_context(
+                _reference_binding_trace_output_dir(trace_context),
+                task_id=trace_context.get("task_id") or "",
+                prompt=prompt,
+                negative_prompt=negative_prompt or "",
+                workflow=str(workflow_info["key"]),
+                workflow_input=workflow_input,
+                media_type=media_type,
+                source="reference_image_workflow_binding",
+                frame_id=str(trace_context.get("frame_id") or ""),
+                media_width=width,
+                media_height=height,
+                generation_context={
+                    "source_artifact_path": trace_context.get("artifact_path"),
+                    "reference_image_workflow_binding": dict(reference_binding_trace),
+                },
+                workflow_params=trace_safe_workflow_params,
+            )
+        workflow_param_trace = build_workflow_params_trace(
+            trace_safe_workflow_params,
+            prompt=prompt,
+        )
         validate_media_prompt_trace_artifact(
             trace_context,
             prompt=prompt,
@@ -394,10 +489,7 @@ class MediaService(ComfyBaseService):
             width=width,
             height=height,
             negative_prompt=negative_prompt,
-            workflow_param_trace=build_workflow_params_trace(
-                workflow_params,
-                prompt=prompt,
-            ),
+            workflow_param_trace=workflow_param_trace,
             workflow_file_trace=workflow_file_trace,
         )
         backend_role = "default"
@@ -407,19 +499,15 @@ class MediaService(ComfyBaseService):
                 workflow_info["key"],
                 media_type,
             )
-        logger.debug(f"Workflow parameters: {workflow_params}")
+        logger.debug(f"Workflow parameters: {trace_safe_workflow_params}")
         result_artifact_written = False
-        
-        # 4. Execute workflow using shared ComfyKit instance from core
+
         try:
-            # Determine what to pass to ComfyKit based on source
             if workflow_info["source"] == "runninghub" and "workflow_id" in workflow_info:
-                # RunningHub: pass workflow_id (ComfyKit will use runninghub backend)
                 logger.info(f"Executing RunningHub workflow: {workflow_input}")
             else:
-                # Selfhost: pass file path (ComfyKit will use local ComfyUI)
                 logger.info(f"Executing selfhost workflow: {workflow_input}")
-            
+
             result = await self._execute_workflow(
                 workflow_input,
                 workflow_params,
@@ -428,9 +516,11 @@ class MediaService(ComfyBaseService):
                 media_prompt_trace_context=trace_context,
                 media_type=media_type,
             )
-            result_summary = summarize_media_workflow_result(result)
-            
-            # 5. Handle result based on specified media_type
+            result_summary = _result_with_reference_binding(
+                summarize_media_workflow_result(result),
+                reference_binding_trace if isinstance(reference_binding_trace, Mapping) else None,
+            )
+
             if result.status != "completed":
                 error_msg = result.msg or "Unknown error"
                 write_media_result_artifact(
@@ -440,10 +530,8 @@ class MediaService(ComfyBaseService):
                 )
                 result_artifact_written = True
                 raise RuntimeError(error_msg)
-            
-            # Extract media based on specified type
+
             if media_type == "video":
-                # Video workflow - get video from result
                 if not result.videos:
                     write_media_result_artifact(
                         trace_context,
@@ -452,15 +540,13 @@ class MediaService(ComfyBaseService):
                     )
                     result_artifact_written = True
                     raise RuntimeError("No video generated")
-                
+
                 video_url = result.videos[0]
                 logger.info(f"✅ Generated video: {video_url}")
-                
-                # Try to extract duration from result (if available)
                 duration = None
                 if hasattr(result, 'duration') and result.duration:
                     duration = result.duration
-                
+
                 media_result = MediaResult(
                     media_type="video",
                     url=video_url,
@@ -480,8 +566,7 @@ class MediaService(ComfyBaseService):
                 )
                 result_artifact_written = True
                 return media_result
-            else:  # image
-                # Image workflow - get image from result
+            else:
                 if not result.images:
                     write_media_result_artifact(
                         trace_context,
@@ -490,10 +575,10 @@ class MediaService(ComfyBaseService):
                     )
                     result_artifact_written = True
                     raise RuntimeError("No image generated")
-                
+
                 image_url = result.images[0]
                 logger.info(f"✅ Generated image: {image_url}")
-                
+
                 media_result = MediaResult(
                     media_type="image",
                     url=image_url
@@ -511,7 +596,7 @@ class MediaService(ComfyBaseService):
                 )
                 result_artifact_written = True
                 return media_result
-        
+
         except Exception as e:
             message = str(e)
             formatted_error = (
@@ -526,12 +611,15 @@ class MediaService(ComfyBaseService):
             )
             logger.error(f"Media generation error: {formatted_error}")
             if not result_artifact_written:
+                error_result = {
+                    "error_type": type(e).__name__,
+                    "error": formatted_error,
+                }
+                if isinstance(reference_binding_trace, Mapping):
+                    error_result["reference_image_workflow_binding"] = dict(reference_binding_trace)
                 write_media_result_artifact(
                     trace_context,
                     status="error",
-                    result={
-                        "error_type": type(e).__name__,
-                        "error": formatted_error,
-                    },
+                    result=error_result,
                 )
             raise RuntimeError(formatted_error) from e
