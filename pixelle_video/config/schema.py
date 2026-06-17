@@ -51,6 +51,8 @@ class LLMConfig(BaseModel):
     api_key: str = Field(default="", description="LLM API Key")
     base_url: str = Field(default="", description="LLM API Base URL")
     model: str = Field(default="", description="LLM Model Name")
+    max_input_tokens: Optional[int] = Field(default=None, description="Override model max input tokens (e.g. 30720 for qwen-max)")
+    max_output_tokens: Optional[int] = Field(default=None, description="Override model max output tokens (e.g. 8192 for qwen-max)")
 
 
 class TTSLocalConfig(BaseModel):

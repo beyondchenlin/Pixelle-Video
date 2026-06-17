@@ -203,6 +203,40 @@ def render_advanced_settings():
                     )
                 else:
                     llm_model = selected_model_option
+                
+                st.markdown("---")
+                
+                # Model token limits (advanced, shown collapsed)
+                with st.expander("Token Limits (advanced)", expanded=False):
+                    tok_col1, tok_col2 = st.columns(2)
+                    with tok_col1:
+                        llm_max_input = st.number_input(
+                            "Max Input Tokens",
+                            min_value=1024,
+                            max_value=1048576,
+                            value=(
+                                current_llm["max_input_tokens"]
+                                if current_llm.get("max_input_tokens")
+                                else 30720
+                            ),
+                            help="Model's maximum input token limit (e.g. 30720 for qwen-max, 128000 for gpt-4o). "
+                                 "Leave as default if unsure. Set 0 to use built-in presets.",
+                            key="llm_max_input_tokens",
+                        )
+                    with tok_col2:
+                        llm_max_output = st.number_input(
+                            "Max Output Tokens",
+                            min_value=512,
+                            max_value=131072,
+                            value=(
+                                current_llm["max_output_tokens"]
+                                if current_llm.get("max_output_tokens")
+                                else 8192
+                            ),
+                            help="Model's maximum output token limit (e.g. 8192 for qwen-max). "
+                                 "Leave as default if unsure.",
+                            key="llm_max_output_tokens",
+                        )
         
         # ====================================================================
         # Column 2: ComfyUI Settings
@@ -356,6 +390,8 @@ def render_advanced_settings():
                             llm_api_key,
                             llm_base_url,
                             llm_model,
+                            max_input_tokens=int(llm_max_input),
+                            max_output_tokens=int(llm_max_output),
                         )
                     
                     # Save ComfyUI configuration (optional fields, always save what's provided)

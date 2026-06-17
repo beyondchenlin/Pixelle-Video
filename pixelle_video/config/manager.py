@@ -116,6 +116,8 @@ class ConfigManager:
             "api_key": self.config.llm.api_key,
             "base_url": self.config.llm.base_url,
             "model": self.config.llm.model,
+            "max_input_tokens": self.config.llm.max_input_tokens,
+            "max_output_tokens": self.config.llm.max_output_tokens,
         }
     
     def set_llm_config(
@@ -123,6 +125,8 @@ class ConfigManager:
         api_key: str,
         base_url: str,
         model: str,
+        max_input_tokens: int | None = None,
+        max_output_tokens: int | None = None,
     ):
         """Set LLM configuration"""
         updates = {
@@ -130,6 +134,10 @@ class ConfigManager:
             "base_url": base_url,
             "model": model,
         }
+        if max_input_tokens is not None:
+            updates["max_input_tokens"] = max_input_tokens
+        if max_output_tokens is not None:
+            updates["max_output_tokens"] = max_output_tokens
         self.update({"llm": updates})
     
     def get_comfyui_config(self) -> dict:

@@ -94,11 +94,13 @@ def structured_output_capabilities(
     *,
     base_url: str | None,
     model: str | None,
+    max_input_tokens_override: int | None = None,
+    max_output_tokens_override: int | None = None,
 ) -> StructuredOutputCapabilities:
     hostname = urlparse(str(base_url or "").strip().lower()).hostname or ""
     normalized_model = str(model or "").strip().lower()
-    max_input = _resolve_max_input_tokens(model)
-    max_output = _resolve_max_model_value(model, _MAX_OUTPUT_TOKENS_BY_MODEL, _DEFAULT_MAX_OUTPUT_TOKENS)
+    max_input = max_input_tokens_override or _resolve_max_input_tokens(model)
+    max_output = max_output_tokens_override or _resolve_max_model_value(model, _MAX_OUTPUT_TOKENS_BY_MODEL, _DEFAULT_MAX_OUTPUT_TOKENS)
 
     if hostname.startswith("dashscope") and hostname.endswith("aliyuncs.com"):
         return StructuredOutputCapabilities(

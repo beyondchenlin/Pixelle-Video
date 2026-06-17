@@ -215,6 +215,8 @@ class LLMService:
         capabilities = structured_output_capabilities(
             base_url=final_base_url,
             model=final_model,
+            max_input_tokens_override=self._get_config_value("max_input_tokens"),
+            max_output_tokens_override=self._get_config_value("max_output_tokens"),
         )
         est_tokens = estimate_input_tokens(prompt)
         if est_tokens > capabilities.max_input_tokens:
