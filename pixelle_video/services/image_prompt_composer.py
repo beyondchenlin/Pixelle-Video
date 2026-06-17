@@ -25,6 +25,11 @@ from pixelle_video.services.article_concretization_pipeline import (
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import merge_llm_trace_refs
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
+from pixelle_video.services.reference_image_visual_context_adapter import (
+    current_reference_image_visual_story_context_patch,
+    merge_ip_profile_from_reference_patch,
+    reference_image_prompt_planning_snapshot,
+)
 from pixelle_video.services.visual_profile_registry import resolve_visual_profile
 from pixelle_video.services.visual_prompt_profile_projector import apply_visual_profile_to_batch
 from pixelle_video.services.visual_quality_gate import VisualQualityGate
@@ -86,6 +91,14 @@ class ImagePromptComposer:
         trace_context: LLMTraceContext | None = None,
         trace_recorder: LLMInteractionRecorder | None = None,
     ) -> StyledImagePromptBatch:
+        reference_patch = current_reference_image_visual_story_context_patch()
+        ip_profile = merge_ip_profile_from_reference_patch(ip_profile, reference_patch)
+        if reference_patch:
+            visual_story_context = _merge_visual_story_context_patch(
+                visual_story_context,
+                reference_patch,
+            )
+
         normalized_overrides = normalize_plan_frame_overrides(
             frame_overrides,
             storyboard_plan=storyboard_plan,
@@ -164,6 +177,12 @@ class ImagePromptComposer:
             )
 
         planning_snapshot = dict(batch.planning_snapshot or {})
+        reference_snapshot = reference_image_prompt_planning_snapshot(
+            reference_patch,
+            ip_profile=ip_profile,
+        )
+        if reference_snapshot:
+            planning_snapshot["reference_image_visual_context"] = reference_snapshot
         if visual_profile_snapshot:
             planning_snapshot["visual_profile"] = visual_profile_snapshot["profile"]
             if visual_profile_snapshot.get("quality_gate") is not None:
@@ -215,6 +234,15 @@ class ImagePromptComposer:
             prompt_plan_bundle=prompt_plan_bundle,
             rendered_prompts=batch.rendered_prompts,
         )
+
+
+def _merge_visual_story_context_patch(
+    visual_story_context: Optional[Mapping[str, Any]],
+    reference_patch: Mapping[str, Any],
+) -> dict[str, Any]:
+    merged = dict(visual_story_context or {})
+    merged.update(dict(reference_patch or {}))
+    return merged
 
 
 def _build_prompt_contexts(
