@@ -17,6 +17,7 @@ Core services providing atomic capabilities.
 
 Services:
 - LLMService: LLM text generation
+- VisionLLMService: Multimodal LLM calls for reference-image analysis
 - TTSService: Text-to-speech
 - MediaService: Media generation (image & video)
 - VideoService: Video processing
@@ -34,6 +35,7 @@ from pixelle_video.services.media import MediaService
 from pixelle_video.services.persistence import PersistenceService
 from pixelle_video.services.tts_service import TTSService
 from pixelle_video.services.video import VideoService
+from pixelle_video.services.vision_llm_service import VisionLLMService
 
 # Backward compatibility alias
 ImageService = MediaService
@@ -41,6 +43,7 @@ ImageService = MediaService
 __all__ = [
     "ComfyBaseService",
     "LLMService",
+    "VisionLLMService",
     "TTSService",
     "MediaService",
     "ImageService",  # Backward compatibility
@@ -49,4 +52,3 @@ __all__ = [
     "PersistenceService",
     "HistoryManager",
 ]
-
