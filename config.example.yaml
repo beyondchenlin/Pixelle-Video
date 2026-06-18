@@ -33,6 +33,11 @@ llm:
   api_key: ""
   base_url: ""
   model: ""
+  connect_timeout_seconds: 10
+  read_timeout_seconds: 180
+  write_timeout_seconds: 30
+  pool_timeout_seconds: 10
+  max_retries: 1
 
 # Popular presets:
 # Qwen Max:        base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"  model: "qwen-max"

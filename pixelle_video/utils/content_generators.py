@@ -1186,7 +1186,7 @@ async def generate_image_prompts(
             raise ValueError(error_msg)
 
         logger.info(
-            f"鉁?Batch {batch.index} completed successfully ({len(batch_prompts)} prompts) in "
+            f"Batch {batch.index} completed successfully ({len(batch_prompts)} prompts) in "
             f"{perf_counter() - batch_start_time:.2f}s"
         )
         return batch_prompts
@@ -1254,7 +1254,7 @@ async def generate_image_prompts(
         max_concurrency=resolved_max_concurrency,
     )
     logger.info(
-        f"鉁?Generated {len(batch_result.outputs)} image prompts in {perf_counter() - start_time:.2f}s"
+        f"Generated {len(batch_result.outputs)} image prompts in {perf_counter() - start_time:.2f}s"
     )
     return batch_result.outputs
 

@@ -117,7 +117,14 @@ class EvidenceSpan:
             raise ValueError("start_char must be <= end_char")
 
     @classmethod
-    def from_mapping(cls, source: Mapping[str, Any]) -> "EvidenceSpan":
+    def from_mapping(cls, source: Mapping[str, Any] | Any) -> "EvidenceSpan":
+        if not isinstance(source, Mapping):
+            quote = _optional_text(source) or "source evidence"
+            return cls(
+                evidence_id="evidence-1",
+                quote=quote,
+                role="support",
+            )
         return cls(
             evidence_id=source.get("evidence_id") or source.get("id") or "evidence-1",
             quote=source.get("quote") or source.get("text") or source.get("source_text") or "source evidence",

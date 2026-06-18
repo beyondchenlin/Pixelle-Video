@@ -4,7 +4,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from httpx import NetworkError, TimeoutException
 from loguru import logger
+from openai import APIConnectionError, APITimeoutError, RateLimitError
 from pydantic import ValidationError
 
 from pixelle_video.models.asset_bible import IPProfile
@@ -142,6 +144,20 @@ class VisualAnchorIntegrationPlanner:
                     errors[0],
                 )
                 continue
+            except Exception as exc:
+                if not _is_recoverable_llm_call_error(exc):
+                    raise
+                errors = [f"LLM call failed during integration planning: {_exception_summary(exc)}"]
+                last_errors_by_frame = {
+                    frame_id: list(errors)
+                    for frame_id in frame_ids
+                    if frame_id not in accepted_by_frame
+                }
+                logger.warning(
+                    "series visual signature integration LLM call failed; using deterministic fallback: {}",
+                    errors[0],
+                )
+                break
             plans, errors = _placement_plans_from_payload(
                 raw_response,
                 frame_ids=frame_ids,
@@ -321,6 +337,21 @@ def _exception_summary(exc: Exception) -> str:
             details.append(f"{field}: {message}" if field else message)
         return "; ".join(details) or str(exc)
     return str(exc)
+
+
+def _is_recoverable_llm_call_error(exc: Exception) -> bool:
+    if isinstance(exc, (APITimeoutError, APIConnectionError, RateLimitError, TimeoutException, NetworkError)):
+        return True
+    text = f"{type(exc).__name__}: {exc}".lower()
+    recoverable_markers = (
+        "timeout",
+        "timed out",
+        "connection",
+        "rate_limit",
+        "ratelimit",
+        "temporarily unavailable",
+    )
+    return any(marker in text for marker in recoverable_markers)
 
 
 def _anchor_profile_payload(

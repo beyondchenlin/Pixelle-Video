@@ -9,6 +9,7 @@ from pixelle_video.models.mandatory_visual_anchor_integration import (
     MandatoryVisualAnchorIntegrationPlanResponse,
     MandatoryVisualAnchorIntegrationResponse,
 )
+from pixelle_video.models.series_visual_signature_presentation import SeriesVisualSignaturePresentationPolicy
 from pixelle_video.models.visual_anchor_planning import AnchorProminence
 from pixelle_video.services.series_visual_signature_anchor_planner import (
     VisualAnchorIntegrationPlanner,
@@ -96,6 +97,11 @@ class MalformedButJsonLLM:
                 }
             ]
         }
+
+
+class RecoverableTimeoutLLM:
+    async def __call__(self, **kwargs):
+        raise RuntimeError("Request timed out.")
 
 
 class TypedRepairLLM:
@@ -209,6 +215,31 @@ def test_series_visual_signature_anchor_planner_uses_typed_schema_and_repairs_va
     assert plans[0].visible
     assert "dalmatian wearing black sunglasses" in plans[0].image_prompt_clause
     assert plans[0].metadata["anchor_manifestation"]["form"] == "bookplate stamp"
+
+
+def test_series_visual_signature_anchor_planner_fallbacks_on_recoverable_llm_error():
+    policy = SeriesVisualSignaturePresentationPolicy.from_mapping(
+        {"series_visual_signature_presentation_mode": "embedded_scene_mark"}
+    )
+
+    plans = asyncio.run(
+        VisualAnchorIntegrationPlanner(
+            llm_service=RecoverableTimeoutLLM(),
+            presentation_policy=policy,
+            max_repair_attempts=0,
+        ).plan_batch(
+            base_visual_briefs=(_book_brief(),),
+            anchor_profile=_profile(),
+        )
+    )
+
+    assert len(plans) == 1
+    assert plans[0].metadata["source"] == "deterministic_visual_signature_fallback"
+    assert plans[0].metadata["fallback_applied"] is True
+    assert any(
+        "LLM call failed during integration planning" in reason
+        for reason in plans[0].metadata["failure_reasons"]
+    )
 
 
 def test_mandatory_visual_anchor_integration_schema_rejects_legacy_candidate_shape():

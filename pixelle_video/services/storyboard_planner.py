@@ -441,8 +441,8 @@ async def plan_storyboard_batch(
                 if len(batch_narrations) <= 1:
                     raise
                 logger.warning(
-                    "Token limit exceeded for batch size %d; splitting in half "
-                    "and retrying (attempt=%d, error=%s)",
+                    "Token limit exceeded for batch size {}; splitting in half "
+                    "and retrying (attempt={}, error={})",
                     len(batch_narrations), attempt, exc,
                 )
                 mid = len(batch_narrations) // 2

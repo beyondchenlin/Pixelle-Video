@@ -54,6 +54,11 @@ class LLMConfig(BaseModel):
     model: str = Field(default="", description="LLM Model Name")
     max_input_tokens: Optional[int] = Field(default=None, description="Override model max input tokens (e.g. 30720 for qwen-max)")
     max_output_tokens: Optional[int] = Field(default=None, description="Override model max output tokens (e.g. 8192 for qwen-max)")
+    connect_timeout_seconds: float = Field(default=10.0, gt=0, description="LLM HTTP connect timeout")
+    read_timeout_seconds: float = Field(default=180.0, gt=0, description="LLM HTTP read timeout")
+    write_timeout_seconds: float = Field(default=30.0, gt=0, description="LLM HTTP write timeout")
+    pool_timeout_seconds: float = Field(default=10.0, gt=0, description="LLM HTTP connection-pool timeout")
+    max_retries: int = Field(default=1, ge=0, le=5, description="LLM HTTP retry count")
 
 
 class TTSLocalConfig(BaseModel):

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from httpx import Timeout
 from pydantic import BaseModel
 
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
@@ -32,6 +33,39 @@ class _CreateRecorder:
     async def create(self, **kwargs):
         self.calls.append(dict(kwargs))
         return self.response
+
+
+def test_llm_service_create_client_uses_configured_timeout_and_retries(monkeypatch):
+    captured_kwargs: dict[str, object] = {}
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+    service = LLMService({})
+    config_values = {
+        "connect_timeout_seconds": 2.0,
+        "read_timeout_seconds": 33.0,
+        "write_timeout_seconds": 4.0,
+        "pool_timeout_seconds": 5.0,
+        "max_retries": 0,
+    }
+
+    monkeypatch.setattr("pixelle_video.services.llm_service.AsyncOpenAI", _FakeAsyncOpenAI)
+    monkeypatch.setattr(service, "_get_config_value", lambda key, default=None: config_values.get(key, default))
+
+    service._create_client(api_key="key", base_url="https://provider.example/v1")
+
+    assert captured_kwargs["api_key"] == "key"
+    assert captured_kwargs["base_url"] == "https://provider.example/v1"
+    assert isinstance(captured_kwargs["timeout"], Timeout)
+    assert captured_kwargs["timeout"].as_dict() == {
+        "connect": 2.0,
+        "read": 33.0,
+        "write": 4.0,
+        "pool": 5.0,
+    }
+    assert captured_kwargs["max_retries"] == 0
 
 
 class _CreateRejectsJsonModeThenSucceeds:
@@ -236,6 +270,39 @@ async def test_llm_service_uses_json_mode_with_max_tokens_for_generic_compatible
     assert create_recorder.calls[0]["max_tokens"] == 8192
     metadata = trace_repository.appended[0]["trace"]["context"]["metadata"]
     assert metadata["prompt_template_overlays"][0]["path"].endswith("structured_schema_output.md")
+
+
+@pytest.mark.asyncio
+async def test_llm_service_wraps_json_array_dict_output_without_retry(monkeypatch):
+    create_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content='[{"route_id":"route-a"}]'
+                )
+            )
+        ]
+    )
+    fake_client, _, create_recorder = _build_fake_client(
+        base_url="https://api.deepseek.com/v1",
+        parse_response=None,
+        create_response=create_response,
+    )
+
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_kwargs, _, _ = _trace_dependencies("dict_array_wrap")
+
+    result = await service(
+        prompt="Return routes",
+        model="deepseek-chat",
+        response_type=dict,
+        max_tokens=1000,
+        **trace_kwargs,
+    )
+
+    assert result == {"data": [{"route_id": "route-a"}]}
+    assert len(create_recorder.calls) == 1
 
 
 @pytest.mark.asyncio

@@ -149,7 +149,14 @@ def _list_payload(response: Any, key: str) -> list[Mapping[str, Any]]:
         )
     if not isinstance(response, Mapping):
         raise ValueError(f"{key} response must be a mapping")
-    values = response.get(key) or response.get("frames") or response.get("plans") or []
+    values = (
+        response.get(key)
+        or response.get("frames")
+        or response.get("plans")
+        or response.get("data")
+        or response.get("items")
+        or []
+    )
     if isinstance(values, Mapping):
         values = list(values.values())
     if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):

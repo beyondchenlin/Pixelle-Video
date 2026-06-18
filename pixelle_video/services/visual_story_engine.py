@@ -180,6 +180,7 @@ class VisualStoryEngineService:
             candidate_count=candidate_count,
             target_language=target_language,
         )
+        payload: Mapping[str, Any] | None = None
         try:
             response = await llm_service(
                 prompt=rendered_prompt.text,
@@ -190,11 +191,29 @@ class VisualStoryEngineService:
                 trace_recorder=trace_recorder,
             )
             payload = _coerce_mapping_response(response)
-            article_raw = payload.get("article_understanding") or payload.get("article") or {}
+            article_raw = (
+                payload.get("article_understanding")
+                or payload.get("article")
+                or payload.get("content_analysis")
+                or payload.get("analysis")
+                or {}
+            )
             article = ArticleVisualUnderstanding.from_mapping(article_raw if isinstance(article_raw, Mapping) else {})
+            raw_candidates = _first_sequence_payload(
+                payload,
+                (
+                    "candidate_routes",
+                    "candidates",
+                    "routes",
+                    "route_candidates",
+                    "visual_routes",
+                    "data",
+                    "items",
+                ),
+            )
             candidates = tuple(
                 VisualRouteCandidate.from_mapping(item)
-                for item in payload.get("candidate_routes") or payload.get("routes") or ()
+                for item in raw_candidates
                 if isinstance(item, Mapping)
             )
             if len(candidates) < 1:
@@ -202,7 +221,11 @@ class VisualStoryEngineService:
             recommended_route_id = str(payload.get("recommended_route_id") or candidates[0].route_id)
             return article, candidates, recommended_route_id
         except Exception as exc:
-            logger.warning("Visual route analysis failed; using deterministic fallback: {}", exc)
+            logger.warning(
+                "Visual route analysis failed; using deterministic fallback: {} | payload_keys={}",
+                exc,
+                list(payload.keys()) if payload is not None else [],
+            )
             return _fallback_article_and_routes(source_text, title, candidate_count)
 
     async def _compatibility_reports(
@@ -236,9 +259,13 @@ class VisualStoryEngineService:
                 trace_recorder=trace_recorder,
             )
             compatibility_payload = _coerce_mapping_response(response)
+            report_payloads = _first_sequence_payload(
+                compatibility_payload,
+                ("compatibility_reports", "reports", "data", "items"),
+            )
             reports = tuple(
                 IPRouteCompatibilityReport.from_mapping(item)
-                for item in compatibility_payload.get("compatibility_reports") or ()
+                for item in report_payloads
                 if isinstance(item, Mapping)
             )
             if len(reports) != len(candidates):
@@ -405,9 +432,14 @@ class VisualStoryEngineService:
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
             )
+            payload = _coerce_mapping_response(response)
+            fusion_payloads = _first_sequence_payload(
+                payload,
+                ("frame_ip_fusion_plans", "plans", "data", "items"),
+            )
             plans = tuple(
                 FrameIPFusionPlan.from_mapping(item)
-                for item in _coerce_mapping_response(response).get("frame_ip_fusion_plans") or ()
+                for item in fusion_payloads
                 if isinstance(item, Mapping)
             )
             if len(plans) != len(frame_visual_plans):
@@ -444,6 +476,23 @@ def _coerce_mapping_response(response: Any) -> dict[str, Any]:
     if isinstance(response, list):
         return {"items": list(response)}
     return {}
+
+
+def _first_sequence_payload(payload: Mapping[str, Any], keys: Sequence[str]) -> Sequence[Any]:
+    for key in keys:
+        sequence = _coerce_sequence_payload(payload.get(key), keys)
+        if sequence:
+            return sequence
+    return ()
+
+
+def _coerce_sequence_payload(value: Any, keys: Sequence[str]) -> Sequence[Any]:
+    if isinstance(value, Mapping):
+        return _first_sequence_payload(value, keys)
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return value
+    return ()
+
 
 def _fallback_article_and_routes(source_text: str, title: str | None, candidate_count: int) -> tuple[ArticleVisualUnderstanding, tuple[VisualRouteCandidate, ...], str]:
     excerpt = source_text.strip()[:220] or title or "article"

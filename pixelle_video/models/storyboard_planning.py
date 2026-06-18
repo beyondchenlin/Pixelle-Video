@@ -258,7 +258,7 @@ class StoryboardPlanningFrameResponse(BaseModel):
                         values[field_name] = []
                     else:
                         converted = [item.strip() for item in value.split(",") if item.strip()]
-                        logger.warning(
+                        logger.debug(
                             f"LLM returned comma-separated string for field '{field_name}' instead of list. "
                             f"Converted '{value}' -> {converted}. Consider updating the prompt to enforce list output."
                         )

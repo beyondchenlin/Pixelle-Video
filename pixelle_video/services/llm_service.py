@@ -23,6 +23,7 @@ from types import SimpleNamespace
 from typing import Any, Optional, Type, TypeVar, Union
 from urllib.parse import urlparse
 
+from httpx import Timeout
 from loguru import logger
 from openai import AsyncOpenAI, BadRequestError
 from pydantic import BaseModel, ValidationError
@@ -133,7 +134,15 @@ class LLMService:
         client_kwargs = {"api_key": final_api_key}
         if final_base_url:
             client_kwargs["base_url"] = final_base_url
-        
+
+        client_kwargs["timeout"] = Timeout(
+            connect=float(self._get_config_value("connect_timeout_seconds", 10.0)),
+            read=float(self._get_config_value("read_timeout_seconds", 180.0)),
+            write=float(self._get_config_value("write_timeout_seconds", 30.0)),
+            pool=float(self._get_config_value("pool_timeout_seconds", 10.0)),
+        )
+        client_kwargs["max_retries"] = int(self._get_config_value("max_retries", 1))
+
         return AsyncOpenAI(**client_kwargs)
     
     async def __call__(
@@ -615,45 +624,10 @@ class LLMService:
             elif isinstance(parsed, list):
                 logger.warning(
                     "LLM returned JSON array instead of object; "
-                    "retrying without response_format: model={} base_url={}",
+                    "wrapping in dict directly: model={} base_url={}",
                     model, client.base_url,
                 )
-                retry_prompt = enhanced_prompt + (
-                    "\n\n## CRITICAL: Return a JSON Object, NOT an Array\n"
-                    "You MUST return a JSON object with a named key wrapping your data. "
-                    "DO NOT return a raw JSON array."
-                )
-                retry_request_kwargs: dict[str, Any] = {
-                    "model": model,
-                    "messages": [{"role": "user", "content": retry_prompt}],
-                    "temperature": temperature,
-                    **kwargs,
-                }
-                retry_request_kwargs["max_tokens"] = max_tokens
-                retry_response = await client.chat.completions.create(**retry_request_kwargs)
-                if retry_response.choices:
-                    retry_content = retry_response.choices[0].message.content or "{}"
-                else:
-                    retry_content = "{}"
-                    logger.warning("Retry response has no choices; using empty dict: model={}", model)
-                parsed = parse_llm_json_response(
-                    retry_content,
-                    allow_code_fence=True,
-                    allow_embedded_json=False,
-                )
-                if isinstance(parsed, dict):
-                    content = retry_content
-                    response = retry_response
-                elif isinstance(parsed, list):
-                    parsed = {"data": parsed}
-                    content = retry_content
-                    response = retry_response
-                    logger.warning(
-                        "Retry also returned array; wrapping in dict as last resort: model={}",
-                        model,
-                    )
-                else:
-                    raise ValueError(f"Expected JSON object, got {type(parsed).__name__} (retry)")
+                parsed = {"data": parsed}
             else:
                 raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
         except Exception as exc:
