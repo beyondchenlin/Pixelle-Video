@@ -63,6 +63,8 @@ class APIConfig(BaseModel):
     reference_image_api_enabled: bool = False
     reference_image_upload_base_path: str = "_runtime/reference_image_uploads"
     reference_image_max_upload_size_mb: int = 20
+    reference_image_max_edge_px: int = 8192
+    reference_image_max_pixels: int = 40_000_000
     
     # API settings
     api_prefix: str = "/api"
@@ -90,6 +92,9 @@ class APIConfig(BaseModel):
                 default=120,
             ),
             generation_heartbeat_seconds=_env_int(
+                "PIXELLE_GENERATION_HEARTBEATS_SECONDS",
+                default=30,
+            ) if os.getenv("PIXELLE_GENERATION_HEARTBEATS_SECONDS") is not None else _env_int(
                 "PIXELLE_GENERATION_HEARTBEAT_SECONDS",
                 default=30,
             ),
@@ -129,6 +134,14 @@ class APIConfig(BaseModel):
                 "PIXELLE_REFERENCE_IMAGE_MAX_UPLOAD_SIZE_MB",
                 default=20,
             ),
+            reference_image_max_edge_px=_env_int(
+                "PIXELLE_REFERENCE_IMAGE_MAX_EDGE_PX",
+                default=8192,
+            ),
+            reference_image_max_pixels=_env_int(
+                "PIXELLE_REFERENCE_IMAGE_MAX_PIXELS",
+                default=40_000_000,
+            ),
         )
 
     @model_validator(mode="after")
@@ -149,6 +162,10 @@ class APIConfig(BaseModel):
     def validate_reference_image_upload_settings(self) -> "APIConfig":
         if self.reference_image_max_upload_size_mb < 1:
             raise ValueError("reference_image_max_upload_size_mb must be at least 1")
+        if self.reference_image_max_edge_px < 1:
+            raise ValueError("reference_image_max_edge_px must be at least 1")
+        if self.reference_image_max_pixels < 1:
+            raise ValueError("reference_image_max_pixels must be at least 1")
         return self
 
     @model_validator(mode="after")
