@@ -55,7 +55,16 @@ reference_image:
   strip_exif: true
   convert_to_png_for_workflow: false
   allow_ambiguous_image_param: false
+  # Optional selfhost workflow parameter whitelist for physical reference image
+  # injection. Keep empty until the target workflow is verified.
+  # Supported keys are full workflow key, workflow filename, or "*".
   workflow_param_overrides: {}
+  # workflow_param_overrides:
+  #   "selfhost/image_reference.json": "reference_image"
+  #   "image_reference.json":
+  #     param_names: ["reference_image"]
+  #   "*":
+  #     reference_image: ["reference_image"]
 
 # Dedicated multimodal model settings for future structured reference-image
 # analysis. Keep disabled unless the configured endpoint supports image input.

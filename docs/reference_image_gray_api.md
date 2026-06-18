@@ -49,6 +49,7 @@ PIXELLE_REFERENCE_IMAGE_UPLOAD_BASE_PATH=_runtime/reference_image_uploads
 PIXELLE_REFERENCE_IMAGE_MAX_UPLOAD_SIZE_MB=20
 PIXELLE_REFERENCE_IMAGE_MAX_EDGE_PX=8192
 PIXELLE_REFERENCE_IMAGE_MAX_PIXELS=40000000
+PIXELLE_REFERENCE_IMAGE_UPLOAD_TTL_SECONDS=604800
 ```
 
 Core config still controls analysis and workflow behavior:
@@ -59,9 +60,27 @@ reference_image:
   analysis_mode: off
   workflow_injection_mode: off
   profile_merge_mode: supplement
+  workflow_param_overrides: {}
 ```
 
 Request-scoped `reference_image.analysis_mode`, `reference_image.workflow_injection_mode`, and `reference_image.profile_merge_mode` are gray controls. Use them only for trusted/internal testing until your deployment policy is ready.
+
+## Selfhost workflow whitelist example
+
+Physical workflow injection is allowed only when `workflow_injection_mode` is `auto` or `required` and the selected selfhost workflow declares a reference-image parameter or is explicitly whitelisted.
+
+Example whitelist:
+
+```yaml
+reference_image:
+  workflow_injection_mode: off
+  workflow_param_overrides:
+    "selfhost/image_reference.json": "reference_image"
+    "image_reference.json":
+      param_names: ["reference_image"]
+```
+
+The override key can be the full workflow key, the workflow filename, or `*`. Keep `workflow_injection_mode: off` for prompt-only gray validation, then test `auto` and `required` only after confirming the workflow actually consumes the listed parameter.
 
 ## Upload validation
 
