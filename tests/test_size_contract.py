@@ -12,12 +12,12 @@ from pixelle_video.models.size_contract import (
 def test_default_generation_size_contract_uses_landscape_media_default():
     contract = GenerationSizeContract.default()
 
-    assert (contract.canvas_width, contract.canvas_height) == (1920, 1080)
-    assert (contract.media_width, contract.media_height) == (1920, 1080)
+    assert (contract.canvas_width, contract.canvas_height) == (1280, 720)
+    assert (contract.media_width, contract.media_height) == (1280, 720)
     assert contract.video_orientation == "landscape"
-    assert contract.video_resolution_preset == "landscape_full_hd"
+    assert contract.video_resolution_preset == "landscape_hd"
     assert contract.media_orientation == "landscape"
-    assert contract.media_resolution_preset == "2k"
+    assert contract.media_resolution_preset == "1k"
     assert contract.sync_media_size_to_canvas is False
 
 
@@ -64,12 +64,12 @@ def test_resolve_canvas_size_for_orientation_presets(orientation, preset, expect
     assert resolve_canvas_size(orientation, preset) == expected
 
 
-def test_default_generation_size_contract_uses_common_landscape_full_hd_output():
+def test_default_generation_size_contract_uses_common_landscape_hd_output():
     contract = GenerationSizeContract.default()
 
-    assert (contract.canvas_width, contract.canvas_height) == (1920, 1080)
+    assert (contract.canvas_width, contract.canvas_height) == (1280, 720)
     assert contract.video_orientation == "landscape"
-    assert contract.video_resolution_preset == "landscape_full_hd"
+    assert contract.video_resolution_preset == "landscape_hd"
 
 
 def test_non_standard_output_size_alias_is_rejected():
@@ -137,7 +137,7 @@ def test_resolve_media_size_for_independent_image_presets(orientation, preset, e
     assert resolve_media_size(orientation, preset) == expected
 
 
-def test_media_size_defaults_to_landscape_2k_when_sync_is_off():
+def test_media_size_defaults_to_landscape_1k_when_sync_is_off():
     contract = GenerationSizeContract.from_params(
         {
             "video_orientation": "portrait",
@@ -147,9 +147,9 @@ def test_media_size_defaults_to_landscape_2k_when_sync_is_off():
     )
 
     assert (contract.canvas_width, contract.canvas_height) == (1080, 1920)
-    assert (contract.media_width, contract.media_height) == (1920, 1080)
+    assert (contract.media_width, contract.media_height) == (1280, 720)
     assert contract.media_orientation == "landscape"
-    assert contract.media_resolution_preset == "2k"
+    assert contract.media_resolution_preset == "1k"
 
 
 def test_media_size_preset_is_independent_from_video_canvas_when_sync_is_off():
@@ -181,7 +181,7 @@ def test_media_size_syncs_to_canvas_when_enabled():
     assert (contract.canvas_width, contract.canvas_height) == (3840, 2160)
     assert (contract.media_width, contract.media_height) == (3840, 2160)
     assert contract.media_orientation == "landscape"
-    assert contract.media_resolution_preset == "2k"
+    assert contract.media_resolution_preset == "1k"
 
 
 def test_explicit_canvas_and_media_dimensions_take_precedence():
@@ -264,8 +264,8 @@ def test_legacy_media_only_request_with_sync_disabled_uses_media_as_canvas():
 def test_missing_dimensions_uses_landscape_media_defaults():
     contract = GenerationSizeContract.from_params({})
 
-    assert (contract.canvas_width, contract.canvas_height) == (1920, 1080)
-    assert (contract.media_width, contract.media_height) == (1920, 1080)
+    assert (contract.canvas_width, contract.canvas_height) == (1280, 720)
+    assert (contract.media_width, contract.media_height) == (1280, 720)
 
 
 @pytest.mark.parametrize(
