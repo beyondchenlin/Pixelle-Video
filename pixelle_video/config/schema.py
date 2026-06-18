@@ -16,10 +16,11 @@ Configuration schema with Pydantic models
 Single source of truth for all configuration defaults and validation.
 """
 import re
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal, Optional
 
 from loguru import logger
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pixelle_video.config.prompt_prefix_library import (
     build_builtin_prompt_prefix_library_dict,
@@ -803,6 +804,77 @@ class ReferenceImageConfig(BaseModel):
     convert_to_png_for_workflow: bool = Field(default=False)
     allow_ambiguous_image_param: bool = Field(default=False)
     workflow_param_overrides: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("allowed_extensions", mode="before")
+    @classmethod
+    def normalize_allowed_extensions(cls, value: Any):
+        if value in (None, "", []):
+            return [".jpg", ".jpeg", ".png", ".webp"]
+        if not isinstance(value, (list, tuple, set)):
+            raise ValueError("reference_image.allowed_extensions must be a list")
+        normalized: list[str] = []
+        for item in value:
+            extension = str(item or "").strip().lower()
+            if not extension:
+                continue
+            if not extension.startswith("."):
+                extension = f".{extension}"
+            if extension not in normalized:
+                normalized.append(extension)
+        if not normalized:
+            raise ValueError("reference_image.allowed_extensions must not be empty")
+        return normalized
+
+    @field_validator("workflow_param_overrides", mode="before")
+    @classmethod
+    def validate_workflow_param_overrides(cls, value: Any):
+        if value in (None, ""):
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("reference_image.workflow_param_overrides must be an object")
+        normalized: dict[str, Any] = {}
+        for key, override in value.items():
+            workflow_key = str(key or "").strip()
+            if not workflow_key:
+                raise ValueError("reference_image.workflow_param_overrides keys must not be empty")
+            normalized[workflow_key] = cls._normalize_workflow_param_override(override)
+        return normalized
+
+    @classmethod
+    def _normalize_workflow_param_override(cls, value: Any) -> str | list[str] | dict[str, Any]:
+        if isinstance(value, str):
+            param_name = value.strip()
+            if not param_name:
+                raise ValueError("reference_image.workflow_param_overrides values must not be empty")
+            return param_name
+        if isinstance(value, Mapping):
+            override = dict(value)
+            for key in ("reference_image", "params", "param_names"):
+                if key in override:
+                    override[key] = cls._normalize_workflow_param_override_names(override[key])
+                    return override
+            raise ValueError(
+                "reference_image.workflow_param_overrides object values must include reference_image, params, or param_names"
+            )
+        if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+            return cls._normalize_workflow_param_override_names(value)
+        raise ValueError(
+            "reference_image.workflow_param_overrides values must be a string, list, or object"
+        )
+
+    @classmethod
+    def _normalize_workflow_param_override_names(cls, value: Any) -> list[str]:
+        values = [value] if isinstance(value, str) else value
+        if not isinstance(values, Sequence) or isinstance(values, (bytes, bytearray)):
+            raise ValueError("reference_image.workflow_param_overrides param names must be a string or list")
+        normalized: list[str] = []
+        for item in values:
+            param_name = str(item or "").strip()
+            if param_name and param_name not in normalized:
+                normalized.append(param_name)
+        if not normalized:
+            raise ValueError("reference_image.workflow_param_overrides param names must not be empty")
+        return normalized
 
 
 class VisionLLMConfig(BaseModel):

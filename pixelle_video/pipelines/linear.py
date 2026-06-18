@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional
 from loguru import logger
 
 from pixelle_video.config import config_manager
+from pixelle_video.config.sections import config_section_get, config_section_to_dict
 from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
@@ -75,9 +76,7 @@ async def _noop_async_context():
 
 
 def _config_mapping_get(config: Any, key: str, default: Any = None) -> Any:
-    if isinstance(config, Mapping):
-        return config.get(key, default)
-    return getattr(config, key, default)
+    return config_section_get(config, key, default)
 
 
 def _coerce_bool(value: Any) -> bool:
@@ -94,12 +93,9 @@ def _resolve_reference_image_config(core_config: Any) -> Any:
 
 
 def _resolve_vision_llm_config(core_config: Any) -> Mapping[str, Any]:
-    vision_config = _config_mapping_get(core_config, "vision_llm")
-    if isinstance(vision_config, Mapping):
-        return dict(vision_config)
-    if hasattr(vision_config, "model_dump"):
-        dumped = vision_config.model_dump()
-        return dict(dumped) if isinstance(dumped, Mapping) else {}
+    vision_config = config_section_to_dict(_config_mapping_get(core_config, "vision_llm"))
+    if vision_config is not None:
+        return vision_config
     configured = config_manager.get("vision_llm", {})
     return dict(configured) if isinstance(configured, Mapping) else {}
 

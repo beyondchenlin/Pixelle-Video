@@ -25,7 +25,11 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from pixelle_video.config.sections import config_section_get, config_section_to_dict
 from pixelle_video.models.media import MediaResult
+from pixelle_video.models.reference_image_injection_summary import (
+    ReferenceImageInjectionSummary,
+)
 from pixelle_video.runninghub_workflow_contracts import (
     RUNNINGHUB_SOURCE,
     runninghub_registry_root,
@@ -245,32 +249,14 @@ def _reference_image_asset_from_task_root(task_root: Path | None) -> tuple[str |
 
 
 def _reference_image_config_from_service(service: "MediaService") -> Mapping[str, Any]:
-    def _section_to_mapping(section: Any) -> dict[str, Any] | None:
-        if isinstance(section, Mapping):
-            return dict(section)
-        if hasattr(section, "model_dump"):
-            dumped = section.model_dump()
-            return dict(dumped) if isinstance(dumped, Mapping) else {}
-        return None
-
     core_config = getattr(getattr(service, "core", None), "config", None)
-    if isinstance(core_config, Mapping):
-        core_reference_config = _section_to_mapping(core_config.get("reference_image"))
-        if core_reference_config is not None:
-            return core_reference_config
-    else:
-        core_reference_config = _section_to_mapping(getattr(core_config, "reference_image", None))
-        if core_reference_config is not None:
-            return core_reference_config
+    core_reference_config = config_section_to_dict(config_section_get(core_config, "reference_image"))
+    if core_reference_config is not None:
+        return core_reference_config
 
-    if isinstance(service.app_config, Mapping):
-        app_reference_config = _section_to_mapping(service.app_config.get("reference_image"))
-        if app_reference_config is not None:
-            return app_reference_config
-    else:
-        app_reference_config = _section_to_mapping(getattr(service.app_config, "reference_image", None))
-        if app_reference_config is not None:
-            return app_reference_config
+    app_reference_config = config_section_to_dict(config_section_get(service.app_config, "reference_image"))
+    if app_reference_config is not None:
+        return app_reference_config
     return {}
 
 
@@ -316,7 +302,12 @@ def _reference_image_injection_status(binding_trace: Mapping[str, Any]) -> str:
         return "off"
     if status == "skipped":
         return "prompt_only"
-    return status or "unknown"
+    return "unknown"
+
+
+def _reference_image_injection_mode(binding_trace: Mapping[str, Any]) -> str:
+    mode = str(binding_trace.get("injection_mode") or "").strip().lower()
+    return mode if mode in {"off", "auto", "required"} else ""
 
 
 def _first_reference_image_param_name(binding_trace: Mapping[str, Any]) -> str | None:
@@ -349,24 +340,23 @@ def _write_reference_image_injection_summary(
     output_dir = _reference_binding_trace_output_dir(context)
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = output_dir / "injection_summary.json"
-    summary = {
-        "version": "reference_image_injection_summary/v1",
-        "analysis_status": _reference_image_analysis_status_from_task_root(task_root),
-        "workflow_injection_status": _reference_image_injection_status(binding_trace),
-        "workflow_key": str(workflow_info.get("key") or binding_trace.get("workflow_key") or ""),
-        "workflow_source": str(workflow_info.get("source") or ""),
-        "injection_mode": str(binding_trace.get("injection_mode") or ""),
-        "param_name": _first_reference_image_param_name(binding_trace),
-        "reason": str(binding_trace.get("reason") or ""),
-    }
+    summary = ReferenceImageInjectionSummary(
+        analysis_status=_reference_image_analysis_status_from_task_root(task_root),
+        workflow_injection_status=_reference_image_injection_status(binding_trace),
+        workflow_key=str(workflow_info.get("key") or binding_trace.get("workflow_key") or ""),
+        workflow_source=str(workflow_info.get("source") or ""),
+        injection_mode=_reference_image_injection_mode(binding_trace),
+        param_name=_first_reference_image_param_name(binding_trace),
+        reason=str(binding_trace.get("reason") or ""),
+    )
     relative_path = _safe_task_relative_text(task_root, summary_path)
     if relative_path:
-        summary["artifact_relative_path"] = relative_path
+        summary = summary.model_copy(update={"artifact_relative_path": relative_path})
     summary_path.write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2),
+        json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    return summary
+    return summary.model_dump(mode="json")
 
 
 class MediaService(ComfyBaseService):

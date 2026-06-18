@@ -6,7 +6,7 @@ import pytest
 
 from pixelle_video.models.media import MediaResult
 from pixelle_video.services import reference_image_workflow_binding as binding_module
-from pixelle_video.services.media import MediaService
+from pixelle_video.services.media import MediaService, _write_reference_image_injection_summary
 from pixelle_video.services.prompt_trace_artifacts import write_single_media_prompt_trace_context
 
 
@@ -82,6 +82,24 @@ def _latest_injection_summary(task_dir: Path) -> dict:
     candidates = sorted(task_dir.rglob("injection_summary.json"), key=lambda path: path.stat().st_mtime)
     assert candidates, "expected injection_summary.json"
     return json.loads(candidates[-1].read_text(encoding="utf-8"))
+
+
+def test_reference_image_injection_summary_normalizes_unknown_trace_values(tmp_path):
+    trace_context = _write_trace_context(tmp_path)
+
+    summary = _write_reference_image_injection_summary(
+        trace_context,
+        workflow_info={"key": "selfhost/image_reference.json", "source": "selfhost"},
+        binding_trace={
+            "status": "unexpected",
+            "injection_mode": "unexpected",
+            "workflow_key": "selfhost/image_reference.json",
+        },
+    )
+
+    assert summary["workflow_injection_status"] == "unknown"
+    assert summary["injection_mode"] == ""
+    assert _latest_injection_summary(tmp_path)["injection_mode"] == ""
 
 
 @pytest.mark.asyncio

@@ -110,6 +110,11 @@ def vision_config_model(vision_config: Mapping[str, Any] | Any | None) -> str:
     return str(_vision_config_value(vision_config, "model", "") or "").strip()
 
 
+def vision_unavailable_policy(vision_config: Mapping[str, Any] | Any | None) -> str:
+    policy = str(_vision_config_value(vision_config, "unavailable_policy", "skip") or "skip").strip().lower()
+    return policy if policy in {"skip", "fail"} else "skip"
+
+
 def sanitize_reference_image_analysis_error(message: object) -> str:
     text = str(message or "")
     text = _DATA_IMAGE_RE.sub("<redacted:data-url>", text)
@@ -182,20 +187,21 @@ class ReferenceImageAnalysisService:
 
         unavailable_reason = self._vision_unavailable_reason(vision_config)
         if unavailable_reason:
+            should_fail = analysis_mode == "required" or vision_unavailable_policy(vision_config) == "fail"
             result = self._write_result(
                 task_root,
                 ReferenceImageAnalysisResult(
-                    status="skipped" if analysis_mode == "auto" else "failed",
+                    status="failed" if should_fail else "skipped",
                     analysis_mode=analysis_mode,
                     image_sha256=asset.sha256,
                     vision_model=vision_config_model(vision_config),
                     analysis_language=prompt_language,
                     reason=unavailable_reason,
-                    error=unavailable_reason if analysis_mode == "required" else "",
+                    error=unavailable_reason if should_fail else "",
                 ),
             )
-            if analysis_mode == "required":
-                raise ValueError(f"reference image analysis required but unavailable: {unavailable_reason}")
+            if should_fail:
+                raise ValueError(f"reference image analysis unavailable: {unavailable_reason}")
             return result
 
         messages = self._build_messages(

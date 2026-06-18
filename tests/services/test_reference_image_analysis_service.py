@@ -156,7 +156,7 @@ async def test_reference_image_analysis_auto_skips_when_vision_disabled(tmp_path
 async def test_reference_image_analysis_required_raises_when_vision_disabled(tmp_path):
     asset = _asset(tmp_path)
 
-    with pytest.raises(ValueError, match="required but unavailable"):
+    with pytest.raises(ValueError, match="reference image analysis unavailable"):
         await ReferenceImageAnalysisService().analyze(
             vision_llm_service=_FakeVisionLLMService([]),
             asset=asset,
@@ -168,6 +168,29 @@ async def test_reference_image_analysis_required_raises_when_vision_disabled(tmp
 
     artifact = json.loads((tmp_path / "task" / "reference_image" / "analysis.json").read_text(encoding="utf-8"))
     assert artifact["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_reference_image_analysis_auto_raises_when_unavailable_policy_is_fail(tmp_path):
+    asset = _asset(tmp_path)
+
+    with pytest.raises(ValueError, match="reference image analysis unavailable"):
+        await ReferenceImageAnalysisService().analyze(
+            vision_llm_service=_FakeVisionLLMService([]),
+            asset=asset,
+            prompt_language="zh_CN",
+            task_dir=tmp_path / "task",
+            analysis_mode="auto",
+            vision_config={
+                "enabled": False,
+                "model": "",
+                "unavailable_policy": "fail",
+            },
+        )
+
+    artifact = json.loads((tmp_path / "task" / "reference_image" / "analysis.json").read_text(encoding="utf-8"))
+    assert artifact["status"] == "failed"
+    assert artifact["error"] == "vision_llm_disabled"
 
 
 @pytest.mark.asyncio

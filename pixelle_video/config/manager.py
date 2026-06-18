@@ -23,7 +23,6 @@ from .loader import load_config_dict, save_config_dict
 from .schema import PixelleVideoConfig
 
 _UNSET = object()
-_RAW_EXTENSION_CONFIG_KEYS = ("reference_image", "vision_llm")
 
 
 class ConfigManager:
@@ -74,13 +73,6 @@ class ConfigManager:
                 f"Will fall back to '{DEFAULT_IMAGE_TEMPLATE}' if needed. Error: {e}"
             )
 
-    def _config_with_raw_extensions(self) -> dict[str, Any]:
-        payload = self.config.to_dict()
-        for key in _RAW_EXTENSION_CONFIG_KEYS:
-            if key in self.raw_config and key not in payload:
-                payload[key] = self.raw_config[key]
-        return payload
-
     def reload(self):
         """Reload configuration from file"""
         self.config = self._load()
@@ -88,7 +80,7 @@ class ConfigManager:
 
     def save(self):
         """Save current configuration to file"""
-        save_config_dict(self._config_with_raw_extensions(), str(self.config_path))
+        save_config_dict(self.config.to_dict(), str(self.config_path))
 
     def update(self, updates: dict):
         """
@@ -97,7 +89,7 @@ class ConfigManager:
         Args:
             updates: Dictionary of updates (e.g., {"llm": {"api_key": "xxx"}})
         """
-        current = self._config_with_raw_extensions()
+        current = self.config.to_dict()
 
         # Deep merge
         def deep_merge(base: dict, updates: dict) -> dict:
@@ -114,7 +106,7 @@ class ConfigManager:
 
     def get(self, key: str, default: Any = None) -> Any:
         """Dict-like access (for backward compatibility)"""
-        return self._config_with_raw_extensions().get(key, default)
+        return self.config.to_dict().get(key, default)
 
     def get_raw(self, key: str, default: Any = None) -> Any:
         """Return raw config data, including top-level keys not yet in schema."""
@@ -260,7 +252,7 @@ class ConfigManager:
 
         if updates:
             if "backends" in updates or "workflow_routing" in updates:
-                current = self._config_with_raw_extensions()
+                current = self.config.to_dict()
                 comfyui_updates = dict(updates)
                 current_comfyui = dict(current.get("comfyui", {}))
                 current_comfyui.update(comfyui_updates)
