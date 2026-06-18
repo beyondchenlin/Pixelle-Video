@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
 
@@ -23,6 +24,28 @@ class _FakeUpload:
 class _FakeStreamlit:
     def __init__(self) -> None:
         self.session_state = {}
+        self.calls: list[str] = []
+
+    def toggle(self, *_args, **_kwargs):
+        self.calls.append("toggle")
+        return False
+
+    def file_uploader(self, *_args, **_kwargs):
+        self.calls.append("file_uploader")
+        return None
+
+    def selectbox(self, _label, options, *, index=0, **_kwargs):
+        self.calls.append("selectbox")
+        return tuple(options)[index]
+
+    def error(self, *_args, **_kwargs):
+        self.calls.append("error")
+
+    def info(self, *_args, **_kwargs):
+        self.calls.append("info")
+
+    def image(self, *_args, **_kwargs):
+        self.calls.append("image")
 
 
 def _image_bytes(image_format: str) -> bytes:
@@ -31,22 +54,14 @@ def _image_bytes(image_format: str) -> bytes:
     return buffer.getvalue()
 
 
-@pytest.mark.parametrize(
-    "config",
-    [
-        {"enabled": False, "web_ui_enabled": True},
-        {"enabled": True, "web_ui_enabled": False},
-        {"enabled": False, "web_ui_enabled": False},
-    ],
-)
-def test_render_reference_image_controls_requires_backend_and_web_flags(config, monkeypatch):
+def test_render_reference_image_controls_hides_when_web_flag_is_off(monkeypatch):
     def _fail_render_section(*_args, **_kwargs):
         raise AssertionError("reference-image UI should stay hidden")
 
     monkeypatch.setattr(
         style_config.config_manager,
         "get",
-        lambda key, default=None: config if key == "reference_image" else default,
+        lambda key, default=None: {"enabled": True, "web_ui_enabled": False} if key == "reference_image" else default,
     )
     monkeypatch.setattr(
         style_config,
@@ -55,6 +70,26 @@ def test_render_reference_image_controls_requires_backend_and_web_flags(config, 
     )
 
     assert style_config.render_reference_image_controls() == {}
+
+
+def test_render_reference_image_controls_renders_when_backend_default_is_off(monkeypatch):
+    fake_st = _FakeStreamlit()
+
+    @contextmanager
+    def _section(*_args, **_kwargs):
+        yield
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get",
+        lambda key, default=None: {"enabled": False, "web_ui_enabled": True} if key == "reference_image" else default,
+    )
+    monkeypatch.setattr(style_config, "render_middle_column_collapsible_section", _section)
+
+    assert style_config.render_reference_image_controls() == {}
+    assert "toggle" in fake_st.calls
+    assert "file_uploader" in fake_st.calls
 
 
 def test_reference_image_allowed_extensions_filters_backend_unsupported_types():

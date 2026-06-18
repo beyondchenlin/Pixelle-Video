@@ -790,7 +790,7 @@ class ReferenceImageConfig(BaseModel):
     """Reference-image feature configuration."""
 
     enabled: bool = Field(default=False)
-    web_ui_enabled: bool = Field(default=False)
+    web_ui_enabled: bool = Field(default=True)
     analysis_mode: Literal["off", "auto", "required"] = Field(default="off")
     workflow_injection_mode: Literal["off", "auto", "required"] = Field(default="off")
     profile_merge_mode: Literal["supplement", "override", "strict"] = Field(default="supplement")

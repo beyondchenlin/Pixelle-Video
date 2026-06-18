@@ -45,8 +45,8 @@ llm:
 # image assetization before turning on Vision analysis or workflow injection.
 reference_image:
   enabled: false
-  # Web uploader is hidden unless both enabled and web_ui_enabled are true.
-  web_ui_enabled: false
+  # Keep the Web entry visible by default; per-run use still requires upload + toggle.
+  web_ui_enabled: true
   analysis_mode: off              # off | auto | required
   workflow_injection_mode: off    # off | auto | required
   profile_merge_mode: supplement  # supplement | override | strict

@@ -2620,7 +2620,7 @@ def _reference_image_config_mapping() -> dict[str, Any]:
 
 
 def _reference_image_web_ui_enabled(config: dict[str, Any]) -> bool:
-    return bool(config.get("enabled", False)) and bool(config.get("web_ui_enabled", False))
+    return bool(config.get("web_ui_enabled", True))
 
 
 _REFERENCE_IMAGE_EXTENSION_TO_FORMAT = {

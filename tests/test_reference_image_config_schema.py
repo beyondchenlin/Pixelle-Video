@@ -45,6 +45,7 @@ def test_reference_image_config_defaults_match_disabled_production_policy():
     payload = PixelleVideoConfig().to_dict()
 
     assert payload["reference_image"]["enabled"] is False
+    assert payload["reference_image"]["web_ui_enabled"] is True
     assert payload["reference_image"]["analysis_mode"] == "off"
     assert payload["reference_image"]["workflow_injection_mode"] == "off"
     assert payload["vision_llm"]["enabled"] is False
