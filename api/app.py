@@ -113,6 +113,8 @@ async def lifespan(app: FastAPI):
     app.state.reference_image_upload_store = ReferenceImageUploadStore(
         base_dir=api_config.reference_image_upload_base_path,
         max_upload_size_mb=api_config.reference_image_max_upload_size_mb,
+        max_edge_px=api_config.reference_image_max_edge_px,
+        max_pixels=api_config.reference_image_max_pixels,
     )
     platform_dependencies = configure_platform_dependencies(
         app,
