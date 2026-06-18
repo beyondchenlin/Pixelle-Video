@@ -17,6 +17,7 @@ import json
 import re
 import secrets
 import shutil
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -34,7 +35,14 @@ from pixelle_video.services.resource_resolver import (
 REFERENCE_IMAGE_UPLOAD_SCHEMA = "pixelle.reference_image_upload.v1"
 DEFAULT_REFERENCE_IMAGE_UPLOAD_DIR = "_runtime/reference_image_uploads"
 DEFAULT_REFERENCE_IMAGE_MAX_UPLOAD_SIZE_MB = 20
+DEFAULT_REFERENCE_IMAGE_MAX_EDGE_PX = 8192
+DEFAULT_REFERENCE_IMAGE_MAX_PIXELS = 40_000_000
 _ALLOWED_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp"})
+_ALLOWED_IMAGE_FORMATS = {
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "WEBP": "image/webp",
+}
 _DISPLAY_NAME_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -88,10 +96,16 @@ class ReferenceImageUploadStore:
         *,
         base_dir: str | Path = DEFAULT_REFERENCE_IMAGE_UPLOAD_DIR,
         max_upload_size_mb: int = DEFAULT_REFERENCE_IMAGE_MAX_UPLOAD_SIZE_MB,
+        max_edge_px: int = DEFAULT_REFERENCE_IMAGE_MAX_EDGE_PX,
+        max_pixels: int = DEFAULT_REFERENCE_IMAGE_MAX_PIXELS,
         allowed_extensions: set[str] | None = None,
+        allow_cleanup: bool = False,
     ) -> None:
         self.base_dir = Path(base_dir).resolve()
         self.max_upload_size_mb = max(1, int(max_upload_size_mb))
+        self.max_edge_px = max(1, int(max_edge_px))
+        self.max_pixels = max(1, int(max_pixels))
+        self.allow_cleanup = bool(allow_cleanup)
         self.allowed_extensions = {
             _normalize_extension(ext)
             for ext in (allowed_extensions or set(_ALLOWED_EXTENSIONS))
@@ -116,7 +130,11 @@ class ReferenceImageUploadStore:
         if not content:
             raise ResourceResolverError("reference image upload is empty")
 
-        width, height, detected_mime = _probe_image(content)
+        width, height, detected_mime = _probe_image(
+            content,
+            max_edge_px=self.max_edge_px,
+            max_pixels=self.max_pixels,
+        )
         sha256 = hashlib.sha256(content).hexdigest()
         upload_id = _new_public_upload_id()
         artifact_id = upload_id
@@ -131,7 +149,7 @@ class ReferenceImageUploadStore:
             artifact_id=artifact_id,
             local_path=str(target_path),
             sha256=sha256,
-            mime_type=detected_mime or _mime_type_for_extension(extension),
+            mime_type=detected_mime,
             width=width,
             height=height,
             byte_size=len(content),
@@ -201,19 +219,35 @@ class ReferenceImageUploadStore:
             raise ResourceResolverError("reference image upload file escaped record directory") from exc
         if not candidate_path.is_file():
             raise ResourceNotFoundError(f"reference image upload file is missing: {record_id}")
+
+        actual_sha256 = hashlib.sha256(candidate_path.read_bytes()).hexdigest()
+        expected_sha256 = str(record_payload.get("sha256") or "")
+        if expected_sha256 and actual_sha256 != expected_sha256:
+            raise ResourceResolverError("reference image upload file hash does not match metadata")
+        width, height, detected_mime = _probe_image(
+            candidate_path.read_bytes(),
+            max_edge_px=self.max_edge_px,
+            max_pixels=self.max_pixels,
+        )
+        expected_mime = str(record_payload.get("mime_type") or "")
+        if expected_mime and detected_mime != expected_mime:
+            raise ResourceResolverError("reference image upload file format does not match metadata")
+
         return ReferenceImageUploadRecord(
             upload_id=str(record_payload.get("upload_id") or record_id),
             artifact_id=str(record_payload.get("artifact_id") or record_id),
             local_path=str(candidate_path),
-            sha256=str(record_payload.get("sha256") or ""),
-            mime_type=str(record_payload.get("mime_type") or ""),
-            width=int(record_payload.get("width") or 0),
-            height=int(record_payload.get("height") or 0),
+            sha256=actual_sha256,
+            mime_type=detected_mime,
+            width=width,
+            height=height,
             byte_size=int(record_payload.get("byte_size") or candidate_path.stat().st_size),
             original_display_name=str(record_payload.get("original_display_name") or "reference_image"),
         )
 
     def cleanup(self) -> None:
+        if not self.allow_cleanup:
+            raise ResourceResolverError("reference image upload store cleanup is disabled")
         if self.base_dir.is_dir():
             shutil.rmtree(self.base_dir)
 
@@ -241,30 +275,32 @@ def _normalize_extension(extension: str) -> str:
     return normalized
 
 
-def _mime_type_for_extension(extension: str) -> str:
-    return {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".webp": "image/webp",
-    }.get(extension.lower(), "application/octet-stream")
-
-
-def _probe_image(content: bytes) -> tuple[int, int, str]:
+def _probe_image(
+    content: bytes,
+    *,
+    max_edge_px: int,
+    max_pixels: int,
+) -> tuple[int, int, str]:
     try:
         from io import BytesIO
 
-        with Image.open(BytesIO(content)) as image:
-            image.verify()
-        with Image.open(BytesIO(content)) as image:
-            image.load()
-            width, height = image.size
-            image_format = str(image.format or "").upper()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(content)) as image:
+                image.verify()
+            with Image.open(BytesIO(content)) as image:
+                image.load()
+                width, height = image.size
+                image_format = str(image.format or "").upper()
+    except Image.DecompressionBombWarning as exc:
+        raise ResourceResolverError("reference image dimensions are too large") from exc
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         raise ResourceResolverError("reference image upload is not a valid image") from exc
-    mime_type = {
-        "JPEG": "image/jpeg",
-        "PNG": "image/png",
-        "WEBP": "image/webp",
-    }.get(image_format, "application/octet-stream")
-    return width, height, mime_type
+
+    if image_format not in _ALLOWED_IMAGE_FORMATS:
+        raise ResourceResolverError("unsupported reference image format")
+    if width <= 0 or height <= 0:
+        raise ResourceResolverError("reference image dimensions are invalid")
+    if max(width, height) > max_edge_px or width * height > max_pixels:
+        raise ResourceResolverError("reference image dimensions exceed configured limit")
+    return width, height, _ALLOWED_IMAGE_FORMATS[image_format]
