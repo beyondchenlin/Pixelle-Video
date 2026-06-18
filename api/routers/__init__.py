@@ -24,6 +24,7 @@ from api.routers.image import router as image_router
 from api.routers.layered_template_preview import router as layered_template_preview_router
 from api.routers.llm import router as llm_router
 from api.routers.llm_trace import router as llm_trace_router
+from api.routers.reference_images import router as reference_images_router
 from api.routers.resources import router as resources_router
 from api.routers.stale_dependencies import router as stale_dependencies_router
 from api.routers.storyboard_workbench import router as storyboard_workbench_router
@@ -43,6 +44,7 @@ __all__ = [
     "asset_bible_presets_router",
     "asset_bible_router",
     "video_router",
+    "reference_images_router",
     "tasks_router",
     "files_router",
     "resources_router",
@@ -51,4 +53,3 @@ __all__ = [
     "storyboard_workbench_router",
     "text_rendering_preview_router",
 ]
-

@@ -57,6 +57,7 @@ from api.dependencies import (
     shutdown_pixelle_video,
 )
 from api.platform_dependencies import configure_platform_dependencies
+from api.reference_image_upload_store import ReferenceImageUploadStore
 
 # Import routers
 from api.routers import (
@@ -70,6 +71,7 @@ from api.routers import (
     layered_template_preview_router,
     llm_router,
     llm_trace_router,
+    reference_images_router,
     resources_router,
     stale_dependencies_router,
     storyboard_workbench_router,
@@ -108,6 +110,12 @@ async def lifespan(app: FastAPI):
     tasks_router_module.task_manager = manager
     video_router_module.task_manager = manager
     app.state.task_manager = manager
+    app.state.reference_image_upload_store = ReferenceImageUploadStore(
+        base_dir=api_config.reference_image_upload_base_path,
+        max_upload_size_mb=api_config.reference_image_max_upload_size_mb,
+        max_edge_px=api_config.reference_image_max_edge_px,
+        max_pixels=api_config.reference_image_max_pixels,
+    )
     platform_dependencies = configure_platform_dependencies(
         app,
         api_config,
@@ -141,6 +149,7 @@ app = FastAPI(
     - 🎨 **Image**: AI image generation
     - 📝 **Content**: Automated content generation
     - 🎬 **Video**: End-to-end video generation
+    - 🧪 **Reference Images (gray)**: optional upload/artifact-ID reference image flow
     
     ### Video Generation Modes
     - **Sync**: `/api/video/generate/sync` - For small videos (< 30s)
@@ -186,6 +195,7 @@ app.include_router(content_router, prefix=api_config.api_prefix)
 app.include_router(asset_bible_presets_router, prefix=api_config.api_prefix)
 app.include_router(asset_bible_router, prefix=api_config.api_prefix)
 app.include_router(video_router, prefix=api_config.api_prefix)
+app.include_router(reference_images_router, prefix=api_config.api_prefix)
 app.include_router(tasks_router, prefix=api_config.api_prefix)
 app.include_router(files_router, prefix=api_config.api_prefix)
 app.include_router(resources_router, prefix=api_config.api_prefix)
@@ -208,6 +218,7 @@ async def root():
             "llm_traces": f"{api_config.api_prefix}/llm-traces",
             "tts": f"{api_config.api_prefix}/tts",
             "image": f"{api_config.api_prefix}/image",
+            "reference_images": f"{api_config.api_prefix}/reference-images",
             "layered_templates": f"{api_config.api_prefix}/layered-templates",
             "content": f"{api_config.api_prefix}/content",
             "asset_bible_presets": f"{api_config.api_prefix}/presets/asset-bibles",

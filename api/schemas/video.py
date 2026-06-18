@@ -26,6 +26,7 @@ from pydantic import (
 )
 
 from api.schemas.layered_template_preview import LayeredTemplateSpecRequest
+from api.schemas.reference_image import ReferenceImageInputRequest
 from api.schemas.storyboard_contract import (
     StoryboardFrameOverride,
     StoryboardPromptLanguage,
@@ -259,313 +260,101 @@ class VideoGenerateRequest(BaseModel):
             "ComfyUI reference-audio requirements."
         ),
     )
-    voice_id: Optional[str] = Field(
-        None,
-        description="Public voice resource ID resolved server-side",
-    )
-    style_id: Optional[str] = Field(
-        None,
-        description="Public visual style resource ID resolved server-side",
-    )
-    template_id: Optional[str] = Field(
-        None,
-        description="Public frame template resource ID resolved server-side",
-    )
-    bgm_id: Optional[str] = Field(
-        None,
-        description="Public background music resource ID resolved server-side",
-    )
-    workflow_preset_id: Optional[str] = Field(
-        None,
-        description="Public media workflow preset resource ID resolved server-side",
-    )
+    voice_id: Optional[str] = Field(None, description="Public voice resource ID resolved server-side")
+    style_id: Optional[str] = Field(None, description="Public visual style resource ID resolved server-side")
+    template_id: Optional[str] = Field(None, description="Public frame template resource ID resolved server-side")
+    bgm_id: Optional[str] = Field(None, description="Public background music resource ID resolved server-side")
+    workflow_preset_id: Optional[str] = Field(None, description="Public media workflow preset resource ID resolved server-side")
     media_workflow: Optional[str] = Field(
         None,
-        description=(
-            "Local debug media workflow key. Public clients should prefer "
-            "workflow_preset_id."
-        ),
+        description="Local debug media workflow key. Public clients should prefer workflow_preset_id.",
     )
-    tts_workflow_preset_id: Optional[str] = Field(
-        None,
-        description="Public TTS workflow preset resource ID resolved server-side",
-    )
-    series_visual_signature_enabled: bool = Field(
-        False,
-        description="Enable IP prompt chain for image prompt generation.",
-    )
-    series_visual_signature_asset_bible_id: Optional[str] = Field(
-        None,
-        description="Public asset bible resource ID resolved server-side for IP prompt chain.",
-    )
-    series_visual_signature_profile_id: Optional[str] = Field(
-        None,
-        description="IP profile ID inside the selected asset bible.",
-    )
-    series_visual_signature_expression_mode: Optional[str] = Field(
-        None,
-        description="V4 series-visual-signature expression mode.",
-    )
-    series_visual_signature_structure_mode: Optional[str] = Field(
-        None,
-        description="V4 series-visual-signature structure mode.",
-    )
-    series_visual_signature_participation_mode: Optional[str] = Field(
-        None,
-        description="V4 series-visual-signature participation mode.",
-    )
-    series_visual_signature_mode: Optional[str] = Field(
-        None,
-        description="V4 series-visual-signature strategy mode.",
-    )
-    series_visual_signature_consistency_mode: Optional[str] = Field(
-        None,
-        description="V4 series-visual-signature consistency mode.",
-    )
-    article_understanding_mode: ArticleUnderstandingModeRequest = Field(
-        "auto",
-        description="V4.4 article understanding mode.",
-    )
-    visual_planning_mode: VisualPlanningModeRequest = Field(
-        "auto",
-        description="V4.4 visual planning mode.",
-    )
-    series_visual_signature_strategy: SeriesVisualSignatureStrategyRequest = Field(
-        "auto",
-        description="V4.4 series visual signature strategy.",
-    )
-    user_intent_hint: Optional[str] = Field(
-        None,
-        description="Optional user intent hint for V4.4 article visual planning.",
-    )
-    allow_mixed_lenses: bool = Field(
-        True,
-        description="Allow V4.4 article understanding to use mixed lenses across frames.",
-    )
-    strict_user_mode: bool = Field(
-        False,
-        description="Reject planner fallback when user-selected V4.4 controls conflict.",
-    )
-    force_v44_planning: bool = Field(
-        False,
-        description="Force V4.4 planning path for eligible generation.",
-    )
-    article_concretization_enabled: bool = Field(
-        False,
-        description="Enable article concretization request metadata for V4.4 planning.",
-    )
-    cognitive_anchor_kind: CognitiveAnchorKindRequest = Field(
-        "auto",
-        description="Requested cognitive anchor kind for article concretization.",
-    )
-    explanation_diagram_grammar: ExplanationDiagramGrammarRequest = Field(
-        "auto",
-        description="Requested explanation diagram grammar for article concretization.",
-    )
-    series_visual_signature_role: SeriesVisualSignatureRoleRequest = Field(
-        "none",
-        description="Requested series visual signature role for article concretization.",
-    )
-    diagram_render_style: DiagramRenderStyleRequest = Field(
-        "auto",
-        description="Requested diagram render style for article concretization.",
-    )
-    diagram_aspect_ratio: DiagramAspectRatioRequest = Field(
-        "auto",
-        description="Requested diagram aspect ratio for article concretization.",
-    )
-    diagram_visible_text_policy: VisibleTextPolicyRequest = Field(
-        "no_visible_text",
-        description="Requested visible text policy for article concretization diagrams.",
-    )
-    diagram_approved_labels: List[str] = Field(
-        default_factory=list,
-        description="Approved visible diagram labels for article concretization.",
-    )
-    diagram_user_intent_hint: Optional[str] = Field(
-        None,
-        max_length=500,
-        description="Optional user intent hint for article concretization diagrams.",
-    )
-    tts_audio_strategy: Optional[StandardTtsAudioStrategy] = Field(
-        None,
-        description="Standard video TTS audio strategy. Per-frame audio is not supported.",
-    )
-    tts_duration: Optional[float] = Field(
-        None,
-        ge=0.5,
-        le=60.0,
-        description="Target duration in seconds for TTS workflows that expose a duration parameter.",
-    )
-    tts_split_mode: Optional[TtsSplitMode] = Field(
-        None,
-        description="IndexTTS2 text split mode: internal_only or external_only",
-    )
-    max_chars_per_tts_segment: Optional[int] = Field(
-        None,
-        ge=1,
-        description="Maximum characters per external TTS segment",
-    )
-    tts_split_overflow_policy: Optional[str] = Field(
-        None,
-        description="External TTS split overflow policy",
-    )
-    tts_boundary_search_radius: Optional[int] = Field(
-        None,
-        ge=0,
-        description="Search radius for external TTS punctuation boundaries",
-    )
-    tts_soft_overflow_chars: Optional[int] = Field(
-        None,
-        ge=0,
-        description="Allowed soft overflow characters for external TTS splitting",
-    )
-    tts_audio_boundary_fade_ms: Optional[int] = Field(
-        None,
-        ge=0,
-        description="Fade duration in milliseconds when joining external TTS audio segments",
-    )
-    tts_sentence_joiner_mode: Optional[Literal["direct", "space"]] = Field(
-        None,
-        description="How normalized TTS sentence units are joined inside an audio block",
-    )
-    caption_punctuation_mode: Optional[Literal["strip_all", "strip_terminal", "preserve"]] = Field(
-        None,
-        description="How punctuation is formatted for displayed captions",
-    )
-    preserve_natural_punctuation: Optional[bool] = Field(
+    tts_workflow_preset_id: Optional[str] = Field(None, description="Public TTS workflow preset resource ID resolved server-side")
+    reference_image: Optional[ReferenceImageInputRequest] = Field(
         None,
         description=(
-            "Ask complete script generation to preserve natural punctuation "
-            "for downstream speech and captions"
+            "Gray reference-image selector. Only upload_id/artifact_id are accepted; "
+            "server paths, URLs, and base64 are forbidden."
         ),
     )
+    series_visual_signature_enabled: bool = Field(False, description="Enable IP prompt chain for image prompt generation.")
+    series_visual_signature_asset_bible_id: Optional[str] = Field(None, description="Public asset bible resource ID resolved server-side for IP prompt chain.")
+    series_visual_signature_profile_id: Optional[str] = Field(None, description="IP profile ID inside the selected asset bible.")
+    series_visual_signature_expression_mode: Optional[str] = Field(None, description="V4 series-visual-signature expression mode.")
+    series_visual_signature_structure_mode: Optional[str] = Field(None, description="V4 series-visual-signature structure mode.")
+    series_visual_signature_participation_mode: Optional[str] = Field(None, description="V4 series-visual-signature participation mode.")
+    series_visual_signature_mode: Optional[str] = Field(None, description="V4 series-visual-signature strategy mode.")
+    series_visual_signature_consistency_mode: Optional[str] = Field(None, description="V4 series-visual-signature consistency mode.")
+    article_understanding_mode: ArticleUnderstandingModeRequest = Field("auto", description="V4.4 article understanding mode.")
+    visual_planning_mode: VisualPlanningModeRequest = Field("auto", description="V4.4 visual planning mode.")
+    series_visual_signature_strategy: SeriesVisualSignatureStrategyRequest = Field("auto", description="V4.4 series visual signature strategy.")
+    user_intent_hint: Optional[str] = Field(None, description="Optional user intent hint for V4.4 article visual planning.")
+    allow_mixed_lenses: bool = Field(True, description="Allow V4.4 article understanding to use mixed lenses across frames.")
+    strict_user_mode: bool = Field(False, description="Reject planner fallback when user-selected V4.4 controls conflict.")
+    force_v44_planning: bool = Field(False, description="Force V4.4 planning path for eligible generation.")
+    article_concretization_enabled: bool = Field(False, description="Enable article concretization request metadata for V4.4 planning.")
+    cognitive_anchor_kind: CognitiveAnchorKindRequest = Field("auto", description="Requested cognitive anchor kind for article concretization.")
+    explanation_diagram_grammar: ExplanationDiagramGrammarRequest = Field("auto", description="Requested explanation diagram grammar for article concretization.")
+    series_visual_signature_role: SeriesVisualSignatureRoleRequest = Field("none", description="Requested series visual signature role for article concretization.")
+    diagram_render_style: DiagramRenderStyleRequest = Field("auto", description="Requested diagram render style for article concretization.")
+    diagram_aspect_ratio: DiagramAspectRatioRequest = Field("auto", description="Requested diagram aspect ratio for article concretization.")
+    diagram_visible_text_policy: VisibleTextPolicyRequest = Field("no_visible_text", description="Requested visible text policy for article concretization diagrams.")
+    diagram_approved_labels: List[str] = Field(default_factory=list, description="Approved visible diagram labels for article concretization.")
+    diagram_user_intent_hint: Optional[str] = Field(None, max_length=500, description="Optional user intent hint for article concretization diagrams.")
+    tts_audio_strategy: Optional[StandardTtsAudioStrategy] = Field(None, description="Standard video TTS audio strategy. Per-frame audio is not supported.")
+    tts_duration: Optional[float] = Field(None, ge=0.5, le=60.0, description="Target duration in seconds for TTS workflows that expose a duration parameter.")
+    tts_split_mode: Optional[TtsSplitMode] = Field(None, description="IndexTTS2 text split mode: internal_only or external_only")
+    max_chars_per_tts_segment: Optional[int] = Field(None, ge=1, description="Maximum characters per external TTS segment")
+    tts_split_overflow_policy: Optional[str] = Field(None, description="External TTS split overflow policy")
+    tts_boundary_search_radius: Optional[int] = Field(None, ge=0, description="Search radius for external TTS punctuation boundaries")
+    tts_soft_overflow_chars: Optional[int] = Field(None, ge=0, description="Allowed soft overflow characters for external TTS splitting")
+    tts_audio_boundary_fade_ms: Optional[int] = Field(None, ge=0, description="Fade duration in milliseconds when joining external TTS audio segments")
+    tts_sentence_joiner_mode: Optional[Literal["direct", "space"]] = Field(None, description="How normalized TTS sentence units are joined inside an audio block")
+    caption_punctuation_mode: Optional[Literal["strip_all", "strip_terminal", "preserve"]] = Field(None, description="How punctuation is formatted for displayed captions")
+    preserve_natural_punctuation: Optional[bool] = Field(None, description="Ask complete script generation to preserve natural punctuation for downstream speech and captions")
 
     # === LLM Parameters ===
     min_image_prompt_words: int = Field(30, ge=10, le=100, description="Min image prompt words")
     max_image_prompt_words: int = Field(60, ge=10, le=200, description="Max image prompt words")
-    llm_prompt_batch_size: Optional[int] = Field(
-        None,
-        ge=PROMPT_BATCH_SIZE_MIN,
-        le=PROMPT_BATCH_SIZE_MAX,
-        description="Request-scoped LLM prompt batch size override",
-    )
-    llm_prompt_batch_concurrent_limit: Optional[int] = Field(
-        None,
-        ge=PROMPT_BATCH_CONCURRENT_LIMIT_MIN,
-        le=PROMPT_BATCH_CONCURRENT_LIMIT_MAX,
-        description="Request-scoped LLM prompt batch concurrency override",
-    )
+    llm_prompt_batch_size: Optional[int] = Field(None, ge=PROMPT_BATCH_SIZE_MIN, le=PROMPT_BATCH_SIZE_MAX, description="Request-scoped LLM prompt batch size override")
+    llm_prompt_batch_concurrent_limit: Optional[int] = Field(None, ge=PROMPT_BATCH_CONCURRENT_LIMIT_MIN, le=PROMPT_BATCH_CONCURRENT_LIMIT_MAX, description="Request-scoped LLM prompt batch concurrency override")
 
     # === Size Parameters ===
-    canvas_width: Optional[int] = Field(
-        None,
-        ge=1,
-        description="Final video canvas width. Defaults to the selected video preset.",
-    )
-    canvas_height: Optional[int] = Field(
-        None,
-        ge=1,
-        description="Final video canvas height. Defaults to the selected video preset.",
-    )
-    media_width: Optional[int] = Field(
-        None,
-        ge=1,
-        description="Generated image/media width. Defaults to the selected media preset.",
-    )
-    media_height: Optional[int] = Field(
-        None,
-        ge=1,
-        description="Generated image/media height. Defaults to the selected media preset.",
-    )
-    video_orientation: Optional[VideoOrientation] = Field(
-        None,
-        description="Final video orientation preset group.",
-    )
-    video_resolution_preset: Optional[VideoResolutionPreset] = Field(
-        None,
-        description="Final video resolution preset.",
-    )
-    media_orientation: Optional[VideoOrientation] = Field(
-        None,
-        description="Generated image/media orientation preset group.",
-    )
-    media_resolution_preset: Optional[MediaResolutionPreset] = Field(
-        None,
-        description="Generated image/media resolution preset.",
-    )
-    sync_media_size_to_canvas: bool = Field(
-        False,
-        description="When true, generated image/media dimensions follow the final video canvas.",
-    )
-    media_placement: MediaPlacementRequest = Field(
-        default_factory=MediaPlacementRequest,
-        description="Generated image/video display size and position inside the final video canvas.",
-    )
+    canvas_width: Optional[int] = Field(None, ge=1, description="Final video canvas width. Defaults to the selected video preset.")
+    canvas_height: Optional[int] = Field(None, ge=1, description="Final video canvas height. Defaults to the selected video preset.")
+    media_width: Optional[int] = Field(None, ge=1, description="Generated image/media width. Defaults to the selected media preset.")
+    media_height: Optional[int] = Field(None, ge=1, description="Generated image/media height. Defaults to the selected media preset.")
+    video_orientation: Optional[VideoOrientation] = Field(None, description="Final video orientation preset group.")
+    video_resolution_preset: Optional[VideoResolutionPreset] = Field(None, description="Final video resolution preset.")
+    media_orientation: Optional[VideoOrientation] = Field(None, description="Generated image/media orientation preset group.")
+    media_resolution_preset: Optional[MediaResolutionPreset] = Field(None, description="Generated image/media resolution preset.")
+    sync_media_size_to_canvas: bool = Field(False, description="When true, generated image/media dimensions follow the final video canvas.")
+    media_placement: MediaPlacementRequest = Field(default_factory=MediaPlacementRequest, description="Generated image/video display size and position inside the final video canvas.")
 
     # === Video Parameters ===
     video_fps: int = Field(30, ge=15, le=60, description="Video FPS")
 
-    # === Frame Template ===
     # === Template Custom Parameters ===
-    template_params: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Custom template parameters (e.g., {'accent_color': '#ff0000', 'background': 'url'}). "
-                    "Available parameters depend on the template. Use GET /api/templates/{template_path}/params to discover them."
-    )
-    template_display: TemplateDisplayRequest = Field(
-        default_factory=TemplateDisplayRequest,
-        description="Template shell display controls. Title and signature/watermark are hidden by default.",
-    )
+    template_params: Optional[Dict[str, Any]] = Field(None, description="Custom template parameters. Available parameters depend on the template.")
+    template_display: TemplateDisplayRequest = Field(default_factory=TemplateDisplayRequest, description="Template shell display controls. Title and signature/watermark are hidden by default.")
 
     # === Render Backend ===
-    render_backend: Optional[RenderBackend] = Field(
-        None,
-        description="Render backend: 'legacy' or 'hyperframes_compiled'",
-    )
+    render_backend: Optional[RenderBackend] = Field(None, description="Render backend: 'legacy' or 'hyperframes_compiled'")
 
     # === Storyboard Planning ===
     world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
-    generation_world_hint: Optional[str] = Field(
-        None,
-        max_length=4000,
-        description=(
-            "Per-generation world hint for the current source text. "
-            "Display name remains 世界观提示."
-        ),
-    )
+    generation_world_hint: Optional[str] = Field(None, max_length=4000, description="Per-generation world hint for the current source text. Display name remains 世界观提示.")
     shot_preset_id: Optional[str] = Field(None, description="Storyboard shot preset id")
-    storyboard_prompt_language: StoryboardPromptLanguage = Field(
-        "zh_CN",
-        description="Language used for storyboard planning fields and generated image prompts",
-    )
-    consistency_strength: Optional[ConsistencyStrength] = Field(
-        None,
-        description="Storyboard consistency strength",
-    )
+    storyboard_prompt_language: StoryboardPromptLanguage = Field("zh_CN", description="Language used for storyboard planning fields and generated image prompts")
+    consistency_strength: Optional[ConsistencyStrength] = Field(None, description="Storyboard consistency strength")
     content_mode: Optional[ContentMode] = Field(None, description="Storyboard content mode override")
     role_strategy: Optional[RoleStrategy] = Field(None, description="Storyboard role strategy override")
-    role_locking_strength: Optional[ConsistencyStrength] = Field(
-        None,
-        description="Storyboard role locking strength override",
-    )
+    role_locking_strength: Optional[ConsistencyStrength] = Field(None, description="Storyboard role locking strength override")
     shot_strategy: Optional[ShotOverridePolicy] = Field(None, description="Storyboard shot strategy override")
-    frame_overrides: Optional[List[StoryboardFrameOverride]] = Field(
-        None,
-        description="Per-frame storyboard overrides collected from preview",
-    )
-    text_rendering: Optional[TextRenderingRequest] = Field(
-        None,
-        description="Unified text rendering and generated-image text policy",
-    )
-    layered_template_spec: Optional[LayeredTemplateSpecRequest] = Field(
-        None,
-        description="Normalized layered template snapshot for generation",
-    )
-    selected_template_preset_id: Optional[str] = Field(
-        None,
-        description="Selected layered template preset id",
-    )
+    frame_overrides: Optional[List[StoryboardFrameOverride]] = Field(None, description="Per-frame storyboard overrides collected from preview")
+    text_rendering: Optional[TextRenderingRequest] = Field(None, description="Unified text rendering and generated-image text policy")
+    layered_template_spec: Optional[LayeredTemplateSpecRequest] = Field(None, description="Normalized layered template snapshot for generation")
+    selected_template_preset_id: Optional[str] = Field(None, description="Selected layered template preset id")
 
     # === BGM ===
     bgm_volume: float = Field(0.3, ge=0.0, le=1.0, description="BGM volume (0.0-1.0)")
@@ -614,9 +403,7 @@ class VideoGenerateRequest(BaseModel):
             elif self.storyboard_scene_count is not None:
                 raise ValueError("storyboard_scene_count is valid only with smart manual mode")
             if self.storyboard_max_scene_count is not None:
-                raise ValueError(
-                    "storyboard_max_scene_count is only valid for deterministic storyboard modes"
-                )
+                raise ValueError("storyboard_max_scene_count is only valid for deterministic storyboard modes")
         else:
             if self.storyboard_count_mode != "auto":
                 raise ValueError("deterministic storyboard modes require auto count mode")
@@ -624,9 +411,7 @@ class VideoGenerateRequest(BaseModel):
                 raise ValueError("storyboard_scene_count is not valid for deterministic storyboard modes")
             limits = current_storyboard_generation_limits()
             if self.storyboard_max_scene_count is None:
-                self.storyboard_max_scene_count = (
-                    limits.default_deterministic_max_scene_count
-                )
+                self.storyboard_max_scene_count = limits.default_deterministic_max_scene_count
             elif self.storyboard_max_scene_count > limits.deterministic_max_scene_count_limit:
                 raise ValueError(
                     "storyboard_max_scene_count must be between "
@@ -680,11 +465,7 @@ def validate_raw_frame_template_orientation(
     video_orientation: VideoOrientation | None,
     size_params: dict[str, Any],
 ) -> VideoOrientation | None:
-    if (
-        frame_template
-        and video_orientation is None
-        and not has_canvas_size_intent(size_params)
-    ):
+    if frame_template and video_orientation is None and not has_canvas_size_intent(size_params):
         video_orientation = get_template_orientation(resolve_template_path(frame_template))
         size_params["video_orientation"] = video_orientation
 

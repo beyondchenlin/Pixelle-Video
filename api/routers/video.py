@@ -21,7 +21,9 @@ import os
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
+from api.config import api_config
 from api.dependencies import PixelleVideoDep
+from api.reference_image_upload_store import ReferenceImageUploadStore
 from api.schemas.video import (
     VideoGenerateAsyncResponse,
     VideoGenerateRequest,
@@ -91,6 +93,7 @@ def build_video_generation_params(
     request_id: str,
     api_task_id: str | None = None,
     resource_resolver: ResourceResolver | None = None,
+    reference_image_store: ReferenceImageUploadStore | None = None,
 ) -> dict:
     """Build PixelleVideoCore.generate_video kwargs from an API request."""
     raw_resource_params = _build_raw_resource_params(
@@ -190,6 +193,12 @@ def build_video_generation_params(
     if raw_resource_params.get("voice_id"):
         video_params["voice_id"] = raw_resource_params["voice_id"]
 
+    _apply_reference_image_request(
+        request_body,
+        video_params,
+        reference_image_store=reference_image_store,
+    )
+
     if request_body.tts_audio_strategy is not None:
         video_params["tts_audio_strategy"] = request_body.tts_audio_strategy
     if request_body.tts_duration is not None:
@@ -220,6 +229,30 @@ def build_video_generation_params(
     _copy_tts_text_policy_params(request_body, video_params)
     copy_prompt_generation_performance_params(request_body, video_params)
     return video_params
+
+
+def _apply_reference_image_request(
+    request_body: VideoGenerateRequest,
+    video_params: dict,
+    *,
+    reference_image_store: ReferenceImageUploadStore | None,
+) -> None:
+    if request_body.reference_image is None:
+        return
+    if reference_image_store is None:
+        raise ResourceResolverError("reference image upload store is required")
+    record = reference_image_store.resolve_reference_image_request(
+        request_body.reference_image.model_dump(exclude_none=True)
+    )
+    video_params["reference_image_enabled"] = True
+    video_params["ref_image"] = record.local_path
+    video_params["reference_image_api_source"] = record.to_trace_dict()
+    if request_body.reference_image.analysis_mode is not None:
+        video_params["reference_image_analysis_mode"] = request_body.reference_image.analysis_mode
+    if request_body.reference_image.workflow_injection_mode is not None:
+        video_params["reference_image_workflow_injection_mode"] = request_body.reference_image.workflow_injection_mode
+    if request_body.reference_image.profile_merge_mode is not None:
+        video_params["reference_image_profile_merge_mode"] = request_body.reference_image.profile_merge_mode
 
 
 def _request_header(request: Request, name: str) -> str | None:
@@ -328,6 +361,20 @@ def _get_resource_resolver(
     return resolver
 
 
+def _get_reference_image_upload_store(
+    request: Request,
+    request_body: VideoGenerateRequest,
+) -> ReferenceImageUploadStore | None:
+    if request_body.reference_image is None:
+        return None
+    if not api_config.reference_image_api_enabled:
+        raise HTTPException(status_code=404, detail="reference image API is disabled")
+    store = getattr(request.app.state, "reference_image_upload_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="reference image upload store is not configured")
+    return store
+
+
 def _resource_resolver_http_exception(exc: ResourceResolverError) -> HTTPException:
     if isinstance(exc, ResourceIdInvalidError):
         return HTTPException(status_code=422, detail=str(exc))
@@ -379,29 +426,6 @@ def path_to_storage_key(file_path: str) -> str:
 
 
 def path_to_url(request: Request, file_path: str) -> str:
-    """
-    Convert file path to accessible URL
-
-    Handles both absolute and relative paths, extracting the path relative
-    to the output directory for URL construction.
-
-    Args:
-        request: FastAPI Request object (provides base_url from actual request)
-        file_path: Absolute or relative file path
-
-    Returns:
-        Full URL to access the file
-
-    Examples:
-        Windows: G:\\...\\output\\20251205_233630_c939\\final.mp4
-              -> http://localhost:8000/api/files/20251205_233630_c939/final.mp4
-
-        Linux:   /home/user/.../output/20251205_233630_c939/final.mp4
-              -> http://localhost:8000/api/files/20251205_233630_c939/final.mp4
-
-        Domain:  With domain request -> https://your-domain.com/api/files/...
-    """
-    # Build URL using request's base_url (automatically matches the request host)
     base_url = str(request.base_url).rstrip('/')
     return f"{base_url}/api/files/{path_to_storage_key(file_path)}"
 
@@ -412,19 +436,7 @@ async def generate_video_sync(
     pixelle_video: PixelleVideoDep,
     request: Request
 ):
-    """
-    Generate video synchronously
-
-    This endpoint blocks until video generation is complete.
-    Suitable for small videos (< 30 seconds).
-
-    **Note**: May timeout for large videos. Use `/generate/async` instead.
-
-    Request body includes all video generation parameters.
-    See VideoGenerateRequest schema for details.
-
-    Returns path to generated video, duration, and file size.
-    """
+    """Generate video synchronously."""
     try:
         request_id = _request_correlation_id(request)
         logger.bind(
@@ -434,21 +446,18 @@ async def generate_video_sync(
         ).info("sync video generation request received")
 
         resource_resolver = _get_resource_resolver(request, request_body)
+        reference_image_store = _get_reference_image_upload_store(request, request_body)
         video_params = build_video_generation_params(
             request_body,
             request_id=request_id,
             resource_resolver=resource_resolver,
+            reference_image_store=reference_image_store,
         )
         _apply_trace_request_context(request, video_params)
         validate_video_tts_contract(video_params)
 
-        # Call video generator service
         result = await pixelle_video.generate_video(**video_params)
-
-        # Get file size
         file_size = os.path.getsize(result.video_path) if os.path.exists(result.video_path) else 0
-
-        # Convert path to URL
         video_url = path_to_url(request, result.video_path)
 
         return VideoGenerateResponse(
@@ -472,23 +481,7 @@ async def _generate_video_async_impl(
     request_body: VideoGenerateRequest,
     request: Request,
 ) -> VideoGenerateAsyncResponse:
-    """
-    Generate video asynchronously
-
-    Creates a background task for video generation.
-    Returns immediately with a task_id for tracking progress.
-
-    **Workflow:**
-    1. Submit video generation request
-    2. Receive task_id in response
-    3. Poll `/api/tasks/{task_id}` to check status
-    4. When status is "completed", retrieve video from result
-
-    Request body includes all video generation parameters.
-    See VideoGenerateRequest schema for details.
-
-    Returns task_id for tracking progress.
-    """
+    """Generate video asynchronously."""
     try:
         if request is None:
             raise HTTPException(status_code=500, detail="request context is required")
@@ -500,10 +493,12 @@ async def _generate_video_async_impl(
         ).info("async video generation request received")
 
         resource_resolver = _get_resource_resolver(request, request_body)
+        reference_image_store = _get_reference_image_upload_store(request, request_body)
         generation_params = build_video_generation_params(
             request_body,
             request_id=request_id,
             resource_resolver=resource_resolver,
+            reference_image_store=reference_image_store,
         )
         _apply_trace_request_context(request, generation_params)
         validate_video_tts_contract(generation_params)
@@ -535,9 +530,7 @@ async def _generate_video_async_impl(
                 message=message,
             )
 
-        return VideoGenerateAsyncResponse(
-            task_id=task.task_id
-        )
+        return VideoGenerateAsyncResponse(task_id=task.task_id)
 
     except HTTPException:
         raise
