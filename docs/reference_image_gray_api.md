@@ -47,6 +47,8 @@ Environment variables:
 PIXELLE_REFERENCE_IMAGE_API_ENABLED=false
 PIXELLE_REFERENCE_IMAGE_UPLOAD_BASE_PATH=_runtime/reference_image_uploads
 PIXELLE_REFERENCE_IMAGE_MAX_UPLOAD_SIZE_MB=20
+PIXELLE_REFERENCE_IMAGE_MAX_EDGE_PX=8192
+PIXELLE_REFERENCE_IMAGE_MAX_PIXELS=40000000
 ```
 
 Core config still controls analysis and workflow behavior:
@@ -61,13 +63,25 @@ reference_image:
 
 Request-scoped `reference_image.analysis_mode`, `reference_image.workflow_injection_mode`, and `reference_image.profile_merge_mode` are gray controls. Use them only for trusted/internal testing until your deployment policy is ready.
 
+## Upload validation
+
+The upload store validates both file metadata and actual image bytes:
+
+- Allowed file extensions: `.jpg`, `.jpeg`, `.png`, `.webp`.
+- Allowed decoded image formats: JPEG, PNG, WEBP.
+- Disguised files are rejected, for example BMP bytes uploaded as `reference.png`.
+- Empty files, invalid images, unsupported true formats, oversize byte payloads, and oversized dimensions are rejected.
+- Pillow decompression-bomb warnings are treated as upload errors.
+- Resolving an upload re-checks path containment, file hash, format, and dimensions before returning a record.
+
 ## Safety boundaries
 
 - `VideoGenerateRequest.reference_image` accepts only `upload_id` or `artifact_id`.
 - `ref_image`, `path`, `local_path`, `source_path`, URLs, and base64 payloads are rejected by the public schema.
 - Uploaded files are stored under the controlled API upload root.
 - The generation pipeline receives a controlled server-local file path resolved from the upload store, not a user-supplied path.
-- Trace payloads store ID, hash, MIME type, dimensions, and byte size; they do not store upload-store absolute paths.
+- For async generation, the internal worker execution params may contain this server-controlled upload-store path so the worker can open the file. This path must not appear in user responses, media result artifacts, or public trace payloads; public/audit payloads use `reference_image_api_source` instead.
+- Trace payloads store ID, hash, MIME type, dimensions, and byte size; they do not store user-supplied paths.
 - Workflow physical injection remains gated by `workflow_injection_mode` and workflow capability/whitelist checks.
 
 ## Current non-goals
