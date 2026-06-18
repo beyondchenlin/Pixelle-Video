@@ -245,11 +245,32 @@ def _reference_image_asset_from_task_root(task_root: Path | None) -> tuple[str |
 
 
 def _reference_image_config_from_service(service: "MediaService") -> Mapping[str, Any]:
+    def _section_to_mapping(section: Any) -> dict[str, Any] | None:
+        if isinstance(section, Mapping):
+            return dict(section)
+        if hasattr(section, "model_dump"):
+            dumped = section.model_dump()
+            return dict(dumped) if isinstance(dumped, Mapping) else {}
+        return None
+
     core_config = getattr(getattr(service, "core", None), "config", None)
-    if isinstance(core_config, Mapping) and isinstance(core_config.get("reference_image"), Mapping):
-        return dict(core_config["reference_image"])
-    if isinstance(service.app_config, Mapping) and isinstance(service.app_config.get("reference_image"), Mapping):
-        return dict(service.app_config["reference_image"])
+    if isinstance(core_config, Mapping):
+        core_reference_config = _section_to_mapping(core_config.get("reference_image"))
+        if core_reference_config is not None:
+            return core_reference_config
+    else:
+        core_reference_config = _section_to_mapping(getattr(core_config, "reference_image", None))
+        if core_reference_config is not None:
+            return core_reference_config
+
+    if isinstance(service.app_config, Mapping):
+        app_reference_config = _section_to_mapping(service.app_config.get("reference_image"))
+        if app_reference_config is not None:
+            return app_reference_config
+    else:
+        app_reference_config = _section_to_mapping(getattr(service.app_config, "reference_image", None))
+        if app_reference_config is not None:
+            return app_reference_config
     return {}
 
 
@@ -268,6 +289,84 @@ def _result_with_reference_binding(
     if isinstance(binding_trace, Mapping) and binding_trace:
         payload["reference_image_workflow_binding"] = dict(binding_trace)
     return payload
+
+
+def _reference_image_analysis_status_from_task_root(task_root: Path | None) -> str:
+    if task_root is None:
+        return "unknown"
+    analysis_path = task_root / "reference_image" / "analysis.json"
+    if not analysis_path.is_file():
+        return "unknown"
+    try:
+        payload = json.loads(analysis_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "unknown"
+    status = payload.get("status") if isinstance(payload, Mapping) else None
+    return str(status or "unknown")
+
+
+def _reference_image_injection_status(binding_trace: Mapping[str, Any]) -> str:
+    status = str(binding_trace.get("status") or "").strip().lower()
+    reason = str(binding_trace.get("reason") or "").strip()
+    if status == "injected":
+        return "workflow_injected"
+    if status == "failed":
+        return "required_failed"
+    if reason == "workflow_injection_mode_off":
+        return "off"
+    if status == "skipped":
+        return "prompt_only"
+    return status or "unknown"
+
+
+def _first_reference_image_param_name(binding_trace: Mapping[str, Any]) -> str | None:
+    trace_values = binding_trace.get("workflow_param_trace_values")
+    if not isinstance(trace_values, Mapping):
+        return None
+    for key in trace_values:
+        name = str(key or "").strip()
+        if name:
+            return name
+    return None
+
+
+def _safe_task_relative_text(task_root: Path | None, path: Path) -> str | None:
+    if task_root is None:
+        return None
+    try:
+        return path.resolve().relative_to(task_root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _write_reference_image_injection_summary(
+    context: Mapping[str, Any],
+    *,
+    workflow_info: Mapping[str, Any],
+    binding_trace: Mapping[str, Any],
+) -> dict[str, Any]:
+    task_root = _task_root_from_media_prompt_trace_context(context)
+    output_dir = _reference_binding_trace_output_dir(context)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "injection_summary.json"
+    summary = {
+        "version": "reference_image_injection_summary/v1",
+        "analysis_status": _reference_image_analysis_status_from_task_root(task_root),
+        "workflow_injection_status": _reference_image_injection_status(binding_trace),
+        "workflow_key": str(workflow_info.get("key") or binding_trace.get("workflow_key") or ""),
+        "workflow_source": str(workflow_info.get("source") or ""),
+        "injection_mode": str(binding_trace.get("injection_mode") or ""),
+        "param_name": _first_reference_image_param_name(binding_trace),
+        "reason": str(binding_trace.get("reason") or ""),
+    }
+    relative_path = _safe_task_relative_text(task_root, summary_path)
+    if relative_path:
+        summary["artifact_relative_path"] = relative_path
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return summary
 
 
 class MediaService(ComfyBaseService):
@@ -433,13 +532,19 @@ class MediaService(ComfyBaseService):
                 reference_image_asset_trace=asset_trace,
                 workflow_param_overrides=workflow_param_overrides_from_config(reference_config),
             )
+            binding_trace = binding.to_trace_dict()
+            _write_reference_image_injection_summary(
+                trace_context,
+                workflow_info=workflow_info,
+                binding_trace=binding_trace,
+            )
             if binding.status == "failed":
                 raise ValueError(f"reference image workflow injection failed: {binding.reason}")
             if binding.injected:
                 params.update(binding.injected_params)
-                reference_binding_trace = binding.to_trace_dict()
+                reference_binding_trace = binding_trace
             else:
-                reference_binding_trace = binding.to_trace_dict() if binding.reason else None
+                reference_binding_trace = binding_trace if binding.reason else None
 
         _reject_media_prompt_alias_params(params)
         workflow_params = {"prompt": prompt}

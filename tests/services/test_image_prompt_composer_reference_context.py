@@ -27,7 +27,7 @@ def _storyboard_plan() -> StoryboardPlan:
         source_text="小玩偶在森林里找朋友。",
         frames=[
             StoryboardPlanFrame(
-                index=0,
+                index=1,
                 source_text="小玩偶在森林里找朋友。",
                 visual_goal="小玩偶走在森林小路上",
                 prompt_intent="表现温暖和好奇",

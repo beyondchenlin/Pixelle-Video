@@ -78,6 +78,12 @@ def _latest_media_result_text(task_dir: Path) -> str:
     return candidates[-1].read_text(encoding="utf-8")
 
 
+def _latest_injection_summary(task_dir: Path) -> dict:
+    candidates = sorted(task_dir.rglob("injection_summary.json"), key=lambda path: path.stat().st_mtime)
+    assert candidates, "expected injection_summary.json"
+    return json.loads(candidates[-1].read_text(encoding="utf-8"))
+
+
 @pytest.mark.asyncio
 async def test_media_service_injects_reference_image_and_records_safe_result(monkeypatch, tmp_path):
     monkeypatch.setattr(
@@ -86,6 +92,10 @@ async def test_media_service_injects_reference_image_and_records_safe_result(mon
         lambda workflow_info: SimpleNamespace(reference_image_param_names=("reference_image",)),
     )
     workflow_asset = _write_reference_asset(tmp_path)
+    (tmp_path / "reference_image" / "analysis.json").write_text(
+        json.dumps({"status": "success"}),
+        encoding="utf-8",
+    )
     trace_context = _write_trace_context(tmp_path)
     service = _FakeMediaService(
         {
@@ -116,6 +126,14 @@ async def test_media_service_injects_reference_image_and_records_safe_result(mon
     assert "reference_image" in prompt_trace_text
     assert "workflow_asset_relative_path" in prompt_trace_text
     assert str(workflow_asset.resolve()) not in prompt_trace_text
+
+    summary = _latest_injection_summary(tmp_path)
+    assert summary["analysis_status"] == "success"
+    assert summary["workflow_injection_status"] == "workflow_injected"
+    assert summary["workflow_key"] == "selfhost/image_reference.json"
+    assert summary["workflow_source"] == "selfhost"
+    assert summary["param_name"] == "reference_image"
+    assert str(workflow_asset.resolve()) not in json.dumps(summary, ensure_ascii=False)
 
 
 @pytest.mark.asyncio
@@ -232,3 +250,8 @@ async def test_media_service_required_injection_fails_when_asset_missing(tmp_pat
             height=512,
             media_prompt_trace_context=trace_context,
         )
+
+    assert service.captured_workflow_params is None
+    summary = _latest_injection_summary(tmp_path)
+    assert summary["workflow_injection_status"] == "required_failed"
+    assert summary["reason"] == "reference_image_asset_missing"

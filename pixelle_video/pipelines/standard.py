@@ -111,6 +111,9 @@ from pixelle_video.services.prompt_trace_artifacts import (
     media_workflow_trace_context,
     write_final_prompt_artifact,
 )
+from pixelle_video.services.reference_image_visual_context_adapter import (
+    ReferenceImageVisualContextAdapter,
+)
 from pixelle_video.services.render_capability_resolver import (
     RenderCapabilityInput,
     RenderCapabilityResolver,
@@ -882,6 +885,7 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.media_negative_prompt = styled_batch.negative_prompt
             ctx.planning_snapshot = dict(styled_batch.planning_snapshot or {}) or None
             ctx.prompt_plan_bundle = styled_batch.prompt_plan_bundle
+            self._sync_reference_image_visual_context_artifact(ctx)
             await self._persist_prompt_plan_bundle(ctx)
 
             logger.info(f"✅ Generated {len(ctx.image_prompts)} image prompts")
@@ -2364,6 +2368,36 @@ class StandardPipeline(LinearVideoPipeline):
             self._resolve_workspace_id(ctx),
             bundle.to_dict(),
         )
+
+    def _sync_reference_image_visual_context_artifact(self, ctx: PipelineContext) -> None:
+        if (
+            ctx.reference_image_visual_context is None
+            or not ctx.task_dir
+            or not isinstance(ctx.planning_snapshot, Mapping)
+        ):
+            return
+
+        snapshot = ctx.planning_snapshot.get("reference_image_visual_context")
+        if not isinstance(snapshot, Mapping):
+            return
+
+        updates: dict[str, Any] = {}
+        if "merged_ip_profile" in snapshot:
+            updates["merged_ip_profile"] = snapshot.get("merged_ip_profile")
+        patch = snapshot.get("visual_story_context_patch")
+        if isinstance(patch, Mapping):
+            updates["supplemental_visual_story_context"] = dict(patch)
+        if not updates:
+            return
+
+        visual_context = ctx.reference_image_visual_context.model_copy(update=updates)
+        ctx.reference_image_visual_context = ReferenceImageVisualContextAdapter.write_artifact(
+            ctx.task_dir,
+            visual_context,
+        )
+        trace_payload = ctx.reference_image_visual_context.to_trace_dict()
+        ctx.params["reference_image_visual_context"] = trace_payload
+        ctx.observability["reference_image_visual_context"] = trace_payload
 
     def _resolve_frame_prompt_plan(
         self,

@@ -24,6 +24,16 @@ class VisionCapabilities:
 
 
 _DATA_URL_RE = re.compile(r"^data:(?P<mime>[^;,]+)?;base64,(?P<data>.*)$", re.IGNORECASE | re.DOTALL)
+_INLINE_DATA_IMAGE_RE = re.compile(
+    r"data:image/[^;,\s]+;base64,[A-Za-z0-9+/=\r\n]+",
+    re.IGNORECASE,
+)
+_LOOSE_DATA_IMAGE_RE = re.compile(r"data:image/[^\s'\"),}\]]+", re.IGNORECASE)
+_LOOSE_BASE64_PAYLOAD_RE = re.compile(r"base64,\s*[A-Za-z0-9+/=\r\n]+", re.IGNORECASE)
+_ABSOLUTE_PATH_HINT_RE = re.compile(
+    r"([A-Za-z]:\\[^ \n\r\t'\"),}\]]+|/(?:Users|home|mnt|var|tmp|etc)/[^ \n\r\t'\"),}\]]+)"
+)
+_MAX_TRACE_ERROR_MESSAGE_CHARS = 2000
 _KNOWN_VISION_MODEL_PREFIXES = (
     "gpt-4o",
     "qwen-vl",
@@ -137,6 +147,19 @@ def redact_multimodal_messages_for_trace(messages: list[Mapping[str, Any]]) -> l
         }
         redacted.append(copied)
     return redacted
+
+
+def sanitize_multimodal_trace_error(message: object) -> str:
+    """Return a trace-safe provider error string for multimodal calls."""
+
+    text = str(message or "")
+    text = _INLINE_DATA_IMAGE_RE.sub("<redacted:data-url>", text)
+    text = _LOOSE_DATA_IMAGE_RE.sub("<redacted:data-url>", text)
+    text = _LOOSE_BASE64_PAYLOAD_RE.sub("<redacted:base64-payload>", text)
+    text = _ABSOLUTE_PATH_HINT_RE.sub("<redacted:absolute-path>", text)
+    if len(text) > _MAX_TRACE_ERROR_MESSAGE_CHARS:
+        text = text[:_MAX_TRACE_ERROR_MESSAGE_CHARS] + "...<truncated>"
+    return text
 
 
 def validate_multimodal_image_inputs(messages: list[Mapping[str, Any]]) -> None:

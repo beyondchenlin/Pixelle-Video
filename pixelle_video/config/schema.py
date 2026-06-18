@@ -785,6 +785,41 @@ class RuntimeConfig(BaseModel):
     )
 
 
+class ReferenceImageConfig(BaseModel):
+    """Reference-image feature configuration."""
+
+    enabled: bool = Field(default=False)
+    web_ui_enabled: bool = Field(default=False)
+    analysis_mode: Literal["off", "auto", "required"] = Field(default="off")
+    workflow_injection_mode: Literal["off", "auto", "required"] = Field(default="off")
+    profile_merge_mode: Literal["supplement", "override", "strict"] = Field(default="supplement")
+    allowed_extensions: list[str] = Field(
+        default_factory=lambda: [".jpg", ".jpeg", ".png", ".webp"]
+    )
+    max_upload_size_mb: int = Field(default=20, ge=1)
+    max_vision_edge_px: int = Field(default=1024, ge=1)
+    max_workflow_edge_px: int = Field(default=2048, ge=1)
+    strip_exif: bool = Field(default=True)
+    convert_to_png_for_workflow: bool = Field(default=False)
+    allow_ambiguous_image_param: bool = Field(default=False)
+    workflow_param_overrides: dict[str, Any] = Field(default_factory=dict)
+
+
+class VisionLLMConfig(BaseModel):
+    """Dedicated multimodal LLM configuration for reference-image analysis."""
+
+    enabled: bool = Field(default=False)
+    api_key: str = Field(default="")
+    base_url: str = Field(default="")
+    model: str = Field(default="")
+    temperature: float = Field(default=0.2, ge=0)
+    max_tokens: int = Field(default=1200, ge=1)
+    max_image_size_mb: int = Field(default=5, ge=1)
+    max_vision_edge_px: int = Field(default=1024, ge=1)
+    unavailable_policy: Literal["skip", "fail"] = Field(default="skip")
+    force_supports_vision: Optional[bool] = Field(default=None)
+
+
 class PixelleVideoConfig(BaseModel):
     """Pixelle-Video main configuration"""
     config_version: int = Field(default=2, ge=1, description="Runtime configuration schema version")
@@ -796,6 +831,8 @@ class PixelleVideoConfig(BaseModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     storyboard: StoryboardSubConfig = Field(default_factory=StoryboardSubConfig, description="Storyboard planning configuration")
+    reference_image: ReferenceImageConfig = Field(default_factory=ReferenceImageConfig)
+    vision_llm: VisionLLMConfig = Field(default_factory=VisionLLMConfig)
 
     @model_validator(mode="before")
     @classmethod

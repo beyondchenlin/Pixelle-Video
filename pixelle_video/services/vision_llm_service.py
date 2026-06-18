@@ -33,6 +33,7 @@ from pixelle_video.services.vision_capabilities import (
     detect_vision_capabilities,
     estimate_messages_text_tokens,
     redact_multimodal_messages_for_trace,
+    sanitize_multimodal_trace_error,
     validate_multimodal_image_limits,
 )
 from pixelle_video.utils.network_proxy import apply_adaptive_proxy_env
@@ -184,7 +185,7 @@ class VisionLLMService:
                 response_payload=None,
                 status=LLMTraceStatus.ERROR,
                 elapsed_ms=_elapsed_ms(started_at),
-                error_message=str(exc),
+                error_message=sanitize_multimodal_trace_error(exc),
             )
             raise
 

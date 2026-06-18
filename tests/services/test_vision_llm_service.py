@@ -36,6 +36,21 @@ class _FakeClient:
         self.chat = SimpleNamespace(completions=self.completions)
 
 
+class _FailingCompletions:
+    async def create(self, **kwargs):
+        raise RuntimeError(
+            "provider echoed payload data:image/png;base64,AAAA "
+            "/home/user/secret.png C:\\Users\\ai\\secret.png"
+        )
+
+
+class _FailingClient:
+    def __init__(self):
+        self.base_url = "https://example.test/v1"
+        self.completions = _FailingCompletions()
+        self.chat = SimpleNamespace(completions=self.completions)
+
+
 class _FakeRecorder:
     def __init__(self):
         self.records = []
@@ -86,6 +101,39 @@ async def test_vision_llm_service_records_redacted_trace(monkeypatch):
     assert "<redacted:data-url>" in request_json
     assert "sha256" in request_json
     assert recorder.records[0]["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_vision_llm_service_redacts_provider_error_trace(monkeypatch):
+    service = VisionLLMService({"force_supports_vision": True})
+    monkeypatch.setattr(service, "_create_client", lambda **kwargs: _FailingClient())
+    recorder = _FakeRecorder()
+
+    with pytest.raises(RuntimeError):
+        await service.chat(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "请返回 JSON"},
+                        {"type": "image_url", "image_url": {"url": _data_url()}},
+                    ],
+                }
+            ],
+            model="qwen-vl-max",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            trace_context=_trace_context(),
+            trace_recorder=recorder,
+        )
+
+    assert recorder.records[0]["status"] == "error"
+    error_message = recorder.records[0]["error_message"]
+    assert "base64," not in error_message
+    assert "data:image" not in error_message
+    assert "/home/user" not in error_message
+    assert "C:\\" not in error_message
+    assert "<redacted:data-url>" in error_message
+    assert "<redacted:absolute-path>" in error_message
 
 
 @pytest.mark.asyncio

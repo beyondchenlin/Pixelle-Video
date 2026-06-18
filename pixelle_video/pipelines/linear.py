@@ -97,6 +97,9 @@ def _resolve_vision_llm_config(core_config: Any) -> Mapping[str, Any]:
     vision_config = _config_mapping_get(core_config, "vision_llm")
     if isinstance(vision_config, Mapping):
         return dict(vision_config)
+    if hasattr(vision_config, "model_dump"):
+        dumped = vision_config.model_dump()
+        return dict(dumped) if isinstance(dumped, Mapping) else {}
     configured = config_manager.get("vision_llm", {})
     return dict(configured) if isinstance(configured, Mapping) else {}
 
