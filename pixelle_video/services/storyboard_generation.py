@@ -37,6 +37,8 @@ from pixelle_video.utils.text_normalization import normalize_generated_source_te
 SMART_STORYBOARD_BASE_MAX_TOKENS = 2000
 SMART_STORYBOARD_MAX_TOKENS_PER_SCENE = 350
 SMART_STORYBOARD_COMPATIBLE_MAX_TOKENS = 8192
+SMART_STORYBOARD_AUTO_TARGET_CHARS_PER_FRAME = 55
+SMART_STORYBOARD_AUTO_SENTENCE_FRAME_FLOOR = 3
 _LITERAL_CONTROL_ESCAPE_PATTERN = re.compile(
     r"(^|[\s。！？.!?,，；;：:])([\\/]+n)(?=\s|$|[A-Za-z0-9\u3400-\u9fff])",
     flags=re.IGNORECASE,
@@ -142,6 +144,62 @@ def _smart_storyboard_max_tokens(max_scene_count: int) -> int:
         max_scene_count * SMART_STORYBOARD_MAX_TOKENS_PER_SCENE,
     )
     return min(requested_tokens, SMART_STORYBOARD_COMPATIBLE_MAX_TOKENS)
+
+
+def _smart_storyboard_auto_max_scene_count(
+    source_text: str,
+    *,
+    min_scene_count: int,
+    configured_max_scene_count: int,
+) -> int:
+    compact_text = re.sub(r"\s+", "", _normalize_text(source_text))
+    if not compact_text:
+        return min_scene_count
+    length_based_count = (
+        len(compact_text) + SMART_STORYBOARD_AUTO_TARGET_CHARS_PER_FRAME - 1
+    ) // SMART_STORYBOARD_AUTO_TARGET_CHARS_PER_FRAME
+    sentence_based_floor = min(
+        len(_sentence_segments(source_text)),
+        SMART_STORYBOARD_AUTO_SENTENCE_FRAME_FLOOR,
+    )
+    minimum_auto_cap = min(
+        configured_max_scene_count,
+        max(min_scene_count, 2),
+    )
+    return min(
+        configured_max_scene_count,
+        max(
+            min_scene_count,
+            minimum_auto_cap,
+            length_based_count,
+            sentence_based_floor,
+        ),
+    )
+
+
+def _coalesce_segments_to_count(
+    segments: list[tuple[str, int, int]],
+    max_scene_count: int,
+) -> list[tuple[str, int, int]]:
+    if max_scene_count <= 0 or len(segments) <= max_scene_count:
+        return segments
+
+    grouped: list[tuple[str, int, int]] = []
+    segment_count = len(segments)
+    for bucket_index in range(max_scene_count):
+        start_index = segment_count * bucket_index // max_scene_count
+        end_index = segment_count * (bucket_index + 1) // max_scene_count
+        group = segments[start_index:end_index]
+        if not group:
+            continue
+        grouped.append(
+            (
+                "".join(segment[0] for segment in group),
+                group[0][1],
+                group[-1][2],
+            )
+        )
+    return grouped
 
 
 def _extend_frame_source(
@@ -265,17 +323,26 @@ class StoryboardGenerationService:
         normalized_source = _normalize_text(source_text)
         limits = self.limits
         min_scene_count = limits.min_scene_count
-        max_scene_count = limits.max_scene_count
+        configured_max_scene_count = limits.max_scene_count
 
         if count_mode not in {"auto", "manual"}:
             raise ValueError(f"unsupported storyboard count mode: {count_mode}")
         if count_mode == "manual":
             if type(requested_scene_count) is not int:
                 raise ValueError("storyboard_scene_count is required with manual count mode")
-            if not min_scene_count <= requested_scene_count <= max_scene_count:
+            if not min_scene_count <= requested_scene_count <= configured_max_scene_count:
                 raise ValueError("storyboard_scene_count must be within configured bounds")
         elif requested_scene_count is not None:
             raise ValueError("storyboard_scene_count is valid only with manual count mode")
+        max_scene_count = (
+            _smart_storyboard_auto_max_scene_count(
+                normalized_source,
+                min_scene_count=min_scene_count,
+                configured_max_scene_count=configured_max_scene_count,
+            )
+            if count_mode == "auto"
+            else configured_max_scene_count
+        )
 
         rendered_prompt = render_smart_storyboard_prompt(
             source_text=normalized_source,
@@ -298,22 +365,26 @@ class StoryboardGenerationService:
                 trace_recorder=trace_recorder,
             )
         except ValueError as exc:
-            if (
-                count_mode != "auto"
-                or str(exc) != "smart storyboard frame source_text must be traceable"
-            ):
+            if count_mode != "auto":
                 raise
+            fallback_segments = _coalesce_segments_to_count(
+                _sentence_segments(normalized_source),
+                max_scene_count,
+            )
             return self._plan_from_segments(
                 mode="smart",
                 count_mode=count_mode,
                 requested_scene_count=requested_scene_count,
                 source_text=normalized_source,
-                segments=_sentence_segments(normalized_source),
+                segments=fallback_segments,
+                max_scene_count=max_scene_count,
                 prompt_language=prompt_language,
                 frame_strategy="smart_sentence_fallback",
                 diagnostics_strategy="smart_sentence_fallback",
                 extra_diagnostics={
                     "requested_scene_count": requested_scene_count,
+                    "auto_max_scene_count": max_scene_count,
+                    "configured_max_scene_count": configured_max_scene_count,
                     "fallback_reason": str(exc),
                 },
             )
@@ -327,6 +398,11 @@ class StoryboardGenerationService:
             diagnostics={
                 "strategy": "smart",
                 "requested_scene_count": requested_scene_count,
+                "max_scene_count": max_scene_count,
+                "auto_max_scene_count": (
+                    max_scene_count if count_mode == "auto" else None
+                ),
+                "configured_max_scene_count": configured_max_scene_count,
                 "split_count": len(frames),
             },
         )

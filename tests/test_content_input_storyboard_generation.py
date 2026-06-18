@@ -122,9 +122,22 @@ def test_storyboard_generation_payload_normalizes_unknown_prompt_language_to_chi
     assert payload["storyboard_prompt_language"] == "zh_CN"
 
 
+def test_script_generation_payload_defaults_to_auto_for_generate_mode():
+    payload = content_input.build_script_generation_payload(
+        mode="generate",
+        script_target_words=200,
+    )
+
+    assert payload == {
+        "script_length_mode": "auto",
+        "script_target_words": None,
+    }
+
+
 def test_script_generation_payload_uses_custom_target_words_for_generate_mode():
     payload = content_input.build_script_generation_payload(
         mode="generate",
+        script_length_mode="custom",
         script_target_words=200,
     )
 
@@ -149,9 +162,11 @@ def test_script_generation_payload_omits_target_words_for_fixed_mode():
 def test_script_generation_target_words_are_clamped_to_supported_ui_range():
     assert content_input.build_script_generation_payload(
         mode="generate",
+        script_length_mode="custom",
         script_target_words=1,
     )["script_target_words"] == 50
     assert content_input.build_script_generation_payload(
         mode="generate",
+        script_length_mode="custom",
         script_target_words=12000,
     )["script_target_words"] == 10000

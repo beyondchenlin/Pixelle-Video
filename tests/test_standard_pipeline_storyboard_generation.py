@@ -851,7 +851,7 @@ async def test_initialize_storyboard_uses_explicit_template_orientation_when_siz
     await StandardPipeline(_DummyCore()).initialize_storyboard(ctx)
 
     assert ctx.config.video_orientation == "portrait"
-    assert (ctx.config.canvas_width, ctx.config.canvas_height) == (720, 1280)
+    assert (ctx.config.canvas_width, ctx.config.canvas_height) == (1080, 1920)
     assert ctx.config.frame_template == "1080x1920/image_default.html"
 
 

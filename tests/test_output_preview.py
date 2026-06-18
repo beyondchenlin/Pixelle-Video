@@ -2467,10 +2467,10 @@ def test_render_layout_preview_workbench_section_renders_empty_state_without_spe
 
     assert captured["spec_payload"] is None
     default_summary = captured["default_layout_summary"]
-    assert default_summary.canvas_width == 1280
-    assert default_summary.canvas_height == 720
-    assert default_summary.media_width == 1280
-    assert default_summary.media_height == 720
+    assert default_summary.canvas_width == 1080
+    assert default_summary.canvas_height == 1920
+    assert default_summary.media_width == 1920
+    assert default_summary.media_height == 1080
     assert default_summary.media_placement.to_dict() == {
         "scale_percent": 100,
         "offset_x": 0,

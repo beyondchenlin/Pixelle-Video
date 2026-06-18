@@ -75,9 +75,16 @@ def _skip_series_visual_signature_anchor_planning(monkeypatch) -> None:
     async def fake_plan_batch(self, **kwargs):
         return ()
 
+    def fake_plan_failed_frames(self, **kwargs):
+        return ()
+
     monkeypatch.setattr(
         "pixelle_video.services.visual_prompt_planning_service.VisualAnchorIntegrationPlanner.plan_batch",
         fake_plan_batch,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.visual_prompt_planning_service.VisualSignatureFallbackPlanner.plan_failed_frames",
+        fake_plan_failed_frames,
     )
 
 

@@ -241,9 +241,9 @@ def test_render_generation_size_controls_uses_valid_non_square_media_default(
 
     contract = style_config._render_generation_size_controls()
 
-    assert fake_st.media_resolution_default == "1k"
+    assert fake_st.media_resolution_default == "2k"
     assert contract.media_orientation == "landscape"
-    assert contract.media_resolution_preset == "1k"
+    assert contract.media_resolution_preset == "2k"
 
 
 def test_render_generation_size_controls_uses_orientation_video_default(
@@ -286,9 +286,9 @@ def test_render_generation_size_controls_uses_orientation_video_default(
 
     contract = style_config._render_generation_size_controls()
 
-    assert fake_st.video_resolution_default == "portrait_hd"
-    assert contract.video_resolution_preset == "portrait_hd"
-    assert (contract.canvas_width, contract.canvas_height) == (720, 1280)
+    assert fake_st.video_resolution_default == "portrait_full_hd"
+    assert contract.video_resolution_preset == "portrait_full_hd"
+    assert (contract.canvas_width, contract.canvas_height) == (1080, 1920)
 
 
 def test_render_generation_size_controls_syncs_image_size_to_canvas(monkeypatch):

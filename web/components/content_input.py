@@ -46,6 +46,7 @@ from web.utils.async_helpers import get_project_version
 SCRIPT_TARGET_WORDS_MIN = 50
 SCRIPT_TARGET_WORDS_DEFAULT = 200
 SCRIPT_TARGET_WORDS_STEP = 50
+SCRIPT_LENGTH_MODE_OPTIONS = ("auto", "short", "medium", "long", "custom")
 
 
 def _storyboard_prompt_language_state(key_prefix: str) -> str:
@@ -96,12 +97,23 @@ def _sync_script_target_words_state(*, source_key: str, target_key: str) -> None
 def build_script_generation_payload(
     *,
     mode: str,
+    script_length_mode: str = "auto",
     script_target_words: int | None,
 ) -> dict:
     """Normalize source script-generation controls into the video request contract."""
     if mode != "generate":
         return {
             "script_length_mode": "auto",
+            "script_target_words": None,
+        }
+    resolved_length_mode = (
+        script_length_mode
+        if script_length_mode in SCRIPT_LENGTH_MODE_OPTIONS
+        else "auto"
+    )
+    if resolved_length_mode != "custom":
+        return {
+            "script_length_mode": resolved_length_mode,
             "script_target_words": None,
         }
     return {
@@ -270,6 +282,23 @@ def render_script_generation_controls(*, mode: str, key_prefix: str) -> dict:
 
     slider_key = f"{key_prefix}_script_target_words_slider"
     input_key = f"{key_prefix}_script_target_words_input"
+    length_mode = st.radio(
+        tr("script.length_mode"),
+        SCRIPT_LENGTH_MODE_OPTIONS,
+        index=0,
+        horizontal=True,
+        key=f"{key_prefix}_script_length_mode",
+        format_func=lambda value: tr(f"script.length_mode.{value}"),
+        help=tr("script.length_mode_help"),
+    )
+
+    if length_mode != "custom":
+        return build_script_generation_payload(
+            mode=mode,
+            script_length_mode=length_mode,
+            script_target_words=None,
+        )
+
     target_words = _initialize_script_target_words_state(
         slider_key=slider_key,
         input_key=input_key,
@@ -304,6 +333,7 @@ def render_script_generation_controls(*, mode: str, key_prefix: str) -> dict:
 
     return build_script_generation_payload(
         mode=mode,
+        script_length_mode=length_mode,
         script_target_words=target_words,
     )
 

@@ -432,7 +432,7 @@ async def test_smart_auto_caps_default_max_tokens_for_qwen_compatible_providers(
         storyboard_scene_count=None,
     )
 
-    assert llm.calls[0]["max_tokens"] == 8192
+    assert llm.calls[0]["max_tokens"] == 2000
 
 
 @pytest.mark.asyncio
@@ -744,7 +744,7 @@ async def test_smart_ignores_out_of_bounds_source_range_even_after_repeated_llm_
 
 
 @pytest.mark.asyncio
-async def test_smart_rejects_backwards_source_ranges_after_repair():
+async def test_smart_auto_falls_back_after_repeated_backwards_source_ranges():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     backwards_frames = [
         {
@@ -760,16 +760,17 @@ async def test_smart_rejects_backwards_source_ranges_after_repair():
     ]
     llm = SequencedSmartFakeLLM([backwards_frames, backwards_frames])
 
-    with pytest.raises(ValueError, match="smart storyboard frame source ranges must be ordered"):
-        await service.generate(
-            llm_service=llm,
-            source_text="开头完整表达。结尾完整表达。",
-            storyboard_mode="smart",
-            storyboard_count_mode="auto",
-            storyboard_scene_count=None,
-        )
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="开头完整表达。结尾完整表达。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
 
     assert len(llm.calls) == 2
+    assert plan.diagnostics["strategy"] == "smart_sentence_fallback"
+    assert plan.source_texts() == ["开头完整表达。", "结尾完整表达。"]
 
 
 @pytest.mark.asyncio
@@ -1302,7 +1303,7 @@ async def test_smart_manual_scene_count_must_be_within_configured_bounds():
 
 
 @pytest.mark.asyncio
-async def test_smart_auto_rejects_too_few_frames():
+async def test_smart_auto_falls_back_when_llm_keeps_returning_too_few_frames():
     service = StoryboardGenerationService(config={"min_scene_count": 2, "max_scene_count": 10})
     llm = SmartFakeLLM(
         frames=[
@@ -1316,25 +1317,31 @@ async def test_smart_auto_rejects_too_few_frames():
         ]
     )
 
-    with pytest.raises(ValueError, match="too few storyboard frames"):
-        await service.generate(
-            llm_service=llm,
-            source_text="开头完整表达。结尾完整表达。",
-            storyboard_mode="smart",
-            storyboard_count_mode="auto",
-            storyboard_scene_count=None,
-        )
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="开头完整表达。结尾完整表达。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert len(llm.calls) == 2
+    assert plan.diagnostics["strategy"] == "smart_sentence_fallback"
+    assert plan.resolved_scene_count == 2
 
 
 @pytest.mark.asyncio
-async def test_smart_auto_rejects_too_many_frames():
+async def test_smart_auto_falls_back_when_llm_exceeds_dynamic_scene_cap():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 1})
 
-    with pytest.raises(ValueError, match="too many storyboard frames"):
-        await service.generate(
-            llm_service=SmartFakeLLM(),
-            source_text="开头完整表达。结尾完整表达。",
-            storyboard_mode="smart",
-            storyboard_count_mode="auto",
-            storyboard_scene_count=None,
-        )
+    plan = await service.generate(
+        llm_service=SmartFakeLLM(),
+        source_text="开头完整表达。结尾完整表达。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert plan.diagnostics["strategy"] == "smart_sentence_fallback"
+    assert plan.diagnostics["auto_max_scene_count"] == 1
+    assert plan.resolved_scene_count == 1

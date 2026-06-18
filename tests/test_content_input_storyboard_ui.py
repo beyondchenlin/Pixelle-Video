@@ -345,8 +345,28 @@ def test_deterministic_storyboard_slider_uses_configured_limit_cap(monkeypatch):
     assert payload["storyboard_max_scene_count"] == 60
 
 
+def test_script_generation_length_control_defaults_to_auto_payload(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(content_input, "st", fake_st)
+    monkeypatch.setattr(content_input, "tr", _fake_tr)
+
+    payload = content_input.render_script_generation_controls(
+        mode="generate",
+        key_prefix="single_video",
+    )
+
+    assert fake_st.sliders == []
+    assert fake_st.number_inputs == []
+    assert fake_st.session_state == {}
+    assert payload == {
+        "script_length_mode": "auto",
+        "script_target_words": None,
+    }
+
+
 def test_script_generation_target_words_control_uses_default_range_and_custom_payload(monkeypatch):
     fake_st = _FakeStreamlit()
+    fake_st.radio_values["single_video_script_length_mode"] = "custom"
     monkeypatch.setattr(content_input, "st", fake_st)
     monkeypatch.setattr(content_input, "tr", _fake_tr)
 

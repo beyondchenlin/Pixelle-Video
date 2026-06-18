@@ -64,7 +64,11 @@ from pixelle_video.services.text_style_css_contract import (
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 from pixelle_video.tts_workflow_contract import tts_workflow_missing_required_ref_audio
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
-from pixelle_video.utils.template_util import get_template_preview_path, resolve_template_path
+from pixelle_video.utils.template_util import (
+    get_template_orientation,
+    get_template_preview_path,
+    resolve_template_path,
+)
 from web.components.layered_template_state import load_layered_template_spec_into_editor_state
 from web.components.layout_preview_workbench import (
     DefaultLayoutSummary,
@@ -965,7 +969,21 @@ def _layout_preview_summary_text(video_params, *keys: str) -> str | None:
 
 
 def _build_layout_preview_default_summary(video_params) -> DefaultLayoutSummary:
-    size_contract = GenerationSizeContract.from_params(video_params)
+    size_params = dict(video_params or {})
+    frame_template = size_params.get("frame_template")
+    if frame_template and not any(
+        size_params.get(key) is not None
+        for key in (
+            "canvas_width",
+            "canvas_height",
+            "video_orientation",
+            "video_resolution_preset",
+        )
+    ):
+        size_params["video_orientation"] = get_template_orientation(
+            resolve_template_path(str(frame_template))
+        )
+    size_contract = GenerationSizeContract.from_params(size_params)
     return DefaultLayoutSummary(
         canvas_width=size_contract.canvas_width,
         canvas_height=size_contract.canvas_height,

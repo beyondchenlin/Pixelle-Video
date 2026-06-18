@@ -71,15 +71,15 @@ VALID_MEDIA_RESOLUTION_PRESETS = ("768", "1k", "2k", "4k")
 
 DEFAULT_VIDEO_ORIENTATION = "landscape"
 DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION = {
-    "landscape": "landscape_hd",
-    "portrait": "portrait_hd",
+    "landscape": "landscape_full_hd",
+    "portrait": "portrait_full_hd",
     "square": "square_standard",
 }
 DEFAULT_VIDEO_RESOLUTION_PRESET = DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION[
     DEFAULT_VIDEO_ORIENTATION
 ]
 DEFAULT_MEDIA_ORIENTATION = "landscape"
-DEFAULT_MEDIA_RESOLUTION_PRESET = "1k"
+DEFAULT_MEDIA_RESOLUTION_PRESET = "2k"
 
 MEDIA_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
     "landscape": LEGACY_VIDEO_SIZE_PRESETS["landscape"],

@@ -8,13 +8,18 @@ from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
 from pixelle_video.models.ip_prompt_planning import IPFrameAdaptationPackage
-from pixelle_video.models.series_visual_signature_presentation import SeriesVisualSignaturePresentationPolicy
+from pixelle_video.models.series_visual_signature_presentation import (
+    SeriesVisualSignatureEnforcementMode,
+    SeriesVisualSignaturePresentationMode,
+    SeriesVisualSignaturePresentationPolicy,
+)
 from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
 from pixelle_video.models.series_visual_signature_request import (
     SeriesVisualSignatureRequest,
 )
 from pixelle_video.models.series_visual_signature_strategy import (
     SeriesVisualSignatureStrategyControls,
+    build_visual_identity_kernel,
 )
 from pixelle_video.models.visual_anchor_planning import VisualAnchorPlacementPlan
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
@@ -24,7 +29,10 @@ from pixelle_video.services.provider_prompt_projector import ProviderPromptProje
 from pixelle_video.services.series_visual_signature_anchor_planner import (
     VisualAnchorIntegrationPlanner,
 )
-from pixelle_video.services.visual_signature_fallback_planner import fallback_ledger_from_plans
+from pixelle_video.services.visual_signature_fallback_planner import (
+    VisualSignatureFallbackPlanner,
+    fallback_ledger_from_plans,
+)
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 from pixelle_video.utils.json_safety import to_json_compatible
 
@@ -146,24 +154,43 @@ class VisualPromptPlanningService:
             world_preset=world_preset,
         )
 
-        visual_anchor_plans = (
-            await VisualAnchorIntegrationPlanner(
-                llm_service=llm_service,
-                policy=policy,
-                series_visual_signature_strategy=role_strategy,
+        visual_anchor_plans: tuple[VisualAnchorPlacementPlan, ...] = tuple()
+        if visual_anchor_enabled and anchor_profile is not None:
+            if _should_use_deterministic_anchor_planning(
                 presentation_policy=presentation_policy,
-            ).plan_batch(
-                base_visual_briefs=base_visual_briefs,
-                anchor_profile=anchor_profile,
-                base_packages=base_anchor_packages,
-                frame_contexts=frame_contexts,
-                frame_plans=frame_plans,
-                trace_context=trace_context,
-                trace_recorder=trace_recorder,
-            )
-            if visual_anchor_enabled and anchor_profile is not None
-            else tuple()
-        )
+                role_strategy=role_strategy,
+            ):
+                identity_kernel = build_visual_identity_kernel(anchor_profile)
+                reasons = {
+                    brief.frame_id: (
+                        "soft deterministic anchor planning selected",
+                    )
+                    for brief in base_visual_briefs
+                }
+                visual_anchor_plans = VisualSignatureFallbackPlanner(
+                    anchor_profile=anchor_profile,
+                    presentation_policy=presentation_policy,
+                    identity_kernel=identity_kernel,
+                ).plan_failed_frames(
+                    base_visual_briefs=base_visual_briefs,
+                    failed_frame_ids=[brief.frame_id for brief in base_visual_briefs],
+                    failure_reasons_by_frame=reasons,
+                )
+            else:
+                visual_anchor_plans = await VisualAnchorIntegrationPlanner(
+                    llm_service=llm_service,
+                    policy=policy,
+                    series_visual_signature_strategy=role_strategy,
+                    presentation_policy=presentation_policy,
+                ).plan_batch(
+                    base_visual_briefs=base_visual_briefs,
+                    anchor_profile=anchor_profile,
+                    base_packages=base_anchor_packages,
+                    frame_contexts=frame_contexts,
+                    frame_plans=frame_plans,
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                )
         anchor_packages = tuple(
             plan.to_ip_frame_adaptation_package(base_anchor_packages[index])
             for index, plan in enumerate(visual_anchor_plans)
@@ -191,6 +218,22 @@ class VisualPromptPlanningService:
             series_visual_signature_profile=series_visual_signature_profile,
             series_visual_signature_fallback=fallback_ledger if fallback_ledger and fallback_ledger.get("fallback_applied") else None,
         )
+
+def _should_use_deterministic_anchor_planning(
+    *,
+    presentation_policy: SeriesVisualSignaturePresentationPolicy,
+    role_strategy: SeriesVisualSignatureStrategyControls,
+) -> bool:
+    if presentation_policy.enforcement is SeriesVisualSignatureEnforcementMode.STRICT:
+        return False
+    if not presentation_policy.fallback_enabled:
+        return False
+    if role_strategy.requires_subject_replacement:
+        return False
+    return presentation_policy.presentation_mode in {
+        SeriesVisualSignaturePresentationMode.AUTO,
+        SeriesVisualSignaturePresentationMode.EMBEDDED_SCENE_MARK,
+    }
 
 
 __all__ = ["VisualPromptPlanningResult", "VisualPromptPlanningService"]

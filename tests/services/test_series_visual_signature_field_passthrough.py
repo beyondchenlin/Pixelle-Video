@@ -19,7 +19,7 @@ async def test_visual_prompt_planning_accepts_series_visual_signature_request_wi
 
 
 @pytest.mark.asyncio
-async def test_visual_anchor_enabled_without_v4_request_keeps_legacy_anchor_path(monkeypatch):
+async def test_visual_anchor_enabled_without_v4_request_uses_deterministic_soft_anchor_path(monkeypatch):
     planner_calls = []
 
     async def fake_plan_batch(self, **kwargs):
@@ -48,14 +48,16 @@ async def test_visual_anchor_enabled_without_v4_request_keeps_legacy_anchor_path
         series_visual_signature_participation_mode="guide_explainer",
     )
 
-    assert planner_calls
+    assert not planner_calls
+    assert len(result.visual_anchor_plans) == 1
+    assert result.series_visual_signature_fallback is not None
     assert result.series_visual_signature_request is None
     assert result.series_visual_signature_plans == ()
     assert len(result.rendered_prompts) == 1
 
 
 @pytest.mark.asyncio
-async def test_visual_anchor_enabled_with_profile_requires_llm_service():
+async def test_visual_anchor_visible_character_strategy_requires_llm_service():
     with pytest.raises(ValueError, match="requires llm_service"):
         await VisualPromptPlanningService().plan_image_prompts(
             base_prompts=("base scene prompt",),
@@ -69,4 +71,6 @@ async def test_visual_anchor_enabled_with_profile_requires_llm_service():
                 identity_lock=("rabbit",),
                 visual_summary="friendly guide rabbit",
             ),
+            series_visual_signature_mode="supporting_integration",
+            series_visual_signature_consistency_mode="supporting_character",
         )

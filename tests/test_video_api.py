@@ -886,7 +886,7 @@ def test_video_generate_request_accepts_size_contract_default_params():
     params = GenerationSizeContract.default().to_params()
     request = VideoGenerateRequest(text="demo", **params)
 
-    assert request.video_resolution_preset == "landscape_hd"
+    assert request.video_resolution_preset == "landscape_full_hd"
 
 
 def test_build_video_generation_params_preserves_legacy_media_only_canvas_size():
@@ -1451,14 +1451,14 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "script_target_words": 180,
             "min_image_prompt_words": 30,
             "max_image_prompt_words": 60,
-            "canvas_width": 720,
-            "canvas_height": 1280,
-            "media_width": 1280,
-            "media_height": 720,
+            "canvas_width": 1080,
+            "canvas_height": 1920,
+            "media_width": 1920,
+            "media_height": 1080,
             "video_orientation": "portrait",
-            "video_resolution_preset": "portrait_hd",
+            "video_resolution_preset": "portrait_full_hd",
             "media_orientation": "landscape",
-            "media_resolution_preset": "1k",
+            "media_resolution_preset": "2k",
             "sync_media_size_to_canvas": False,
             "media_placement": {
                 "basis": "canvas",
