@@ -193,10 +193,10 @@ def _task_root_from_media_prompt_trace_context(context: Mapping[str, Any]) -> Pa
     artifact_path = Path(str(context.get("artifact_path") or ""))
     if not artifact_path.name:
         return None
-    prompt_trace_root = next(
-        (parent for parent in artifact_path.parents if parent.name == "prompt_traces"),
-        None,
-    )
+    prompt_trace_root = None
+    for parent in artifact_path.parents:
+        if parent.name == "prompt_traces":
+            prompt_trace_root = parent
     if prompt_trace_root is None:
         return artifact_path.parent.resolve()
     return prompt_trace_root.parent.resolve()
