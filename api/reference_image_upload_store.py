@@ -220,12 +220,13 @@ class ReferenceImageUploadStore:
         if not candidate_path.is_file():
             raise ResourceNotFoundError(f"reference image upload file is missing: {record_id}")
 
-        actual_sha256 = hashlib.sha256(candidate_path.read_bytes()).hexdigest()
+        content = candidate_path.read_bytes()
+        actual_sha256 = hashlib.sha256(content).hexdigest()
         expected_sha256 = str(record_payload.get("sha256") or "")
         if expected_sha256 and actual_sha256 != expected_sha256:
             raise ResourceResolverError("reference image upload file hash does not match metadata")
         width, height, detected_mime = _probe_image(
-            candidate_path.read_bytes(),
+            content,
             max_edge_px=self.max_edge_px,
             max_pixels=self.max_pixels,
         )
@@ -292,7 +293,7 @@ def _probe_image(
                 image.load()
                 width, height = image.size
                 image_format = str(image.format or "").upper()
-    except Image.DecompressionBombWarning as exc:
+    except (Image.DecompressionBombWarning, Image.DecompressionBombError) as exc:
         raise ResourceResolverError("reference image dimensions are too large") from exc
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         raise ResourceResolverError("reference image upload is not a valid image") from exc
