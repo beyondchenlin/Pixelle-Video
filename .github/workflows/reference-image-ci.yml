@@ -13,6 +13,12 @@ on:
       - "tests/services/test_reference_image_asset_service.py"
       - "tests/services/test_reference_image_workflow_binding.py"
       - "tests/services/test_media_reference_image_workflow_binding.py"
+      - "tests/test_prompt_trace_artifacts.py"
+      - "tests/test_reference_image_web_ui.py"
+      - "tests/test_output_preview.py"
+      - "web/components/style_config.py"
+      - "web/components/output_preview.py"
+      - "web/i18n/locales/*.json"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/reference-image-ci.yml"
@@ -28,6 +34,12 @@ on:
       - "tests/services/test_reference_image_asset_service.py"
       - "tests/services/test_reference_image_workflow_binding.py"
       - "tests/services/test_media_reference_image_workflow_binding.py"
+      - "tests/test_prompt_trace_artifacts.py"
+      - "tests/test_reference_image_web_ui.py"
+      - "tests/test_output_preview.py"
+      - "web/components/style_config.py"
+      - "web/components/output_preview.py"
+      - "web/i18n/locales/*.json"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/reference-image-ci.yml"
@@ -70,7 +82,12 @@ jobs:
             api/schemas/video.py \
             api/routers/video.py \
             api/app.py \
-            pixelle_video/services/media.py
+            pixelle_video/services/media.py \
+            pixelle_video/services/prompt_trace_artifacts.py \
+            pixelle_video/services/frame_processor.py \
+            pixelle_video/pipelines/standard.py \
+            web/components/style_config.py \
+            web/components/output_preview.py
 
       - name: Run reference image tests
         env:
@@ -81,4 +98,7 @@ jobs:
             tests/api/test_video_reference_image_boundary.py \
             tests/services/test_reference_image_asset_service.py \
             tests/services/test_reference_image_workflow_binding.py \
-            tests/services/test_media_reference_image_workflow_binding.py
+            tests/services/test_media_reference_image_workflow_binding.py \
+            tests/test_prompt_trace_artifacts.py \
+            tests/test_reference_image_web_ui.py \
+            tests/test_output_preview.py

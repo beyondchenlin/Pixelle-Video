@@ -19,14 +19,22 @@ python -m py_compile \
   api/schemas/video.py \
   api/routers/video.py \
   api/app.py \
-  pixelle_video/services/media.py
+  pixelle_video/services/media.py \
+  pixelle_video/services/prompt_trace_artifacts.py \
+  pixelle_video/services/frame_processor.py \
+  pixelle_video/pipelines/standard.py \
+  web/components/style_config.py \
+  web/components/output_preview.py
 
 PYTHONPATH=. python -m pytest -q \
   tests/api/test_reference_image_upload_store.py \
   tests/api/test_video_reference_image_boundary.py \
   tests/services/test_reference_image_asset_service.py \
   tests/services/test_reference_image_workflow_binding.py \
-  tests/services/test_media_reference_image_workflow_binding.py
+  tests/services/test_media_reference_image_workflow_binding.py \
+  tests/test_prompt_trace_artifacts.py \
+  tests/test_reference_image_web_ui.py \
+  tests/test_output_preview.py
 ```
 
 GitHub Actions 中的 `Reference Image CI` 也应在目标分支通过。
@@ -91,6 +99,8 @@ base64 图片内容
 
 ```yaml
 reference_image:
+  enabled: false
+  web_ui_enabled: false
   workflow_injection_mode: off
   workflow_param_overrides:
     "selfhost/image_reference.json": "reference_image"

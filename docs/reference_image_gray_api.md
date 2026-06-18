@@ -57,13 +57,14 @@ Core config still controls analysis and workflow behavior:
 ```yaml
 reference_image:
   enabled: false
+  web_ui_enabled: false
   analysis_mode: off
   workflow_injection_mode: off
   profile_merge_mode: supplement
   workflow_param_overrides: {}
 ```
 
-Request-scoped `reference_image.analysis_mode`, `reference_image.workflow_injection_mode`, and `reference_image.profile_merge_mode` are gray controls. Use them only for trusted/internal testing until your deployment policy is ready.
+Request-scoped `reference_image.analysis_mode`, `reference_image.workflow_injection_mode`, and `reference_image.profile_merge_mode` are gray controls. Use them only for trusted/internal testing until your deployment policy is ready. The Streamlit Web UI reference-image uploader remains hidden unless both `reference_image.enabled=true` and `reference_image.web_ui_enabled=true`.
 
 ## Selfhost workflow whitelist example
 

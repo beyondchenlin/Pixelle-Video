@@ -15,11 +15,14 @@ Style configuration components for web UI (middle column)
 """
 
 import base64
+import hashlib
 import os
+import warnings
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from html import escape
+from io import BytesIO
 from pathlib import Path
 from textwrap import dedent
 from typing import Any
@@ -27,6 +30,7 @@ from uuid import uuid4
 
 import streamlit as st
 from loguru import logger
+from PIL import Image, UnidentifiedImageError
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
 
 from pixelle_video.config import config_manager
@@ -2609,6 +2613,202 @@ def render_series_visual_signature_presentation_controls() -> dict:
         "series_visual_signature_min_visibility": "clear",
     }
 
+
+def _reference_image_config_mapping() -> dict[str, Any]:
+    config = config_manager.get("reference_image", {})
+    return dict(config) if isinstance(config, dict) else {}
+
+
+def _reference_image_web_ui_enabled(config: dict[str, Any]) -> bool:
+    return bool(config.get("enabled", False)) and bool(config.get("web_ui_enabled", False))
+
+
+_REFERENCE_IMAGE_EXTENSION_TO_FORMAT = {
+    ".jpg": "JPEG",
+    ".jpeg": "JPEG",
+    ".png": "PNG",
+    ".webp": "WEBP",
+}
+
+
+def _reference_image_allowed_extensions(config: dict[str, Any]) -> list[str]:
+    default_extensions = [".jpg", ".jpeg", ".png", ".webp"]
+    raw_extensions = config.get("allowed_extensions")
+    use_default_extensions = not raw_extensions
+    if use_default_extensions:
+        raw_extensions = default_extensions
+    extensions: list[str] = []
+    for item in raw_extensions:
+        ext = str(item or "").strip().lower()
+        if not ext:
+            continue
+        if not ext.startswith("."):
+            ext = f".{ext}"
+        if ext not in _REFERENCE_IMAGE_EXTENSION_TO_FORMAT:
+            continue
+        if ext not in extensions:
+            extensions.append(ext)
+    if extensions or not use_default_extensions:
+        return extensions
+    return default_extensions
+
+
+def _validate_web_reference_image_bytes(content: bytes, extension: str) -> None:
+    expected_format = _REFERENCE_IMAGE_EXTENSION_TO_FORMAT.get(extension)
+    if expected_format is None:
+        raise ValueError(tr("reference_image.web_ui.invalid_extension"))
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(content)) as probe:
+                probe.verify()
+            with Image.open(BytesIO(content)) as image:
+                actual_format = str(image.format or "").upper()
+    except (Image.DecompressionBombWarning, UnidentifiedImageError, OSError) as exc:
+        raise ValueError(tr("reference_image.web_ui.invalid_image")) from exc
+    if actual_format != expected_format:
+        raise ValueError(tr("reference_image.web_ui.invalid_image"))
+
+
+def _reference_image_selectbox_index(value: Any, options: Sequence[str], fallback: str) -> int:
+    normalized = str(value or fallback).strip().lower()
+    if normalized not in options:
+        normalized = fallback
+    return list(options).index(normalized)
+
+
+def _web_reference_image_session_id() -> str:
+    key = "reference_image_web_upload_session_id"
+    value = st.session_state.get(key)
+    if not value:
+        value = uuid4().hex
+        st.session_state[key] = value
+    return str(value)
+
+
+def _persist_web_reference_image_upload(
+    uploaded_file,
+    *,
+    allowed_extensions: Sequence[str],
+    max_upload_size_mb: int,
+) -> str:
+    source_name = Path(str(getattr(uploaded_file, "name", "") or "reference.png")).name
+    extension = Path(source_name).suffix.lower() or ".png"
+    if extension not in allowed_extensions:
+        raise ValueError(tr("reference_image.web_ui.invalid_extension"))
+    content = uploaded_file.getvalue()
+    max_bytes = max(1, int(max_upload_size_mb)) * 1024 * 1024
+    if len(content) > max_bytes:
+        raise ValueError(
+            tr("reference_image.web_ui.too_large", max_upload_size_mb=max_upload_size_mb)
+        )
+    if not content:
+        raise ValueError(tr("reference_image.web_ui.empty_file"))
+    _validate_web_reference_image_bytes(content, extension)
+    digest = hashlib.sha256(content).hexdigest()
+    target_dir = Path(get_runtime_path("web_reference_images", _web_reference_image_session_id()))
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / f"{digest[:16]}{extension}"
+    target_path.write_bytes(content)
+    return str(target_path.resolve())
+
+
+def render_reference_image_controls() -> dict[str, Any]:
+    config = _reference_image_config_mapping()
+    if not _reference_image_web_ui_enabled(config):
+        return {}
+
+    allowed_extensions = _reference_image_allowed_extensions(config)
+    max_upload_size_mb = int(config.get("max_upload_size_mb") or 20)
+    analysis_modes = ("off", "auto", "required")
+    injection_modes = ("off", "auto", "required")
+    merge_modes = ("supplement", "override", "strict")
+
+    with render_middle_column_collapsible_section(
+        tr("section.reference_image"),
+        expanded=False,
+    ):
+        if not allowed_extensions:
+            st.error(tr("reference_image.web_ui.no_supported_extensions"))
+            return {}
+
+        enabled = st.toggle(
+            tr("reference_image.web_ui.enabled"),
+            value=False,
+            key="reference_image_web_ui_enabled",
+        )
+        uploaded_file = st.file_uploader(
+            tr("reference_image.web_ui.upload"),
+            type=[ext.lstrip(".") for ext in allowed_extensions],
+            accept_multiple_files=False,
+            disabled=not enabled,
+            key="reference_image_web_upload",
+        )
+        analysis_mode = st.selectbox(
+            tr("reference_image.analysis_mode"),
+            analysis_modes,
+            index=_reference_image_selectbox_index(
+                config.get("analysis_mode"),
+                analysis_modes,
+                "auto",
+            ),
+            format_func=lambda value: tr(f"reference_image.mode.{value}"),
+            disabled=not enabled,
+            key="reference_image_analysis_mode",
+        )
+        workflow_injection_mode = st.selectbox(
+            tr("reference_image.workflow_injection_mode"),
+            injection_modes,
+            index=_reference_image_selectbox_index(
+                config.get("workflow_injection_mode"),
+                injection_modes,
+                "off",
+            ),
+            format_func=lambda value: tr(f"reference_image.mode.{value}"),
+            disabled=not enabled,
+            key="reference_image_workflow_injection_mode",
+        )
+        profile_merge_mode = st.selectbox(
+            tr("reference_image.profile_merge_mode"),
+            merge_modes,
+            index=_reference_image_selectbox_index(
+                config.get("profile_merge_mode"),
+                merge_modes,
+                "supplement",
+            ),
+            format_func=lambda value: tr(f"reference_image.profile_merge_mode.{value}"),
+            disabled=not enabled,
+            key="reference_image_profile_merge_mode",
+        )
+
+        if not enabled:
+            return {}
+        if uploaded_file is None:
+            st.info(tr("reference_image.web_ui.no_file"))
+            return {}
+        try:
+            ref_image_path = _persist_web_reference_image_upload(
+                uploaded_file,
+                allowed_extensions=allowed_extensions,
+                max_upload_size_mb=max_upload_size_mb,
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+            return {}
+        st.image(
+            Path(ref_image_path).read_bytes(),
+            caption=Path(uploaded_file.name).name,
+            width="stretch",
+        )
+        return {
+            "ref_image": ref_image_path,
+            "reference_image_enabled": True,
+            "reference_image_analysis_mode": analysis_mode,
+            "reference_image_workflow_injection_mode": workflow_injection_mode,
+            "reference_image_profile_merge_mode": profile_merge_mode,
+        }
+
+
 def render_style_config(
     pixelle_video,
     storyboard_default_enabled: bool = False,
@@ -2838,6 +3038,7 @@ def render_style_config(
 
     element_animation_settings = render_element_animation_controls()
     series_visual_signature_presentation_settings = render_series_visual_signature_presentation_controls()
+    reference_image_settings = render_reference_image_controls()
 
     # ====================================================================
     # Storyboard Template Section
@@ -3489,6 +3690,7 @@ def render_style_config(
         "storyboard_prompt_language": storyboard_prompt_language,
         "prompt_prefix": prompt_prefix if prompt_prefix else "",
         **size_contract.to_params(),
+        **reference_image_settings,
         "media_placement": st.session_state.get(
             "media_placement",
             MediaPlacement().to_dict(),

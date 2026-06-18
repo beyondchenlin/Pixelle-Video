@@ -135,6 +135,11 @@ STORYBOARD_GENERATION_OPTION_KEYS = (
     "script_target_words",
 )
 ARTICLE_CONCRETIZATION_OPTION_KEYS = ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS
+REFERENCE_IMAGE_OPTION_KEYS = (
+    "reference_image_analysis_mode",
+    "reference_image_workflow_injection_mode",
+    "reference_image_profile_merge_mode",
+)
 SINGLE_VIDEO_GENERATING_KEY = "single_video_is_generating"
 SINGLE_VIDEO_REQUESTED_KEY = "single_video_generation_requested"
 SINGLE_VIDEO_DUPLICATE_CLICK_KEY = "single_video_duplicate_click"
@@ -1255,6 +1260,18 @@ def copy_ip_prompt_chain_options(source, target):
     target.update(contract.to_dict())
 
 
+def copy_reference_image_options(source, target):
+    """Copy Web UI reference-image controls into a generation request dict."""
+    ref_image = source.get("ref_image")
+    if not ref_image:
+        return
+    target["ref_image"] = str(ref_image)
+    target["reference_image_enabled"] = True
+    for key in REFERENCE_IMAGE_OPTION_KEYS:
+        if source.get(key) is not None:
+            target[key] = source[key]
+
+
 def render_output_preview(pixelle_video, video_params):
     """Render output preview section (right column)"""
     # Check if batch mode
@@ -1339,6 +1356,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_article_concretization_options(video_params, request)
     copy_element_animation_options(video_params, request)
     copy_ip_prompt_chain_options(video_params, request)
+    copy_reference_image_options(video_params, request)
     copy_prompt_generation_performance_params(video_params, request)
     if video_params.get("text_rendering") is not None:
         request["text_rendering"] = video_params["text_rendering"]
@@ -1428,6 +1446,7 @@ def build_batch_shared_config(video_params):
     copy_article_concretization_options(video_params, shared_config)
     copy_element_animation_options(video_params, shared_config)
     copy_ip_prompt_chain_options(video_params, shared_config)
+    copy_reference_image_options(video_params, shared_config)
     copy_prompt_generation_performance_params(video_params, shared_config)
     if video_params.get("text_rendering") is not None:
         shared_config["text_rendering"] = video_params["text_rendering"]
