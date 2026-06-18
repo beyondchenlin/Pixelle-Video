@@ -193,6 +193,16 @@ def _task_root_from_media_prompt_trace_context(context: Mapping[str, Any]) -> Pa
     artifact_path = Path(str(context.get("artifact_path") or ""))
     if not artifact_path.name:
         return None
+    explicit_task_root = str(context.get("task_root") or "").strip()
+    if explicit_task_root:
+        task_root = Path(explicit_task_root).resolve()
+        try:
+            artifact_path.resolve().relative_to(task_root)
+        except ValueError as exc:
+            raise ValueError(
+                "media_prompt_trace_context task_root must contain artifact_path"
+            ) from exc
+        return task_root
     prompt_trace_root = None
     for parent in artifact_path.parents:
         if parent.name == "prompt_traces":
@@ -475,6 +485,7 @@ class MediaService(ComfyBaseService):
                     "reference_image_workflow_binding": dict(reference_binding_trace),
                 },
                 workflow_params=trace_safe_workflow_params,
+                task_root=trace_context.get("task_root"),
             )
         workflow_param_trace = build_workflow_params_trace(
             trace_safe_workflow_params,

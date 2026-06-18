@@ -81,6 +81,30 @@ def test_build_media_prompt_trace_context_records_artifact_digest(tmp_path):
     assert context["workflow_input"] == "selfhost/image_z_image_turbo.json"
 
 
+def test_build_media_prompt_trace_context_records_task_root(tmp_path):
+    artifact_path = write_final_prompt_artifact(
+        tmp_path,
+        task_id="task_123",
+        frames=[{"index": 1, "prompt": "a prompt", "negative_prompt": ""}],
+        generation_context={
+            "workflow": "selfhost/image_z_image_turbo.json",
+            "workflow_input": "selfhost/image_z_image_turbo.json",
+            "media_type": "image",
+        },
+    )
+
+    context = build_media_prompt_trace_context(
+        artifact_path=artifact_path,
+        task_id="task_123",
+        prompt="a prompt",
+        workflow_context={"workflow": "selfhost/image_z_image_turbo.json"},
+        media_type="image",
+        task_root=tmp_path,
+    )
+
+    assert context["task_root"] == str(tmp_path.resolve())
+
+
 def test_build_workflow_params_trace_records_media_and_custom_text_inputs():
     trace = build_workflow_params_trace(
         {

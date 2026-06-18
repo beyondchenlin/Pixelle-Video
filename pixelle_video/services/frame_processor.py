@@ -656,6 +656,7 @@ class FrameProcessor:
                             "frame_index": frame.index,
                         },
                         workflow_params=workflow_params_for_trace,
+                        task_root=trace_context.get("task_root"),
                     )
                 )
             else:
@@ -669,6 +670,7 @@ class FrameProcessor:
                     frame_id=resolved_frame_id,
                     media_width=config.media_width,
                     media_height=config.media_height,
+                    task_root=trace_context.get("task_root"),
                 )
 
         # Call Media generation

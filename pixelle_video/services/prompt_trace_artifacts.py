@@ -201,6 +201,7 @@ def write_single_media_prompt_trace_context(
     media_height: int | None = None,
     generation_context: Mapping[str, Any] | None = None,
     workflow_params: Mapping[str, Any] | None = None,
+    task_root: str | Path | None = None,
 ) -> dict[str, Any]:
     resolved_workflow_input = str(workflow_input or workflow)
     workflow_context = {
@@ -256,6 +257,7 @@ def write_single_media_prompt_trace_context(
         media_height=media_height,
         workflow_param_trace=workflow_param_trace,
         workflow_file_trace=workflow_file_trace,
+        task_root=task_root,
     )
 
 
@@ -307,9 +309,10 @@ def build_media_prompt_trace_context(
     media_height: int | None = None,
     workflow_param_trace: Mapping[str, Any] | None = None,
     workflow_file_trace: Mapping[str, Any] | None = None,
+    task_root: str | Path | None = None,
 ) -> dict[str, Any]:
     resolved_artifact_path = Path(artifact_path)
-    return {
+    context = {
         "artifact_path": str(resolved_artifact_path),
         "artifact_sha256": _artifact_sha256(resolved_artifact_path),
         "task_id": str(task_id),
@@ -329,6 +332,9 @@ def build_media_prompt_trace_context(
         **dict(workflow_file_trace or {}),
         **dict(workflow_param_trace or {}),
     }
+    if task_root is not None and str(task_root).strip():
+        context["task_root"] = str(Path(task_root).resolve())
+    return context
 
 
 def write_media_workflow_result_artifact(

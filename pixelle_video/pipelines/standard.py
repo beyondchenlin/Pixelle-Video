@@ -1137,6 +1137,7 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.config.media_workflow = workflow_trace_context["workflow"]
             ctx.config.media_prompt_trace_context = {
                 "artifact_path": str(artifact_path),
+                "task_root": str(Path(ctx.task_dir).resolve()),
                 "task_id": ctx.task_id,
                 "workflow": workflow_trace_context.get("workflow"),
                 "workflow_input": workflow_trace_context.get("workflow_input"),

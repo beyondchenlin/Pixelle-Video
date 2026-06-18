@@ -56,7 +56,7 @@ def _write_reference_asset(task_dir: Path, *, relative_path="reference_image/wor
     return workflow_asset
 
 
-def _write_trace_context(tmp_path: Path, *, workflow_params=None):
+def _write_trace_context(tmp_path: Path, *, workflow_params=None, task_root=None):
     return write_single_media_prompt_trace_context(
         tmp_path / "prompt_traces" / "c" / "frame_001",
         task_id="task",
@@ -68,6 +68,7 @@ def _write_trace_context(tmp_path: Path, *, workflow_params=None):
         media_width=512,
         media_height=512,
         workflow_params=workflow_params or {"prompt": "hello world", "width": 512, "height": 512, "index": 1},
+        task_root=task_root if task_root is not None else tmp_path,
     )
 
 
@@ -142,6 +143,38 @@ async def test_reference_asset_relative_path_cannot_escape_task_root(monkeypatch
             media_type="image",
             width=512,
             height=512,
+            media_prompt_trace_context=trace_context,
+        )
+
+    assert service.captured_workflow_params is None
+
+
+@pytest.mark.asyncio
+async def test_media_service_rejects_trace_task_root_mismatch(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        binding_module,
+        "get_workflow_capabilities",
+        lambda workflow_info: SimpleNamespace(reference_image_param_names=("reference_image",)),
+    )
+    _write_reference_asset(tmp_path)
+    wrong_root = tmp_path / "other_task"
+    wrong_root.mkdir()
+    trace_context = _write_trace_context(tmp_path, task_root=wrong_root)
+    service = _FakeMediaService(
+        {
+            "reference_image": {"workflow_injection_mode": "required"},
+            "comfyui": {},
+        }
+    )
+
+    with pytest.raises(ValueError, match="task_root must contain artifact_path"):
+        await service(
+            prompt="hello world",
+            workflow="selfhost/image_reference.json",
+            media_type="image",
+            width=512,
+            height=512,
+            index=1,
             media_prompt_trace_context=trace_context,
         )
 
