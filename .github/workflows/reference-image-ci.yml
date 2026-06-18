@@ -1,0 +1,79 @@
+name: Reference Image CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+    paths:
+      - "api/**"
+      - "pixelle_video/**"
+      - "tests/api/test_reference_image_upload_store.py"
+      - "tests/api/test_video_reference_image_boundary.py"
+      - "tests/services/test_reference_image_asset_service.py"
+      - "tests/services/test_reference_image_workflow_binding.py"
+      - "tests/services/test_media_reference_image_workflow_binding.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/reference-image-ci.yml"
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - "api/**"
+      - "pixelle_video/**"
+      - "tests/api/test_reference_image_upload_store.py"
+      - "tests/api/test_video_reference_image_boundary.py"
+      - "tests/services/test_reference_image_asset_service.py"
+      - "tests/services/test_reference_image_workflow_binding.py"
+      - "tests/services/test_media_reference_image_workflow_binding.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/reference-image-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reference-image-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Compile reference image API modules
+        run: |
+          python -m py_compile \
+            api/reference_image_upload_store.py \
+            api/routers/reference_images.py \
+            api/schemas/reference_image.py \
+            api/schemas/video.py \
+            api/routers/video.py \
+            api/app.py \
+            pixelle_video/services/media.py
+
+      - name: Run reference image tests
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest -q \
+            tests/api/test_reference_image_upload_store.py \
+            tests/api/test_video_reference_image_boundary.py \
+            tests/services/test_reference_image_asset_service.py \
+            tests/services/test_reference_image_workflow_binding.py \
+            tests/services/test_media_reference_image_workflow_binding.py
