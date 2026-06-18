@@ -6,7 +6,7 @@ from fastapi import UploadFile
 from PIL import Image
 
 from api.reference_image_upload_store import ReferenceImageUploadStore
-from pixelle_video.services.resource_resolver import ResourceResolverError
+from pixelle_video.services.resource_resolver import ResourceNotFoundError, ResourceResolverError
 
 
 def _upload_file(name="reference.png", size=(4, 3), image_format="PNG") -> UploadFile:
@@ -29,6 +29,46 @@ async def test_reference_image_upload_store_round_trip(tmp_path):
     assert resolved_by_upload.width == 4
     assert resolved_by_upload.height == 3
     assert str(tmp_path) not in str(resolved_by_upload.to_trace_dict())
+
+
+@pytest.mark.asyncio
+async def test_reference_image_upload_store_cleans_expired_uploads(tmp_path):
+    store = ReferenceImageUploadStore(base_dir=tmp_path, upload_ttl_seconds=10)
+    record = await store.store_upload(_upload_file())
+    metadata_path = tmp_path / record.upload_id / "metadata.json"
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    payload["created_at_unix"] = 100
+    metadata_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert store.cleanup_expired_uploads(now_unix=111) == 1
+    assert not (tmp_path / record.upload_id).exists()
+
+
+@pytest.mark.asyncio
+async def test_reference_image_upload_store_rejects_expired_upload(tmp_path):
+    store = ReferenceImageUploadStore(base_dir=tmp_path, upload_ttl_seconds=1)
+    record = await store.store_upload(_upload_file())
+    metadata_path = tmp_path / record.upload_id / "metadata.json"
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    payload["created_at_unix"] = 1
+    metadata_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ResourceNotFoundError, match="expired"):
+        store.resolve_upload_id(record.upload_id)
+    assert not (tmp_path / record.upload_id).exists()
+
+
+@pytest.mark.asyncio
+async def test_reference_image_upload_store_can_disable_ttl_cleanup(tmp_path):
+    store = ReferenceImageUploadStore(base_dir=tmp_path, upload_ttl_seconds=0)
+    record = await store.store_upload(_upload_file())
+    metadata_path = tmp_path / record.upload_id / "metadata.json"
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    payload["created_at_unix"] = 1
+    metadata_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert store.cleanup_expired_uploads(now_unix=999999) == 0
+    assert store.resolve_upload_id(record.upload_id).upload_id == record.upload_id
 
 
 @pytest.mark.asyncio

@@ -115,6 +115,7 @@ async def lifespan(app: FastAPI):
         max_upload_size_mb=api_config.reference_image_max_upload_size_mb,
         max_edge_px=api_config.reference_image_max_edge_px,
         max_pixels=api_config.reference_image_max_pixels,
+        upload_ttl_seconds=api_config.reference_image_upload_ttl_seconds,
     )
     platform_dependencies = configure_platform_dependencies(
         app,

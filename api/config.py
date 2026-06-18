@@ -65,6 +65,7 @@ class APIConfig(BaseModel):
     reference_image_max_upload_size_mb: int = 20
     reference_image_max_edge_px: int = 8192
     reference_image_max_pixels: int = 40_000_000
+    reference_image_upload_ttl_seconds: int = 7 * 24 * 60 * 60
     
     # API settings
     api_prefix: str = "/api"
@@ -139,6 +140,10 @@ class APIConfig(BaseModel):
                 "PIXELLE_REFERENCE_IMAGE_MAX_PIXELS",
                 default=40_000_000,
             ),
+            reference_image_upload_ttl_seconds=_env_int(
+                "PIXELLE_REFERENCE_IMAGE_UPLOAD_TTL_SECONDS",
+                default=7 * 24 * 60 * 60,
+            ),
         )
 
     @model_validator(mode="after")
@@ -163,6 +168,8 @@ class APIConfig(BaseModel):
             raise ValueError("reference_image_max_edge_px must be at least 1")
         if self.reference_image_max_pixels < 1:
             raise ValueError("reference_image_max_pixels must be at least 1")
+        if self.reference_image_upload_ttl_seconds < 0:
+            raise ValueError("reference_image_upload_ttl_seconds must be greater than or equal to 0")
         return self
 
     @model_validator(mode="after")

@@ -17,6 +17,7 @@ import json
 import re
 import secrets
 import shutil
+import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,7 @@ DEFAULT_REFERENCE_IMAGE_UPLOAD_DIR = "_runtime/reference_image_uploads"
 DEFAULT_REFERENCE_IMAGE_MAX_UPLOAD_SIZE_MB = 20
 DEFAULT_REFERENCE_IMAGE_MAX_EDGE_PX = 8192
 DEFAULT_REFERENCE_IMAGE_MAX_PIXELS = 40_000_000
+DEFAULT_REFERENCE_IMAGE_UPLOAD_TTL_SECONDS = 7 * 24 * 60 * 60
 _ALLOWED_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp"})
 _ALLOWED_IMAGE_FORMATS = {
     "JPEG": "image/jpeg",
@@ -98,6 +100,7 @@ class ReferenceImageUploadStore:
         max_upload_size_mb: int = DEFAULT_REFERENCE_IMAGE_MAX_UPLOAD_SIZE_MB,
         max_edge_px: int = DEFAULT_REFERENCE_IMAGE_MAX_EDGE_PX,
         max_pixels: int = DEFAULT_REFERENCE_IMAGE_MAX_PIXELS,
+        upload_ttl_seconds: int = DEFAULT_REFERENCE_IMAGE_UPLOAD_TTL_SECONDS,
         allowed_extensions: set[str] | None = None,
         allow_cleanup: bool = False,
     ) -> None:
@@ -105,6 +108,7 @@ class ReferenceImageUploadStore:
         self.max_upload_size_mb = max(1, int(max_upload_size_mb))
         self.max_edge_px = max(1, int(max_edge_px))
         self.max_pixels = max(1, int(max_pixels))
+        self.upload_ttl_seconds = max(0, int(upload_ttl_seconds))
         self.allow_cleanup = bool(allow_cleanup)
         self.allowed_extensions = {
             _normalize_extension(ext)
@@ -113,6 +117,7 @@ class ReferenceImageUploadStore:
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     async def store_upload(self, upload: UploadFile) -> ReferenceImageUploadRecord:
+        self.cleanup_expired_uploads()
         display_name = _sanitize_display_name(upload.filename or "reference_image")
         extension = _normalize_extension(Path(display_name).suffix or ".png")
         if extension not in self.allowed_extensions:
@@ -161,6 +166,7 @@ class ReferenceImageUploadStore:
                     "schema": REFERENCE_IMAGE_UPLOAD_SCHEMA,
                     "record": record.to_response_dict(),
                     "file_name": target_path.name,
+                    "created_at_unix": int(time.time()),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -205,6 +211,9 @@ class ReferenceImageUploadStore:
             payload = json.loads(metadata_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ResourceResolverError("reference image upload metadata could not be read") from exc
+        if self._metadata_is_expired(metadata_path, payload):
+            self._remove_record_root(record_root)
+            raise ResourceNotFoundError(f"reference image upload expired: {record_id}")
         if payload.get("schema") != REFERENCE_IMAGE_UPLOAD_SCHEMA:
             raise ResourceResolverError("reference image upload metadata schema is invalid")
         record_payload = payload.get("record")
@@ -252,6 +261,55 @@ class ReferenceImageUploadStore:
         if self.base_dir.is_dir():
             shutil.rmtree(self.base_dir)
 
+    def cleanup_expired_uploads(self, *, now_unix: int | None = None) -> int:
+        if self.upload_ttl_seconds <= 0 or not self.base_dir.is_dir():
+            return 0
+        now = int(time.time()) if now_unix is None else int(now_unix)
+        removed = 0
+        for record_root in self.base_dir.iterdir():
+            if not record_root.is_dir():
+                continue
+            if not RESOURCE_ID_PATTERN.fullmatch(record_root.name):
+                continue
+            metadata_path = record_root / "metadata.json"
+            if not metadata_path.is_file():
+                continue
+            try:
+                payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+            if self._metadata_is_expired(metadata_path, payload, now_unix=now):
+                self._remove_record_root(record_root)
+                removed += 1
+        return removed
+
+    def _metadata_is_expired(
+        self,
+        metadata_path: Path,
+        payload: Mapping[str, Any],
+        *,
+        now_unix: int | None = None,
+    ) -> bool:
+        if self.upload_ttl_seconds <= 0:
+            return False
+        now = int(time.time()) if now_unix is None else int(now_unix)
+        created_at = _coerce_int(payload.get("created_at_unix"))
+        if created_at is None:
+            try:
+                created_at = int(metadata_path.stat().st_mtime)
+            except OSError:
+                return False
+        return created_at + self.upload_ttl_seconds < now
+
+    def _remove_record_root(self, record_root: Path) -> None:
+        resolved_root = record_root.resolve()
+        try:
+            resolved_root.relative_to(self.base_dir)
+        except ValueError as exc:
+            raise ResourceResolverError("reference image upload cleanup escaped upload store") from exc
+        if resolved_root.is_dir():
+            shutil.rmtree(resolved_root)
+
 
 def _new_public_upload_id() -> str:
     return "rimg_" + secrets.token_urlsafe(12).replace("-", "_").replace("=", "")
@@ -274,6 +332,13 @@ def _normalize_extension(extension: str) -> str:
     if not normalized.startswith("."):
         normalized = f".{normalized}"
     return normalized
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _probe_image(
