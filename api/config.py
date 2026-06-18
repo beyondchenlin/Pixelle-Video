@@ -92,9 +92,6 @@ class APIConfig(BaseModel):
                 default=120,
             ),
             generation_heartbeat_seconds=_env_int(
-                "PIXELLE_GENERATION_HEARTBEATS_SECONDS",
-                default=30,
-            ) if os.getenv("PIXELLE_GENERATION_HEARTBEATS_SECONDS") is not None else _env_int(
                 "PIXELLE_GENERATION_HEARTBEAT_SECONDS",
                 default=30,
             ),
