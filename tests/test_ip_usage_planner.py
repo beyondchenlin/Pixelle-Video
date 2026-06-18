@@ -9,6 +9,7 @@ from pixelle_video.models.ip_prompt_planning import (
     IPPresenceType,
     IPRoleSlot,
 )
+from pixelle_video.models.ip_role_selection import IPRoleSelectionResponse
 from pixelle_video.models.llm_interaction_trace import LLMTraceRecordingError
 from pixelle_video.models.scene_cast import SceneCast
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
@@ -654,10 +655,11 @@ def _plan_two_frames():
 
 @pytest.mark.asyncio
 async def test_appearance_planner_llm_receives_full_actorization_context():
-    captured: dict[str, str] = {}
+    captured: dict[str, object] = {}
 
     async def fake_llm(prompt: str, **kwargs) -> str:
         captured["prompt"] = prompt
+        captured.update(kwargs)
         return json.dumps(
             [
                 {
@@ -711,7 +713,7 @@ async def test_appearance_planner_llm_receives_full_actorization_context():
         scene_casts_by_frame={"frame_1": {"metadata": {"ip_presence_type": "scene_integrated"}}},
     )
 
-    prompt = captured["prompt"]
+    prompt = str(captured["prompt"])
     for token in (
         "identity_lock",
         "identity_anchors",
@@ -750,6 +752,9 @@ async def test_appearance_planner_llm_receives_full_actorization_context():
     ):
         assert value in prompt
     assert '"scene_cast_presence": "scene_integrated"' in prompt
+    assert captured["response_type"] is IPRoleSelectionResponse
+    assert captured["temperature"] == 0.2
+    assert captured["max_tokens"] == 1200
 
 
 @pytest.mark.asyncio

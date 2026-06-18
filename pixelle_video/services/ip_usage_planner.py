@@ -567,6 +567,7 @@ class IPFrameAppearancePlanner:
 
         Returns None on failure so caller falls back to rule-based selection.
         """
+        from pixelle_video.models.ip_role_selection import IPRoleSelectionResponse
         from pixelle_video.prompts.ip_role_selection import (
             parse_ip_role_selection_response,
             render_ip_role_selection_prompt,
@@ -638,7 +639,10 @@ class IPFrameAppearancePlanner:
 
         try:
             raw_response = await self._llm(
-                rendered_prompt.text,
+                prompt=rendered_prompt.text,
+                response_type=IPRoleSelectionResponse,
+                temperature=0.2,
+                max_tokens=_ip_role_selection_max_tokens(len(storyboard_plan.frames)),
                 trace_context=rendered_trace_context,
                 trace_recorder=trace_recorder,
             )
@@ -716,6 +720,9 @@ class IPFrameAppearancePlanner:
 
 
 # ── role selection ────────────────────────────────────────────────────
+def _ip_role_selection_max_tokens(frame_count: int) -> int:
+    return max(1200, min(6000, 600 + frame_count * 280))
+
 
 def _rule_based_role_selection(
     ip_profile: IPProfile,
