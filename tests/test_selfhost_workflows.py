@@ -462,6 +462,19 @@ def test_image_z_image_turbo_gguf_defaults_to_5_sampling_steps():
     assert workflow["3"]["inputs"]["steps"] == 5
 
 
+def test_image_z_image_turbo_gguf_uses_tiled_vae_decode():
+    workflow = json.loads(
+        Path("workflows/selfhost/image_z_image_turbo_gguf.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    decode_node = workflow["8"]
+    assert decode_node["class_type"] == "VAEDecodeTiled"
+    assert decode_node["inputs"]["tile_size"] == 512
+    assert decode_node["inputs"]["overlap"] == 64
+
+
 def test_image_z_image_turbo_gguf_doc_declares_easy_use_dependency():
     doc = Path(
         "workflows/down/image_z_image_turbo_gguf_\u4f9d\u8d56\u4e0e\u4e0b\u8f7d\u8bf4\u660e.md"
@@ -469,6 +482,7 @@ def test_image_z_image_turbo_gguf_doc_declares_easy_use_dependency():
 
     assert "ComfyUI-Easy-Use" in doc
     assert "easy int" in doc
+    assert "VAEDecodeTiled" in doc
     assert "默认采样步数" in doc
     assert "`5`" in doc
 

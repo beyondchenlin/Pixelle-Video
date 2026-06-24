@@ -28,7 +28,7 @@
 - `EmptySD3LatentImage`
 - `ModelSamplingAuraFlow`
 - `KSampler`
-- `VAEDecode`
+- `VAEDecodeTiled`
 - `SaveImage`
 
 ### 2.2 依赖分类
@@ -40,7 +40,7 @@
 | Python 包 | `gguf`、`sentencepiece`、`protobuf` | GGUF 模型读取与分词依赖 |
 | 主模型 | `z-image-turbo-Q8_0.gguf` | `Z-Image-Turbo` GGUF 主扩散模型，默认高质量量化版本 |
 | 文本编码器 | `Qwen3-4B-Q8_0.gguf` | `Z-Image-Turbo` GGUF 文本编码器，默认高质量量化版本 |
-| VAE | `ae.safetensors` | `latent` 与图像之间的编解码 |
+| VAE | `ae.safetensors` | `latent` 与图像之间的分块解码，用于降低 Q8/1k 图像解码阶段显存峰值 |
 | ComfyUI 前端修复 | `dialogService-*.js` 中的 GGUF loader 映射 | 修复右侧“缺失模型/未知模型”误报，不影响实际跑图，但能消除错误提示 |
 
 ## 3. 目标目录

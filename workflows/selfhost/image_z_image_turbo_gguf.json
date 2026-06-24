@@ -54,11 +54,15 @@
       "vae": [
         "39",
         0
-      ]
+      ],
+      "tile_size": 512,
+      "overlap": 64,
+      "temporal_size": 64,
+      "temporal_overlap": 8
     },
-    "class_type": "VAEDecode",
+    "class_type": "VAEDecodeTiled",
     "_meta": {
-      "title": "VAE Decode"
+      "title": "VAE Decode (Tiled)"
     }
   },
   "33": {
