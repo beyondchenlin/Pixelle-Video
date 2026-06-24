@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
+from pixelle_video.models.ip_duty import IPDutyPlan, IPDutyPreset
 from pixelle_video.models.ip_prompt_planning import IPFrameAdaptationPackage
 from pixelle_video.models.mandatory_visual_anchor_integration import (
     MandatoryVisualAnchorIntegrationResponse,
@@ -165,6 +166,7 @@ class VisualAnchorIntegrationPlanner:
                 identity_kernel=identity_kernel,
                 policy=policy,
                 presentation_policy=presentation_policy,
+                visual_story_ip_fusion_plans=visual_story_ip_fusion_plans,
             )
             for plan in plans:
                 accepted_by_frame[plan.frame_id] = plan
@@ -374,9 +376,9 @@ def _anchor_profile_payload(
         "presentation_policy": presentation_policy.to_prompt_policy(),
         "guidance": [
             "The identity must appear visibly in the final prompt.",
-            "Prefer the presentation_policy over lower-level strategy conflicts.",
-            "If no natural carrier exists, create a scene-valid carrier by recomposition.",
-            "Do not output hidden, suppressed, absent, fallback, watermark, sticker, corner badge, or UI overlay.",
+            "Prefer the frame-level IP duty and presentation_policy over lower-level strategy conflicts.",
+            "If no natural carrier exists, add a small content-compatible real scene carrier.",
+            "Use only natural visual language in the final integrated prompt; do not echo internal policy or forbidden-form labels.",
         ],
     }
 
@@ -389,6 +391,7 @@ def _placement_plans_from_payload(
     identity_kernel: Sequence[str],
     policy: VisualSignaturePolicy,
     presentation_policy: SeriesVisualSignaturePresentationPolicy,
+    visual_story_ip_fusion_plans: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[list[VisualAnchorPlacementPlan], list[str]]:
     if isinstance(payload, MandatoryVisualAnchorIntegrationResponse):
         payload = {
@@ -424,6 +427,8 @@ def _placement_plans_from_payload(
         if frame_id:
             by_frame[frame_id] = raw_plan
 
+    duty_by_frame = _ip_duty_by_frame(visual_story_ip_fusion_plans, frame_ids=frame_ids)
+
     result: list[VisualAnchorPlacementPlan] = []
     errors: list[str] = []
     for frame_id in frame_ids:
@@ -438,6 +443,7 @@ def _placement_plans_from_payload(
             identity_kernel=identity_kernel,
             policy=policy,
             presentation_policy=presentation_policy,
+            ip_duty_plan=duty_by_frame.get(frame_id),
         )
         if plan_errors:
             errors.extend(plan_errors)
@@ -454,6 +460,7 @@ def _placement_plan_from_raw_plan(
     identity_kernel: Sequence[str],
     policy: VisualSignaturePolicy,
     presentation_policy: SeriesVisualSignaturePresentationPolicy,
+    ip_duty_plan: Mapping[str, Any] | None = None,
 ) -> tuple[VisualAnchorPlacementPlan | None, list[str]]:
     if "candidates" in raw_plan or "selected_index" in raw_plan:
         return None, [f"{frame_id}: candidates arrays are not allowed for flat integration"]
@@ -467,6 +474,7 @@ def _placement_plan_from_raw_plan(
         identity_kernel=identity_kernel,
         policy=policy,
         presentation_policy=presentation_policy,
+        ip_duty_plan=ip_duty_plan,
     )
     if errors:
         return None, errors
@@ -476,6 +484,7 @@ def _placement_plan_from_raw_plan(
         role_strategy=role_strategy,
         identity_kernel=identity_kernel,
         presentation_policy=presentation_policy,
+        ip_duty_plan=ip_duty_plan,
     ), []
 
 
@@ -486,8 +495,10 @@ def _candidate_to_plan(
     role_strategy: SeriesVisualSignatureStrategyControls,
     identity_kernel: Sequence[str] = (),
     presentation_policy: SeriesVisualSignaturePresentationPolicy | None = None,
+    ip_duty_plan: Mapping[str, Any] | None = None,
 ) -> VisualAnchorPlacementPlan:
     prompt = _prompt_text(candidate)
+    duty_plan = _resolved_ip_duty_for_candidate(candidate, ip_duty_plan, frame_id=frame_id)
     carrier_type = _enum_value(candidate.get("carrier_type"), AnchorCarrierType, AnchorCarrierType.BOOKPLATE_OR_STAMP)
     anchor_function = _enum_value(candidate.get("anchor_function"), AnchorFunction, AnchorFunction.MATERIAL_SIGNATURE)
     prominence = _enum_value(candidate.get("prominence"), AnchorProminence, AnchorProminence.EMBEDDED_MARK)
@@ -520,13 +531,22 @@ def _candidate_to_plan(
         style_relation=_enum_value(candidate.get("style_relation"), AnchorStyleRelation, AnchorStyleRelation.BLENDED),
         image_prompt_clause=prompt,
         metadata={
-            "source": "llm_series_visual_signature_integration",
+            "source": "llm_mandatory_series_visual_signature_integration",
             "projection": "llm_integrated_prompt",
             "mandatory_integration": True,
             "series_visual_signature_strategy": role_strategy.to_dict(),
             "presentation_policy": presentation_policy.to_dict() if presentation_policy is not None else {},
             "integration_strategy": _first_text(candidate.get("integration_strategy")),
             "anchor_manifestation": dict(candidate.get("anchor_manifestation") or {}) if isinstance(candidate.get("anchor_manifestation"), Mapping) else {},
+            "ip_duty_preset": duty_plan.duty_preset.value,
+            "duty_goal": duty_plan.duty_goal,
+            "action_verb": duty_plan.action_verb,
+            "interaction_target": duty_plan.interaction_target,
+            "scene_binding": duty_plan.scene_binding,
+            "presentation_form": duty_plan.presentation_form.value,
+            "fallback_presentation": duty_plan.fallback_presentation.value,
+            "semantic_removal_test": duty_plan.semantic_removal_test,
+            "channel_identity_removal_test": duty_plan.channel_identity_removal_test,
             "visual_identity_kernel": [str(item) for item in identity_kernel if str(item or "").strip()],
         },
     )
@@ -540,6 +560,7 @@ def _candidate_errors(
     identity_kernel: Sequence[str],
     policy: VisualSignaturePolicy,
     presentation_policy: SeriesVisualSignaturePresentationPolicy,
+    ip_duty_plan: Mapping[str, Any] | None = None,
 ) -> list[str]:
     prompt = _prompt_text(candidate)
     combined = " ".join([prompt, _first_text(candidate.get("placement")), _first_text(candidate.get("support_anchor")), _first_text(candidate.get("contact_relation")), _first_text(candidate.get("manifestation_location")), _first_text(candidate.get("manifestation_relationship")), str(candidate.get("anchor_manifestation") or "")])
@@ -559,7 +580,72 @@ def _candidate_errors(
             errors.append(f"{frame_id}: supporting_integration must not replace source subject")
         if not _has_supporting_carrier(candidate, combined, presentation_policy=presentation_policy):
             errors.append(f"{frame_id}: supporting_integration requires a concrete in-scene carrier")
+    if policy.requires_every_frame_signature:
+        duty_plan = _resolved_ip_duty_for_candidate(candidate, ip_duty_plan, frame_id=frame_id)
+        if duty_plan.duty_preset is IPDutyPreset.NONE:
+            errors.append(f"{frame_id}: mandatory integration requires ip_duty_preset")
+        if not duty_plan.action_verb:
+            errors.append(f"{frame_id}: mandatory integration requires action_verb")
+        if not duty_plan.interaction_target:
+            errors.append(f"{frame_id}: mandatory integration requires interaction_target")
+        if not duty_plan.scene_binding:
+            errors.append(f"{frame_id}: mandatory integration requires scene_binding")
     return errors
+
+
+def _ip_duty_by_frame(
+    plans: Sequence[Mapping[str, Any]],
+    *,
+    frame_ids: Sequence[str],
+) -> dict[str, Mapping[str, Any]]:
+    result: dict[str, Mapping[str, Any]] = {}
+    for index, plan in enumerate(plans or ()):
+        if not isinstance(plan, Mapping):
+            continue
+        frame_id = _first_text(plan.get("frame_id"), plan.get("id"))
+        if not frame_id and index < len(frame_ids):
+            frame_id = frame_ids[index]
+        if frame_id:
+            result[frame_id] = dict(plan)
+    return result
+
+
+def _resolved_ip_duty_for_candidate(
+    candidate: Mapping[str, Any],
+    ip_duty_plan: Mapping[str, Any] | None,
+    *,
+    frame_id: str,
+) -> IPDutyPlan:
+    payload: dict[str, Any] = {}
+    if isinstance(ip_duty_plan, Mapping):
+        payload.update(ip_duty_plan)
+    for key in (
+        "ip_duty_preset",
+        "duty_preset",
+        "duty_goal",
+        "action_verb",
+        "interaction_target",
+        "scene_binding",
+        "presentation_form",
+        "fallback_presentation",
+        "semantic_removal_test",
+        "channel_identity_removal_test",
+        "route_type",
+        "visual_route_type",
+    ):
+        value = candidate.get(key)
+        if _first_text(value):
+            payload[key] = value
+    if not _first_text(payload.get("interaction_target")):
+        payload["interaction_target"] = _first_text(candidate.get("interaction_target"), _manifestation_value(candidate, "carrier"))
+    if not _first_text(payload.get("scene_binding")):
+        payload["scene_binding"] = _first_text(
+            candidate.get("scene_binding"),
+            candidate.get("contact_relation"),
+            candidate.get("support_anchor"),
+            _manifestation_value(candidate, "relationship"),
+        )
+    return IPDutyPlan.from_mapping(payload, frame_id=frame_id)
 
 
 def _prompt_text(candidate: Mapping[str, Any]) -> str:

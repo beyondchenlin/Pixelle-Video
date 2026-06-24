@@ -112,11 +112,24 @@ def _signature_clause(signature: SeriesVisualSignatureContract) -> str:
         return ""
     profile = signature.profile
     traits = ", ".join(profile.identity_traits[:3]) if profile else "recurring visual signature"
+    role_text = _natural_signature_role(signature.role.value)
     return (
-        f"A small supporting series visual signature appears as {signature.role.value}, "
-        f"using these short traits: {traits}. Same flat style as the scene, max {int(signature.max_area_ratio * 100)}% image area, "
-        "not a sticker, not a logo, not photorealistic"
+        f"A small recurring visual identity with these traits appears in the scene: {traits}. "
+        f"It works as {role_text}, physically bound to a real diagram element, paper card, prop, or supporting action. "
+        f"Keep it clear but subordinate, within about {int(signature.max_area_ratio * 100)}% of the image area, matching the scene style."
     )
+
+
+def _natural_signature_role(role: str) -> str:
+    return {
+        "core_actor": "a functional actor that performs the frame action",
+        "silent_witness": "a quiet witness beside the evidence or event structure",
+        "operator": "a small operator demonstrating the mechanism",
+        "guide": "a guide that points out the path or key structure",
+        "obstacle": "a symbolic obstacle inside the metaphor",
+        "container": "a small carrier for the structure or concept",
+        "background_mark": "a material mark on a real in-scene surface",
+    }.get(str(role or ""), "a scene-bound participant")
 
 
 def _first_non_empty(*values: Any) -> str:

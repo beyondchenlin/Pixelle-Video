@@ -123,7 +123,7 @@ def _image_facing_relationship_clause(contract: FinalVisualPromptContract) -> st
     return (
         "IP角色作为画面中的协调配角融入同一场景，与主要角色共享空间、比例、透视和光线，"
         "有明确支撑点，比如站在地面、楼顶、桌边、电视旁、人群边缘、标牌旁或车辆旁，"
-        "身体或脚与场景物体有接触或遮挡关系，不抢占画面主体，不像贴纸或独立吉祥物。"
+        "身体或脚与场景物体有接触或遮挡关系，不抢占画面主体，像真实场景内的参与者。"
     )
 
 
@@ -140,7 +140,7 @@ def _image_facing_text(value: str) -> str:
         "non-IP animals, props, background, and environment": "非IP动物、道具、背景和环境",
         "scene-integrated supporting character": "作为协调配角融入画面",
         "shares the same ground plane, scale, perspective, lighting, and atmosphere as the source scene": "与场景共享同一地面、比例、透视、光线和氛围",
-        "not isolated, not floating, not a sticker, not pasted on top": "不是孤立漂浮的贴纸式元素",
+        "physically grounded on a visible scene support, integrated by scale, perspective, light, and contact": "与可见支撑物发生接触，并按比例、透视和光照融入场景",
         "coexists with the source subjects without replacing them": "与文案主体共处但不替代他们",
         "has a concrete physical placement anchor in the scene, such as standing on the ground, sitting beside a screen, standing on a rooftop, leaning near a board, or staying at the edge of a crowd": "有明确支撑点，如地面、楼顶、电视旁、讲解板旁或人群边缘",
         "the IP body or feet visibly contact a ground plane, surface, object, rooftop, table edge, signboard, or another physical support": "身体或脚与地面、物体或支撑面有可见接触",
@@ -163,7 +163,7 @@ def _image_facing_requirements(rules) -> tuple[str, ...]:
             for marker in (
                 "role slot",
                 "not pasted",
-                "not a sticker",
+                "physically integrated",
                 "replace source",
                 "source subjects remain",
             )

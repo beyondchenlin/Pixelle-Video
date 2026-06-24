@@ -32,12 +32,22 @@ class SeriesVisualSignatureStructureMode(str, Enum):
 
 class SeriesVisualSignatureParticipationMode(str, Enum):
     AUTO = "auto"
-    COMPANION_WITNESS = "companion_witness"
+    HOST_EXPLAINER = "host_explainer"
     GUIDE_EXPLAINER = "guide_explainer"
     OPERATOR_DEMONSTRATOR = "operator_demonstrator"
     POINTER_ANNOTATOR = "pointer_annotator"
+    COMPANION_WITNESS = "companion_witness"
+    EVIDENCE_CURATOR = "evidence_curator"
+    CONTRAST_JUDGE = "contrast_judge"
+    EMOTIONAL_PROXY = "emotional_proxy"
     METAPHOR_SYMBOL = "metaphor_symbol"
     STRUCTURE_CARRIER = "structure_carrier"
+    RELATIONSHIP_MEDIATOR = "relationship_mediator"
+    NAVIGATOR_PATHFINDER = "navigator_pathfinder"
+    MECHANIC_REPAIRER = "mechanic_repairer"
+    THRESHOLD_GUARDIAN = "threshold_guardian"
+    BACKGROUND_SIGNATURE = "background_signature"
+    COMIC_COUNTERPOINT = "comic_counterpoint"
     ENVIRONMENT_BRANDING = "environment_branding"
 
     @classmethod

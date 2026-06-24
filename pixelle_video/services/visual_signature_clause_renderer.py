@@ -54,7 +54,13 @@ def render_visual_signature_candidate_clause(
     if not support or policy.contains_forbidden_final_prompt_text(combined):
         return ""
 
-    identity = _identity_kernel(source_text, identity_kernel=identity_kernel)
+    passthrough = _source_text_as_natural_clause(source_text, support=support, policy=policy)
+    if passthrough:
+        return passthrough
+
+    identity = _identity_kernel(source_text, identity_kernel=identity_kernel, policy=policy)
+    if not identity:
+        return ""
     if carrier_value in {
         AnchorCarrierType.BOOKPLATE_OR_STAMP.value,
         AnchorCarrierType.PRINTED_MARK.value,
@@ -130,6 +136,18 @@ def render_visual_anchor_plan_clause(
     return clause
 
 
+def _source_text_as_natural_clause(source_text: str, *, support: str, policy: VisualSignaturePolicy) -> str:
+    text = _clean_fragment(source_text)
+    if not text or len(text) < 8:
+        return ""
+    if policy.contains_forbidden_final_prompt_text(text):
+        return ""
+    if support not in text and not any(token in text for token in ("纸", "卡片", "书", "桌", "墙", "板", "资料夹", "路径", "按钮", "时间线")):
+        return ""
+    if not any(token in text for token in ("印", "压", "刻", "画", "站", "接触", "放在", "整理", "指向", "拉", "推", "守", "连接", "观察", "称量", "修复")):
+        return ""
+    return _final_clean(text, policy=policy)
+
 def _metadata_identity_kernel(metadata: Any) -> tuple[str, ...]:
     if not isinstance(metadata, dict):
         return ()
@@ -147,11 +165,14 @@ def _identity_kernel(
     text: str,
     *,
     identity_kernel: Sequence[Any] | None = None,
+    policy: VisualSignaturePolicy | None = None,
 ) -> str:
+    policy = policy or load_visual_signature_policy()
     candidate = _select_identity_candidate(identity_kernel)
     if not candidate:
         candidate = _extract_identity_from_text(text)
-    return _identity_label(candidate)
+    label = _identity_label(candidate, policy=policy)
+    return label
 
 
 def _select_identity_candidate(values: Sequence[Any] | None) -> str:
@@ -203,15 +224,15 @@ def _extract_identity_from_text(text: str) -> str:
     return ""
 
 
-def _identity_label(identity: str) -> str:
+def _identity_label(identity: str, *, policy: VisualSignaturePolicy) -> str:
     cleaned = _clean_identity_text(identity)
     if not cleaned:
-        return "频道识别轮廓"
+        return "" if policy.require_concrete_identity else "频道识别轮廓"
     if cleaned.endswith(_IDENTITY_SUFFIXES):
         return cleaned
     if any(token in cleaned for token in _IDENTITY_NOUN_HINTS):
         return f"{cleaned}轮廓"
-    return f"{cleaned}识别轮廓"
+    return cleaned
 
 
 def _clean_identity_text(value: Any) -> str:

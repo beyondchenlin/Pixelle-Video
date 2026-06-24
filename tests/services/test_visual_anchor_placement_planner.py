@@ -14,7 +14,7 @@ def _profile() -> IPProfile:
     )
 
 
-def test_visual_anchor_placement_suppresses_named_comparison_subjects():
+def test_visual_anchor_placement_uses_background_signature_for_named_comparison_subjects():
     brief = BaseVisualBrief(
         frame_id="f1",
         core_message="英雄对比",
@@ -27,8 +27,9 @@ def test_visual_anchor_placement_suppresses_named_comparison_subjects():
         anchor_profile=_profile(),
     )
 
-    assert not plan.visible
-    assert plan.metadata["reason"] in {"multiple named source subjects", "high-risk source subject or scene"}
+    assert plan.visible
+    assert plan.metadata["ip_duty_preset"] == "background_signature"
+    assert plan.anchor_function.value == "material_signature"
 
 
 def test_visual_anchor_placement_outputs_material_signature_for_safe_book_surface():
@@ -46,7 +47,7 @@ def test_visual_anchor_placement_outputs_material_signature_for_safe_book_surfac
     )
 
     assert plan.visible
-    assert "蓝领结白兔" in plan.image_prompt_clause
+    assert "蓝色领结" in plan.image_prompt_clause
     assert "压印" in plan.image_prompt_clause
     assert "视觉锚点" not in plan.image_prompt_clause
     assert "IP角色" not in plan.image_prompt_clause

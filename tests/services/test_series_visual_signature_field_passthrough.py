@@ -16,6 +16,23 @@ async def test_visual_prompt_planning_accepts_series_visual_signature_request_wi
 
     assert len(result.rendered_prompts) == 1
     assert result.rendered_prompts[0].prompt
+    assert result.rendered_prompts[0].prompt_contract.metadata["ip_present"] is False
+    assert result.rendered_prompts[0].prompt_contract.metadata["mandatory_ip_final_gate"]["reason"] == "not_mandatory"
+
+
+@pytest.mark.asyncio
+async def test_visual_prompt_planning_does_not_apply_mandatory_gate_when_anchor_is_disabled():
+    result = await VisualPromptPlanningService().plan_image_prompts(
+        base_prompts=("plain source-only scene",),
+        frame_contexts=({"frame_id": "f1", "source_text": "plain source"},),
+        visual_anchor_enabled=False,
+        anchor_profile=None,
+    )
+
+    assert result.visual_anchor_plans == ()
+    assert len(result.rendered_prompts) == 1
+    assert result.rendered_prompts[0].prompt_contract.metadata["ip_present"] is False
+    assert result.rendered_prompts[0].prompt_contract.metadata["mandatory_ip_final_gate"]["reason"] == "not_mandatory"
 
 
 @pytest.mark.asyncio

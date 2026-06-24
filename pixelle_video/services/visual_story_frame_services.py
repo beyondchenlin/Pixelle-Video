@@ -214,16 +214,16 @@ def _fallback_ip_plan(
     selected_visual_route: Mapping[str, Any],
     style_harmonization: Mapping[str, Any],
 ) -> dict[str, Any]:
-    return FrameIPFusionPlan(
-        frame_id=frame_visual_plan.get("frame_id") or "frame",
+    return FrameIPFusionPlan.deterministic(
+        frame_id=str(frame_visual_plan.get("frame_id") or "frame"),
+        route_type=selected_visual_route.get("route_type"),
         ip_role=selected_visual_route.get("recommended_ip_role") or "silent_witness",
         ip_visibility="low",
-        placement_logic="Place the channel IP as a scene-bound, non-disruptive supporting visual signature.",
-        action_or_function="Support comprehension of the current frame without becoming the article subject.",
-        relation_to_article_subject="The IP observes or guides; it must not replace article subjects.",
+        local_claim=str(frame_visual_plan.get("local_claim") or ""),
+        visual_task=str(frame_visual_plan.get("visual_task") or ""),
+        relation_to_article_subject="The IP performs a frame duty while preserving article subjects.",
         style_harmonization=style_harmonization.get("mode") or "hybrid_layered",
-        positive_prompt_clause="visible channel IP integrated naturally as a small supporting in-scene element",
-        negative_constraints=("do not replace article subjects", "do not dominate the frame"),
+        risk_text=str(selected_visual_route.get("risk") or ""),
     ).to_dict()
 
 
@@ -237,7 +237,8 @@ def _no_ip_plan(frame_visual_plan: Mapping[str, Any]) -> dict[str, Any]:
         relation_to_article_subject="No IP replacement.",
         style_harmonization="match_route_style",
         positive_prompt_clause="",
-        negative_constraints=("do not add recurring channel character",),
+        negative_constraints=("preserve article visual logic only",),
+        ip_duty_preset="none",
     ).to_dict()
 
 

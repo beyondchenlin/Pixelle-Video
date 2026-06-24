@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from pixelle_video.models.asset_bible import IPProfile
@@ -196,14 +196,24 @@ class VisualPromptPlanningService:
             for index, plan in enumerate(visual_anchor_plans)
             if index < len(base_anchor_packages)
         )
+        projection_policy = _projection_policy_for_request(
+            policy,
+            visual_anchor_enabled=visual_anchor_enabled,
+            anchor_profile=anchor_profile,
+        )
+        active_anchor_profile = anchor_profile if _mandatory_ip_active(
+            visual_anchor_enabled=visual_anchor_enabled,
+            anchor_profile=anchor_profile,
+        ) else None
         rendered_prompts = tuple(
             ProviderPromptProjector().project(
                 base_visual_brief=brief,
+                anchor_profile=active_anchor_profile,
                 visual_anchor_plan=visual_anchor_plans[index] if index < len(visual_anchor_plans) else None,
                 negative_rules=extra_negative_rules,
                 capabilities=capabilities,
                 workflow=workflow,
-                visual_signature_policy=policy,
+                visual_signature_policy=projection_policy,
                 series_visual_signature_strategy=role_strategy,
             )
             for index, brief in enumerate(base_visual_briefs)
@@ -234,6 +244,36 @@ def _should_use_deterministic_anchor_planning(
         SeriesVisualSignaturePresentationMode.AUTO,
         SeriesVisualSignaturePresentationMode.EMBEDDED_SCENE_MARK,
     }
+
+
+def _mandatory_ip_active(
+    *,
+    visual_anchor_enabled: bool,
+    anchor_profile: IPProfile | None,
+) -> bool:
+    return bool(visual_anchor_enabled and anchor_profile is not None)
+
+
+def _projection_policy_for_request(
+    policy: VisualSignaturePolicy,
+    *,
+    visual_anchor_enabled: bool,
+    anchor_profile: IPProfile | None,
+) -> VisualSignaturePolicy:
+    if _mandatory_ip_active(
+        visual_anchor_enabled=visual_anchor_enabled,
+        anchor_profile=anchor_profile,
+    ):
+        return policy
+    if not policy.requires_every_frame_signature:
+        return policy
+    return replace(
+        policy,
+        coverage_mode="sparse",
+        suppress_allowed=True,
+        projection_failure="allow_anchor_free",
+        require_concrete_identity=False,
+    )
 
 
 __all__ = ["VisualPromptPlanningResult", "VisualPromptPlanningService"]

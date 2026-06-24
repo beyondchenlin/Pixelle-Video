@@ -7,6 +7,15 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Literal
 
+from pixelle_video.models.ip_duty import (
+    IPDutyPlan,
+    IPDutyPreset,
+    IPPresentationForm,
+    build_default_ip_duty_plan,
+    duty_from_legacy_role,
+    duty_from_route_type,
+)
+
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
 
@@ -526,6 +535,15 @@ class FrameIPFusionPlan:
     style_harmonization: StyleHarmonizationMode | str
     positive_prompt_clause: str = ""
     negative_constraints: Sequence[Any] = ()
+    ip_duty_preset: IPDutyPreset | str = IPDutyPreset.AUTO
+    duty_goal: str = ""
+    action_verb: str = ""
+    interaction_target: str = ""
+    scene_binding: str = ""
+    presentation_form: IPPresentationForm | str = IPPresentationForm.AUTO
+    fallback_presentation: IPPresentationForm | str = IPPresentationForm.EMBEDDED_MARK
+    semantic_removal_test: str = ""
+    channel_identity_removal_test: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_id", _require_text(self.frame_id, "frame_id"))
@@ -537,19 +555,100 @@ class FrameIPFusionPlan:
         object.__setattr__(self, "style_harmonization", _enum_value(self.style_harmonization, StyleHarmonizationMode, StyleHarmonizationMode.HYBRID_LAYERED))
         object.__setattr__(self, "positive_prompt_clause", _optional_text(self.positive_prompt_clause))
         object.__setattr__(self, "negative_constraints", _text_tuple(self.negative_constraints))
+        duty = IPDutyPlan(
+            frame_id=self.frame_id,
+            duty_preset=(
+                self.ip_duty_preset
+                if IPDutyPreset.from_value(self.ip_duty_preset, default=IPDutyPreset.AUTO) is not IPDutyPreset.AUTO
+                else duty_from_legacy_role(self.ip_role)
+            ),
+            duty_goal=self.duty_goal or self.action_or_function,
+            action_verb=self.action_verb,
+            interaction_target=self.interaction_target,
+            scene_binding=self.scene_binding or self.placement_logic,
+            presentation_form=self.presentation_form,
+            fallback_presentation=self.fallback_presentation,
+            semantic_removal_test=self.semantic_removal_test,
+            channel_identity_removal_test=self.channel_identity_removal_test,
+            source="frame_ip_fusion_plan",
+        )
+        object.__setattr__(self, "ip_duty_preset", duty.duty_preset)
+        object.__setattr__(self, "duty_goal", duty.duty_goal)
+        object.__setattr__(self, "action_verb", duty.action_verb)
+        object.__setattr__(self, "interaction_target", duty.interaction_target)
+        object.__setattr__(self, "scene_binding", duty.scene_binding)
+        object.__setattr__(self, "presentation_form", duty.presentation_form)
+        object.__setattr__(self, "fallback_presentation", duty.fallback_presentation)
+        object.__setattr__(self, "semantic_removal_test", duty.semantic_removal_test)
+        object.__setattr__(self, "channel_identity_removal_test", duty.channel_identity_removal_test)
 
     @classmethod
     def from_mapping(cls, source: Mapping[str, Any]) -> "FrameIPFusionPlan":
+        duty_preset = source.get("ip_duty_preset") or source.get("duty_preset") or source.get("duty")
+        if not duty_preset:
+            duty_preset = duty_from_route_type(source.get("route_type"), legacy_role=source.get("ip_role") or source.get("role"))
         return cls(
             frame_id=source.get("frame_id") or "frame",
-            ip_role=source.get("ip_role") or VisualSignatureRole.SILENT_WITNESS,
-            ip_visibility=source.get("ip_visibility") or IPVisibilityLevel.LOW,
-            placement_logic=source.get("placement_logic") or "place the IP as a non-disruptive scene-bound signature",
-            action_or_function=source.get("action_or_function") or source.get("function") or "support article comprehension",
+            ip_role=source.get("ip_role") or source.get("role") or VisualSignatureRole.SILENT_WITNESS,
+            ip_visibility=source.get("ip_visibility") or source.get("visibility_tier") or IPVisibilityLevel.LOW,
+            placement_logic=source.get("placement_logic") or source.get("scene_binding") or "place the IP as a scene-bound participant",
+            action_or_function=source.get("action_or_function") or source.get("function") or source.get("duty_goal") or "support article comprehension",
             relation_to_article_subject=source.get("relation_to_article_subject") or "does not replace article subjects",
             style_harmonization=source.get("style_harmonization") or StyleHarmonizationMode.HYBRID_LAYERED,
             positive_prompt_clause=source.get("positive_prompt_clause") or source.get("image_prompt_clause") or "",
-            negative_constraints=source.get("negative_constraints") or (),
+            negative_constraints=source.get("negative_constraints") or source.get("negative_rules") or (),
+            ip_duty_preset=duty_preset,
+            duty_goal=source.get("duty_goal") or source.get("scene_function") or "",
+            action_verb=source.get("action_verb") or "",
+            interaction_target=source.get("interaction_target") or "",
+            scene_binding=source.get("scene_binding") or "",
+            presentation_form=source.get("presentation_form") or source.get("manifestation_form") or IPPresentationForm.AUTO,
+            fallback_presentation=source.get("fallback_presentation") or IPPresentationForm.EMBEDDED_MARK,
+            semantic_removal_test=source.get("semantic_removal_test") or source.get("removal_test") or "",
+            channel_identity_removal_test=source.get("channel_identity_removal_test") or "",
+        )
+
+    @classmethod
+    def deterministic(
+        cls,
+        *,
+        frame_id: str,
+        route_type: Any = None,
+        ip_role: Any = VisualSignatureRole.SILENT_WITNESS,
+        ip_visibility: Any = IPVisibilityLevel.LOW,
+        local_claim: str = "",
+        visual_task: str = "",
+        relation_to_article_subject: str = "IP supports comprehension and does not replace article subjects.",
+        style_harmonization: Any = StyleHarmonizationMode.HYBRID_LAYERED,
+        risk_text: str = "",
+    ) -> "FrameIPFusionPlan":
+        duty = build_default_ip_duty_plan(
+            frame_id=frame_id,
+            route_type=route_type,
+            legacy_role=ip_role,
+            local_claim=local_claim,
+            visual_task=visual_task,
+            risk_text=risk_text,
+        )
+        return cls(
+            frame_id=frame_id,
+            ip_role=ip_role,
+            ip_visibility=ip_visibility,
+            placement_logic=duty.scene_binding,
+            action_or_function=duty.duty_goal,
+            relation_to_article_subject=relation_to_article_subject,
+            style_harmonization=style_harmonization,
+            positive_prompt_clause="",
+            negative_constraints=("preserve article subjects", "keep channel IP subordinate to frame meaning"),
+            ip_duty_preset=duty.duty_preset,
+            duty_goal=duty.duty_goal,
+            action_verb=duty.action_verb,
+            interaction_target=duty.interaction_target,
+            scene_binding=duty.scene_binding,
+            presentation_form=duty.presentation_form,
+            fallback_presentation=duty.fallback_presentation,
+            semantic_removal_test=duty.semantic_removal_test,
+            channel_identity_removal_test=duty.channel_identity_removal_test,
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -563,6 +662,15 @@ class FrameIPFusionPlan:
             "style_harmonization": self.style_harmonization.value,
             "positive_prompt_clause": self.positive_prompt_clause,
             "negative_constraints": list(self.negative_constraints),
+            "ip_duty_preset": self.ip_duty_preset.value,
+            "duty_goal": self.duty_goal,
+            "action_verb": self.action_verb,
+            "interaction_target": self.interaction_target,
+            "scene_binding": self.scene_binding,
+            "presentation_form": self.presentation_form.value,
+            "fallback_presentation": self.fallback_presentation.value,
+            "semantic_removal_test": self.semantic_removal_test,
+            "channel_identity_removal_test": self.channel_identity_removal_test,
         }
 
 
@@ -717,6 +825,8 @@ __all__ = [
     "VisualStyleFamily",
     "VisualSignatureRole",
     "IPVisibilityLevel",
+    "IPDutyPreset",
+    "IPPresentationForm",
     "StyleHarmonizationMode",
     "RouteSelectionSource",
     "EvidenceSpan",

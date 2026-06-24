@@ -185,22 +185,46 @@ class SceneAnchorAffordances:
 
 
 def anchor_identity_from_profile(anchor_profile: Any) -> str:
-    """Return the smallest recognizable visual kernel, not a full protagonist description."""
+    """Return a concrete visual identity kernel from the profile identity contract.
+
+    Mandatory IP participation must never degrade an unknown profile to a generic
+    channel identifier.  The fixed identity contract and identity trait fields are
+    the source of truth; callers that require mandatory projection can fail early
+    when no concrete phrase is available.
+    """
 
     raw_parts = [
-        getattr(anchor_profile, "name", ""),
+        getattr(anchor_profile, "fixed_identity_clause", ""),
+        getattr(anchor_profile, "canonical_identity_name", ""),
         getattr(anchor_profile, "visual_summary", ""),
         *_read_sequence(getattr(anchor_profile, "identity_lock", ())),
+        *_read_sequence(getattr(anchor_profile, "required_identity_traits", ())),
         *_read_sequence(getattr(anchor_profile, "minimal_traits", ())),
         *_read_sequence(getattr(anchor_profile, "identity_anchors", ())),
+        getattr(anchor_profile, "name", ""),
     ]
-    raw = "，".join(str(part or "").strip() for part in raw_parts if str(part or "").strip())
-    if "兔" in raw:
-        return "蓝领结白兔轮廓"
-    if "麻雀" in raw:
-        return "红嘴小麻雀轮廓"
-    return "频道识别轮廓"
+    candidates = [_clean_identity_part(part) for part in raw_parts]
+    candidates = [part for part in candidates if part and not _generic_identity_part(part)]
+    if not candidates:
+        raise ValueError("mandatory visual signature requires a concrete identity kernel")
+    phrase = _dedupe(candidates)[0]
+    if phrase.endswith(("轮廓", "形象", "纹样", "小角色", "小物件")):
+        return phrase
+    if any(token in phrase for token in ("狗", "猫", "兔", "鸟", "雀", "机器人", "小人", "角色", "小黑")):
+        return f"{phrase}轮廓"
+    return phrase
 
+
+def _clean_identity_part(value: Any) -> str:
+    text = " ".join(str(value or "").split()).strip(" ，,。.;；")
+    for prefix in ("Fixed IP identity:", "fixed identity:", "required identity traits:", "required traits:"):
+        text = text.replace(prefix, "")
+    return " ".join(text.split()).strip(" ，,。.;；")
+
+
+def _generic_identity_part(value: str) -> bool:
+    lowered = str(value or "").strip().lower()
+    return lowered in {"ip", "visual signature", "channel identity", "频道视觉签名", "频道识别", "频道识别轮廓", "视觉签名", "识别轮廓"}
 
 def infer_scene_anchor_affordances(
     *,
@@ -240,9 +264,9 @@ def infer_scene_anchor_affordances(
 
     carriers = _dedupe(carriers)
     if not carriers and main_subjects:
-        notes.append("本帧已有明确主体但缺少自然载体，允许视觉签名不出现")
+        notes.append("本帧已有明确主体但缺少自然载体，后续必须注入小型内容兼容载体")
     elif not carriers:
-        notes.append("缺少明确实物载体时，优先隐藏而不是追加角标")
+        notes.append("缺少明确实物载体时，后续必须注入纸质分析卡片、书签、讲解板或资料夹标签等安全载体")
 
     forbidden_zones = (
         "画布四角",
@@ -250,7 +274,7 @@ def infer_scene_anchor_affordances(
         "UI层、水印层、logo层",
         "主体脸部、胸前关键标志和主要动作区域",
     )
-    notes.append("视觉签名必须绑定真实场景物体；没有载体时隐藏")
+    notes.append("视觉签名必须绑定真实场景物体；没有自然载体时注入安全小载体")
     return SceneAnchorAffordances(
         carriers=tuple(carriers),
         forbidden_zones=forbidden_zones,

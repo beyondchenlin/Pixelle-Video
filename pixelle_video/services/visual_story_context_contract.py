@@ -416,13 +416,19 @@ def _ip_plan_summary(
     payload = {
         "frame_id": _first_text(value.get("frame_id"), f"frame-{index + 1}"),
         "frame_index": _safe_index(value.get("frame_index"), index),
-        "role": _truncate(value.get("role"), 60),
-        "visibility_tier": _truncate(value.get("visibility_tier"), 60),
-        "scene_function": _truncate(value.get("scene_function"), text_chars),
-        "placement_strategy": _truncate(value.get("placement_strategy"), text_chars),
-        "identity_preservation": _truncate(value.get("identity_preservation"), text_chars),
+        "ip_role": _truncate(_first_text(value.get("ip_role"), value.get("role")), 60),
+        "ip_visibility": _truncate(_first_text(value.get("ip_visibility"), value.get("visibility_tier")), 60),
+        "ip_duty_preset": _truncate(value.get("ip_duty_preset"), 60),
+        "duty_goal": _truncate(_first_text(value.get("duty_goal"), value.get("scene_function"), value.get("action_or_function")), text_chars),
+        "action_verb": _truncate(value.get("action_verb"), 60),
+        "interaction_target": _truncate(value.get("interaction_target"), text_chars),
+        "scene_binding": _truncate(_first_text(value.get("scene_binding"), value.get("placement_logic"), value.get("placement_strategy")), text_chars),
+        "presentation_form": _truncate(value.get("presentation_form"), 60),
+        "fallback_presentation": _truncate(value.get("fallback_presentation"), 60),
+        "semantic_removal_test": _truncate(_first_text(value.get("semantic_removal_test"), value.get("removal_test")), text_chars),
+        "channel_identity_removal_test": _truncate(value.get("channel_identity_removal_test"), text_chars),
         "style_harmony_rule": _truncate(value.get("style_harmony_rule"), text_chars),
-        "negative_rules": _compact_list(value.get("negative_rules"), item_limit=60, count=list_items),
+        "negative_rules": _compact_list(_first_non_empty_list(value.get("negative_rules"), value.get("negative_constraints")), item_limit=60, count=list_items),
     }
     if include_reason:
         payload["reason"] = _truncate(value.get("reason"), text_chars)
@@ -446,9 +452,12 @@ def _minimal_ip_plan(value: Any, *, fallback_index: int) -> dict[str, Any]:
         {
             "frame_id": _first_text(value.get("frame_id"), f"frame-{fallback_index + 1}"),
             "frame_index": _safe_index(value.get("frame_index"), fallback_index),
-            "role": _truncate(value.get("role"), 36),
-            "visibility_tier": _truncate(value.get("visibility_tier"), 36),
-            "scene_function": _truncate(value.get("scene_function"), 40),
+            "ip_role": _truncate(_first_text(value.get("ip_role"), value.get("role")), 36),
+            "ip_visibility": _truncate(_first_text(value.get("ip_visibility"), value.get("visibility_tier")), 36),
+            "ip_duty_preset": _truncate(value.get("ip_duty_preset"), 36),
+            "action_verb": _truncate(value.get("action_verb"), 28),
+            "interaction_target": _truncate(value.get("interaction_target"), 40),
+            "scene_binding": _truncate(_first_text(value.get("scene_binding"), value.get("placement_logic")), 40),
         }
     )
 
@@ -496,11 +505,17 @@ def _ordered_value_keys(value: Mapping[str, Any]) -> list[str]:
         "visual_task",
         "route_application",
         "required_subjects",
-        "role",
-        "visibility_tier",
-        "scene_function",
-        "placement_strategy",
-        "identity_preservation",
+        "ip_role",
+        "ip_visibility",
+        "ip_duty_preset",
+        "duty_goal",
+        "action_verb",
+        "interaction_target",
+        "scene_binding",
+        "presentation_form",
+        "fallback_presentation",
+        "semantic_removal_test",
+        "channel_identity_removal_test",
         "style_harmony_rule",
         "negative_rules",
         "reason",
@@ -509,6 +524,12 @@ def _ordered_value_keys(value: Mapping[str, Any]) -> list[str]:
     keys.extend(str(key) for key in value.keys() if key not in keys and len(keys) < 12)
     return keys
 
+
+def _first_non_empty_list(*values: Any) -> Any:
+    for value in values:
+        if value not in (None, "", [], {}):
+            return value
+    return ()
 
 def _first_text(*values: Any) -> str:
     for value in values:

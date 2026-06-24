@@ -34,12 +34,13 @@ All final image prompt strings must be written in English.
 - When `plan_context.generation_world_profile` exists, use generation_world_profile as the script world profile; it refines world_preset and must preserve any protected original source subject.
 - When `plan_context.visual_story_engine` exists, treat it as the upstream article visual route decision. Preserve `selected_visual_route`, `style_harmonization`, `frame_storytelling_logic`, route-specific rules, and channel-memory intent.
 - When a frame contains `visual_story_frame_plan`, it is the authoritative local visual task. The image must express its `local_claim`, `visual_task`, `visual_logic`, required_subjects, and forbidden_losses.
-- When a frame contains `visual_story_ip_fusion_plan`, integrate the channel IP or visual signature according to its role, visibility, placement_logic, action_or_function, relation_to_article_subject, and positive_prompt_clause. The IP must support the article logic and must not replace article subjects.
+- When a frame contains `visual_story_ip_fusion_plan`, do not insert the concrete recurring IP identity at this base stage. Instead, preserve the frame's visual task and include or leave room for a small content-compatible in-scene carrier when it helps downstream mandatory IP participation.
 - Use `story_constraints` to protect original landmarks, buildings, people, and other protected subjects.
 # Base Image Boundary
 - This stage generates the subject-first base image prompt only.
-- Do not add recurring channel mascots, IP characters, visual anchors, logos, signature props, rabbits, sparrows, chairs, stones, planes, or other recurring anchor elements unless they are the explicit source subject of the frame.
-- The recurring visual anchor, if enabled, will be placed by a separate downstream visual_anchor_placement stage after this base scene is already formed.
+- Do not add the concrete recurring channel mascot, IP character, or identity phrase unless it is the explicit source subject of the frame.
+- If mandatory IP participation is enabled, make the base scene carrier-friendly: real paper cards, book pages, whiteboard legends, research folders, desk objects, diagrams, signs, screens, maps, or other content-compatible physical surfaces are allowed when they support the source visual task.
+- The recurring visual identity, if enabled, will be placed by a separate downstream mandatory IP participation stage after this base scene is already formed.
 
 # Output Requirements
 

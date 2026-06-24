@@ -29,9 +29,9 @@ class VisualSignatureCadenceDecision:
 class VisualSignatureCadencePlanner:
     """Batch-level visibility planner for recurring visual signatures.
 
-    The signature is not decided frame-by-frame in isolation. A whole batch first
-    gets a sparse visibility cadence so repeated identity details feel intentional
-    instead of becoming per-frame corner badges.
+    In sparse mode, the signature gets a batch cadence. In mandatory mode, this
+    planner becomes a compatibility adapter and marks every frame visible; duty,
+    carrier, and presentation form vary downstream instead of visibility.
     """
 
     policy: VisualSignaturePolicy | None = None
@@ -45,6 +45,16 @@ class VisualSignatureCadencePlanner:
         briefs = tuple(base_visual_briefs)
         if not briefs:
             return ()
+        if policy.requires_every_frame_signature:
+            return tuple(
+                VisualSignatureCadenceDecision(
+                    frame_id=brief.frame_id,
+                    visible_allowed=True,
+                    reason="mandatory every-frame IP participation",
+                    score=999,
+                )
+                for brief in briefs
+            )
 
         scored: list[tuple[int, int, BaseVisualBrief, str]] = []
         forced_hidden: dict[str, str] = {}

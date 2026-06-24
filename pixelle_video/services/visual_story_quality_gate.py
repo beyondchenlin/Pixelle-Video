@@ -4,7 +4,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from pixelle_video.models.visual_story_engine import VisualStoryEnginePlan
+from pixelle_video.models.ip_duty import IPDutyPreset
+from pixelle_video.models.visual_story_engine import IPVisibilityLevel, VisualSignatureRole, VisualStoryEnginePlan
 
 
 @dataclass(frozen=True)
@@ -45,9 +46,18 @@ class VisualStoryQualityGate:
                     fusion_plan.action_or_function,
                     fusion_plan.relation_to_article_subject,
                     fusion_plan.positive_prompt_clause,
+                    fusion_plan.duty_goal,
+                    fusion_plan.action_verb,
+                    fusion_plan.interaction_target,
+                    fusion_plan.scene_binding,
+                    fusion_plan.semantic_removal_test,
+                    fusion_plan.channel_identity_removal_test,
                     " ".join(fusion_plan.negative_constraints),
                 ]
             ).lower()
+            has_ip_profile = fusion_plan.ip_role is not VisualSignatureRole.NONE and fusion_plan.ip_visibility is not IPVisibilityLevel.NONE
+            if has_ip_profile:
+                _validate_mandatory_ip_duty(frame_plan.frame_id, fusion_plan, findings)
             if _contains_replacement_language(text) and frame_plan.required_subjects:
                 findings.append(
                     _error(
@@ -63,6 +73,22 @@ class VisualStoryQualityGate:
         if errors:
             raise ValueError("visual story quality gate failed: " + "; ".join(error.message for error in errors))
 
+
+def _validate_mandatory_ip_duty(frame_id: str, fusion_plan: Any, findings: list[VisualStoryQualityFinding]) -> None:
+    if fusion_plan.ip_duty_preset in {IPDutyPreset.AUTO, IPDutyPreset.NONE}:
+        findings.append(_error("missing_ip_duty_preset", f"{frame_id}: active IP frames require a concrete ip_duty_preset"))
+    if not fusion_plan.action_verb.strip():
+        findings.append(_error("missing_ip_action_verb", f"{frame_id}: active IP frames require action_verb"))
+    if not fusion_plan.interaction_target.strip():
+        findings.append(_error("missing_ip_interaction_target", f"{frame_id}: active IP frames require interaction_target"))
+    if not fusion_plan.scene_binding.strip():
+        findings.append(_error("missing_ip_scene_binding", f"{frame_id}: active IP frames require scene_binding"))
+    if not fusion_plan.channel_identity_removal_test.strip():
+        findings.append(_error("missing_channel_identity_removal_test", f"{frame_id}: active IP frames require channel_identity_removal_test"))
+    decorative_terms = ("只是出现", "站在旁边", "quiet witness at the edge", "small supporting in-scene element")
+    action_text = " ".join([fusion_plan.action_or_function, fusion_plan.duty_goal, fusion_plan.action_verb, fusion_plan.scene_binding]).lower()
+    if any(term in action_text for term in decorative_terms) and fusion_plan.ip_duty_preset is not IPDutyPreset.BACKGROUND_SIGNATURE:
+        findings.append(_error("decorative_ip_only", f"{frame_id}: IP duty is too decorative for an active-duty frame"))
 
 def _contains_replacement_language(text: str) -> bool:
     markers = (

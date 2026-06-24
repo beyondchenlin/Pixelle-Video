@@ -10,53 +10,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Pixelle-Video Services
+"""Pixelle-Video service facade.
 
-Core services providing atomic capabilities.
-
-Services:
-- LLMService: LLM text generation
-- VisionLLMService: Multimodal LLM calls for reference-image analysis
-- ReferenceImageAnalysisService: Structured Vision analysis + analysis artifact
-- ReferenceImageVisualContextAdapter: Reference analysis to prompt-planning context
-- TTSService: Text-to-speech
-- MediaService: Media generation (image & video)
-- VideoService: Video processing
-- FrameProcessor: Frame processing orchestrator
-- PersistenceService: Task metadata and storyboard persistence
-- HistoryManager: History management business logic
-- ComfyBaseService: Base class for ComfyUI-based services
+The service package is used by light-weight model and prompt tests, so provider
+modules are loaded lazily. Import concrete modules directly when a caller needs a
+specific implementation.
 """
 
-from pixelle_video.services.comfy_base_service import ComfyBaseService
-from pixelle_video.services.frame_processor import FrameProcessor
-from pixelle_video.services.history_manager import HistoryManager
-from pixelle_video.services.llm_service import LLMService
-from pixelle_video.services.media import MediaService
-from pixelle_video.services.persistence import PersistenceService
-from pixelle_video.services.reference_image_analysis import ReferenceImageAnalysisService
-from pixelle_video.services.reference_image_visual_context_adapter import (
-    ReferenceImageVisualContextAdapter,
-)
-from pixelle_video.services.tts_service import TTSService
-from pixelle_video.services.video import VideoService
-from pixelle_video.services.vision_llm_service import VisionLLMService
+_SERVICE_IMPORTS = {
+    "ComfyBaseService": ("pixelle_video.services.comfy_base_service", "ComfyBaseService"),
+    "FrameProcessor": ("pixelle_video.services.frame_processor", "FrameProcessor"),
+    "HistoryManager": ("pixelle_video.services.history_manager", "HistoryManager"),
+    "LLMService": ("pixelle_video.services.llm_service", "LLMService"),
+    "MediaService": ("pixelle_video.services.media", "MediaService"),
+    "ImageService": ("pixelle_video.services.media", "MediaService"),
+    "PersistenceService": ("pixelle_video.services.persistence", "PersistenceService"),
+    "ReferenceImageAnalysisService": ("pixelle_video.services.reference_image_analysis", "ReferenceImageAnalysisService"),
+    "ReferenceImageVisualContextAdapter": ("pixelle_video.services.reference_image_visual_context_adapter", "ReferenceImageVisualContextAdapter"),
+    "TTSService": ("pixelle_video.services.tts_service", "TTSService"),
+    "VideoService": ("pixelle_video.services.video", "VideoService"),
+    "VisionLLMService": ("pixelle_video.services.vision_llm_service", "VisionLLMService"),
+}
 
-# Backward compatibility alias
-ImageService = MediaService
+__all__ = list(_SERVICE_IMPORTS)
 
-__all__ = [
-    "ComfyBaseService",
-    "LLMService",
-    "VisionLLMService",
-    "ReferenceImageAnalysisService",
-    "ReferenceImageVisualContextAdapter",
-    "TTSService",
-    "MediaService",
-    "ImageService",  # Backward compatibility
-    "VideoService",
-    "FrameProcessor",
-    "PersistenceService",
-    "HistoryManager",
-]
+
+def __getattr__(name: str):
+    if name not in _SERVICE_IMPORTS:
+        raise AttributeError(f"module 'pixelle_video.services' has no attribute {name!r}")
+    import importlib
+
+    module_name, attr_name = _SERVICE_IMPORTS[name]
+    module = importlib.import_module(module_name)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value

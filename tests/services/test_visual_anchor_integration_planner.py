@@ -341,24 +341,35 @@ def test_mandatory_visual_anchor_integration_plan_maps_flat_wire_fields_to_inter
     assert "manifestation_location" not in payload
 
 
-def test_series_visual_signature_anchor_planner_rejects_overlay_candidate_fail_closed():
-    with pytest.raises(ValueError, match="forbidden overlay"):
-        asyncio.run(
-            VisualAnchorIntegrationPlanner(llm_service=RejectedOverlayLLM()).plan_batch(
-                base_visual_briefs=(_book_brief(),),
-                anchor_profile=_profile(),
-            )
+def test_series_visual_signature_anchor_planner_repairs_overlay_candidate_with_fallback():
+    plans = asyncio.run(
+        VisualAnchorIntegrationPlanner(llm_service=RejectedOverlayLLM()).plan_batch(
+            base_visual_briefs=(_book_brief(),),
+            anchor_profile=_profile(),
         )
+    )
+
+    assert plans[0].visible
+    assert plans[0].metadata["source"] == "deterministic_visual_signature_fallback"
+    assert plans[0].metadata["fallback_applied"] is True
+    assert "lower-right" not in plans[0].image_prompt_clause
+    assert "corner badge" not in plans[0].image_prompt_clause
+    assert "logo" not in plans[0].image_prompt_clause.lower()
 
 
-def test_series_visual_signature_anchor_planner_rejects_legacy_candidate_array_shape():
-    with pytest.raises(ValueError, match="candidates arrays are not allowed"):
-        asyncio.run(
-            VisualAnchorIntegrationPlanner(llm_service=MalformedButJsonLLM()).plan_batch(
-                base_visual_briefs=(_book_brief(),),
-                anchor_profile=_profile(),
-            )
+def test_series_visual_signature_anchor_planner_repairs_legacy_candidate_array_shape():
+    plans = asyncio.run(
+        VisualAnchorIntegrationPlanner(llm_service=MalformedButJsonLLM()).plan_batch(
+            base_visual_briefs=(_book_brief(),),
+            anchor_profile=_profile(),
         )
+    )
+
+    assert plans[0].visible
+    assert plans[0].metadata["source"] == "deterministic_visual_signature_fallback"
+    assert plans[0].metadata["fallback_applied"] is True
+    assert "candidates" not in plans[0].image_prompt_clause
+    assert "selected_index" not in plans[0].image_prompt_clause
 
 
 def test_series_visual_signature_anchor_planner_rejects_non_callable_llm_service():

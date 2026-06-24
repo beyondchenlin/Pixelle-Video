@@ -1,5 +1,10 @@
 # Pixelle-Video V3.2 Visual Signature Best Practice
 
+> Superseded for default generation by
+> `visual_signature_policy.v1_0_mandatory_ip_participation`.
+> This document now describes the sparse compatibility path only. New default
+> work should follow `visual_signature_v1_0_mandatory_ip_participation.md`.
+
 ## Goal
 
 This version replaces the old "IP character in every frame" mental model with a

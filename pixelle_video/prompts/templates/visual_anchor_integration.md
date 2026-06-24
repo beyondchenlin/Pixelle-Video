@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_integration
-version: 6
+version: 7
 stage: visual_anchor_integration
 purpose: Resilient series-visual-signature integration after the base visual intent is designed.
 output_contract: JSON object matching mandatory series-visual-signature integration schema.
@@ -62,22 +62,32 @@ For every frame, produce a final image prompt that visibly integrates the config
 visual identity while preserving the source visual intent, selected article visual route,
 frame visual plan, and frame IP fusion plan.
 
-Never return hidden, suppressed, absent, skipped, no anchor, no signature, fallback, or
-"not suitable" as a successful answer. If the scene lacks a natural carrier, actively
-rewrite the composition to create one.
+This is mandatory IP participation, not sparse channel decoration. Every frame must
+include the identity. Vary the IP duty, action, carrier, physical binding, scale, and
+presentation form; never vary visibility to hidden or optional. If the base scene lacks
+a natural carrier, add a small content-compatible real scene carrier without changing
+the main subject, claim, or visual metaphor.
+
+Use natural visual language in `integrated_scene_prompt` and `image_prompt_clause`. Do
+not echo internal enum names, schema labels, policy names, or forbidden-form labels in
+provider-facing prompt text.
 
 # Presentation-specific rules
 
+If `series_visual_signature_presentation_mode` is `function_bound_ip_actor`, follow the frame IP duty plan first.
+- For action-based duties, the identity performs or supports the frame action through a concrete verb and interaction target.
+- For evidence, documentary, or background duties, the identity binds to a real object or material surface and preserves the frame's seriousness.
+- For structural duties, the identity carries, connects, repairs, weighs, guards, or navigates the visible structure.
+
 If `series_visual_signature_presentation_mode` is `visible_supporting_character`:
 - The identity must appear as a real, visible, small supporting character in every frame.
-- Do not use watermark, logo, corner badge, bookplate, stamp, mirror mark, surface mark, or abstract emblem as the primary solution.
-- Do not replace the source subject. The source subject and story intent remain primary.
-- Put the identity in a concrete scene location: foreground ground, floor, roadside, grass, desk edge, room corner, beside the main subject, or edge of the scene.
-- The prompt must preserve the exact identity phrase, such as “戴黑色墨镜的斑点狗”, and include a physical relationship: standing, sitting, lying, watching, following, leaning, walking beside, or waiting near the source subject.
+- The source subject and story intent remain primary.
+- Put the identity in a concrete scene location with a physical support and contact relationship.
+- The prompt must preserve the exact identity phrase and describe a physical action or relationship.
 - Prefer `carrier_type` = `minor_supporting_character`, `anchor_function` = `co_present_support`, and `prominence` = `small_side_character`.
 
 If `series_visual_signature_presentation_mode` is `embedded_scene_mark`:
-- The identity should appear as a clear but subordinate in-scene mark, prop graphic, bookplate, poster, screen graphic, surface motif, or small object.
+- The identity should appear as a clear but subordinate in-scene material detail, prop graphic, paper mark, poster detail, screen graphic, surface motif, or small object.
 - The identity must remain specific and readable. Never collapse it into a generic channel identifier.
 
 If `series_visual_signature_presentation_mode` is `primary_character` or `effective_series_visual_signature_mode` is `subject_replacement`:
@@ -85,8 +95,8 @@ If `series_visual_signature_presentation_mode` is `primary_character` or `effect
 - Preserve the source meaning while letting the identity carry the main action.
 
 If `series_visual_signature_presentation_mode` is `auto`:
-- Choose the least disruptive visible presentation.
-- Prefer visible supporting integration. Use embedded scene marks only when a supporting character would damage the source visual intent.
+- Choose the least disruptive visible presentation that satisfies the frame IP duty.
+- Prefer duty-specific participation, not a generic side character.
 
 # Strategy-specific rules
 
@@ -139,6 +149,11 @@ Return exactly one JSON object. Each frame must contain exactly one visible plan
       "scene_coherence_score": 9,
       "disruption_risk": 1,
       "identity_preservation_score": 9,
+      "ip_duty_preset": "evidence_curator",
+      "action_verb": "sorts",
+      "scene_binding": "physically interacts with the paper card or support object",
+      "presentation_form": "functional_actor",
+      "channel_identity_removal_test": "removing the identity weakens channel recognition or frame participation",
       "reason": "mandatory integration"
     }}
   ]

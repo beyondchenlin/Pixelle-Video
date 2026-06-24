@@ -21,6 +21,10 @@ from pixelle_video.services.visual_anchor_policy import (
     is_scene_bound_anchor_candidate,
     sanitize_provider_anchor_clause,
 )
+from pixelle_video.services.mandatory_ip_prompt_compiler import (
+    MandatoryIPParticipationError,
+    compile_mandatory_ip_participation_plan,
+)
 from pixelle_video.services.visual_signature_clause_renderer import (
     render_visual_signature_candidate_clause,
 )
@@ -44,6 +48,8 @@ class VisualAnchorPlacementPlanner:
     ) -> tuple[VisualAnchorPlacementPlan, ...]:
         policy = self.policy or load_visual_signature_policy()
         if anchor_profile is None:
+            if policy.requires_every_frame_signature:
+                raise MandatoryIPParticipationError("mandatory IP participation requires an anchor_profile")
             return tuple(
                 _suppressed_plan(brief.frame_id, reason="no anchor profile", policy=policy)
                 for brief in base_visual_briefs
@@ -69,6 +75,15 @@ class VisualAnchorPlacementPlanner:
         frame_plan: Any = None,
     ) -> VisualAnchorPlacementPlan:
         policy = self.policy or load_visual_signature_policy()
+        if policy.requires_every_frame_signature and policy.fallback_strategy == "inject_safe_carrier":
+            return compile_mandatory_ip_participation_plan(
+                frame_id=base_visual_brief.frame_id,
+                base_visual_brief=base_visual_brief,
+                anchor_profile=anchor_profile,
+                duty_payload=_duty_payload_from_frame_inputs(frame_context, frame_plan),
+                policy=policy,
+            )
+
         if base_package is not None and base_package.role_slot is IPRoleSlot.ABSENT:
             return _suppressed_plan(base_visual_brief.frame_id, reason="base package absent", policy=policy)
 
@@ -153,6 +168,33 @@ class VisualAnchorPlacementPlanner:
                 "projection": "deterministic_visual_signature_clause_renderer",
             },
         )
+
+
+def _duty_payload_from_frame_inputs(
+    frame_context: Mapping[str, Any] | None,
+    frame_plan: Any,
+) -> Mapping[str, Any] | None:
+    if isinstance(frame_context, Mapping):
+        value = frame_context.get("visual_story_ip_fusion_plan") or frame_context.get("ip_duty_plan")
+        if isinstance(value, Mapping):
+            return value
+    if isinstance(frame_plan, Mapping):
+        value = frame_plan.get("visual_story_ip_fusion_plan") or frame_plan.get("ip_duty_plan")
+        if isinstance(value, Mapping):
+            return value
+    value = getattr(frame_plan, "visual_story_ip_fusion_plan", None)
+    if isinstance(value, Mapping):
+        return value
+    if hasattr(frame_plan, "to_dict"):
+        try:
+            payload = frame_plan.to_dict()
+        except Exception:
+            payload = None
+        if isinstance(payload, Mapping):
+            value = payload.get("visual_story_ip_fusion_plan") or payload.get("ip_duty_plan")
+            if isinstance(value, Mapping):
+                return value
+    return None
 
 
 def _suppressed_plan(

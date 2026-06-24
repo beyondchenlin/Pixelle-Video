@@ -13,6 +13,7 @@ from pixelle_video.models.visual_anchor_planning import (
     VisualAnchorPlacementPlan,
 )
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
+from pixelle_video.services.mandatory_ip_prompt_compiler import MandatoryIPParticipationError
 from pixelle_video.services.visual_anchor_policy import (
     contains_forbidden_overlay_language,
     is_scene_bound_anchor_candidate,
@@ -111,7 +112,7 @@ class VisualAnchorIntegrationPlanResponse(BaseModel):
             if _candidate_is_usable(selected, policy=policy):
                 return selected
 
-        if policy.prefer_suppressed_when_uncertain:
+        if policy.prefer_suppressed_when_uncertain and policy.suppress_allowed:
             suppressed = [candidate for candidate in valid_candidates if candidate.is_suppressed]
             if suppressed:
                 return sorted(suppressed, key=lambda candidate: -candidate.scene_coherence_score)[0]
@@ -135,11 +136,17 @@ class VisualAnchorIntegrationPlanResponse(BaseModel):
         policy = policy or load_visual_signature_policy()
         candidate = self.selected_candidate(policy=policy)
         if candidate is None:
-            if fallback is not None and fallback.visible and not policy.fail_closed_on_rejected_candidate:
+            if fallback is not None and fallback.visible:
                 return fallback
+            if policy.requires_every_frame_signature:
+                raise MandatoryIPParticipationError(f"{self.frame_id}: LLM returned no usable mandatory IP candidate")
             return _hidden_plan(self.frame_id, reason="llm_no_usable_candidate")
 
         if candidate.is_suppressed:
+            if fallback is not None and fallback.visible:
+                return fallback
+            if policy.requires_every_frame_signature:
+                raise MandatoryIPParticipationError(f"{self.frame_id}: mandatory IP candidate was suppressed")
             return _hidden_plan(self.frame_id, reason=candidate.reason or "llm_selected_suppressed")
 
         clause = render_visual_signature_candidate_clause(
@@ -158,8 +165,10 @@ class VisualAnchorIntegrationPlanResponse(BaseModel):
             carrier_type=candidate.carrier_type,
             policy=policy,
         ):
-            if fallback is not None and fallback.visible and not policy.fail_closed_on_rejected_candidate:
+            if fallback is not None and fallback.visible:
                 return fallback
+            if policy.requires_every_frame_signature:
+                raise MandatoryIPParticipationError(f"{self.frame_id}: mandatory IP candidate rejected by scene-bound gate")
             return _hidden_plan(self.frame_id, reason="llm_candidate_rejected_by_scene_bound_gate")
 
         return VisualAnchorPlacementPlan(
@@ -223,7 +232,7 @@ def _candidate_is_usable(
     policy: VisualSignaturePolicy,
 ) -> bool:
     if candidate.is_suppressed:
-        return True
+        return bool(policy.suppress_allowed)
     clause = render_visual_signature_candidate_clause(
         carrier_type=candidate.carrier_type,
         support_anchor=candidate.support_anchor,

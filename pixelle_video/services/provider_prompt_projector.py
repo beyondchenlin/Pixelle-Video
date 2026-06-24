@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.final_visual_prompt_contract import (
     FinalVisualPromptContract,
@@ -15,6 +16,10 @@ from pixelle_video.models.series_visual_signature_strategy import (
 )
 from pixelle_video.models.visual_anchor_planning import VisualAnchorPlacementPlan
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
+from pixelle_video.services.final_prompt_ip_gate import (
+    FinalPromptIPGateError,
+    assert_mandatory_ip_final_prompt,
+)
 from pixelle_video.services.visual_anchor_policy import (
     contains_forbidden_overlay_language,
     is_scene_bound_anchor_candidate,
@@ -45,6 +50,10 @@ _FORBIDDEN_PROVIDER_TERMS = (
 )
 
 
+class MandatoryIPProjectionError(ValueError):
+    """Raised when mandatory IP participation cannot reach provider prompt output."""
+
+
 @dataclass(frozen=True)
 class ProviderPromptProjector:
     renderer_id: str = "provider_prompt_projector_z_image"
@@ -54,6 +63,7 @@ class ProviderPromptProjector:
         self,
         *,
         base_visual_brief: BaseVisualBrief,
+        anchor_profile: IPProfile | None = None,
         visual_anchor_plan: VisualAnchorPlacementPlan | None = None,
         negative_rules: Sequence[str] = (),
         capabilities: Any = None,
@@ -63,6 +73,10 @@ class ProviderPromptProjector:
     ) -> RenderedMediaPrompt:
         policy = visual_signature_policy or load_visual_signature_policy()
         anchor_clause = _safe_visual_anchor_clause(visual_anchor_plan, policy=policy)
+        if policy.requires_every_frame_signature and policy.requires_repair_or_fail and not anchor_clause:
+            raise MandatoryIPProjectionError(
+                f"{base_visual_brief.frame_id}: mandatory IP participation was lost before provider projection"
+            )
         prompt = self._build_prompt(
             base_visual_brief=base_visual_brief,
             visual_anchor_plan=visual_anchor_plan,
@@ -71,6 +85,16 @@ class ProviderPromptProjector:
             policy=policy,
         )
         negative_prompt = None if _is_positive_only(workflow, capabilities) else _join_rules(negative_rules)
+        try:
+            final_gate = assert_mandatory_ip_final_prompt(
+                prompt=prompt,
+                anchor_clause=anchor_clause,
+                visual_anchor_plan=visual_anchor_plan,
+                policy=policy,
+                anchor_profile=anchor_profile,
+            )
+        except FinalPromptIPGateError as exc:
+            raise MandatoryIPProjectionError(f"{base_visual_brief.frame_id}: {exc}") from exc
         contract_metadata = {
             "base_visual_brief_version": base_visual_brief.version,
             "visual_anchor_plan_version": visual_anchor_plan.version if visual_anchor_plan else None,
@@ -79,6 +103,8 @@ class ProviderPromptProjector:
             "ip_present": bool(anchor_clause),
             "scene_bound_anchor_gate": "passed" if anchor_clause else "absent_or_rejected",
             "visual_signature_policy": policy.version,
+            "visual_signature_coverage_mode": policy.coverage_mode,
+            "mandatory_ip_final_gate": final_gate.to_dict(),
         }
         if series_visual_signature_strategy is not None:
             contract_metadata["series_visual_signature_strategy"] = series_visual_signature_strategy.to_dict()
@@ -93,7 +119,7 @@ class ProviderPromptProjector:
             or "主体画面构图清晰",
             style_assignment=_join_non_empty(*base_visual_brief.subject_identity_anchors)
             or "主体视觉特征清楚",
-            character_layer_style=anchor_clause or "无额外频道视觉元素",
+            character_layer_style=anchor_clause or ("" if policy.requires_every_frame_signature else "无额外频道视觉元素"),
             world_layer_style=base_visual_brief.style_surface or "画面风格与主体表达一致",
             integration_priority=_join_non_empty(*base_visual_brief.readability_constraints)
             or "画面可读性优先",
@@ -399,4 +425,4 @@ def _dedupe(values: Sequence[str]) -> list[str]:
     return result
 
 
-__all__ = ["ProviderPromptProjector"]
+__all__ = ["MandatoryIPProjectionError", "ProviderPromptProjector"]

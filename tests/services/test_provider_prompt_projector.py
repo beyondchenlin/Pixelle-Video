@@ -90,7 +90,12 @@ def test_provider_prompt_projector_avoids_percent_scale_language_and_overlay_ter
     )
     assert "%" not in rendered.prompt
     assert "约为主要主体高度" not in rendered.prompt
-    assert "小物件" in rendered.prompt or "浅压印纹章" in rendered.prompt or "装饰纹样" in rendered.prompt
+    assert (
+        "小物件" in rendered.prompt
+        or "小摆件" in rendered.prompt
+        or "浅压印纹章" in rendered.prompt
+        or "装饰纹样" in rendered.prompt
+    )
     assert "角落标签" not in rendered.prompt
     assert "角标" not in rendered.prompt
     assert "水印" not in rendered.prompt
@@ -116,7 +121,7 @@ def test_visual_prompt_planning_projector_accepts_series_visual_signature_strate
     assert rendered.prompt_contract.metadata["series_visual_signature_strategy"] == role_strategy.to_dict()
 
 
-def test_planner_suppresses_named_comparison_subjects_by_default():
+def test_planner_uses_background_signature_for_named_comparison_subjects_by_default():
     profile = IPProfile(
         series_visual_signature_profile_id="rabbit",
         workspace_id="ws",
@@ -126,4 +131,5 @@ def test_planner_suppresses_named_comparison_subjects_by_default():
         visual_summary="一只白色科技兔子，蓝色领结，长耳朵，圆润脸型",
     )
     plan = VisualAnchorPlacementPlanner().plan_frame(base_visual_brief=_brief(), anchor_profile=profile)
-    assert not plan.visible
+    assert plan.visible
+    assert plan.metadata["ip_duty_preset"] == "background_signature"

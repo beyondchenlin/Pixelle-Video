@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 _DEFAULT_ALLOWED_CARRIER_TYPES = (
     "bookplate_or_stamp",
@@ -83,13 +83,18 @@ class VisualSignaturePolicy:
     behavior without reintroducing canvas-corner badges, stickers, or watermarks.
     """
 
-    version: str = "visual_signature_policy.v3_2_scene_bound"
+    version: str = "visual_signature_policy.v1_0_mandatory_ip_participation"
+    coverage_mode: Literal["sparse", "every_frame"] = "every_frame"
+    suppress_allowed: bool = False
+    fallback_strategy: Literal["suppress", "inject_safe_carrier"] = "inject_safe_carrier"
+    projection_failure: Literal["allow_anchor_free", "repair_or_fail"] = "repair_or_fail"
+    require_concrete_identity: bool = True
     fail_closed_on_llm_error: bool = True
     fail_closed_on_rejected_candidate: bool = True
-    prefer_suppressed_when_uncertain: bool = True
-    suppress_named_subject_count: int = 2
-    visible_frame_budget_ratio: float = 0.35
-    max_consecutive_visible_frames: int = 1
+    prefer_suppressed_when_uncertain: bool = False
+    suppress_named_subject_count: int = 0
+    visible_frame_budget_ratio: float = 1.0
+    max_consecutive_visible_frames: int = 0
     allowed_visible_carrier_types: tuple[str, ...] = _DEFAULT_ALLOWED_CARRIER_TYPES
     forbidden_overlay_terms: tuple[str, ...] = _DEFAULT_FORBIDDEN_TERMS
     final_prompt_forbidden_terms: tuple[str, ...] = _DEFAULT_FORBIDDEN_TERMS
@@ -102,17 +107,22 @@ class VisualSignaturePolicy:
         payload = dict(payload or {})
         return cls(
             version=_text(payload.get("version"), cls.version),
+            coverage_mode=_coverage_mode(payload.get("coverage_mode")),
+            suppress_allowed=_bool(payload.get("suppress_allowed"), False),
+            fallback_strategy=_fallback_strategy(payload.get("fallback_strategy")),
+            projection_failure=_projection_failure(payload.get("projection_failure")),
+            require_concrete_identity=_bool(payload.get("require_concrete_identity"), True),
             fail_closed_on_llm_error=_bool(payload.get("fail_closed_on_llm_error"), True),
             fail_closed_on_rejected_candidate=_bool(
                 payload.get("fail_closed_on_rejected_candidate"), True
             ),
             prefer_suppressed_when_uncertain=_bool(
-                payload.get("prefer_suppressed_when_uncertain"), True
+                payload.get("prefer_suppressed_when_uncertain"), False
             ),
-            suppress_named_subject_count=max(0, _int(payload.get("suppress_named_subject_count"), 2)),
-            visible_frame_budget_ratio=_ratio(payload.get("visible_frame_budget_ratio"), 0.35),
+            suppress_named_subject_count=max(0, _int(payload.get("suppress_named_subject_count"), 0)),
+            visible_frame_budget_ratio=_ratio(payload.get("visible_frame_budget_ratio"), 1.0),
             max_consecutive_visible_frames=max(
-                0, _int(payload.get("max_consecutive_visible_frames"), 1)
+                0, _int(payload.get("max_consecutive_visible_frames"), 0)
             ),
             allowed_visible_carrier_types=_allowed_carriers(
                 payload.get("allowed_visible_carrier_types")
@@ -137,6 +147,11 @@ class VisualSignaturePolicy:
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
+            "coverage_mode": self.coverage_mode,
+            "suppress_allowed": self.suppress_allowed,
+            "fallback_strategy": self.fallback_strategy,
+            "projection_failure": self.projection_failure,
+            "require_concrete_identity": self.require_concrete_identity,
             "fail_closed_on_llm_error": self.fail_closed_on_llm_error,
             "fail_closed_on_rejected_candidate": self.fail_closed_on_rejected_candidate,
             "prefer_suppressed_when_uncertain": self.prefer_suppressed_when_uncertain,
@@ -151,8 +166,18 @@ class VisualSignaturePolicy:
             "positive_prompt_guards": list(self.positive_prompt_guards),
         }
 
+    @property
+    def requires_every_frame_signature(self) -> bool:
+        return self.coverage_mode == "every_frame"
+
+    @property
+    def requires_repair_or_fail(self) -> bool:
+        return self.projection_failure == "repair_or_fail"
+
     def carrier_type_allowed(self, carrier_type: Any) -> bool:
         value = str(getattr(carrier_type, "value", carrier_type) or "").strip()
+        if value == "suppressed" and not self.suppress_allowed:
+            return False
         return value in set(self.allowed_visible_carrier_types)
 
     def contains_forbidden_overlay_text(self, text: str) -> bool:
@@ -167,6 +192,20 @@ class VisualSignaturePolicy:
     def contains_high_risk_scene_text(self, text: str) -> bool:
         return _contains_any(text, self.high_risk_scene_terms)
 
+
+def _coverage_mode(value: Any) -> Literal["sparse", "every_frame"]:
+    text = str(value or "every_frame").strip().lower()
+    return "sparse" if text == "sparse" else "every_frame"
+
+
+def _fallback_strategy(value: Any) -> Literal["suppress", "inject_safe_carrier"]:
+    text = str(value or "inject_safe_carrier").strip().lower()
+    return "suppress" if text == "suppress" else "inject_safe_carrier"
+
+
+def _projection_failure(value: Any) -> Literal["allow_anchor_free", "repair_or_fail"]:
+    text = str(value or "repair_or_fail").strip().lower()
+    return "allow_anchor_free" if text == "allow_anchor_free" else "repair_or_fail"
 
 def _text(value: Any, default: str) -> str:
     text = str(value or "").strip()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
 
 from pixelle_video.models.asset_bible import IPProfile
@@ -19,6 +20,8 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
+from pixelle_video.services.mandatory_ip_prompt_compiler import compile_mandatory_ip_participation_plan
+from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 
 
 @dataclass(frozen=True)
@@ -78,6 +81,34 @@ class VisualSignatureFallbackPlanner:
         *,
         reason: Sequence[str] = (),
     ) -> VisualAnchorPlacementPlan:
+        policy = load_visual_signature_policy()
+        if policy.requires_every_frame_signature and policy.fallback_strategy == "inject_safe_carrier":
+            plan = compile_mandatory_ip_participation_plan(
+                frame_id=brief.frame_id,
+                base_visual_brief=brief,
+                anchor_profile=self.anchor_profile,
+                failure_reasons=reason,
+                policy=policy,
+            )
+            return replace(
+                plan,
+                metadata={
+                    **dict(plan.metadata or {}),
+                    "source": "deterministic_visual_signature_fallback",
+                    "fallback_applied": True,
+                    "fallback_level": "mandatory_ip_compiler",
+                    "requested_presentation_mode": self.presentation_policy.presentation_mode.value,
+                    "fallback_mode": self.presentation_policy.fallback_mode.value,
+                },
+            )
+        if policy.requires_every_frame_signature:
+            return _suppressed_fallback_plan(
+                brief,
+                reason=reason,
+                presentation_policy=self.presentation_policy,
+                policy=policy,
+            )
+
         mode = self.presentation_policy.presentation_mode
         if self.presentation_policy.fallback_mode is SeriesVisualSignatureFallbackMode.DEFAULT_SIGNATURE:
             mode = SeriesVisualSignaturePresentationMode.AUTO
@@ -186,6 +217,40 @@ def merge_visual_anchor_plans_by_frame(
         elif frame_id in fallback_by_frame:
             result.append(fallback_by_frame[frame_id])
     return tuple(result)
+
+
+def _suppressed_fallback_plan(
+    brief: BaseVisualBrief,
+    *,
+    reason: Sequence[str],
+    presentation_policy: SeriesVisualSignaturePresentationPolicy,
+    policy: Any,
+) -> VisualAnchorPlacementPlan:
+    return VisualAnchorPlacementPlan(
+        frame_id=brief.frame_id,
+        anchor_function=AnchorFunction.SUPPRESSED,
+        anchor_carrier_type=AnchorCarrierType.SUPPRESSED,
+        anchor_prominence=AnchorProminence.HIDDEN,
+        visual_weight_clause="",
+        placement_zone="",
+        support_anchor="",
+        scale_ratio="",
+        depth_layer="",
+        contact_relation="",
+        interaction_target="",
+        occlusion_relation="",
+        style_relation=AnchorStyleRelation.BLENDED,
+        image_prompt_clause="",
+        metadata={
+            "source": "deterministic_visual_signature_fallback",
+            "fallback_applied": True,
+            "fallback_level": "suppressed_by_policy",
+            "requested_presentation_mode": presentation_policy.presentation_mode.value,
+            "fallback_mode": presentation_policy.fallback_mode.value,
+            "failure_reasons": [str(item) for item in reason],
+            "visual_signature_policy": getattr(policy, "version", ""),
+        },
+    )
 
 
 def fallback_ledger_from_plans(

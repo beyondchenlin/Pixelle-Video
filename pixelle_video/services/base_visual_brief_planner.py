@@ -76,6 +76,7 @@ class BaseVisualBriefPlanner:
             _read_value(frame_context, "shot_type") or _read_value(frame_plan, "shot_type"),
             _read_value(frame_context, "shot_purpose") or _read_value(frame_plan, "shot_purpose"),
         )
+        visual_story_ip_fusion_plan = _read_mapping(frame_context, "visual_story_ip_fusion_plan") or _read_mapping(frame_plan, "visual_story_ip_fusion_plan")
         return BaseVisualBrief(
             frame_id=frame_id,
             core_message=str(_read_value(frame_context, "frame_source_text") or _read_value(frame_context, "source_text") or _read_value(frame_plan, "narration_fragment") or "").strip(),
@@ -103,8 +104,17 @@ class BaseVisualBriefPlanner:
             anchor_forbidden_zones=anchor_affordances.forbidden_zones,
             anchor_integration_notes=anchor_affordances.notes,
             base_image_prompt=str(base_prompt or "").strip(),
-            metadata={"planner": "BaseVisualBriefPlanner", "uses_visual_anchor": False},
+            metadata={
+                "planner": "BaseVisualBriefPlanner",
+                "uses_visual_anchor": False,
+                "visual_story_ip_fusion_plan": visual_story_ip_fusion_plan,
+            },
         )
+
+
+def _read_mapping(source: Any, key: str) -> dict[str, Any]:
+    value = _read_value(source, key)
+    return dict(value) if isinstance(value, Mapping) else {}
 
 
 def _split_identity_hints(value: str) -> tuple[str, ...]:

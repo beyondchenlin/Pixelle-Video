@@ -11,49 +11,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
+"""Pixelle-Video package facade.
 
-# 注意：不再默认设置 HF_ENDPOINT
-# 模型下载优先使用 ModelScope，详见 alignment_service.py 中的 _ensure_model_local 方法
-# 如需使用 Hugging Face 镜像，请手动设置环境变量：
-# export HF_ENDPOINT=https://hf-mirror.com
+Submodule imports such as ``pixelle_video.models.*`` should not eagerly import the
+full runtime service stack.  Heavy providers are imported lazily when callers ask
+for ``PixelleVideoCore`` or the singleton ``pixelle_video``.
+"""
 
 from pixelle_video.utils.os_util import configure_runtime_environment
 
 configure_runtime_environment()
 
-"""
-Pixelle-Video - AI-powered video generator
-
-Convention-based system with unified configuration management.
-
-Usage:
-    from pixelle_video import pixelle_video
-    
-    # Initialize
-    await pixelle_video.initialize()
-    
-    # Use capabilities
-    answer = await pixelle_video.llm("Explain atomic habits")
-    audio = await pixelle_video.tts("Hello world")
-    
-    # Generate video with different pipelines
-    # Standard pipeline (default)
-    result = await pixelle_video.generate_video(
-        text="如何提高学习效率",
-        storyboard_mode="smart",
-        storyboard_count_mode="auto",
-    )
-    
-    # Register CustomPipeline explicitly when building your own workflow.
-    
-    # Check available pipelines
-    print(pixelle_video.pipelines.keys())  # dict_keys(['standard', 'asset_based'])
-"""
-
 from pixelle_video.config import config_manager
-from pixelle_video.service import PixelleVideoCore, pixelle_video
 
 __version__ = "0.1.0"
-
 __all__ = ["PixelleVideoCore", "pixelle_video", "config_manager"]
+
+
+def __getattr__(name: str):
+    if name in {"PixelleVideoCore", "pixelle_video"}:
+        from pixelle_video.service import PixelleVideoCore, pixelle_video
+
+        return PixelleVideoCore if name == "PixelleVideoCore" else pixelle_video
+    raise AttributeError(f"module 'pixelle_video' has no attribute {name!r}")

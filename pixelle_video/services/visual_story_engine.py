@@ -151,7 +151,7 @@ class VisualStoryEngineService:
             frame_ip_fusion_plans=frame_ip_fusion_plans,
             channel_memory_intent=(
                 "Keep a stable channel visual signature across frames while varying role, scale, "
-                "visibility, and physical integration so the IP becomes memorable without replacing article meaning."
+                "duty, action, carrier, presentation form, and physical integration so the IP remains mandatory without replacing article meaning."
             ),
         )
         VisualStoryQualityGate().assert_valid(plan)
@@ -567,7 +567,7 @@ def _deterministic_compatibility(candidate: VisualRouteCandidate, *, ip_profile:
         recommended_visibility=visibility,
         compatibility_score=score,
         reason="Deterministic compatibility based on route role, risk, and IP presence.",
-        mitigation_rules=("do not replace article subjects", "vary visibility across frames"),
+        mitigation_rules=("preserve article subjects", "vary duty, action, carrier, and presentation form"),
         safety_warnings=("use low intrusion for sensitive content",) if serious else (),
     )
 
@@ -669,17 +669,16 @@ def _deterministic_fusion(
 ) -> FrameIPFusionPlan:
     role = report.recommended_role
     visibility = _visibility_for_role(role)
-    clause = _clause_for_role(role, visibility, route)
-    return FrameIPFusionPlan(
+    return FrameIPFusionPlan.deterministic(
         frame_id=frame.frame_id,
+        route_type=route.route_type,
         ip_role=role,
         ip_visibility=visibility,
-        placement_logic="Integrate the IP as a scene-bound visual signature that supports the selected route.",
-        action_or_function=f"Serve the route logic: {route.visual_premise}",
-        relation_to_article_subject="IP supports comprehension and does not replace required article subjects.",
+        local_claim=frame.local_claim,
+        visual_task=frame.visual_task or route.visual_premise,
+        relation_to_article_subject="IP performs a frame duty while preserving required article subjects.",
         style_harmonization=style_plan.mode,
-        positive_prompt_clause=clause,
-        negative_constraints=("do not replace article subjects", "do not appear as a pasted sticker"),
+        risk_text=" ".join([*route.risk_notes, *report.safety_warnings]),
     )
 
 

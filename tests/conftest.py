@@ -1,11 +1,27 @@
 import os
 import sys
+import types
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYTEST_BASETEMP_ROOT = REPO_ROOT / "_runtime" / "pytest-basetemp"
+
+
+
+def _install_optional_dependency_stubs() -> None:
+    if "comfykit" not in sys.modules:
+        module = types.ModuleType("comfykit")
+
+        class ComfyKit:  # pragma: no cover - test dependency shim
+            pass
+
+        module.ComfyKit = ComfyKit
+        sys.modules["comfykit"] = module
+
+
+_install_optional_dependency_stubs()
 
 repo_root_path = str(REPO_ROOT)
 if sys.path[0] != repo_root_path:

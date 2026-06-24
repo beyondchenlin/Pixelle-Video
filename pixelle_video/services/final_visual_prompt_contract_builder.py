@@ -220,7 +220,7 @@ def _character_layer_style(
         "has a concrete physical placement anchor in the scene, such as standing on the ground, sitting beside a screen, standing on a rooftop, leaning near a board, or staying at the edge of a crowd",
         "the IP body or feet visibly contact a ground plane, surface, object, rooftop, table edge, signboard, or another physical support",
         "if the source subject is flying, the IP remains grounded on a visible support unless the script explicitly says the IP is flying",
-        "not isolated, not floating, not a sticker, not pasted on top",
+        "physically grounded on a visible scene support, integrated by scale, perspective, light, and contact",
         "coexists with the source subjects without replacing them",
     )
 

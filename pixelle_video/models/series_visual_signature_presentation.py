@@ -14,6 +14,7 @@ from pixelle_video.models.series_visual_signature_strategy import (
 
 class SeriesVisualSignaturePresentationMode(str, Enum):
     AUTO = "auto"
+    FUNCTION_BOUND_IP_ACTOR = "function_bound_ip_actor"
     VISIBLE_SUPPORTING_CHARACTER = "visible_supporting_character"
     EMBEDDED_SCENE_MARK = "embedded_scene_mark"
     PRIMARY_CHARACTER = "primary_character"
@@ -148,6 +149,11 @@ class SeriesVisualSignaturePresentationPolicy:
         return self.enforcement is SeriesVisualSignatureEnforcementMode.STRICT
 
     def strategy_controls(self) -> SeriesVisualSignatureStrategyControls:
+        if self.presentation_mode is SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR:
+            return SeriesVisualSignatureStrategyControls(
+                signature_mode=SeriesVisualSignatureMode.SUPPORTING_INTEGRATION,
+                consistency_mode=SeriesVisualSignatureConsistencyMode.OFF,
+            )
         if self.presentation_mode is SeriesVisualSignaturePresentationMode.VISIBLE_SUPPORTING_CHARACTER:
             return SeriesVisualSignatureStrategyControls(
                 signature_mode=SeriesVisualSignatureMode.SUPPORTING_INTEGRATION,
@@ -198,6 +204,13 @@ class SeriesVisualSignaturePresentationPolicy:
         }
 
     def prompt_guidance(self) -> list[str]:
+        if self.presentation_mode is SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR:
+            return [
+                "Every frame must keep the configured IP visibly present through the frame-level IP duty plan.",
+                "Vary duty, action, carrier, scale, and presentation form; never vary visibility to hidden.",
+                "If the duty is action-based, the IP performs or supports the frame's action; if the duty is sensitive or background-oriented, use a real scene object or material surface.",
+                "The final provider prompt should describe natural visual action and physical scene binding, not internal enum names.",
+            ]
         if self.presentation_mode is SeriesVisualSignaturePresentationMode.VISIBLE_SUPPORTING_CHARACTER:
             return [
                 "The configured identity should appear in every frame as a real, visible, small supporting character.",
@@ -218,8 +231,8 @@ class SeriesVisualSignaturePresentationPolicy:
                 "Preserve the source meaning while making the identity carry the main action.",
             ]
         return [
-            "Choose the least disruptive visible presentation that preserves the source intent.",
-            "Prefer visible supporting integration; use embedded scene marks when a supporting character would damage the scene.",
+            "Choose the least disruptive visible presentation that preserves the source intent and the frame-level IP duty.",
+            "Prefer the duty-specific form: action-based actor, evidence/background surface, structural carrier, emotional proxy, or real scene prop.",
             "Always preserve the configured identity phrase in the final prompt.",
         ]
 
@@ -249,6 +262,13 @@ def _presentation_mode_from_value(
     text = str(value).strip()
     if not text:
         return default
+    aliases = {
+        "functional_ip_actor": SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR,
+        "function_bound_actor": SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR,
+        "ip_duty_actor": SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR,
+    }
+    if text.lower() in aliases:
+        return aliases[text.lower()]
     for item in SeriesVisualSignaturePresentationMode:
         if text == item.value or text.lower() == item.name.lower():
             return item

@@ -77,6 +77,11 @@ class MandatoryVisualAnchorIntegrationPlanResponse(BaseModel):
     reason: str
     interaction_target: str = ""
     occlusion_relation: str = ""
+    ip_duty_preset: str = ""
+    action_verb: str = ""
+    scene_binding: str = ""
+    presentation_form: str = ""
+    channel_identity_removal_test: str = ""
 
     @field_validator(
         "frame_id",
@@ -98,7 +103,16 @@ class MandatoryVisualAnchorIntegrationPlanResponse(BaseModel):
     def _require_non_empty_text(cls, value: Any) -> str:
         return _require_non_empty_text(value)
 
-    @field_validator("interaction_target", "occlusion_relation", mode="before")
+    @field_validator(
+        "interaction_target",
+        "occlusion_relation",
+        "ip_duty_preset",
+        "action_verb",
+        "scene_binding",
+        "presentation_form",
+        "channel_identity_removal_test",
+        mode="before",
+    )
     @classmethod
     def _optional_text(cls, value: Any) -> str:
         if value is None:
@@ -131,6 +145,11 @@ class MandatoryVisualAnchorIntegrationPlanResponse(BaseModel):
             "disruption_risk": self.disruption_risk,
             "identity_preservation_score": self.identity_preservation_score,
             "reason": self.reason,
+            "ip_duty_preset": self.ip_duty_preset,
+            "action_verb": self.action_verb,
+            "scene_binding": self.scene_binding,
+            "presentation_form": self.presentation_form,
+            "channel_identity_removal_test": self.channel_identity_removal_test,
         }
 
 
