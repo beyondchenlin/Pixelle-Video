@@ -23,18 +23,8 @@ def _legacy_qwen3_text_encoder_task(model_root: Path) -> DownloadTask:
     )
 
 
-def _append_unique_task(tasks: list[DownloadTask], task: DownloadTask) -> None:
-    if task.target_path not in {existing.target_path for existing in tasks}:
-        tasks.append(task)
-
-
-def build_z_image_download_tasks(
-    model_root: Path,
-    *,
-    include_legacy_bf16: bool = False,
-    include_turbo_nvfp4: bool = False,
-) -> list[DownloadTask]:
-    tasks = [
+def _turbo_gguf_q8_tasks(model_root: Path) -> list[DownloadTask]:
+    return [
         DownloadTask(
             repo_id="unsloth/Z-Image-Turbo-GGUF",
             file_path="z-image-turbo-Q8_0.gguf",
@@ -47,6 +37,40 @@ def build_z_image_download_tasks(
             target_path=model_root / "text_encoders" / "Qwen3-4B-Q8_0.gguf",
             expected_size=4280405792,
         ),
+    ]
+
+
+def _turbo_gguf_q4_tasks(model_root: Path) -> list[DownloadTask]:
+    return [
+        DownloadTask(
+            repo_id="unsloth/Z-Image-Turbo-GGUF",
+            file_path="z-image-turbo-Q4_K_M.gguf",
+            target_path=model_root / "unet" / "z-image-turbo-Q4_K_M.gguf",
+            expected_size=5017613376,
+        ),
+        DownloadTask(
+            repo_id="unsloth/Qwen3-4B-GGUF",
+            file_path="Qwen3-4B-Q4_K_M.gguf",
+            target_path=model_root / "text_encoders" / "Qwen3-4B-Q4_K_M.gguf",
+            expected_size=2497281312,
+        ),
+    ]
+
+
+def _append_unique_task(tasks: list[DownloadTask], task: DownloadTask) -> None:
+    if task.target_path not in {existing.target_path for existing in tasks}:
+        tasks.append(task)
+
+
+def build_z_image_download_tasks(
+    model_root: Path,
+    *,
+    include_legacy_bf16: bool = False,
+    include_turbo_nvfp4: bool = False,
+    include_turbo_gguf_q4: bool = False,
+) -> list[DownloadTask]:
+    tasks = [
+        *_turbo_gguf_q8_tasks(model_root),
         DownloadTask(
             repo_id="Comfy-Org/z_image",
             file_path="split_files/vae/ae.safetensors",
@@ -86,5 +110,9 @@ def build_z_image_download_tasks(
                 expected_size=4509509600,
             )
         )
+
+    if include_turbo_gguf_q4:
+        for task in _turbo_gguf_q4_tasks(model_root):
+            _append_unique_task(tasks, task)
 
     return tasks

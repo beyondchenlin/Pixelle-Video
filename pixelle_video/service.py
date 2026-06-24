@@ -1399,6 +1399,9 @@ class PixelleVideoCore:
         self._local_comfyui_task_scope: ContextVar[_LocalComfyUITaskScope | None] = (
             ContextVar("local_comfyui_task_scope", default=None)
         )
+        self._local_comfykit_retry_attempts: ContextVar[list[dict[str, Any]] | None] = (
+            ContextVar("local_comfykit_retry_attempts", default=None)
+        )
         self._local_comfyui_task_count_lock = asyncio.Lock()
         self._local_comfyui_active_task_count_by_backend: dict[str, int] = {}
         self._recent_local_comfyui_backend_roles: dict[str, None] = {}
@@ -2661,6 +2664,92 @@ class PixelleVideoCore:
         kit = await self._get_or_create_comfykit(backend_role)
         return await kit.execute(workflow_input, workflow_params)
 
+    def _record_local_comfykit_retry_attempt(
+        self,
+        *,
+        workflow_input: Any,
+        backend_role: str,
+        reason: str,
+        recovery_action: str,
+        failed_result: Any | None = None,
+        exception: BaseException | None = None,
+    ) -> None:
+        attempts = self._local_comfykit_retry_attempts.get()
+        if attempts is None:
+            return
+
+        attempt: dict[str, Any] = {
+            "attempt": len(attempts) + 1,
+            "backend_role": self._normalize_comfyui_backend_role(backend_role),
+            "workflow": str(workflow_input),
+            "reason": reason,
+            "recovery_action": recovery_action,
+        }
+        if exception is not None:
+            attempt.update(
+                {
+                    "trigger": "exception",
+                    "error_type": type(exception).__name__,
+                    "error": str(exception),
+                }
+            )
+        elif failed_result is not None:
+            message = _local_comfykit_result_message(failed_result)
+            attempt.update(
+                {
+                    "trigger": "result",
+                    "status": _local_comfykit_result_status(failed_result),
+                }
+            )
+            if message:
+                attempt["message"] = message
+            result_summary = summarize_media_workflow_result(failed_result)
+            if result_summary:
+                attempt["result"] = result_summary
+        attempts.append(attempt)
+
+    def _workflow_summary_with_retry_attempts(
+        self,
+        result: Any,
+        summary: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(summary)
+        attempts = self._local_comfykit_retry_attempts.get() or []
+        if not attempts:
+            return payload
+
+        final_attempt: dict[str, Any] = {
+            "attempt": len(attempts) + 1,
+            "trigger": "final_result",
+            "status": _local_comfykit_result_status(result) or "completed",
+        }
+        final_message = _local_comfykit_result_message(result)
+        if final_message:
+            final_attempt["message"] = final_message
+        payload["workflow_attempts"] = [*attempts, final_attempt]
+        return payload
+
+    def _workflow_exception_result_with_retry_attempts(
+        self,
+        exc: BaseException,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+        attempts = self._local_comfykit_retry_attempts.get() or []
+        if attempts:
+            payload["workflow_attempts"] = [
+                *attempts,
+                {
+                    "attempt": len(attempts) + 1,
+                    "trigger": "final_exception",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            ]
+        return payload
+
     async def _restart_local_comfykit_workflow_and_retry_once(
         self,
         workflow_input,
@@ -2742,6 +2831,13 @@ class PixelleVideoCore:
                 backend_role=role,
             )
             if _local_comfykit_result_needs_connection_loss_retry(result):
+                self._record_local_comfykit_retry_attempt(
+                    workflow_input=workflow_input,
+                    backend_role=role,
+                    reason="connection_loss",
+                    recovery_action="restart_backend",
+                    failed_result=result,
+                )
                 retried, retry_result = await self._restart_local_comfykit_workflow_and_retry_once(
                     workflow_input,
                     workflow_params,
@@ -2755,12 +2851,26 @@ class PixelleVideoCore:
                 if retried:
                     return retry_result
             if _local_comfykit_result_needs_memory_recovery(result):
+                self._record_local_comfykit_retry_attempt(
+                    workflow_input=workflow_input,
+                    backend_role=role,
+                    reason="memory_exhaustion",
+                    recovery_action="release_memory_and_restart_backend",
+                    failed_result=result,
+                )
                 return await self._recover_local_comfykit_memory_and_retry_once(
                     workflow_input,
                     workflow_params,
                     backend_role=role,
                 )
             if _local_comfykit_result_needs_transient_backend_retry(result):
+                self._record_local_comfykit_retry_attempt(
+                    workflow_input=workflow_input,
+                    backend_role=role,
+                    reason="transient_backend_execution_error",
+                    recovery_action="restart_backend",
+                    failed_result=result,
+                )
                 retried, retry_result = await self._restart_local_comfykit_workflow_and_retry_once(
                     workflow_input,
                     workflow_params,
@@ -2776,6 +2886,13 @@ class PixelleVideoCore:
             return result
         except Exception as exc:
             if looks_like_backend_connection_loss(str(exc)):
+                self._record_local_comfykit_retry_attempt(
+                    workflow_input=workflow_input,
+                    backend_role=role,
+                    reason="connection_loss",
+                    recovery_action="restart_backend",
+                    exception=exc,
+                )
                 retried, retry_result = await self._restart_local_comfykit_workflow_and_retry_once(
                     workflow_input,
                     workflow_params,
@@ -2789,6 +2906,13 @@ class PixelleVideoCore:
                 if retried:
                     return retry_result
             if looks_like_transient_backend_execution_error(str(exc)):
+                self._record_local_comfykit_retry_attempt(
+                    workflow_input=workflow_input,
+                    backend_role=role,
+                    reason="transient_backend_execution_error",
+                    recovery_action="restart_backend",
+                    exception=exc,
+                )
                 retried, retry_result = await self._restart_local_comfykit_workflow_and_retry_once(
                     workflow_input,
                     workflow_params,
@@ -2804,6 +2928,13 @@ class PixelleVideoCore:
             if not looks_like_memory_exhaustion(str(exc)):
                 raise
 
+            self._record_local_comfykit_retry_attempt(
+                workflow_input=workflow_input,
+                backend_role=role,
+                reason="memory_exhaustion",
+                recovery_action="release_memory_and_restart_backend",
+                exception=exc,
+            )
             return await self._recover_local_comfykit_memory_and_retry_once(
                 workflow_input,
                 workflow_params,
@@ -3216,62 +3347,67 @@ class PixelleVideoCore:
             analysis_service_domain=analysis_service_domain,
             workflow_file_trace=effective_workflow_file_trace,
         )
+        retry_attempts_token = self._local_comfykit_retry_attempts.set([])
         try:
-            result = await self._execute_comfykit_workflow_unchecked(
-                workflow_input,
-                workflow_params,
-                workflow_source=workflow_source,
-                backend_role=backend_role,
-            )
-        except Exception as exc:
+            try:
+                result = await self._execute_comfykit_workflow_unchecked(
+                    workflow_input,
+                    workflow_params,
+                    workflow_source=workflow_source,
+                    backend_role=backend_role,
+                )
+            except Exception as exc:
+                error_result = self._workflow_exception_result_with_retry_attempts(exc)
+                if isinstance(trace_context, Mapping):
+                    write_media_workflow_result_artifact(
+                        trace_context,
+                        status="error",
+                        result=error_result,
+                    )
+                if isinstance(tts_trace_context, Mapping):
+                    write_tts_workflow_result_artifact(
+                        tts_trace_context,
+                        status="error",
+                        result=error_result,
+                    )
+                if isinstance(analysis_trace_context, Mapping):
+                    write_analysis_workflow_result_artifact(
+                        analysis_trace_context,
+                        status="error",
+                        result=error_result,
+                    )
+                raise
+
             if isinstance(trace_context, Mapping):
                 write_media_workflow_result_artifact(
                     trace_context,
-                    status="error",
-                    result={
-                        "error_type": type(exc).__name__,
-                        "error": str(exc),
-                    },
+                    status=str(getattr(result, "status", "") or "completed"),
+                    result=self._workflow_summary_with_retry_attempts(
+                        result,
+                        summarize_media_workflow_result(result),
+                    ),
                 )
             if isinstance(tts_trace_context, Mapping):
                 write_tts_workflow_result_artifact(
                     tts_trace_context,
-                    status="error",
-                    result={
-                        "error_type": type(exc).__name__,
-                        "error": str(exc),
-                    },
+                    status=str(getattr(result, "status", "") or "completed"),
+                    result=self._workflow_summary_with_retry_attempts(
+                        result,
+                        _summarize_tts_workflow_result(result),
+                    ),
                 )
             if isinstance(analysis_trace_context, Mapping):
                 write_analysis_workflow_result_artifact(
                     analysis_trace_context,
-                    status="error",
-                    result={
-                        "error_type": type(exc).__name__,
-                        "error": str(exc),
-                    },
+                    status=str(getattr(result, "status", "") or "completed"),
+                    result=self._workflow_summary_with_retry_attempts(
+                        result,
+                        _summarize_analysis_workflow_result(result),
+                    ),
                 )
-            raise
-
-        if isinstance(trace_context, Mapping):
-            write_media_workflow_result_artifact(
-                trace_context,
-                status=str(getattr(result, "status", "") or "completed"),
-                result=summarize_media_workflow_result(result),
-            )
-        if isinstance(tts_trace_context, Mapping):
-            write_tts_workflow_result_artifact(
-                tts_trace_context,
-                status=str(getattr(result, "status", "") or "completed"),
-                result=_summarize_tts_workflow_result(result),
-            )
-        if isinstance(analysis_trace_context, Mapping):
-            write_analysis_workflow_result_artifact(
-                analysis_trace_context,
-                status=str(getattr(result, "status", "") or "completed"),
-                result=_summarize_analysis_workflow_result(result),
-            )
-        return result
+            return result
+        finally:
+            self._local_comfykit_retry_attempts.reset(retry_attempts_token)
 
     async def _execute_comfykit_workflow_unchecked(
         self,

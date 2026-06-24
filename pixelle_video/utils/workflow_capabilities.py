@@ -26,6 +26,7 @@ except Exception:  # pragma: no cover - exercised in lightweight test environmen
     WorkflowParser = None  # type: ignore[assignment]
 
 LocalMemoryProfile = Literal["standard", "high"]
+VaeDecodeMode = Literal["standard", "tiled"]
 
 _GGUF_LOADER_CLASS_TYPES = frozenset(
     {
@@ -34,6 +35,7 @@ _GGUF_LOADER_CLASS_TYPES = frozenset(
         "DualCLIPLoaderGGUF",
     }
 )
+_TILED_VAE_DECODE_CLASS_TYPES = frozenset({"VAEDecodeTiled"})
 _STRICT_REFERENCE_IMAGE_PARAM_NAMES = frozenset(
     {
         "reference_image",
@@ -63,12 +65,17 @@ class WorkflowCapabilities:
     supports_negative_prompt: bool = False
     uses_gguf_loaders: bool = False
     local_memory_profile: LocalMemoryProfile = "standard"
+    vae_decode_mode: VaeDecodeMode = "standard"
     prefers_isolated_local_execution: bool = False
     reference_image_param_names: tuple[str, ...] = ()
 
     @property
     def supports_reference_image(self) -> bool:
         return bool(self.reference_image_param_names)
+
+    @property
+    def uses_tiled_vae_decode(self) -> bool:
+        return self.vae_decode_mode == "tiled"
 
 
 def infer_media_domain_from_workflow(workflow: str | None) -> str:
@@ -100,6 +107,11 @@ def _build_capabilities(
 ) -> WorkflowCapabilities:
     resolved_class_types = class_types or set()
     uses_gguf_loaders = bool(resolved_class_types & _GGUF_LOADER_CLASS_TYPES)
+    vae_decode_mode: VaeDecodeMode = (
+        "tiled"
+        if resolved_class_types & _TILED_VAE_DECODE_CLASS_TYPES
+        else "standard"
+    )
     local_memory_profile: LocalMemoryProfile = "high" if uses_gguf_loaders else "standard"
     reference_image_param_names = (
         _declared_reference_image_param_names(declared_params)
@@ -110,6 +122,7 @@ def _build_capabilities(
         supports_negative_prompt=supports_negative_prompt,
         uses_gguf_loaders=uses_gguf_loaders,
         local_memory_profile=local_memory_profile,
+        vae_decode_mode=vae_decode_mode,
         prefers_isolated_local_execution=False,
         reference_image_param_names=reference_image_param_names,
     )

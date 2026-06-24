@@ -4465,6 +4465,102 @@ async def test_core_execute_gguf_transient_engine_failure_restarts_managed_backe
 
 
 @pytest.mark.asyncio
+async def test_core_execute_gguf_retry_records_attempt_history_in_media_result_artifact(
+    monkeypatch,
+    tmp_path,
+):
+    events = []
+    core = PixelleVideoCore()
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+            )
+        ),
+    )
+
+    async def _prepare(*, backend_role="default"):
+        events.append("prepare")
+
+    async def _register_use(*, backend_role="default"):
+        events.append("register_use")
+
+    async def _restart(backend_role, reason):
+        events.append(("restart", reason))
+        return True
+
+    async def _release_extensions(
+        *,
+        context,
+        backend_role="default",
+        extensions,
+        missing_endpoint="required",
+    ):
+        events.append(("release_extensions", context, extensions, missing_endpoint))
+        return True
+
+    call_count = 0
+
+    async def _execute_once(workflow_input, workflow_params, *, backend_role="default"):
+        nonlocal call_count
+        call_count += 1
+        events.append(("execute_once", call_count, workflow_input))
+        if call_count == 1:
+            return SimpleNamespace(
+                status="error",
+                msg=(
+                    "CUDA error: unknown error\n"
+                    "Search for `cudaErrorUnknown' in CUDA docs."
+                ),
+            )
+        return SimpleNamespace(status="completed", images=["generated.png"])
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core._register_local_comfyui_task_use = _register_use
+    core._execute_local_comfykit_workflow_once = _execute_once
+    core._restart_comfyui_backend_role = _restart
+    core.release_comfyui_after_local_workflow_extensions = _release_extensions
+    _install_noop_extension_preflight(core)
+
+    workflow_params = {"prompt": "traced prompt"}
+    trace_context = write_single_media_prompt_trace_context(
+        tmp_path / "trace",
+        task_id="task-gguf-retry-attempts",
+        prompt="traced prompt",
+        workflow="selfhost/image_z_image_turbo_gguf.json",
+        workflow_input="selfhost/image_z_image_turbo_gguf.json",
+        media_type="image",
+        source="test",
+        workflow_params=workflow_params,
+    )
+
+    result = await core.execute_comfykit_workflow(
+        "selfhost/image_z_image_turbo_gguf.json",
+        workflow_params,
+        workflow_source="selfhost",
+        media_prompt_trace_context=trace_context,
+        media_type="image",
+        resolved_workflow="selfhost/image_z_image_turbo_gguf.json",
+    )
+
+    result_text = Path(trace_context["artifact_path"]).with_name(
+        "media_workflow_result.md"
+    ).read_text(encoding="utf-8")
+
+    assert result.status == "completed"
+    assert '"workflow_attempts"' in result_text
+    assert '"reason": "transient_backend_execution_error"' in result_text
+    assert '"recovery_action": "restart_backend"' in result_text
+    assert '"trigger": "result"' in result_text
+    assert '"trigger": "final_result"' in result_text
+    assert "CUDA error: unknown error" in result_text
+    assert "generated.png" in result_text
+
+
+@pytest.mark.asyncio
 async def test_local_comfyui_workflow_session_ignores_legacy_gguf_restart_config(monkeypatch):
     events = []
     core = PixelleVideoCore()

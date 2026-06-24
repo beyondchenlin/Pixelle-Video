@@ -31,6 +31,14 @@
 - `VAEDecodeTiled`
 - `SaveImage`
 
+### 2.1.1 Pixelle runtime policy
+
+- 默认工作流继续使用 `Q8_0` 主模型和 `Q8_0` 文本编码器，这是近期主线的质量/性能契约。
+- 默认 VAE 解码策略是稳定优先的 `VAEDecodeTiled`，用于降低 Q8 在 1280x720 / 1k 图像解码阶段的瞬时显存峰值。
+- 这不是 Q4 降级方案；Q4 只作为显存极端紧张时的显式可选逃生路径。
+- `VAEDecodeTiled` 节点必须支持这些输入：`samples`、`vae`、`tile_size`、`overlap`、`temporal_size`、`temporal_overlap`。
+- 当前默认参数：`tile_size=512`、`overlap=64`、`temporal_size=64`、`temporal_overlap=8`。
+
 ### 2.2 依赖分类
 
 | 分类 | 依赖 | 作用 |
@@ -304,6 +312,20 @@ Get-Item `
 - `Qwen3-4B-Q4_K_M.gguf`
 
 但要保证主模型和文本编码器的量化组合，是你实际下载到本机的文件名。
+
+仓库下载 helper 已提供显式 Q4 逃生入口，但不会改变默认 Q8：
+
+```python
+from pathlib import Path
+from pixelle_video.utils.z_image_downloads import build_z_image_download_tasks
+
+tasks = build_z_image_download_tasks(
+    Path(r"E:\ComfyUIData\models"),
+    include_turbo_gguf_q4=True,
+)
+```
+
+如果启用 Q4，必须同时替换主模型和文本编码器文件名，不能只替换其中一个；默认工作流文件仍应保持 `Q8_0`。
 
 ### 10.4 为什么这个 GGUF 工作流可以像普通文生图一样使用？
 

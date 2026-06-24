@@ -92,3 +92,34 @@ def test_build_z_image_download_tasks_can_include_turbo_nvfp4():
     assert tasks[-1].file_path == "split_files/diffusion_models/z_image_turbo_nvfp4.safetensors"
     assert tasks[-1].target_path == model_root / "diffusion_models" / "z_image_turbo_nvfp4.safetensors"
     assert tasks[-1].expected_size == 4509509600
+
+
+def test_build_z_image_download_tasks_can_include_turbo_gguf_q4_escape_hatch():
+    model_root = DEFAULT_COMFYUI_MODEL_ROOT
+
+    tasks = build_z_image_download_tasks(model_root, include_turbo_gguf_q4=True)
+
+    assert [(task.repo_id, task.file_path, task.target_path, task.expected_size) for task in tasks[-2:]] == [
+        (
+            "unsloth/Z-Image-Turbo-GGUF",
+            "z-image-turbo-Q4_K_M.gguf",
+            model_root / "unet" / "z-image-turbo-Q4_K_M.gguf",
+            5017613376,
+        ),
+        (
+            "unsloth/Qwen3-4B-GGUF",
+            "Qwen3-4B-Q4_K_M.gguf",
+            model_root / "text_encoders" / "Qwen3-4B-Q4_K_M.gguf",
+            2497281312,
+        ),
+    ]
+
+
+def test_default_download_tasks_do_not_pull_turbo_gguf_q4_models():
+    task_names = {
+        task.target_path.name
+        for task in build_z_image_download_tasks(DEFAULT_COMFYUI_MODEL_ROOT)
+    }
+
+    assert "z-image-turbo-Q4_K_M.gguf" not in task_names
+    assert "Qwen3-4B-Q4_K_M.gguf" not in task_names

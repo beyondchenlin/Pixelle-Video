@@ -628,6 +628,8 @@ def test_workflow_capabilities_mark_gguf_loaders_as_high_memory():
 
     assert capabilities.uses_gguf_loaders is True
     assert capabilities.local_memory_profile == "high"
+    assert capabilities.vae_decode_mode == "tiled"
+    assert capabilities.uses_tiled_vae_decode is True
     assert capabilities.prefers_isolated_local_execution is False
 
 
@@ -638,6 +640,8 @@ def test_workflow_capabilities_keep_standard_selfhost_image_workflows_batchable(
 
     assert capabilities.uses_gguf_loaders is False
     assert capabilities.local_memory_profile == "standard"
+    assert capabilities.vae_decode_mode == "standard"
+    assert capabilities.uses_tiled_vae_decode is False
     assert capabilities.prefers_isolated_local_execution is False
 
 
