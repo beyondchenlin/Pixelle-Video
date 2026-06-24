@@ -6,7 +6,6 @@ from typing import Any
 import httpx
 import streamlit as st
 from loguru import logger
-from moviepy.editor import VideoFileClip
 
 from pixelle_video.config import config_manager
 from pixelle_video.services.prompt_trace_artifacts import (
@@ -117,8 +116,7 @@ class ActionTransferPipelineUI(PipelineUI):
             
             # Get the video length (rounded down).
             if video_asset_paths:
-                clip = VideoFileClip(video_asset_paths[0])
-                int_duration = int(clip.duration)
+                int_duration = _video_duration_seconds(video_asset_paths[0])
                 duration = min(int_duration, 30)
             else:
                 duration = 0
@@ -408,3 +406,14 @@ class ActionTransferPipelineUI(PipelineUI):
                     st.stop()
 
 register_pipeline_ui(ActionTransferPipelineUI)
+
+
+def _video_duration_seconds(video_path: str) -> int:
+    try:
+        from moviepy.editor import VideoFileClip
+    except ModuleNotFoundError:
+        logger.warning("moviepy is unavailable; skipping action-transfer duration probing")
+        return 0
+
+    with VideoFileClip(video_path) as clip:
+        return int(clip.duration)

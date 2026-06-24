@@ -9,11 +9,6 @@ from api.tasks.artifacts import LocalArtifactStore
 from api.tasks.executors import TaskExecutorRegistry
 from api.tasks.lease import InMemoryGenerationLease, create_redis_lease
 from api.tasks.manager import TaskManager
-from api.tasks.postgres import (
-    PostgresTaskStore,
-    PostgresWorkerRegistry,
-    create_async_engine_from_dsn,
-)
 from api.tasks.registry import GenerationRegistry
 from api.tasks.store import InMemoryTaskStore
 from api.tasks.worker_registry import InMemoryWorkerRegistry, WorkerRegistry
@@ -50,6 +45,19 @@ def build_task_runtime(
             raise RuntimeError("PIXELLE_POSTGRES_DSN is required for postgres task backend")
         if not config.redis_url:
             raise RuntimeError("PIXELLE_REDIS_URL is required for postgres task backend")
+        try:
+            from api.tasks.postgres import (
+                PostgresTaskStore,
+                PostgresWorkerRegistry,
+                create_async_engine_from_dsn,
+            )
+        except ModuleNotFoundError as exc:
+            if exc.name and exc.name.startswith("sqlalchemy"):
+                raise RuntimeError(
+                    "PIXELLE_TASK_BACKEND=postgres requires sqlalchemy[asyncio]. "
+                    "Install project dependencies before enabling the postgres task backend."
+                ) from exc
+            raise
         engine = create_async_engine_from_dsn(config.postgres_dsn)
         store = PostgresTaskStore(engine)
         lease = create_redis_lease(

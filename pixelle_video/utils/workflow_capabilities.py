@@ -20,7 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from comfykit.comfyui.workflow_parser import WorkflowParser
+try:  # Optional at import time; required only for self-hosted workflow inspection.
+    from comfykit.comfyui.workflow_parser import WorkflowParser
+except Exception:  # pragma: no cover - exercised in lightweight test environments
+    WorkflowParser = None  # type: ignore[assignment]
 
 LocalMemoryProfile = Literal["standard", "high"]
 
@@ -114,7 +117,7 @@ def _build_capabilities(
 
 def get_workflow_capabilities(workflow_info: dict[str, Any]) -> WorkflowCapabilities:
     if workflow_info["source"] == "selfhost":
-        metadata = WorkflowParser().parse_workflow_file(str(workflow_info["path"]))
+        metadata = _workflow_parser().parse_workflow_file(str(workflow_info["path"]))
         declared = getattr(metadata, "params", {})
         declared_names = _declared_param_names(declared)
         return _build_capabilities(
@@ -150,6 +153,22 @@ def get_media_workflow_capabilities(
         workflow_domain=workflow_domain,
     )
     return get_workflow_capabilities(workflow_info)
+
+
+def _workflow_parser():
+    parser_cls = WorkflowParser
+    if parser_cls is not None:
+        return parser_cls()
+    try:
+        from comfykit.comfyui.workflow_parser import WorkflowParser as imported_parser
+    except Exception as exc:
+        raise RuntimeError(
+            "Self-hosted workflow capability inspection requires "
+            "comfykit.comfyui.workflow_parser. Install the project dependencies or "
+            "use a wrapper workflow with declared params."
+        ) from exc
+    globals()["WorkflowParser"] = imported_parser
+    return imported_parser()
 
 
 def _declared_param_names(value: Any) -> tuple[str, ...]:
