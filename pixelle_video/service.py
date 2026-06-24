@@ -26,6 +26,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from comfykit import ComfyKit
 from loguru import logger
@@ -1392,6 +1393,7 @@ class PixelleVideoCore:
         )
         self._local_comfyui_task_count_lock = asyncio.Lock()
         self._local_comfyui_active_task_count_by_backend: dict[str, int] = {}
+        self._recent_local_comfyui_backend_roles: dict[str, None] = {}
         self._generation_resource_lifecycle_lock = asyncio.Lock()
         self._active_generation_count = 0
         
@@ -1400,6 +1402,11 @@ class PixelleVideoCore:
     
     def _normalize_comfyui_backend_role(self, backend_role: str | None = "default") -> str:
         return str(backend_role or "default").strip() or "default"
+
+    def _mark_local_comfyui_backend_used(self, backend_role: str | None) -> str:
+        role = self._normalize_comfyui_backend_role(backend_role)
+        self._recent_local_comfyui_backend_roles[role] = None
+        return role
 
     def _get_backend_lock(self, backend_role: str = "default") -> asyncio.Lock:
         role = self._normalize_comfyui_backend_role(backend_role)
@@ -1717,6 +1724,15 @@ class PixelleVideoCore:
             "close_html_browser": bool(
                 runtime_config.get("close_html_browser_after_generation", True)
             ),
+            "close_alignment_service": bool(
+                runtime_config.get("close_alignment_service_after_generation", True)
+            ),
+            "stop_managed_comfyui_backends": bool(
+                runtime_config.get(
+                    "stop_managed_comfyui_backends_after_generation",
+                    True,
+                )
+            ),
             "collect_garbage": bool(
                 runtime_config.get("collect_garbage_after_generation", True)
             ),
@@ -1844,6 +1860,24 @@ class PixelleVideoCore:
             except Exception as e:
                 errors.append(f"html_browser={e}")
 
+        if options["close_alignment_service"]:
+            try:
+                if await self._release_alignment_service_resources():
+                    released.append("alignment_service")
+            except Exception as e:
+                errors.append(f"alignment_service={e}")
+
+        if options["stop_managed_comfyui_backends"]:
+            try:
+                stopped_roles = await self._stop_idle_managed_comfyui_backends(
+                    reason=reason
+                )
+                released.extend(
+                    f"comfyui_backend:{role}" for role in stopped_roles
+                )
+            except Exception as e:
+                errors.append(f"managed_comfyui_backends={e}")
+
         collected = None
         if options["collect_garbage"]:
             collected = gc.collect()
@@ -1866,6 +1900,112 @@ class PixelleVideoCore:
                 f"({reason}): {'; '.join(errors)}"
             )
         return True
+
+    async def _release_alignment_service_resources(self) -> bool:
+        service = self.alignment_service
+        if service is None:
+            return False
+
+        release = getattr(service, "release_resources", None)
+        if not callable(release):
+            return False
+
+        result = release()
+        if inspect.isawaitable(result):
+            result = await result
+        return bool(result)
+
+    async def _stop_idle_managed_comfyui_backends(self, *, reason: str) -> list[str]:
+        registry = self._get_comfyui_backend_registry()
+        stopped_roles: list[str] = []
+        processed_roles: set[str] = set()
+        errors: list[str] = []
+        seen_endpoints: set[tuple[str, str, int | None]] = set()
+        routed_roles = (
+            registry.config.workflow_routing.image,
+            registry.config.workflow_routing.tts,
+            registry.config.workflow_routing.default,
+        )
+        candidate_roles = (
+            tuple(self._recent_local_comfyui_backend_roles.keys())
+            if self._recent_local_comfyui_backend_roles
+            else routed_roles
+        )
+        ordered_roles = list(
+            dict.fromkeys(
+                [
+                    self._normalize_comfyui_backend_role(role)
+                    for role in candidate_roles
+                ]
+            )
+        )
+
+        for normalized_role in ordered_roles:
+            try:
+                profile = registry.profile(normalized_role)
+            except ValueError:
+                continue
+            endpoint = self._comfyui_backend_endpoint_key(profile.url)
+
+            backend = registry.managed_backend(normalized_role)
+            if backend is None or not backend.can_manage():
+                continue
+            if endpoint in seen_endpoints:
+                continue
+            seen_endpoints.add(endpoint)
+
+            async with self._get_backend_lock(normalized_role):
+                if self._local_comfyui_active_task_count_by_backend.get(
+                    normalized_role,
+                    0,
+                ) > 0:
+                    logger.debug(
+                        "Skipping Pixelle-managed ComfyUI backend stop after "
+                        f"generation; role '{normalized_role}' still has active tasks"
+                    )
+                    continue
+
+                try:
+                    result = await backend.stop(
+                        reason=f"{reason} generation resource release"
+                    )
+                except Exception as exc:
+                    errors.append(f"{normalized_role}={exc}")
+                    continue
+
+                payload = result.payload or {}
+                if payload.get("requires_manual_restart"):
+                    logger.warning(
+                        "Skipping Pixelle-managed ComfyUI backend stop after "
+                        f"generation for role '{normalized_role}'; backend is not "
+                        f"owned by Pixelle: {payload}"
+                    )
+                    continue
+
+                processed_roles.add(normalized_role)
+                stopped_roles.append(normalized_role)
+                await self._close_comfykit_instance(normalized_role)
+
+        for role in processed_roles:
+            self._recent_local_comfyui_backend_roles.pop(role, None)
+
+        if errors:
+            raise RuntimeError("; ".join(errors))
+
+        return stopped_roles
+
+    @staticmethod
+    def _comfyui_backend_endpoint_key(url: str | None) -> tuple[str, str, int | None]:
+        parsed = urlparse(str(url or "").strip())
+        scheme = (parsed.scheme or "http").lower()
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+        if port is None:
+            if scheme == "https":
+                port = 443
+            elif scheme == "http":
+                port = 80
+        return scheme, host, port
 
     async def _close_comfykit_instance(self, backend_role: str | None = None) -> None:
         if backend_role is None:
@@ -1925,7 +2065,7 @@ class PixelleVideoCore:
         backend_role: str = "default",
     ) -> None:
         """Prepare self-hosted ComfyUI before a local workflow execution."""
-        role = self._normalize_comfyui_backend_role(backend_role)
+        role = self._mark_local_comfyui_backend_used(backend_role)
         await self._ensure_comfyui_backend_started(
             role,
             reason="pre-workflow",

@@ -48,6 +48,18 @@ class BlockAwareFakeAligner:
         }
 
 
+class ReleasableFakeClient:
+    def __init__(self):
+        self.release_calls = 0
+
+    def align(self, audio, text, language="Chinese"):
+        return {"words": []}
+
+    def release_resources(self):
+        self.release_calls += 1
+        return True
+
+
 def test_alignment_service_maps_known_text_back_to_sentence_spans():
     service = AlignmentService(client=FakeAligner())
     block = AudioBlock(
@@ -245,6 +257,7 @@ def test_alignment_service_uses_local_model_path_with_local_files_only(monkeypat
             "device_map": "auto",
             "dtype": "bfloat16",
             "local_files_only": True,
+            "trust_remote_code": True,
         },
     }
 
@@ -283,3 +296,29 @@ def test_alignment_service_allows_hf_hub_fallback_when_no_local_model_is_availab
         "model_path": "Qwen/Qwen3-ForcedAligner-0.6B",
         "load_kwargs": {"device_map": "auto", "dtype": "bfloat16"},
     }
+
+
+def test_alignment_service_releases_client_resources():
+    client = ReleasableFakeClient()
+    service = AlignmentService(client=client)
+
+    assert service.release_resources() is True
+    assert client.release_calls == 1
+
+
+def test_qwen_forced_aligner_client_releases_cached_aligner():
+    class CloseableAligner:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    aligner = CloseableAligner()
+    client = _QwenForcedAlignerClient()
+    client._aligner = aligner
+
+    assert client.release_resources() is True
+    assert aligner.closed is True
+    assert client._aligner is None
+    assert client.release_resources() is False

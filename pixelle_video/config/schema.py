@@ -775,6 +775,22 @@ class RuntimeConfig(BaseModel):
             "generation when the core is idle."
         ),
     )
+    close_alignment_service_after_generation: bool = Field(
+        default=True,
+        description=(
+            "Release cached subtitle forced-alignment models after generation. "
+            "This prevents the main Pixelle process from retaining large ASR "
+            "models between back-to-back video jobs."
+        ),
+    )
+    stop_managed_comfyui_backends_after_generation: bool = Field(
+        default=True,
+        description=(
+            "Stop Pixelle-managed local ComfyUI backends once the generation core "
+            "is idle. The next self-hosted workflow starts the required backend "
+            "lazily, avoiding cumulative CPU/GPU memory pressure across jobs."
+        ),
+    )
     collect_garbage_after_generation: bool = Field(
         default=True,
         description=(

@@ -108,6 +108,30 @@ function Get-BackendStderrLog {
     return (Join-Path $Config.LogsDir 'comfyui-backend.stderr.log')
 }
 
+function Move-ExistingBackendLog {
+    param(
+        [string]$Path,
+        [string]$Stamp
+    )
+
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $null
+    }
+
+    $directory = Split-Path -Parent $Path
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    $extension = [System.IO.Path]::GetExtension($Path)
+    $archivePath = Join-Path $directory "$baseName.$Stamp$extension"
+    $suffix = 1
+    while (Test-Path -LiteralPath $archivePath) {
+        $archivePath = Join-Path $directory "$baseName.$Stamp.$suffix$extension"
+        $suffix += 1
+    }
+
+    Move-Item -LiteralPath $Path -Destination $archivePath
+    return $archivePath
+}
+
 function Ensure-Directory {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -289,9 +313,13 @@ function Test-ManagedComfyUICommandLine {
     )
 
     $mainPy = Join-Path $Config.ComfyUIRoot 'main.py'
+    $baseDirectoryMatches = Test-CommandLineArgumentValue $CommandLine '--base-directory' $Config.SharedBasePath
+    if (-not $baseDirectoryMatches -and $Config.DataRoot -and $Config.DataRoot -ne $Config.SharedBasePath) {
+        $baseDirectoryMatches = Test-CommandLineArgumentValue $CommandLine '--base-directory' $Config.DataRoot
+    }
     return (
         (Test-CommandLineContainsValue $CommandLine $mainPy) -and
-        (Test-CommandLineArgumentValue $CommandLine '--base-directory' $Config.SharedBasePath) -and
+        $baseDirectoryMatches -and
         (Test-CommandLineArgumentValue $CommandLine '--port' ([string]$Config.Port))
     )
 }

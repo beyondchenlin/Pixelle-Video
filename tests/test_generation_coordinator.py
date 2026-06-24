@@ -405,6 +405,149 @@ async def test_core_release_generation_resources_closes_idle_executors_and_brows
 
 
 @pytest.mark.asyncio
+async def test_core_release_generation_resources_releases_alignment_and_managed_backends(
+    monkeypatch,
+):
+    config = PixelleVideoConfig.model_validate(
+        {
+            "runtime": {
+                "release_resources_after_video_generation": True,
+                "close_comfykit_after_generation": False,
+                "close_html_browser_after_generation": False,
+                "close_alignment_service_after_generation": True,
+                "stop_managed_comfyui_backends_after_generation": True,
+                "collect_garbage_after_generation": False,
+                "log_process_memory_after_generation": False,
+            }
+        }
+    )
+    monkeypatch.setattr(service_module.config_manager, "config", config)
+    calls = []
+
+    class _AlignmentService:
+        def release_resources(self):
+            calls.append("alignment_service")
+            return True
+
+    core = PixelleVideoCore()
+    core.alignment_service = _AlignmentService()
+
+    async def _stop_managed_backends(*, reason):
+        calls.append(f"stop_backends:{reason}")
+        return ["image_backend", "tts_backend"]
+
+    core._stop_idle_managed_comfyui_backends = _stop_managed_backends
+
+    assert await core.release_generation_resources(reason="test") is True
+    assert calls == ["alignment_service", "stop_backends:test"]
+
+
+@pytest.mark.asyncio
+async def test_core_stop_idle_managed_comfyui_backends_prefers_routed_roles_and_dedupes():
+    stop_calls = []
+    close_calls = []
+
+    class _Backend:
+        def __init__(self, role):
+            self.role = role
+
+        def can_manage(self):
+            return True
+
+        async def stop(self, *, reason):
+            stop_calls.append((self.role, reason))
+            return SimpleNamespace(payload={"stopped": True})
+
+    class _Registry:
+        config = SimpleNamespace(
+            workflow_routing=SimpleNamespace(
+                image="image_backend",
+                tts="tts_backend",
+                default="default",
+            ),
+            backends={
+                "default": SimpleNamespace(url="http://127.0.0.1:8001"),
+                "image_backend": SimpleNamespace(url="http://127.0.0.1:8001"),
+                "tts_backend": SimpleNamespace(url="http://127.0.0.1:8002"),
+            },
+        )
+
+        def profile(self, role):
+            return self.config.backends[role]
+
+        def managed_backend(self, role):
+            return _Backend(role)
+
+    core = PixelleVideoCore()
+    core._get_comfyui_backend_registry = lambda: _Registry()
+
+    async def _close_comfykit_instance(role=None):
+        close_calls.append(role)
+
+    core._close_comfykit_instance = _close_comfykit_instance
+
+    stopped = await core._stop_idle_managed_comfyui_backends(reason="test")
+
+    assert stopped == ["image_backend", "tts_backend"]
+    assert stop_calls == [
+        ("image_backend", "test generation resource release"),
+        ("tts_backend", "test generation resource release"),
+    ]
+    assert close_calls == ["image_backend", "tts_backend"]
+
+
+@pytest.mark.asyncio
+async def test_core_stop_idle_managed_comfyui_backends_uses_recent_roles_when_available():
+    stop_calls = []
+
+    class _Backend:
+        def __init__(self, role):
+            self.role = role
+
+        def can_manage(self):
+            return True
+
+        async def stop(self, *, reason):
+            stop_calls.append(self.role)
+            return SimpleNamespace(payload={"stopped": True})
+
+    class _Registry:
+        config = SimpleNamespace(
+            workflow_routing=SimpleNamespace(
+                image="image_backend",
+                tts="tts_backend",
+                default="default",
+            ),
+            backends={
+                "default": SimpleNamespace(url="http://127.0.0.1:8001"),
+                "image_backend": SimpleNamespace(url="http://127.0.0.1:8001"),
+                "tts_backend": SimpleNamespace(url="http://127.0.0.1:8002"),
+            },
+        )
+
+        def profile(self, role):
+            return self.config.backends[role]
+
+        def managed_backend(self, role):
+            return _Backend(role)
+
+    core = PixelleVideoCore()
+    core._get_comfyui_backend_registry = lambda: _Registry()
+    core._recent_local_comfyui_backend_roles = {"tts_backend": None}
+
+    async def _close_comfykit_instance(role=None):
+        return None
+
+    core._close_comfykit_instance = _close_comfykit_instance
+
+    stopped = await core._stop_idle_managed_comfyui_backends(reason="test")
+
+    assert stopped == ["tts_backend"]
+    assert stop_calls == ["tts_backend"]
+    assert core._recent_local_comfyui_backend_roles == {}
+
+
+@pytest.mark.asyncio
 async def test_core_generate_video_normalizes_storyboard_contract_for_standard_pipeline():
     captured = {}
 

@@ -75,6 +75,15 @@ def write_fake_listening_main_py(comfyui_root: Path) -> None:
     )
 
 
+def write_fake_short_listening_main_py(comfyui_root: Path) -> None:
+    write_fake_listening_main_py(comfyui_root)
+    main_py = comfyui_root / "main.py"
+    main_py.write_text(
+        main_py.read_text(encoding="utf-8").replace("time.sleep(30)", "time.sleep(5)"),
+        encoding="utf-8",
+    )
+
+
 def write_fake_hanging_main_py(comfyui_root: Path) -> None:
     (comfyui_root / "main.py").write_text(
         "\n".join(
@@ -1021,6 +1030,58 @@ def test_start_backend_forces_utf8_child_output_encoding(tmp_path: Path) -> None
         assert (logs_dir / "comfyui-backend.stdout.log").read_text(
             encoding="utf-8"
         ).startswith("\U0001f389 fake comfyui started")
+    finally:
+        kill_fake_comfyui_processes(comfyui_root)
+
+
+def test_start_backend_archives_existing_backend_logs_before_launch(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_short_listening_main_py(comfyui_root)
+    runtime_dir = tmp_path / "runtime"
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    stdout_log = logs_dir / "comfyui-backend.stdout.log"
+    stderr_log = logs_dir / "comfyui-backend.stderr.log"
+    stdout_log.write_text("old stdout crash\n", encoding="utf-8")
+    stderr_log.write_text("old stderr crash\n", encoding="utf-8")
+    port = reserve_free_port()
+
+    try:
+        result = run_powershell(
+            SCRIPT_DIR / "start_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-LogsDir",
+            logs_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+            "-ReadyTimeoutSeconds",
+            "8",
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        archived_stdout_log = Path(payload["previous_stdout_log"])
+        archived_stderr_log = Path(payload["previous_stderr_log"])
+
+        assert archived_stdout_log.exists()
+        assert archived_stderr_log.exists()
+        assert archived_stdout_log.read_text(encoding="utf-8") == "old stdout crash\n"
+        assert archived_stderr_log.read_text(encoding="utf-8") == "old stderr crash\n"
+        assert archived_stdout_log.name.startswith("comfyui-backend.stdout.")
+        assert archived_stderr_log.name.startswith("comfyui-backend.stderr.")
+        assert stdout_log.read_text(encoding="utf-8").startswith("fake comfyui listening")
     finally:
         kill_fake_comfyui_processes(comfyui_root)
 

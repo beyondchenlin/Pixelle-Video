@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import re
 from collections import defaultdict
@@ -125,6 +126,54 @@ class _QwenForcedAlignerClient:
             return results[0] if results else None
         return results
 
+    def release_resources(self) -> bool:
+        aligner = self._aligner
+        if aligner is None:
+            return False
+
+        try:
+            for method_name in ("close", "shutdown", "unload"):
+                method = getattr(aligner, method_name, None)
+                if not callable(method):
+                    continue
+                try:
+                    method()
+                except Exception as exc:  # pragma: no cover - model-specific cleanup
+                    logger.warning(
+                        f"Qwen forced aligner {method_name} cleanup failed: {exc}"
+                    )
+        finally:
+            self._aligner = None
+
+        gc.collect()
+        _release_torch_allocator_caches()
+        return True
+
+
+def _release_torch_allocator_caches() -> None:
+    try:
+        import torch
+    except Exception:
+        return
+
+    cuda = getattr(torch, "cuda", None)
+    try:
+        if cuda is not None and cuda.is_available():
+            cuda.empty_cache()
+            ipc_collect = getattr(cuda, "ipc_collect", None)
+            if callable(ipc_collect):
+                ipc_collect()
+    except Exception as exc:  # pragma: no cover - depends on accelerator runtime
+        logger.warning(f"Torch CUDA cache release failed after alignment cleanup: {exc}")
+
+    mps = getattr(torch, "mps", None)
+    empty_mps_cache = getattr(mps, "empty_cache", None)
+    if callable(empty_mps_cache):
+        try:
+            empty_mps_cache()
+        except Exception as exc:  # pragma: no cover - depends on accelerator runtime
+            logger.warning(f"Torch MPS cache release failed after alignment cleanup: {exc}")
+
 
 class AlignmentService:
     def __init__(
@@ -139,6 +188,15 @@ class AlignmentService:
             model_kwargs=model_kwargs,
         )
         self.language = language
+
+    def release_resources(self) -> bool:
+        for method_name in ("release_resources", "close", "shutdown", "unload"):
+            method = getattr(self.client, method_name, None)
+            if not callable(method):
+                continue
+            result = method()
+            return bool(result) if result is not None else True
+        return False
 
     def align_block(
         self,

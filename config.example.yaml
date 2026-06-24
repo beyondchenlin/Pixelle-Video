@@ -24,6 +24,8 @@ runtime:
   release_resources_after_video_generation: true
   close_comfykit_after_generation: true
   close_html_browser_after_generation: true
+  close_alignment_service_after_generation: true
+  stop_managed_comfyui_backends_after_generation: true
   collect_garbage_after_generation: true
   log_process_memory_after_generation: true
 

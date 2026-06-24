@@ -90,6 +90,9 @@ Ensure-Directory $config.LogsDir
 
 $stdoutLog = Get-BackendStdoutLog $config
 $stderrLog = Get-BackendStderrLog $config
+$logStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+$previousStdoutLog = Move-ExistingBackendLog -Path $stdoutLog -Stamp $logStamp
+$previousStderrLog = Move-ExistingBackendLog -Path $stderrLog -Stamp $logStamp
 
 $previousPythonIoEncoding = $env:PYTHONIOENCODING
 $env:PYTHONIOENCODING = 'utf-8'
@@ -141,6 +144,8 @@ try {
                 launcher_pid_file = $launcherPidFile
                 stdout_log = $stdoutLog
                 stderr_log = $stderrLog
+                previous_stdout_log = $previousStdoutLog
+                previous_stderr_log = $previousStderrLog
             }
             $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
             Write-BackendMessage -Json:$Json -Payload $payload -Message "Started ComfyUI backend on $($config.HostAddress):$($config.Port) with listener PID $listenerPid."
