@@ -37,15 +37,15 @@ def build_z_image_download_tasks(
     tasks = [
         DownloadTask(
             repo_id="unsloth/Z-Image-Turbo-GGUF",
-            file_path="z-image-turbo-Q4_K_M.gguf",
-            target_path=model_root / "unet" / "z-image-turbo-Q4_K_M.gguf",
-            expected_size=5017613376,
+            file_path="z-image-turbo-Q8_0.gguf",
+            target_path=model_root / "unet" / "z-image-turbo-Q8_0.gguf",
+            expected_size=7224707136,
         ),
         DownloadTask(
             repo_id="unsloth/Qwen3-4B-GGUF",
-            file_path="Qwen3-4B-Q4_K_M.gguf",
-            target_path=model_root / "text_encoders" / "Qwen3-4B-Q4_K_M.gguf",
-            expected_size=2497281312,
+            file_path="Qwen3-4B-Q8_0.gguf",
+            target_path=model_root / "text_encoders" / "Qwen3-4B-Q8_0.gguf",
+            expected_size=4280405792,
         ),
         DownloadTask(
             repo_id="Comfy-Org/z_image",

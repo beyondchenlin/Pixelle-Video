@@ -11,7 +11,7 @@ def test_default_comfyui_model_root_matches_desktop_runtime_layout():
     assert DEFAULT_COMFYUI_MODEL_ROOT == Path(r"E:\ComfyUIData\models")
 
 
-def test_build_z_image_download_tasks_defaults_to_gguf_q4_workflow_dependencies():
+def test_build_z_image_download_tasks_defaults_to_gguf_q8_workflow_dependencies():
     model_root = DEFAULT_COMFYUI_MODEL_ROOT
 
     tasks = build_z_image_download_tasks(model_root)
@@ -19,15 +19,15 @@ def test_build_z_image_download_tasks_defaults_to_gguf_q4_workflow_dependencies(
     assert [(task.repo_id, task.file_path, task.target_path, task.expected_size) for task in tasks] == [
         (
             "unsloth/Z-Image-Turbo-GGUF",
-            "z-image-turbo-Q4_K_M.gguf",
-            model_root / "unet" / "z-image-turbo-Q4_K_M.gguf",
-            5017613376,
+            "z-image-turbo-Q8_0.gguf",
+            model_root / "unet" / "z-image-turbo-Q8_0.gguf",
+            7224707136,
         ),
         (
             "unsloth/Qwen3-4B-GGUF",
-            "Qwen3-4B-Q4_K_M.gguf",
-            model_root / "text_encoders" / "Qwen3-4B-Q4_K_M.gguf",
-            2497281312,
+            "Qwen3-4B-Q8_0.gguf",
+            model_root / "text_encoders" / "Qwen3-4B-Q8_0.gguf",
+            4280405792,
         ),
         (
             "Comfy-Org/z_image",
