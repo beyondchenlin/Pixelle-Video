@@ -7,6 +7,7 @@ from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec, StyleSourceSpec
+from pixelle_video.services.mandatory_ip_prompt_compiler import compile_mandatory_ip_participation_plan
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_helper import (
     apply_no_text_policy,
@@ -73,10 +74,28 @@ def _assert_final_prompt_snapshot(snapshot: dict | None) -> None:
 
 def _skip_series_visual_signature_anchor_planning(monkeypatch) -> None:
     async def fake_plan_batch(self, **kwargs):
-        return ()
+        anchor_profile = kwargs.get("anchor_profile")
+        if anchor_profile is None:
+            return ()
+        return tuple(
+            compile_mandatory_ip_participation_plan(
+                frame_id=brief.frame_id,
+                base_visual_brief=brief,
+                anchor_profile=anchor_profile,
+            )
+            for brief in kwargs.get("base_visual_briefs", ())
+        )
 
     def fake_plan_failed_frames(self, **kwargs):
-        return ()
+        return tuple(
+            compile_mandatory_ip_participation_plan(
+                frame_id=brief.frame_id,
+                base_visual_brief=brief,
+                anchor_profile=self.anchor_profile,
+            )
+            for brief in kwargs.get("base_visual_briefs", ())
+            if brief.frame_id in set(kwargs.get("failed_frame_ids", ()))
+        )
 
     monkeypatch.setattr(
         "pixelle_video.services.visual_prompt_planning_service.VisualAnchorIntegrationPlanner.plan_batch",

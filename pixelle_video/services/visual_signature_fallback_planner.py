@@ -82,7 +82,20 @@ class VisualSignatureFallbackPlanner:
         reason: Sequence[str] = (),
     ) -> VisualAnchorPlacementPlan:
         policy = load_visual_signature_policy()
-        if policy.requires_every_frame_signature and policy.fallback_strategy == "inject_safe_carrier":
+        mode = self.presentation_policy.presentation_mode
+        if self.presentation_policy.fallback_mode is SeriesVisualSignatureFallbackMode.DEFAULT_SIGNATURE:
+            mode = SeriesVisualSignaturePresentationMode.AUTO
+
+        use_mode_specific_mandatory_fallback = (
+            policy.requires_every_frame_signature
+            and policy.fallback_strategy == "inject_safe_carrier"
+            and mode is SeriesVisualSignaturePresentationMode.VISIBLE_SUPPORTING_CHARACTER
+        )
+        if (
+            policy.requires_every_frame_signature
+            and policy.fallback_strategy == "inject_safe_carrier"
+            and not use_mode_specific_mandatory_fallback
+        ):
             plan = compile_mandatory_ip_participation_plan(
                 frame_id=brief.frame_id,
                 base_visual_brief=brief,
@@ -101,17 +114,13 @@ class VisualSignatureFallbackPlanner:
                     "fallback_mode": self.presentation_policy.fallback_mode.value,
                 },
             )
-        if policy.requires_every_frame_signature:
+        if policy.requires_every_frame_signature and not use_mode_specific_mandatory_fallback:
             return _suppressed_fallback_plan(
                 brief,
                 reason=reason,
                 presentation_policy=self.presentation_policy,
                 policy=policy,
             )
-
-        mode = self.presentation_policy.presentation_mode
-        if self.presentation_policy.fallback_mode is SeriesVisualSignatureFallbackMode.DEFAULT_SIGNATURE:
-            mode = SeriesVisualSignaturePresentationMode.AUTO
 
         identity_phrase = _identity_phrase(
             self.identity_kernel or build_visual_identity_kernel(self.anchor_profile),

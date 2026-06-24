@@ -20,11 +20,7 @@ from pixelle_video.services.final_prompt_ip_gate import (
     FinalPromptIPGateError,
     assert_mandatory_ip_final_prompt,
 )
-from pixelle_video.services.visual_anchor_policy import (
-    contains_forbidden_overlay_language,
-    is_scene_bound_anchor_candidate,
-)
-from pixelle_video.services.visual_signature_clause_renderer import render_visual_anchor_plan_clause
+from pixelle_video.services.visual_anchor_projection_gate import validate_visual_anchor_projection
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 
 _FORBIDDEN_PROVIDER_TERMS = (
@@ -53,6 +49,15 @@ _FORBIDDEN_PROVIDER_TERMS = (
 class MandatoryIPProjectionError(ValueError):
     """Raised when mandatory IP participation cannot reach provider prompt output."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "mandatory_ip_projection_failed",
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+
 
 @dataclass(frozen=True)
 class ProviderPromptProjector:
@@ -72,10 +77,12 @@ class ProviderPromptProjector:
         series_visual_signature_strategy: SeriesVisualSignatureStrategyControls | None = None,
     ) -> RenderedMediaPrompt:
         policy = visual_signature_policy or load_visual_signature_policy()
-        anchor_clause = _safe_visual_anchor_clause(visual_anchor_plan, policy=policy)
+        projection_gate = validate_visual_anchor_projection(visual_anchor_plan, policy=policy)
+        anchor_clause = projection_gate.anchor_clause if projection_gate.passed else ""
         if policy.requires_every_frame_signature and policy.requires_repair_or_fail and not anchor_clause:
             raise MandatoryIPProjectionError(
-                f"{base_visual_brief.frame_id}: mandatory IP participation was lost before provider projection"
+                f"{base_visual_brief.frame_id}: mandatory IP participation was lost before provider projection",
+                code=projection_gate.code,
             )
         prompt = self._build_prompt(
             base_visual_brief=base_visual_brief,
@@ -94,7 +101,10 @@ class ProviderPromptProjector:
                 anchor_profile=anchor_profile,
             )
         except FinalPromptIPGateError as exc:
-            raise MandatoryIPProjectionError(f"{base_visual_brief.frame_id}: {exc}") from exc
+            raise MandatoryIPProjectionError(
+                f"{base_visual_brief.frame_id}: {exc}",
+                code="final_prompt_ip_gate_failed",
+            ) from exc
         contract_metadata = {
             "base_visual_brief_version": base_visual_brief.version,
             "visual_anchor_plan_version": visual_anchor_plan.version if visual_anchor_plan else None,
@@ -170,23 +180,8 @@ def _safe_visual_anchor_clause(
     *,
     policy: VisualSignaturePolicy,
 ) -> str:
-    if not visual_anchor_plan or not visual_anchor_plan.visible:
-        return ""
-    clause = render_visual_anchor_plan_clause(visual_anchor_plan, policy=policy)
-    if not clause or contains_forbidden_overlay_language(clause, policy=policy):
-        return ""
-    if policy.contains_forbidden_final_prompt_text(clause):
-        return ""
-    if not is_scene_bound_anchor_candidate(
-        image_prompt_clause=clause,
-        support_anchor=visual_anchor_plan.support_anchor,
-        placement=visual_anchor_plan.placement_zone,
-        contact_relation=visual_anchor_plan.contact_relation,
-        carrier_type=visual_anchor_plan.anchor_carrier_type,
-        policy=policy,
-    ):
-        return ""
-    return clause
+    result = validate_visual_anchor_projection(visual_anchor_plan, policy=policy)
+    return result.anchor_clause if result.passed else ""
 
 
 def _strip_anchor_mentions_from_base_prompt(

@@ -36,6 +36,7 @@ from pixelle_video.models.visual_anchor_planning import (
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.prompts.visual_anchor_integration import render_visual_anchor_integration_prompt
 from pixelle_video.services.visual_anchor_policy import contains_forbidden_overlay_language
+from pixelle_video.services.visual_anchor_projection_gate import validate_visual_anchor_projection
 from pixelle_video.services.visual_signature_fallback_planner import (
     VisualSignatureFallbackPlanner,
     merge_visual_anchor_plans_by_frame,
@@ -478,14 +479,21 @@ def _placement_plan_from_raw_plan(
     )
     if errors:
         return None, errors
-    return _candidate_to_plan(
+    plan = _candidate_to_plan(
         raw_plan,
         frame_id=frame_id,
         role_strategy=role_strategy,
         identity_kernel=identity_kernel,
         presentation_policy=presentation_policy,
         ip_duty_plan=ip_duty_plan,
-    ), []
+    )
+    projection_gate = validate_visual_anchor_projection(plan, policy=policy)
+    if not projection_gate.passed:
+        return None, [
+            f"{frame_id}: provider projection gate rejected plan "
+            f"({projection_gate.code}: {projection_gate.reason})"
+        ]
+    return plan, []
 
 
 def _candidate_to_plan(

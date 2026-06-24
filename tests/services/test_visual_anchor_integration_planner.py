@@ -85,6 +85,40 @@ class RejectedOverlayLLM:
         }
 
 
+class UnprojectableSupportingLLM:
+    async def __call__(self, **kwargs):
+        return {
+            "visual_anchor_integration_plans": [
+                {
+                    "frame_id": "f1",
+                    "carrier_type": "minor_supporting_character",
+                    "anchor_function": "co_present_support",
+                    "prominence": "small_side_character",
+                    "style_relation": "blended",
+                    "placement": "beside the source subject",
+                    "support_anchor": "source subject side",
+                    "contact_relation": "near the source subject without touching any ground or prop",
+                    "interaction_target": "source subject",
+                    "occlusion_relation": "main subject remains clear",
+                    "visual_weight_clause": "small side character",
+                    "image_prompt_clause": "dalmatian wearing black sunglasses beside the source subject",
+                    "integrated_scene_prompt": "dalmatian wearing black sunglasses beside the source subject",
+                    "integration_strategy": "supporting_integration",
+                    "anchor_manifestation": {
+                        "form": "small side character",
+                        "location": "source subject side",
+                        "visibility": "clear",
+                        "relationship": "near the source subject",
+                    },
+                    "scene_coherence_score": 8,
+                    "disruption_risk": 1,
+                    "identity_preservation_score": 9,
+                    "reason": "missing physical scene binding",
+                }
+            ]
+        }
+
+
 class MalformedButJsonLLM:
     async def __call__(self, **kwargs):
         return {
@@ -355,6 +389,58 @@ def test_series_visual_signature_anchor_planner_repairs_overlay_candidate_with_f
     assert "lower-right" not in plans[0].image_prompt_clause
     assert "corner badge" not in plans[0].image_prompt_clause
     assert "logo" not in plans[0].image_prompt_clause.lower()
+
+
+def test_series_visual_signature_anchor_planner_repairs_projection_gate_failure_with_fallback():
+    policy = SeriesVisualSignaturePresentationPolicy.from_mapping(
+        {"series_visual_signature_presentation_mode": "visible_supporting_character"}
+    )
+
+    plans = asyncio.run(
+        VisualAnchorIntegrationPlanner(
+            llm_service=UnprojectableSupportingLLM(),
+            presentation_policy=policy,
+            max_repair_attempts=0,
+        ).plan_batch(
+            base_visual_briefs=(_book_brief(),),
+            anchor_profile=_ascii_profile(),
+        )
+    )
+
+    assert plans[0].visible
+    assert plans[0].metadata["source"] == "deterministic_visual_signature_fallback"
+    assert plans[0].metadata["fallback_level"] == "visible_supporting_character"
+    assert "dalmatian" in plans[0].image_prompt_clause
+    assert "black sunglasses" in plans[0].image_prompt_clause
+
+
+@pytest.mark.parametrize(
+    "policy_payload",
+    (
+        {
+            "series_visual_signature_presentation_mode": "visible_supporting_character",
+            "series_visual_signature_enforcement": "strict",
+        },
+        {
+            "series_visual_signature_presentation_mode": "visible_supporting_character",
+            "series_visual_signature_fallback_enabled": False,
+        },
+    ),
+)
+def test_series_visual_signature_anchor_planner_respects_no_fallback_modes(policy_payload):
+    policy = SeriesVisualSignaturePresentationPolicy.from_mapping(policy_payload)
+
+    with pytest.raises(ValueError, match="provider projection gate rejected"):
+        asyncio.run(
+            VisualAnchorIntegrationPlanner(
+                llm_service=UnprojectableSupportingLLM(),
+                presentation_policy=policy,
+                max_repair_attempts=0,
+            ).plan_batch(
+                base_visual_briefs=(_book_brief(),),
+                anchor_profile=_ascii_profile(),
+            )
+        )
 
 
 def test_series_visual_signature_anchor_planner_repairs_legacy_candidate_array_shape():

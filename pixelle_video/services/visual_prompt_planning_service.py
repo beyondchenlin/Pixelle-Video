@@ -191,11 +191,6 @@ class VisualPromptPlanningService:
                     trace_context=trace_context,
                     trace_recorder=trace_recorder,
                 )
-        anchor_packages = tuple(
-            plan.to_ip_frame_adaptation_package(base_anchor_packages[index])
-            for index, plan in enumerate(visual_anchor_plans)
-            if index < len(base_anchor_packages)
-        )
         projection_policy = _projection_policy_for_request(
             policy,
             visual_anchor_enabled=visual_anchor_enabled,
@@ -205,18 +200,19 @@ class VisualPromptPlanningService:
             visual_anchor_enabled=visual_anchor_enabled,
             anchor_profile=anchor_profile,
         ) else None
-        rendered_prompts = tuple(
-            ProviderPromptProjector().project(
-                base_visual_brief=brief,
-                anchor_profile=active_anchor_profile,
-                visual_anchor_plan=visual_anchor_plans[index] if index < len(visual_anchor_plans) else None,
-                negative_rules=extra_negative_rules,
-                capabilities=capabilities,
-                workflow=workflow,
-                visual_signature_policy=projection_policy,
-                series_visual_signature_strategy=role_strategy,
-            )
-            for index, brief in enumerate(base_visual_briefs)
+        rendered_prompts = _project_prompts(
+            base_visual_briefs=base_visual_briefs,
+            visual_anchor_plans=visual_anchor_plans,
+            active_anchor_profile=active_anchor_profile,
+            negative_rules=extra_negative_rules,
+            capabilities=capabilities,
+            workflow=workflow,
+            visual_signature_policy=projection_policy,
+            series_visual_signature_strategy=role_strategy,
+        )
+        anchor_packages = _anchor_packages_from_plans(
+            visual_anchor_plans=visual_anchor_plans,
+            base_anchor_packages=base_anchor_packages,
         )
         fallback_ledger = fallback_ledger_from_plans(visual_anchor_plans) if visual_anchor_plans else None
         return VisualPromptPlanningResult(
@@ -228,6 +224,59 @@ class VisualPromptPlanningService:
             series_visual_signature_profile=series_visual_signature_profile,
             series_visual_signature_fallback=fallback_ledger if fallback_ledger and fallback_ledger.get("fallback_applied") else None,
         )
+
+
+def _project_prompts(
+    *,
+    base_visual_briefs: Sequence[BaseVisualBrief],
+    visual_anchor_plans: Sequence[VisualAnchorPlacementPlan],
+    active_anchor_profile: IPProfile | None,
+    negative_rules: Sequence[str],
+    capabilities: Any,
+    workflow: str | None,
+    visual_signature_policy: VisualSignaturePolicy,
+    series_visual_signature_strategy: SeriesVisualSignatureStrategyControls,
+) -> tuple[RenderedMediaPrompt, ...]:
+    projector = ProviderPromptProjector()
+    plans_by_frame = {plan.frame_id: plan for plan in visual_anchor_plans}
+    rendered_prompts: list[RenderedMediaPrompt] = []
+
+    for brief in base_visual_briefs:
+        rendered_prompts.append(
+            projector.project(
+                base_visual_brief=brief,
+                anchor_profile=active_anchor_profile,
+                visual_anchor_plan=plans_by_frame.get(brief.frame_id),
+                negative_rules=negative_rules,
+                capabilities=capabilities,
+                workflow=workflow,
+                visual_signature_policy=visual_signature_policy,
+                series_visual_signature_strategy=series_visual_signature_strategy,
+            )
+        )
+
+    return tuple(rendered_prompts)
+
+
+def _anchor_packages_from_plans(
+    *,
+    visual_anchor_plans: Sequence[VisualAnchorPlacementPlan],
+    base_anchor_packages: Sequence[IPFrameAdaptationPackage],
+) -> tuple[IPFrameAdaptationPackage, ...]:
+    if not base_anchor_packages or not visual_anchor_plans:
+        return ()
+    if not all(isinstance(package, IPFrameAdaptationPackage) for package in base_anchor_packages):
+        return ()
+
+    plans_by_frame = {plan.frame_id: plan for plan in visual_anchor_plans}
+    packages: list[IPFrameAdaptationPackage] = []
+    for base_package in base_anchor_packages:
+        plan = plans_by_frame.get(base_package.frame_id)
+        if plan is None:
+            return ()
+        packages.append(plan.to_ip_frame_adaptation_package(base_package))
+    return tuple(packages)
+
 
 def _should_use_deterministic_anchor_planning(
     *,

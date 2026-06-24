@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.visual_anchor_integration import (
     VisualAnchorIntegrationCandidateResponse,
@@ -12,7 +14,10 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
-from pixelle_video.services.provider_prompt_projector import ProviderPromptProjector
+from pixelle_video.services.provider_prompt_projector import (
+    MandatoryIPProjectionError,
+    ProviderPromptProjector,
+)
 from pixelle_video.services.visual_anchor_policy import is_scene_bound_anchor_candidate
 
 
@@ -105,7 +110,7 @@ def test_integration_plan_filters_selected_overlay_candidate() -> None:
     assert_no_forbidden_anchor_words(placement_plan.image_prompt_clause)
 
 
-def test_provider_projector_drops_ungated_overlay_anchor() -> None:
+def test_provider_projector_rejects_ungated_overlay_anchor() -> None:
     brief = BaseVisualBrief(
         frame_id="frame-1",
         core_message="解释一段历史文本",
@@ -130,12 +135,11 @@ def test_provider_projector_drops_ungated_overlay_anchor() -> None:
         image_prompt_clause="画面右下角有一个蓝领结白兔角标。",
     )
 
-    rendered = ProviderPromptProjector().project(
-        base_visual_brief=brief,
-        visual_anchor_plan=invalid_anchor_plan,
-        workflow="z_image",
-    )
+    with pytest.raises(MandatoryIPProjectionError) as exc_info:
+        ProviderPromptProjector().project(
+            base_visual_brief=brief,
+            visual_anchor_plan=invalid_anchor_plan,
+            workflow="z_image",
+        )
 
-    assert "蓝领结白兔" not in rendered.prompt
-    assert_no_forbidden_anchor_words(rendered.prompt)
-    assert rendered.prompt_contract.metadata["scene_bound_anchor_gate"] == "absent_or_rejected"
+    assert exc_info.value.code == "anchor_clause_rejected"
