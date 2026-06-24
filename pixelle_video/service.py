@@ -1030,6 +1030,14 @@ def _local_comfykit_result_needs_transient_backend_retry(result: Any) -> bool:
     return looks_like_transient_backend_execution_error(message)
 
 
+def _local_comfykit_result_needs_memory_recovery(result: Any) -> bool:
+    status = _local_comfykit_result_status(result)
+    if not status or status == "completed":
+        return False
+    message = _local_comfykit_result_message(result)
+    return looks_like_memory_exhaustion(message)
+
+
 def _local_comfykit_result_needs_connection_loss_retry(result: Any) -> bool:
     status = _local_comfykit_result_status(result)
     if not status or status == "completed":
@@ -2677,6 +2685,48 @@ class PixelleVideoCore:
             backend_role=backend_role,
         )
 
+    async def _recover_local_comfykit_memory_and_retry_once(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        backend_role: str,
+        original_exception: BaseException | None = None,
+    ) -> Any:
+        logger.warning(
+            "Local ComfyUI workflow ran out of memory on backend role "
+            f"'{backend_role}'; releasing memory and retrying once after backend recovery."
+        )
+        extensions = self._workflow_extensions(workflow_input)
+        if extensions:
+            released = await self.force_release_comfyui_memory(
+                context="oom-recovery",
+                backend_role=backend_role,
+                include_extensions=True,
+                extensions=extensions,
+            )
+        else:
+            released = await self.force_release_comfyui_memory(
+                context="oom-recovery",
+                backend_role=backend_role,
+            )
+        restarted = await self._restart_comfyui_backend_role(backend_role, "oom-recovery")
+        if not released and not restarted:
+            failure = RuntimeError(
+                "Local ComfyUI workflow ran out of memory and Pixelle stopped "
+                "before retrying without confirmed memory release."
+            )
+            if original_exception is not None:
+                raise failure from original_exception
+            raise failure
+        await self.prepare_comfyui_for_local_workflow(backend_role=backend_role)
+        await self._register_local_comfyui_task_use(backend_role=backend_role)
+        return await self._execute_local_comfykit_workflow_once(
+            workflow_input,
+            workflow_params,
+            backend_role=backend_role,
+        )
+
     async def _execute_local_comfykit_workflow(
         self,
         workflow_input,
@@ -2704,6 +2754,12 @@ class PixelleVideoCore:
                 )
                 if retried:
                     return retry_result
+            if _local_comfykit_result_needs_memory_recovery(result):
+                return await self._recover_local_comfykit_memory_and_retry_once(
+                    workflow_input,
+                    workflow_params,
+                    backend_role=role,
+                )
             if _local_comfykit_result_needs_transient_backend_retry(result):
                 retried, retry_result = await self._restart_local_comfykit_workflow_and_retry_once(
                     workflow_input,
@@ -2748,35 +2804,11 @@ class PixelleVideoCore:
             if not looks_like_memory_exhaustion(str(exc)):
                 raise
 
-            logger.warning(
-                "Local ComfyUI workflow ran out of memory on backend role "
-                f"'{role}'; releasing memory and retrying once after backend recovery."
-            )
-            extensions = self._workflow_extensions(workflow_input)
-            if extensions:
-                released = await self.force_release_comfyui_memory(
-                    context="oom-recovery",
-                    backend_role=role,
-                    include_extensions=True,
-                    extensions=extensions,
-                )
-            else:
-                released = await self.force_release_comfyui_memory(
-                    context="oom-recovery",
-                    backend_role=role,
-                )
-            restarted = await self._restart_comfyui_backend_role(role, "oom-recovery")
-            if not released and not restarted:
-                raise RuntimeError(
-                    "Local ComfyUI workflow ran out of memory and Pixelle stopped "
-                    "before retrying without confirmed memory release."
-                ) from exc
-            await self.prepare_comfyui_for_local_workflow(backend_role=role)
-            await self._register_local_comfyui_task_use(backend_role=role)
-            return await self._execute_local_comfykit_workflow_once(
+            return await self._recover_local_comfykit_memory_and_retry_once(
                 workflow_input,
                 workflow_params,
                 backend_role=role,
+                original_exception=exc,
             )
 
     async def _execute_scoped_local_comfykit_workflow(

@@ -8,8 +8,11 @@ def looks_like_memory_exhaustion(error_message: str) -> bool:
         for marker in (
             "not enough memory",
             "out of memory",
+            "memory allocation failure",
             "defaultcpuallocator",
             "std::bad_alloc",
+            "cublas_status_alloc_failed",
+            "cuda error: out of memory",
         )
     )
 
@@ -40,5 +43,7 @@ def looks_like_transient_backend_execution_error(error_message: str) -> bool:
         marker in lowered
         for marker in (
             "unable to find an engine to execute this computation",
+            "cuda error: unknown error",
+            "cudaerrorunknown",
         )
     )

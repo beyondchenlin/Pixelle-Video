@@ -168,7 +168,14 @@ def _release_torch_allocator_caches() -> None:
 
     mps = getattr(torch, "mps", None)
     empty_mps_cache = getattr(mps, "empty_cache", None)
-    if callable(empty_mps_cache):
+    mps_available = False
+    is_available = getattr(mps, "is_available", None)
+    if callable(is_available):
+        try:
+            mps_available = bool(is_available())
+        except Exception:
+            mps_available = False
+    if mps_available and callable(empty_mps_cache):
         try:
             empty_mps_cache()
         except Exception as exc:  # pragma: no cover - depends on accelerator runtime

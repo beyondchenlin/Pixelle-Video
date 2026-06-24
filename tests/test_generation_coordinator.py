@@ -820,7 +820,8 @@ async def test_core_execute_local_comfy_workflow_releases_after_failure():
 
 
 @pytest.mark.asyncio
-async def test_core_execute_local_comfy_workflow_recovers_once_after_oom():
+@pytest.mark.parametrize("failure_shape", ("exception", "error_result"))
+async def test_core_execute_local_comfy_workflow_recovers_once_after_oom(failure_shape):
     calls = []
     attempts = 0
 
@@ -830,10 +831,13 @@ async def test_core_execute_local_comfy_workflow_recovers_once_after_oom():
             attempts += 1
             calls.append(("execute", attempts, workflow_input, workflow_params))
             if attempts == 1:
-                raise RuntimeError(
+                error_message = (
                     "[enforce fail at alloc_cpu.cpp:117] data. "
                     "DefaultCPUAllocator: not enough memory: you tried to allocate 11141120 bytes."
                 )
+                if failure_shape == "error_result":
+                    return SimpleNamespace(status="error", msg=error_message)
+                raise RuntimeError(error_message)
             return SimpleNamespace(status="completed")
 
     core = PixelleVideoCore()
@@ -4371,9 +4375,20 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure_shape", ("error_result", "exception"))
+@pytest.mark.parametrize(
+    "transient_error_message",
+    (
+        "GET was unable to find an engine to execute this computation",
+        (
+            "CUDA error: unknown error\n"
+            "Search for `cudaErrorUnknown' in CUDA docs."
+        ),
+    ),
+)
 async def test_core_execute_gguf_transient_engine_failure_restarts_managed_backend_and_retries(
     monkeypatch,
     failure_shape,
+    transient_error_message,
 ):
     events = []
     core = PixelleVideoCore()
@@ -4416,10 +4431,10 @@ async def test_core_execute_gguf_transient_engine_failure_restarts_managed_backe
         events.append(("execute_once", call_count, workflow_input))
         if call_count == 1:
             if failure_shape == "exception":
-                raise RuntimeError("GET was unable to find an engine to execute this computation")
+                raise RuntimeError(transient_error_message)
             return SimpleNamespace(
                 status="error",
-                msg="GET was unable to find an engine to execute this computation\n",
+                msg=transient_error_message,
             )
         return SimpleNamespace(status="completed")
 
