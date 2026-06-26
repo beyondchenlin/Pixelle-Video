@@ -86,16 +86,16 @@ class SeriesVisualSignatureStrategyControls:
 
     def prompt_guidance(self) -> list[str]:
         guidance = [
-            "The configured visual identity must appear in every final integrated prompt.",
+            "The configured recurring identity must appear in every final integrated prompt.",
             "Never return hidden, suppressed, skipped, absent, fallback, or not suitable as a successful result.",
-            "The model may recompose the scene, add carriers, use a TV/projection/frame/exhibit/desk/wall/book, or rewrite camera framing while preserving source intent.",
+            "For the default v2 policy, recompose the scene so the identity participates in the frame's content action; do not add cards, labels, bookmarks, stickers, logos, surface marks, or small decorative carriers.",
         ]
         if self.requires_subject_replacement:
-            guidance.append("The visual identity must become the primary subject or protagonist.")
+            guidance.append("The visual identity must become the primary subject or protagonist only when explicitly requested.")
         elif self.requires_supporting_integration:
-            guidance.append("The visual identity must not replace the source subject; it must appear as a real in-scene supporting element.")
+            guidance.append("The visual identity must not replace the source subject; it must act, observe, carry, weigh, transform, or arrange something meaningful in the scene.")
         else:
-            guidance.append("Use visible supporting integration by default; primary replacement requires an explicit primary role setting.")
+            guidance.append("Use content-bound visible participation by default; legacy mark-based integration requires an explicit legacy mode.")
         return guidance
 
 

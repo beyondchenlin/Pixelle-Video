@@ -75,7 +75,7 @@ class VisualAnchorPlacementPlanner:
         frame_plan: Any = None,
     ) -> VisualAnchorPlacementPlan:
         policy = self.policy or load_visual_signature_policy()
-        if policy.requires_every_frame_signature and policy.fallback_strategy == "inject_safe_carrier":
+        if policy.requires_every_frame_signature and policy.fallback_strategy in {"inject_safe_carrier", "rewrite_content_action"}:
             return compile_mandatory_ip_participation_plan(
                 frame_id=base_visual_brief.frame_id,
                 base_visual_brief=base_visual_brief,

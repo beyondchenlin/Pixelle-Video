@@ -39,7 +39,7 @@
         "4",
         0
       ],
-      "steps": 64,
+      "steps": 48,
       "guidance_scale": 2,
       "t_shift": 0.1,
       "speed": 0.9,

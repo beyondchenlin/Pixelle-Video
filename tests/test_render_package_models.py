@@ -34,6 +34,7 @@ from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE
+from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE
 from pixelle_video.services.persistence import PersistenceService
 
 
@@ -116,7 +117,7 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     config = StoryboardConfig(media_width=1080, media_height=1920)
     assert config.tts_batching_mode == "paragraph"
     assert config.tts_audio_strategy == "master_track"
-    assert config.tts_split_mode == "external_only"
+    assert config.tts_split_mode == DEFAULT_TTS_SPLIT_MODE
     assert config.tts_sentence_joiner_mode == "direct"
     assert config.caption_punctuation_mode == "strip_all"
     assert config.preserve_natural_punctuation is True

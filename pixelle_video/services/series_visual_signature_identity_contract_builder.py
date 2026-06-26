@@ -10,8 +10,8 @@ from pixelle_video.models.series_visual_signature_identity import (
 )
 
 _DEFAULT_FORBIDDEN_IDENTITY_LOSS_RULES = (
-    "Do not turn the IP into a logo, watermark, sticker, corner badge, floating icon, or UI overlay.",
-    "Do not hide, suppress, replace, or genericize the configured IP identity.",
+    "Do not turn the recurring identity into a logo, watermark, sticker, corner badge, floating icon, or UI overlay.",
+    "Do not hide, suppress, replace, or genericize the configured recurring identity.",
 )
 
 

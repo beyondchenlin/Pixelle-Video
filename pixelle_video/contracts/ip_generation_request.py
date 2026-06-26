@@ -6,6 +6,7 @@ from typing import Any
 from pixelle_video.models.series_visual_signature_request import (
     SeriesVisualSignatureControlsContract,
 )
+from pixelle_video.utils.bool_parsing import coerce_bool
 
 FORMAL_CONTENT_IP_WORLD_FIELDS = frozenset(
     {
@@ -18,6 +19,11 @@ FORMAL_CONTENT_IP_WORLD_FIELDS = frozenset(
         "series_visual_signature_participation_mode",
         "series_visual_signature_mode",
         "series_visual_signature_consistency_mode",
+        "series_visual_signature_presentation_mode",
+        "series_visual_signature_enforcement",
+        "series_visual_signature_fallback_enabled",
+        "series_visual_signature_fallback_mode",
+        "series_visual_signature_min_visibility",
     }
 )
 HELPER_ONLY_CONTENT_IP_WORLD_FIELDS = frozenset(
@@ -38,7 +44,12 @@ REMOVED_CONTENT_IP_WORLD_FIELDS = frozenset(
 
 def build_formal_content_ip_world_payload(source: Mapping[str, Any] | None) -> dict[str, Any]:
     values = dict(source or {})
-    payload: dict[str, Any] = {"series_visual_signature_enabled": bool(values.get("series_visual_signature_enabled"))}
+    payload: dict[str, Any] = {
+        "series_visual_signature_enabled": coerce_bool(
+            values.get("series_visual_signature_enabled"),
+            default=False,
+        )
+    }
     if payload["series_visual_signature_enabled"]:
         asset_bible_id = _first_text(values.get("series_visual_signature_asset_bible_id"))
         profile_id = _first_text(values.get("series_visual_signature_profile_id"))

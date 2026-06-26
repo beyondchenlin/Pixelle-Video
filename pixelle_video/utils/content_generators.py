@@ -1304,6 +1304,11 @@ async def generate_styled_image_prompt_batch(
     series_visual_signature_request: SeriesVisualSignatureRequest | None = None,
     series_visual_signature_mode: str | None = None,
     series_visual_signature_consistency_mode: str | None = None,
+    series_visual_signature_presentation_mode: str | None = None,
+    series_visual_signature_enforcement: str | None = None,
+    series_visual_signature_fallback_enabled: bool | None = None,
+    series_visual_signature_fallback_mode: str | None = None,
+    series_visual_signature_min_visibility: str | None = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
@@ -1316,10 +1321,20 @@ async def generate_styled_image_prompt_batch(
             "series_visual_signature_participation_mode": series_visual_signature_participation_mode,
             "series_visual_signature_mode": series_visual_signature_mode,
             "series_visual_signature_consistency_mode": series_visual_signature_consistency_mode,
+            "series_visual_signature_presentation_mode": series_visual_signature_presentation_mode,
+            "series_visual_signature_enforcement": series_visual_signature_enforcement,
+            "series_visual_signature_fallback_enabled": series_visual_signature_fallback_enabled,
+            "series_visual_signature_fallback_mode": series_visual_signature_fallback_mode,
+            "series_visual_signature_min_visibility": series_visual_signature_min_visibility,
         },
         profile_id=getattr(ip_profile, "series_visual_signature_profile_id", None),
         generation_world_hint=generation_world_hint,
     )
+    if resolved_series_visual_signature_request.enabled and media_type != "image":
+        raise ValueError(
+            "series_visual_signature_enabled currently requires image media prompts; "
+            "video media prompts do not run the content-bound IP projection chain"
+        )
     ip_prompt_chain_enabled = resolved_series_visual_signature_request.enabled and media_type == "image"
     resolved_series_visual_signature_profile = series_visual_signature_profile
     if ip_prompt_chain_enabled and storyboard_plan is None:

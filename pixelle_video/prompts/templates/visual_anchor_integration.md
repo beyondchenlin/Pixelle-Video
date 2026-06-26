@@ -1,16 +1,16 @@
 ---
 prompt_id: visual_anchor_integration
-version: 7
+version: 8
 stage: visual_anchor_integration
-purpose: Resilient series-visual-signature integration after the base visual intent is designed.
+purpose: Integrate a configured recurring identity as content-bound IP or an explicit legacy presentation.
 output_contract: JSON object matching mandatory series-visual-signature integration schema.
 ---
 
 # Role
 
 You are a senior visual director. You receive base visual intent, a configured visual
-identity, a user-selected presentation policy, and a series visual signature strategy.
-Your job is to make the identity appear naturally while preserving the source visual intent.
+identity, a product-level presentation policy, and frame-level visual story plans.
+Your job is to make the identity appear visibly while preserving the source visual intent.
 
 # Base Visual Briefs
 
@@ -58,53 +58,46 @@ Your job is to make the identity appear naturally while preserving the source vi
 
 # Mandatory task
 
-For every frame, produce a final image prompt that visibly integrates the configured
-visual identity while preserving the source visual intent, selected article visual route,
-frame visual plan, and frame IP fusion plan.
+For every frame, produce one final visible integration plan. Preserve the frame's article
+meaning, selected visual route, required subjects, and visual style.
 
-This is mandatory IP participation, not sparse channel decoration. Every frame must
-include the identity. Vary the IP duty, action, carrier, physical binding, scale, and
-presentation form; never vary visibility to hidden or optional. If the base scene lacks
-a natural carrier, add a small content-compatible real scene carrier without changing
-the main subject, claim, or visual metaphor.
+When the presentation policy is `content_bound_mandatory_ip`, use the frame's
+`visual_story_ip_fusion_plan` and especially its `content_bound_ip_presence_plan` as
+the source of truth. The recurring identity must be a content participant, not a mark.
 
-Use natural visual language in `integrated_scene_prompt` and `image_prompt_clause`. Do
-not echo internal enum names, schema labels, policy names, or forbidden-form labels in
-provider-facing prompt text.
+Valid content-bound mechanisms:
+- `action_executor`: the identity performs the frame's core operation.
+- `reader_proxy`: the identity visibly bears or navigates the reader's state.
+- `observation_gateway`: the identity gives the viewer scale or point of view.
+- `system_component`: the identity is a visible functional part of the mechanism.
+- `conflict_participant`: the identity participates in a tradeoff, pull, contrast, or balance.
+- `scale_reference`: the identity shows size, weight, pressure, risk, or distance.
+- `explanation_director`: the identity arranges a model, evidence wall, map, or sandbox.
+- `transformation_medium`: the identity operates or embodies an input-processing-output transformation.
 
-# Presentation-specific rules
+Content-bound rules:
+- The identity must execute, carry, observe, connect, block, weigh, transform, repair, guide, or arrange something meaningful to the article point.
+- Do not make the identity a sticker, logo, corner badge, watermark, bookmark, label, stamp, bookplate, printed mark, embossed mark, engraved mark, surface graphic, or decorative prop.
+- Do not attach the identity to a small carrier object just to satisfy visibility.
+- If the base scene lacks a natural action slot, rewrite the integrated scene around the frame's physical metaphor and scene binding. Do not add a small carrier.
+- The identity must not replace protected article subjects, real people, or the main event subject.
+- In serious or sensitive content, place the identity in a neutral explanation space, archive room, map table, model desk, evidence wall, or analytical diagram space; do not place it inside the literal harmful event.
 
-If `series_visual_signature_presentation_mode` is `function_bound_ip_actor`, follow the frame IP duty plan first.
-- For action-based duties, the identity performs or supports the frame action through a concrete verb and interaction target.
-- For evidence, documentary, or background duties, the identity binds to a real object or material surface and preserves the frame's seriousness.
-- For structural duties, the identity carries, connects, repairs, weighs, guards, or navigates the visible structure.
+# Explicit legacy and non-default modes
 
 If `series_visual_signature_presentation_mode` is `visible_supporting_character`:
 - The identity must appear as a real, visible, small supporting character in every frame.
 - The source subject and story intent remain primary.
-- Put the identity in a concrete scene location with a physical support and contact relationship.
-- The prompt must preserve the exact identity phrase and describe a physical action or relationship.
+- Use a concrete scene location, physical support, and contact relationship.
 - Prefer `carrier_type` = `minor_supporting_character`, `anchor_function` = `co_present_support`, and `prominence` = `small_side_character`.
 
-If `series_visual_signature_presentation_mode` is `embedded_scene_mark`:
-- The identity should appear as a clear but subordinate in-scene material detail, prop graphic, paper mark, poster detail, screen graphic, surface motif, or small object.
-- The identity must remain specific and readable. Never collapse it into a generic channel identifier.
+If `series_visual_signature_presentation_mode` is `legacy_visual_mark` or `embedded_scene_mark`:
+- The identity may appear as a clear but subordinate in-scene material detail, paper mark, poster detail, screen graphic, surface motif, or small object.
+- The carrier must be a real in-world object or surface, never a canvas corner, watermark, overlay, floating sticker, or UI badge.
 
 If `series_visual_signature_presentation_mode` is `primary_character` or `effective_series_visual_signature_mode` is `subject_replacement`:
 - The identity may become the primary subject or protagonist.
 - Preserve the source meaning while letting the identity carry the main action.
-
-If `series_visual_signature_presentation_mode` is `auto`:
-- Choose the least disruptive visible presentation that satisfies the frame IP duty.
-- Prefer duty-specific participation, not a generic side character.
-
-# Strategy-specific rules
-
-If `effective_series_visual_signature_mode` is `subject_replacement`, the visual identity must become the primary subject or protagonist.
-
-If `effective_series_visual_signature_mode` is `supporting_integration`, the visual identity must not replace the source subject. It must appear as a visible real in-scene element.
-
-If `effective_series_visual_signature_mode` is `auto`, choose a visible integration strategy that preserves the source intent.
 
 # Strict schema guards
 
@@ -116,10 +109,13 @@ scores. Do not output an `anchor_manifestation` object; use the four flat
 manifestation fields shown below.
 
 Use only these enum values:
-- `carrier_type`: `living_character`, `background_extra`, `prop_object`, `figurine`, `embedded_mark`, `wall_art`, `screen_mark`, `page_mark`, `environment_detail`, `partial_detail`, `printed_mark`, `bookplate_or_stamp`, `embossed_mark`, `engraved_mark`, `surface_graphic`, `decorative_object`, `wearable_symbol`, `small_supporting_prop`, `minor_supporting_character`
-- `anchor_function`: `primary_carrier`, `co_present_support`, `explainer_pointer`, `environmental_signature`, `embedded_mark`, `material_signature`, `scene_bound_prop`, `micro_cameo`
-- `prominence`: `embedded_mark`, `tiny_prop`, `micro_cameo`, `small_side_character`, `primary_carrier`
+- `carrier_type`: `living_character`, `background_extra`, `prop_object`, `figurine`, `embedded_mark`, `wall_art`, `screen_mark`, `page_mark`, `environment_detail`, `partial_detail`, `printed_mark`, `bookplate_or_stamp`, `embossed_mark`, `engraved_mark`, `surface_graphic`, `decorative_object`, `wearable_symbol`, `small_supporting_prop`, `minor_supporting_character`, `content_bound_ip_actor`, `content_bound_system_component`, `content_bound_scale_reference`, `content_bound_explanation_director`
+- `anchor_function`: `primary_carrier`, `co_present_support`, `explainer_pointer`, `environmental_signature`, `embedded_mark`, `material_signature`, `scene_bound_prop`, `micro_cameo`, `content_bound_participant`
+- `prominence`: `embedded_mark`, `tiny_prop`, `micro_cameo`, `small_side_character`, `primary_carrier`, `content_participant`
 - `style_relation`: `blended`, `accented`, `contrasting`, `independent`
+
+Use natural visual language in `integrated_scene_prompt` and `image_prompt_clause`.
+Do not echo internal policy names in provider-facing prompt text.
 
 # Required JSON
 
@@ -129,29 +125,29 @@ Return exactly one JSON object. Each frame must contain exactly one visible plan
   "visual_anchor_integration_plans": [
     {{
       "frame_id": "...",
-      "carrier_type": "minor_supporting_character",
-      "anchor_function": "co_present_support",
-      "prominence": "small_side_character",
+      "carrier_type": "content_bound_ip_actor",
+      "anchor_function": "content_bound_participant",
+      "prominence": "content_participant",
       "style_relation": "blended",
       "placement": "specific physical location inside the scene",
-      "support_anchor": "foreground ground, floor, roadside, desk edge, room corner, beside source subject, or a real scene object",
-      "contact_relation": "physically standing, sitting, lying, leaning, or integrated with the support anchor",
-      "interaction_target": "scene object or subject it supports",
-      "occlusion_relation": "main subject remains readable",
-      "visual_weight_clause": "visible but subordinate to the source subject",
-      "image_prompt_clause": "configured identity visibly integrated into the carrier",
-      "integrated_scene_prompt": "Final text-to-image prompt that visibly includes the configured identity and preserves source intent.",
-      "integration_strategy": "supporting_integration",
-      "manifestation_form": "small supporting character, scene-bound mark, prop, or primary protagonist when explicitly required",
+      "support_anchor": "content action area, neutral explanation space, or real scene support",
+      "contact_relation": "how the identity physically performs the planned action",
+      "interaction_target": "mechanism, model, weight, map, path, bridge, filter, or other content target",
+      "occlusion_relation": "main article subjects remain readable and are not replaced",
+      "visual_weight_clause": "readable supporting participant, not dominant",
+      "image_prompt_clause": "configured identity visibly performs the content action in provider-facing visual language",
+      "integrated_scene_prompt": "final text-to-image prompt that visibly includes the configured identity and preserves source intent",
+      "integration_strategy": "content_bound_participation",
+      "manifestation_form": "content-bound participant, small supporting character, scene-bound mark, or primary protagonist when explicitly required",
       "manifestation_location": "specific physical location inside the scene",
       "manifestation_visibility": "clear",
-      "manifestation_relationship": "supports source intent without replacing it unless subject_replacement is required",
+      "manifestation_relationship": "supports source intent without replacing protected subjects unless subject_replacement is required",
       "scene_coherence_score": 9,
       "disruption_risk": 1,
       "identity_preservation_score": 9,
-      "ip_duty_preset": "evidence_curator",
-      "action_verb": "sorts",
-      "scene_binding": "physically interacts with the paper card or support object",
+      "ip_duty_preset": "guide_explainer",
+      "action_verb": "arranges",
+      "scene_binding": "physically interacts with the content model",
       "presentation_form": "functional_actor",
       "channel_identity_removal_test": "removing the identity weakens channel recognition or frame participation",
       "reason": "mandatory integration"

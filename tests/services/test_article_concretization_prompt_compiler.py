@@ -58,6 +58,6 @@ def test_enabled_signature_is_small_line_art_not_real_participant() -> None:
         }
     )
 
-    assert "max 18% image area" in bundle.positive_prompt
-    assert "not photorealistic" in bundle.positive_prompt
+    assert "within about 18% of the image area" in bundle.positive_prompt
+    assert "photorealistic mascot" in bundle.negative_prompt
     assert "real in-scene participant" not in bundle.positive_prompt

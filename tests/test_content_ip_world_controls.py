@@ -170,9 +170,14 @@ def test_render_content_series_visual_signature_controls_returns_selected_ip_pay
         "series_visual_signature_expression_mode": "auto",
         "series_visual_signature_structure_mode": "auto",
         "series_visual_signature_participation_mode": "auto",
-        "series_visual_signature_mode": "auto",
+        "series_visual_signature_mode": "supporting_integration",
         "series_visual_signature_consistency_mode": "off",
-        "effective_series_visual_signature_mode": "auto",
+        "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
+        "series_visual_signature_enforcement": "soft",
+        "series_visual_signature_fallback_enabled": True,
+        "series_visual_signature_fallback_mode": "auto_repair",
+        "series_visual_signature_min_visibility": "clear",
+        "effective_series_visual_signature_mode": "supporting_integration",
         "generation_world_hint": "Manual request world.",
     }
     assert fake_ui.session_state["content_ip_profile_world_hint"] == "Friendly guide world."
@@ -492,9 +497,14 @@ def test_build_content_ip_world_payload_uses_formal_contract_only():
         "series_visual_signature_expression_mode": "auto",
         "series_visual_signature_structure_mode": "auto",
         "series_visual_signature_participation_mode": "auto",
-        "series_visual_signature_mode": "auto",
+        "series_visual_signature_mode": "supporting_integration",
         "series_visual_signature_consistency_mode": "off",
-        "effective_series_visual_signature_mode": "auto",
+        "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
+        "series_visual_signature_enforcement": "soft",
+        "series_visual_signature_fallback_enabled": True,
+        "series_visual_signature_fallback_mode": "auto_repair",
+        "series_visual_signature_min_visibility": "clear",
+        "effective_series_visual_signature_mode": "supporting_integration",
         "generation_world_hint": "script world",
     }
 

@@ -1,5 +1,6 @@
 from pixelle_video.models.asset_bible import IPProfile, IPRenderingStyle
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
+from pixelle_video.models.visual_anchor_planning import AnchorCarrierType, AnchorFunction
 from pixelle_video.services.visual_anchor_placement_planner import VisualAnchorPlacementPlanner
 
 
@@ -14,7 +15,7 @@ def _profile() -> IPProfile:
     )
 
 
-def test_visual_anchor_placement_uses_background_signature_for_named_comparison_subjects():
+def test_visual_anchor_placement_uses_content_bound_participant_for_named_comparison_subjects():
     brief = BaseVisualBrief(
         frame_id="f1",
         core_message="英雄对比",
@@ -28,11 +29,12 @@ def test_visual_anchor_placement_uses_background_signature_for_named_comparison_
     )
 
     assert plan.visible
-    assert plan.metadata["ip_duty_preset"] == "background_signature"
-    assert plan.anchor_function.value == "material_signature"
+    assert plan.anchor_function is AnchorFunction.CONTENT_BOUND_PARTICIPANT
+    assert plan.anchor_carrier_type is AnchorCarrierType.CONTENT_BOUND_IP_ACTOR
+    assert plan.metadata["content_relation_type"] == "content_bound"
 
 
-def test_visual_anchor_placement_outputs_material_signature_for_safe_book_surface():
+def test_visual_anchor_placement_outputs_content_bound_action_for_safe_book_surface():
     brief = BaseVisualBrief(
         frame_id="f1",
         core_message="书籍介绍",
@@ -48,7 +50,9 @@ def test_visual_anchor_placement_outputs_material_signature_for_safe_book_surfac
 
     assert plan.visible
     assert "蓝色领结" in plan.image_prompt_clause
-    assert "压印" in plan.image_prompt_clause
+    assert plan.anchor_function is AnchorFunction.CONTENT_BOUND_PARTICIPANT
+    assert plan.anchor_carrier_type.value.startswith("content_bound_")
+    assert "可见参与者" in plan.image_prompt_clause
     assert "视觉锚点" not in plan.image_prompt_clause
     assert "IP角色" not in plan.image_prompt_clause
     assert "%" not in plan.image_prompt_clause

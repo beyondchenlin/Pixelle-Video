@@ -96,6 +96,7 @@ def test_build_asset_bible_draft_payload_from_response_strips_response_only_fiel
         "variable_slots": ["pose"],
         "semantic_boundary": ["do not replace landmark"],
         "negative_constraints": ["no extra text"],
+        "forbidden_elements": ["legacy field"],
         "color_palette": {"tie": {"prompt": "bright blue bow"}},
         "image_text_palette": {"title": {"prompt": "ink title"}},
         "visible_text_whitelist": ["Chang Le Gate"],

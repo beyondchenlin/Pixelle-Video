@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceRecordingError
+from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_service import LLMService
 
@@ -193,7 +193,7 @@ async def test_llm_service_records_successful_text_calls_at_gateway(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_llm_service_propagates_trace_recorder_failure_after_provider_success(monkeypatch):
+async def test_llm_service_continues_when_trace_recorder_fails_after_provider_success(monkeypatch):
     fake_client, create_recorder = _fake_client(
         base_url="https://api.deepseek.com/v1",
         content="plain answer",
@@ -206,22 +206,20 @@ async def test_llm_service_propagates_trace_recorder_failure_after_provider_succ
         trace_id_factory=lambda: "trace_store_failure",
     )
 
-    with pytest.raises(LLMTraceRecordingError, match="Failed to record LLM interaction trace") as exc_info:
-        await service(
-            prompt="Explain atomic habits",
-            model="deepseek-chat",
-            trace_context=LLMTraceContext(
-                workspace_id="workspace_1",
-                task_id="task_123",
-                operation="script_generation",
-                stage="stage1a",
-            ),
-            trace_recorder=trace_recorder,
-        )
+    result = await service(
+        prompt="Explain atomic habits",
+        model="deepseek-chat",
+        trace_context=LLMTraceContext(
+            workspace_id="workspace_1",
+            task_id="task_123",
+            operation="script_generation",
+            stage="stage1a",
+        ),
+        trace_recorder=trace_recorder,
+    )
 
+    assert result == "plain answer"
     assert len(create_recorder.calls) == 1
-    assert isinstance(exc_info.value.__cause__, RuntimeError)
-    assert "raw payload store unavailable" in str(exc_info.value.__cause__)
 
 
 @pytest.mark.asyncio

@@ -46,3 +46,16 @@ def test_fallback_mode_can_request_default_signature():
 
     assert policy.fallback_mode is SeriesVisualSignatureFallbackMode.DEFAULT_SIGNATURE
     assert policy.fallback_enabled is True
+
+
+def test_fallback_enabled_false_normalizes_mode_to_disabled():
+    policy = SeriesVisualSignaturePresentationPolicy.from_mapping(
+        {
+            "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
+            "series_visual_signature_fallback_enabled": "false",
+        }
+    )
+
+    assert policy.fallback_enabled is False
+    assert policy.fallback_mode is SeriesVisualSignatureFallbackMode.DISABLED
+    assert policy.to_generation_dict()["series_visual_signature_fallback_mode"] == "disabled"

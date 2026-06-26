@@ -53,7 +53,9 @@ def test_mandatory_compiler_never_suppresses_and_preserves_identity():
     assert plan.anchor_carrier_type is not AnchorCarrierType.SUPPRESSED
     assert "戴黑色墨镜" in plan.image_prompt_clause
     assert not policy.contains_forbidden_final_prompt_text(plan.image_prompt_clause)
-    assert plan.metadata["ip_duty_preset"] == "operator_demonstrator"
+    assert plan.anchor_function is AnchorFunction.CONTENT_BOUND_PARTICIPANT
+    assert plan.metadata["content_relation_type"] == "content_bound"
+    assert plan.metadata["content_bound_ip_presence_plan"]["participation_mechanism"]
 
 
 def test_projector_fails_when_mandatory_anchor_is_missing():
@@ -71,7 +73,7 @@ def test_projector_keeps_anchor_clause_in_final_prompt():
         frame_id="frame_001",
         base_visual_brief=_brief(),
         anchor_profile=_profile(),
-        duty_payload={"frame_id": "frame_001", "ip_duty_preset": IPDutyPreset.BACKGROUND_SIGNATURE.value},
+        duty_payload={"frame_id": "frame_001", "ip_duty_preset": IPDutyPreset.OPERATOR_DEMONSTRATOR.value},
         policy=policy,
     )
     rendered = ProviderPromptProjector().project(

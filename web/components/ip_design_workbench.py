@@ -39,6 +39,10 @@ from web.utils.streamlit_helpers import (
 Translate = Callable[..., str]
 
 
+def _session_state(ui):
+    return getattr(ui, "session_state", st.session_state)
+
+
 def render_ip_design_workbench(
     *,
     ip_design_client,
@@ -244,7 +248,7 @@ def _render_ip_profile_tab(
 
     def _on_ip_profile_change():
         _clear_ip_form_session_state(ui)
-        st.session_state["_form_populated"] = False
+        _session_state(ui)["_form_populated"] = False
 
     selected_ip_id = ui.selectbox(
         translate("ip_design.asset_bible.ip_profile"),
@@ -259,16 +263,21 @@ def _render_ip_profile_tab(
     else:
         ip_profile_dict = _find_ip_profile(selected_asset_bible, selected_ip_id)
 
-    if ip_profile_dict and not st.session_state.get("_form_populated"):
+    session_state = _session_state(ui)
+    if ip_profile_dict and not session_state.get("_form_populated"):
         ip_profile_draft = _to_ip_profile_draft(ip_profile_dict)
-        populate_form_from_model(ip_profile_draft, IPSessionKeys.FORM)
-        st.session_state[IPSessionKeys.FORM.color_palette] = _read_color_palette_prompt(
+        populate_form_from_model(
+            ip_profile_draft,
+            IPSessionKeys.FORM,
+            session_state=session_state,
+        )
+        session_state[IPSessionKeys.FORM.color_palette] = _read_color_palette_prompt(
             ip_profile_dict.get("color_palette")
         )
-        st.session_state[IPSessionKeys.FORM.role_presets] = "\n".join(
+        session_state[IPSessionKeys.FORM.role_presets] = "\n".join(
             text_list(ip_profile_dict.get("role_presets"))
         )
-        st.session_state["_form_populated"] = True
+        session_state["_form_populated"] = True
 
     # Block 1: Basic Settings
     with ui.container(border=True):
@@ -431,15 +440,20 @@ def _render_ip_profile_tab(
         translate("ip_design.asset_bible.save"),
         key="ip_design_save_asset_bible",
     ):
-        asset_bible_id_form = st.session_state.get(IPSessionKeys.ASSET_BIBLE.asset_bible_id, "")
-        series_visual_signature_profile_id_form = st.session_state.get(IPSessionKeys.FORM.series_visual_signature_profile_id, "")
-        ip_name_form = st.session_state.get(IPSessionKeys.FORM.name, "")
+        session_state = _session_state(ui)
+        asset_bible_id_form = session_state.get(IPSessionKeys.ASSET_BIBLE.asset_bible_id, "") or asset_bible_id
+        series_visual_signature_profile_id_form = session_state.get(IPSessionKeys.FORM.series_visual_signature_profile_id, "")
+        ip_name_form = session_state.get(IPSessionKeys.FORM.name, "")
         if not all(v.strip() for v in (asset_bible_id_form, series_visual_signature_profile_id_form, ip_name_form)):
             ui.error(translate("ip_design.asset_bible.missing_required"))
             return
 
         # Build model from form for simple fields
-        draft = build_model_from_form(IPProfileDraft, IPSessionKeys.FORM)
+        draft = build_model_from_form(
+            IPProfileDraft,
+            IPSessionKeys.FORM,
+            session_state=session_state,
+        )
         ip_profile_save = draft.model_dump()
 
         # Carry over carrier fields from original data
@@ -456,13 +470,13 @@ def _render_ip_profile_tab(
                 ip_profile_save[field_name] = first_text(raw) if raw else ""
 
         # Patch role_presets (newline-split from text area)
-        raw_role_presets = st.session_state.get(IPSessionKeys.FORM.role_presets, "")
+        raw_role_presets = session_state.get(IPSessionKeys.FORM.role_presets, "")
         ip_profile_save["role_presets"] = [
             s.strip() for s in raw_role_presets.splitlines() if s.strip()
         ]
 
         # Patch color_palette
-        raw_color_rules = st.session_state.get(IPSessionKeys.FORM.color_palette, "")
+        raw_color_rules = session_state.get(IPSessionKeys.FORM.color_palette, "")
         existing_color_palette = ip_profile_dict.get("color_palette", {})
         ip_profile_save["color_palette"] = build_color_palette_prompt_entries(
             existing_color_palette, raw_color_rules,
@@ -575,22 +589,23 @@ def _render_scene_cast_tab(
                 translate("ip_design.scene_cast.save"),
                 key="ip_design_save_scene_cast",
             ):
-                scene_cast_id = st.session_state.get(IPSessionKeys.SCENE_CAST.scene_cast_id, "")
-                storyboard_plan_id = st.session_state.get(IPSessionKeys.SCENE_CAST.storyboard_plan_id, "")
-                frame_id = st.session_state.get(IPSessionKeys.SCENE_CAST.frame_id, "")
+                session_state = _session_state(ui)
+                scene_cast_id = session_state.get(IPSessionKeys.SCENE_CAST.scene_cast_id, "")
+                storyboard_plan_id = session_state.get(IPSessionKeys.SCENE_CAST.storyboard_plan_id, "")
+                frame_id = session_state.get(IPSessionKeys.SCENE_CAST.frame_id, "")
                 if not all(v.strip() for v in (scene_cast_id, storyboard_plan_id, frame_id)):
                     ui.error(translate("ip_design.scene_cast.missing_required"))
                 else:
                     payload = {
                         "storyboard_plan_id": storyboard_plan_id,
                         "frame_id": frame_id,
-                        "character_ids": split_csv(st.session_state.get(IPSessionKeys.SCENE_CAST.character_ids, "")),
-                        "scene_id": st.session_state.get(IPSessionKeys.SCENE_CAST.scene_id, ""),
-                        "prop_ids": split_csv(st.session_state.get(IPSessionKeys.SCENE_CAST.prop_ids, "")),
-                        "style_id": st.session_state.get(IPSessionKeys.SCENE_CAST.style_id, ""),
+                        "character_ids": split_csv(session_state.get(IPSessionKeys.SCENE_CAST.character_ids, "")),
+                        "scene_id": session_state.get(IPSessionKeys.SCENE_CAST.scene_id, ""),
+                        "prop_ids": split_csv(session_state.get(IPSessionKeys.SCENE_CAST.prop_ids, "")),
+                        "style_id": session_state.get(IPSessionKeys.SCENE_CAST.style_id, ""),
                         "continuity_notes": [
                             s.strip()
-                            for s in st.session_state.get(IPSessionKeys.SCENE_CAST.continuity_notes, "").splitlines()
+                            for s in session_state.get(IPSessionKeys.SCENE_CAST.continuity_notes, "").splitlines()
                             if s.strip()
                         ],
                     }
@@ -707,6 +722,7 @@ def _render_asset_bible_preset_import(
             project_id=project_id,
             preset_id=selected_preset_id,
             asset_bible_id=import_asset_bible_id,
+            conflict_policy="overwrite",
         )
     except Exception:
         ui.error(translate("ip_design.asset_bible.import_failed"))
@@ -990,7 +1006,7 @@ def _render_select_or_custom(
 
     if selected == custom_value:
         return keyed_text_input(ui, label, key=key, value=current_value if current_value not in options else "")
-    st.session_state[key] = selected
+    _session_state(ui)[key] = selected
     return selected
 
 

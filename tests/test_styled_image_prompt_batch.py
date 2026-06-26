@@ -1003,7 +1003,21 @@ async def test_generate_styled_image_prompt_batch_ignores_stale_ip_adaptation_wh
 
 
 @pytest.mark.asyncio
-async def test_generate_styled_image_prompt_batch_does_not_apply_ip_chain_to_video(monkeypatch):
+async def test_generate_styled_image_prompt_batch_rejects_ip_chain_for_video(monkeypatch):
+    with pytest.raises(ValueError, match="requires image media prompts"):
+        await generate_styled_image_prompt_batch(
+            llm_service=object(),
+            narrations=["frame one"],
+            image_config={},
+            media_type="video",
+            storyboard_plan=_storyboard_plan(),
+            series_visual_signature_enabled=True,
+            ip_profile=_ip_profile(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_does_not_apply_disabled_ip_chain_to_video(monkeypatch):
     captured = {}
 
     async def fake_generate_video_prompts(*args, **kwargs):
@@ -1032,7 +1046,7 @@ async def test_generate_styled_image_prompt_batch_does_not_apply_ip_chain_to_vid
         image_config={},
         media_type="video",
         storyboard_plan=_storyboard_plan(),
-        series_visual_signature_enabled=True,
+        series_visual_signature_enabled=False,
         ip_profile=_ip_profile(),
         prompt_contexts=[
             {

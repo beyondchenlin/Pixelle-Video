@@ -5,10 +5,34 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
+from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.services.visual_signature_clause_renderer import (
     render_visual_anchor_plan_clause,
     render_visual_signature_candidate_clause,
 )
+
+
+def _legacy_policy() -> VisualSignaturePolicy:
+    return VisualSignaturePolicy(
+        version="visual_signature_policy.v1_legacy_visual_mark",
+        coverage_mode="sparse",
+        suppress_allowed=True,
+        fallback_strategy="inject_safe_carrier",
+        projection_failure="allow_anchor_free",
+        require_concrete_identity=False,
+        allowed_visible_carrier_types=(
+            "bookplate_or_stamp",
+            "printed_mark",
+            "embossed_mark",
+            "engraved_mark",
+            "surface_graphic",
+            "decorative_object",
+            "wearable_symbol",
+            "small_supporting_prop",
+            "minor_supporting_character",
+        ),
+        final_prompt_forbidden_terms=(),
+    )
 
 
 def test_bookplate_clause_preserves_dynamic_dog_identity_from_metadata():
@@ -31,7 +55,7 @@ def test_bookplate_clause_preserves_dynamic_dog_identity_from_metadata():
         },
     )
 
-    clause = render_visual_anchor_plan_clause(plan)
+    clause = render_visual_anchor_plan_clause(plan, policy=_legacy_policy())
 
     assert "斑点狗" in clause
     assert "黑色墨镜" in clause
@@ -45,6 +69,7 @@ def test_surface_graphic_clause_preserves_dynamic_identity_from_source_text_fall
         support_anchor="the mirror dividing the two scenes",
         placement="on the mirror surface",
         source_text="在镜子表面有一个带着黑色墨镜的斑点狗作为微妙的图形。",
+        policy=_legacy_policy(),
     )
 
     assert "斑点狗" in clause
@@ -58,6 +83,7 @@ def test_existing_rabbit_identity_still_gets_specific_label():
         carrier_type=AnchorCarrierType.PRINTED_MARK,
         support_anchor="书页",
         source_text="书页角落有蓝领结白兔的图案。",
+        policy=_legacy_policy(),
     )
 
     assert "蓝领结白兔" in clause

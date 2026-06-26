@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Literal
 
+from pixelle_video.models.content_bound_ip import IPParticipationMechanism
 from pixelle_video.models.ip_duty import (
     IPDutyPlan,
     IPDutyPreset,
@@ -481,6 +482,13 @@ class FrameVisualPlan:
     forbidden_losses: Sequence[Any] = ()
     evidence_refs: Sequence[Any] = ()
     visible_text_policy: str = "no_visible_text"
+    cognitive_anchor: str = ""
+    physical_metaphor: str = ""
+    scene_arena: str = ""
+    ip_action_affordance: str = ""
+    forbidden_ip_forms: Sequence[Any] = ()
+    content_bound_ip_ready: bool = False
+    serious_content_strategy: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_id", _require_text(self.frame_id, "frame_id"))
@@ -493,6 +501,13 @@ class FrameVisualPlan:
         object.__setattr__(self, "forbidden_losses", _text_tuple(self.forbidden_losses))
         object.__setattr__(self, "evidence_refs", _text_tuple(self.evidence_refs))
         object.__setattr__(self, "visible_text_policy", _optional_text(self.visible_text_policy) or "no_visible_text")
+        object.__setattr__(self, "cognitive_anchor", _optional_text(self.cognitive_anchor))
+        object.__setattr__(self, "physical_metaphor", _optional_text(self.physical_metaphor))
+        object.__setattr__(self, "scene_arena", _optional_text(self.scene_arena))
+        object.__setattr__(self, "ip_action_affordance", _optional_text(self.ip_action_affordance))
+        object.__setattr__(self, "forbidden_ip_forms", _text_tuple(self.forbidden_ip_forms))
+        object.__setattr__(self, "content_bound_ip_ready", _optional_bool(self.content_bound_ip_ready, default=False))
+        object.__setattr__(self, "serious_content_strategy", _optional_text(self.serious_content_strategy))
 
     @classmethod
     def from_mapping(cls, source: Mapping[str, Any]) -> "FrameVisualPlan":
@@ -507,6 +522,13 @@ class FrameVisualPlan:
             forbidden_losses=source.get("forbidden_losses") or (),
             evidence_refs=source.get("evidence_refs") or (),
             visible_text_policy=source.get("visible_text_policy") or "no_visible_text",
+            cognitive_anchor=source.get("cognitive_anchor") or "",
+            physical_metaphor=source.get("physical_metaphor") or "",
+            scene_arena=source.get("scene_arena") or "",
+            ip_action_affordance=source.get("ip_action_affordance") or source.get("ip_affordance") or "",
+            forbidden_ip_forms=source.get("forbidden_ip_forms") or (),
+            content_bound_ip_ready=source.get("content_bound_ip_ready") or False,
+            serious_content_strategy=source.get("serious_content_strategy") or "",
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -521,6 +543,13 @@ class FrameVisualPlan:
             "forbidden_losses": list(self.forbidden_losses),
             "evidence_refs": list(self.evidence_refs),
             "visible_text_policy": self.visible_text_policy,
+            "cognitive_anchor": self.cognitive_anchor,
+            "physical_metaphor": self.physical_metaphor,
+            "scene_arena": self.scene_arena,
+            "ip_action_affordance": self.ip_action_affordance,
+            "forbidden_ip_forms": list(self.forbidden_ip_forms),
+            "content_bound_ip_ready": self.content_bound_ip_ready,
+            "serious_content_strategy": self.serious_content_strategy,
         }
 
 
@@ -544,6 +573,14 @@ class FrameIPFusionPlan:
     fallback_presentation: IPPresentationForm | str = IPPresentationForm.EMBEDDED_MARK
     semantic_removal_test: str = ""
     channel_identity_removal_test: str = ""
+    ip_participation_mechanism: IPParticipationMechanism | str = IPParticipationMechanism.EXPLANATION_DIRECTOR
+    cognitive_anchor: str = ""
+    physical_metaphor: str = ""
+    content_relation_type: str = "content_bound"
+    decorative_risk_score: float = 0.0
+    rewrite_required: bool = False
+    rewrite_instruction: str = ""
+    content_bound_ip_presence_plan: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_id", _require_text(self.frame_id, "frame_id"))
@@ -581,6 +618,14 @@ class FrameIPFusionPlan:
         object.__setattr__(self, "fallback_presentation", duty.fallback_presentation)
         object.__setattr__(self, "semantic_removal_test", duty.semantic_removal_test)
         object.__setattr__(self, "channel_identity_removal_test", duty.channel_identity_removal_test)
+        object.__setattr__(self, "ip_participation_mechanism", IPParticipationMechanism.from_value(self.ip_participation_mechanism))
+        object.__setattr__(self, "cognitive_anchor", _optional_text(self.cognitive_anchor))
+        object.__setattr__(self, "physical_metaphor", _optional_text(self.physical_metaphor))
+        object.__setattr__(self, "content_relation_type", _optional_text(self.content_relation_type) or "content_bound")
+        object.__setattr__(self, "decorative_risk_score", _score(self.decorative_risk_score, "decorative_risk_score"))
+        object.__setattr__(self, "rewrite_required", _optional_bool(self.rewrite_required, default=False))
+        object.__setattr__(self, "rewrite_instruction", _optional_text(self.rewrite_instruction))
+        object.__setattr__(self, "content_bound_ip_presence_plan", dict(self.content_bound_ip_presence_plan or {}))
 
     @classmethod
     def from_mapping(cls, source: Mapping[str, Any]) -> "FrameIPFusionPlan":
@@ -606,6 +651,14 @@ class FrameIPFusionPlan:
             fallback_presentation=source.get("fallback_presentation") or IPPresentationForm.EMBEDDED_MARK,
             semantic_removal_test=source.get("semantic_removal_test") or source.get("removal_test") or "",
             channel_identity_removal_test=source.get("channel_identity_removal_test") or "",
+            ip_participation_mechanism=source.get("ip_participation_mechanism") or source.get("participation_mechanism") or IPParticipationMechanism.EXPLANATION_DIRECTOR,
+            cognitive_anchor=source.get("cognitive_anchor") or "",
+            physical_metaphor=source.get("physical_metaphor") or "",
+            content_relation_type=source.get("content_relation_type") or "content_bound",
+            decorative_risk_score=source.get("decorative_risk_score") or 0.0,
+            rewrite_required=source.get("rewrite_required") or False,
+            rewrite_instruction=source.get("rewrite_instruction") or "",
+            content_bound_ip_presence_plan=source.get("content_bound_ip_presence_plan") or {},
         )
 
     @classmethod
@@ -649,6 +702,14 @@ class FrameIPFusionPlan:
             fallback_presentation=duty.fallback_presentation,
             semantic_removal_test=duty.semantic_removal_test,
             channel_identity_removal_test=duty.channel_identity_removal_test,
+            ip_participation_mechanism=IPParticipationMechanism.from_value(duty.duty_preset.value),
+            cognitive_anchor="",
+            physical_metaphor="",
+            content_relation_type="content_bound",
+            decorative_risk_score=0.0,
+            rewrite_required=False,
+            rewrite_instruction="",
+            content_bound_ip_presence_plan={},
         )
 
     def to_dict(self) -> dict[str, JSONValue]:
@@ -671,6 +732,14 @@ class FrameIPFusionPlan:
             "fallback_presentation": self.fallback_presentation.value,
             "semantic_removal_test": self.semantic_removal_test,
             "channel_identity_removal_test": self.channel_identity_removal_test,
+            "ip_participation_mechanism": self.ip_participation_mechanism.value,
+            "cognitive_anchor": self.cognitive_anchor,
+            "physical_metaphor": self.physical_metaphor,
+            "content_relation_type": self.content_relation_type,
+            "decorative_risk_score": self.decorative_risk_score,
+            "rewrite_required": self.rewrite_required,
+            "rewrite_instruction": self.rewrite_instruction,
+            "content_bound_ip_presence_plan": dict(self.content_bound_ip_presence_plan or {}),
         }
 
 
@@ -764,6 +833,20 @@ def _optional_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value.value if isinstance(value, Enum) else value).strip()
+
+
+def _optional_bool(value: Any, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"1", "true", "yes", "on", "enabled"}:
+            return True
+        if text in {"0", "false", "no", "off", "disabled"}:
+            return False
+    return bool(value)
 
 
 def _optional_int(value: Any, field_name: str) -> int | None:

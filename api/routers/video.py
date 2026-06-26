@@ -173,6 +173,11 @@ def build_video_generation_params(
         "series_visual_signature_participation_mode",
         "series_visual_signature_mode",
         "series_visual_signature_consistency_mode",
+        "series_visual_signature_presentation_mode",
+        "series_visual_signature_enforcement",
+        "series_visual_signature_fallback_enabled",
+        "series_visual_signature_fallback_mode",
+        "series_visual_signature_min_visibility",
     ):
         value = getattr(request_body, key)
         if value is not None:

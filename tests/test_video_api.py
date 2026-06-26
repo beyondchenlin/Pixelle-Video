@@ -388,6 +388,30 @@ def test_build_video_generation_params_copies_series_visual_signature_controls()
     assert params["series_visual_signature_enabled"] is True
     assert params["series_visual_signature_asset_bible_id"] == "bible_demo"
     assert params["series_visual_signature_profile_id"] == "ip_main"
+    assert "series_visual_signature_presentation_mode" not in params
+
+
+def test_build_video_generation_params_copies_explicit_presentation_controls():
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            series_visual_signature_enabled=True,
+            series_visual_signature_asset_bible_id="bible_demo",
+            series_visual_signature_profile_id="ip_main",
+            series_visual_signature_presentation_mode="legacy_visual_mark",
+            series_visual_signature_enforcement="strict",
+            series_visual_signature_fallback_enabled=False,
+            series_visual_signature_fallback_mode="disabled",
+            series_visual_signature_min_visibility="prominent",
+        ),
+        request_id="req_test",
+    )
+
+    assert params["series_visual_signature_presentation_mode"] == "legacy_visual_mark"
+    assert params["series_visual_signature_enforcement"] == "strict"
+    assert params["series_visual_signature_fallback_enabled"] is False
+    assert params["series_visual_signature_fallback_mode"] == "disabled"
+    assert params["series_visual_signature_min_visibility"] == "prominent"
 
 
 def test_build_video_generation_params_copies_v44_planning_controls():
@@ -883,10 +907,11 @@ def test_video_generate_request_rejects_non_standard_1920x720_output():
 
 
 def test_video_generate_request_accepts_size_contract_default_params():
-    params = GenerationSizeContract.default().to_params()
+    default_size = GenerationSizeContract.default()
+    params = default_size.to_params()
     request = VideoGenerateRequest(text="demo", **params)
 
-    assert request.video_resolution_preset == "landscape_full_hd"
+    assert request.video_resolution_preset == default_size.video_resolution_preset
 
 
 def test_build_video_generation_params_preserves_legacy_media_only_canvas_size():
@@ -1368,6 +1393,8 @@ def test_video_generate_request_rejects_unsupported_tts_audio_strategy(tts_audio
 
 @pytest.mark.asyncio
 async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monkeypatch, tmp_path):
+    expected_size = GenerationSizeContract.from_params({"video_orientation": "portrait"}).to_params()
+
     class _FakeFrameGenerator:
         def __init__(self, template_path):
             self.template_path = template_path
@@ -1451,15 +1478,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "script_target_words": 180,
             "min_image_prompt_words": 30,
             "max_image_prompt_words": 60,
-            "canvas_width": 1080,
-            "canvas_height": 1920,
-            "media_width": 1920,
-            "media_height": 1080,
-            "video_orientation": "portrait",
-            "video_resolution_preset": "portrait_full_hd",
-            "media_orientation": "landscape",
-            "media_resolution_preset": "2k",
-            "sync_media_size_to_canvas": False,
+            **expected_size,
             "media_placement": {
                 "basis": "canvas",
                 "fit": "contain",

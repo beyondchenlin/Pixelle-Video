@@ -42,7 +42,7 @@ class FakeTaskManager:
 
 
 def build_request() -> VideoGenerateRequest:
-    return VideoGenerateRequest(text="demo")
+    return VideoGenerateRequest(text="demo", tts_inference_mode="local")
 
 
 @pytest.mark.asyncio

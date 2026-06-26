@@ -15,6 +15,7 @@ from pixelle_video.models.series_visual_signature_strategy import (
 )
 from pixelle_video.models.visual_expression import VisualExpressionMode
 from pixelle_video.platform_context import resolve_business_context
+from pixelle_video.utils.bool_parsing import coerce_bool
 from web.i18n import tr
 from web.state.ip_design_client import resolve_ip_design_client
 from web.utils.streamlit_helpers import first_text, list_of_dicts, text_list
@@ -36,13 +37,14 @@ def render_series_visual_signature_controls(
     asset_bible_key = _state_key(state_key_prefix, "asset_bible_id")
     profile_key = _state_key(state_key_prefix, "profile_id")
     normalized_label_prefix = first_text(label_key_prefix) or "style.ip_prompt_chain"
-    enabled = bool(
+    enabled = coerce_bool(
         ui.toggle(
             translate(f"{normalized_label_prefix}.enabled"),
-            value=bool(ui.session_state.get(enabled_key, False)),
+            value=coerce_bool(ui.session_state.get(enabled_key, False), default=False),
             key=enabled_key,
             help=translate(f"{normalized_label_prefix}.enabled_help"),
-        )
+        ),
+        default=False,
     )
     if not enabled:
         return {"series_visual_signature_enabled": False}
@@ -149,6 +151,12 @@ def render_series_visual_signature_controls(
     ui.caption(translate(f"{normalized_label_prefix}.series_visual_signature_participation_mode_help"))
     ui.caption(translate(f"{normalized_label_prefix}.series_visual_signature_mode_help"))
     ui.caption(translate(f"{normalized_label_prefix}.series_visual_signature_consistency_mode_help"))
+    presentation_payload = _render_presentation_policy_controls(
+        ui=ui,
+        translate=translate,
+        state_key_prefix=state_key_prefix,
+        label_key_prefix=normalized_label_prefix,
+    )
 
     payload = {
         "series_visual_signature_enabled": True,
@@ -159,6 +167,7 @@ def render_series_visual_signature_controls(
         "series_visual_signature_participation_mode": series_visual_signature_participation_mode,
         "series_visual_signature_mode": series_visual_signature_mode,
         "series_visual_signature_consistency_mode": series_visual_signature_consistency_mode,
+        **presentation_payload,
     }
     ip_profile_world_hint = first_text(selected_profile.get("world_hint"))
     if ip_profile_world_hint:
@@ -200,7 +209,7 @@ def resolve_selected_ip_prompt_chain_profile_summary(
     enabled_key = _state_key(state_key_prefix, "enabled")
     asset_bible_key = _state_key(state_key_prefix, "asset_bible_id")
     profile_key = _state_key(state_key_prefix, "profile_id")
-    if not bool(session_state.get(enabled_key, False)):
+    if not coerce_bool(session_state.get(enabled_key, False), default=False):
         return {}
     asset_bible = _find_mapping_item(
         [dict(item) for item in asset_bibles if isinstance(item, Mapping)],
@@ -282,8 +291,68 @@ def _select_valid_option(
     return first_text(value)
 
 
+def _render_presentation_policy_controls(
+    *,
+    ui,
+    translate: Translate,
+    state_key_prefix: str,
+    label_key_prefix: str,
+) -> dict[str, Any]:
+    presentation_options = (
+        "content_bound_mandatory_ip",
+        "visible_supporting_character",
+        "primary_character",
+        "legacy_visual_mark",
+    )
+    fallback_options = ("auto_repair", "default_signature", "disabled")
+    presentation_mode = _select_valid_option(
+        ui=ui,
+        label=translate("series_visual_signature.presentation.label"),
+        key=_state_key(state_key_prefix, "series_visual_signature_presentation_mode"),
+        options=presentation_options,
+        format_func=lambda value: translate(f"series_visual_signature.presentation.{value}"),
+    )
+    fallback_enabled = coerce_bool(
+        ui.toggle(
+            translate("series_visual_signature.fallback.enabled"),
+            value=coerce_bool(ui.session_state.get(_state_key(state_key_prefix, "series_visual_signature_fallback_enabled"), True), default=True),
+            key=_state_key(state_key_prefix, "series_visual_signature_fallback_enabled"),
+            help=translate("series_visual_signature.fallback.enabled_help"),
+        ),
+        default=True,
+    )
+    fallback_mode = _select_valid_option(
+        ui=ui,
+        label=translate("series_visual_signature.fallback.mode"),
+        key=_state_key(state_key_prefix, "series_visual_signature_fallback_mode"),
+        options=fallback_options,
+        format_func=lambda value: translate(f"series_visual_signature.fallback.{value}"),
+    )
+    strict = coerce_bool(
+        ui.toggle(
+            translate("series_visual_signature.enforcement.strict"),
+            value=coerce_bool(ui.session_state.get(_state_key(state_key_prefix, "series_visual_signature_enforcement_strict"), False), default=False),
+            key=_state_key(state_key_prefix, "series_visual_signature_enforcement_strict"),
+            help=translate("series_visual_signature.enforcement.strict_help"),
+        ),
+        default=False,
+    )
+    return {
+        "series_visual_signature_presentation_mode": presentation_mode,
+        "series_visual_signature_enforcement": "strict" if strict else "soft",
+        "series_visual_signature_fallback_enabled": fallback_enabled,
+        "series_visual_signature_fallback_mode": fallback_mode if fallback_enabled else "disabled",
+        "series_visual_signature_min_visibility": "clear",
+    }
+
+
 def _state_key(prefix: str, suffix: str) -> str:
     normalized_prefix = first_text(prefix) or "style_ip"
+    if suffix in {"enabled", "asset_bible_id", "profile_id"}:
+        if normalized_prefix == "style_ip":
+            return f"style_series_visual_signature_{suffix}"
+        if normalized_prefix == "content_ip":
+            return f"content_series_visual_signature_{suffix}"
     return f"{normalized_prefix}_{suffix}"
 
 

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from pixelle_video.models.media import MediaResult
+from pixelle_video.models.layered_template import LayeredTemplateSpec
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.prompt_trace_artifacts import (
@@ -262,7 +263,21 @@ async def test_compose_frame_html_forwards_layered_template_spec_to_materializer
         "media_width": 640,
         "media_height": 960,
         "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
-        "layers": [],
+        "layers": [
+            {
+                "id": "layer_background",
+                "type": "background",
+                "name": "Background",
+                "rect": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+                "z_index": 0,
+                "opacity": 1.0,
+                "rotation": 0.0,
+                "locked": False,
+                "enabled": True,
+                "source": None,
+                "style": {"background_color": "#FFFFFF"},
+            }
+        ],
         "metadata": {"source_kind": "user"},
     }
     processor = FrameProcessor(None)
@@ -291,7 +306,7 @@ async def test_compose_frame_html_forwards_layered_template_spec_to_materializer
         output_path=str(tmp_path / "composed.png"),
     )
 
-    assert captured["layered_template_spec"] == spec
+    assert captured["layered_template_spec"] == LayeredTemplateSpec.from_dict(spec).to_dict()
     assert captured["caption_text"] == "caption"
     assert captured["text_rendering"] == {}
 

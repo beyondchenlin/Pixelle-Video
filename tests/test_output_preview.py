@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from pixelle_video.models.progress import ProgressI18nMessage
+from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.video_generation_contract import (
     ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
 )
@@ -2467,10 +2468,11 @@ def test_render_layout_preview_workbench_section_renders_empty_state_without_spe
 
     assert captured["spec_payload"] is None
     default_summary = captured["default_layout_summary"]
-    assert default_summary.canvas_width == 1080
-    assert default_summary.canvas_height == 1920
-    assert default_summary.media_width == 1920
-    assert default_summary.media_height == 1080
+    expected_size = GenerationSizeContract.from_params({"video_orientation": "portrait"})
+    assert default_summary.canvas_width == expected_size.canvas_width
+    assert default_summary.canvas_height == expected_size.canvas_height
+    assert default_summary.media_width == expected_size.media_width
+    assert default_summary.media_height == expected_size.media_height
     assert default_summary.media_placement.to_dict() == {
         "scale_percent": 100,
         "offset_x": 0,

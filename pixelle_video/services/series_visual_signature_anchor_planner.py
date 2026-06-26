@@ -42,6 +42,9 @@ from pixelle_video.services.visual_signature_fallback_planner import (
     merge_visual_anchor_plans_by_frame,
 )
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
+from pixelle_video.services.visual_signature_policy_resolver import (
+    policy_for_presentation_mode,
+)
 from pixelle_video.services.visual_story_context_budget import compact_visual_anchor_contexts
 
 
@@ -95,6 +98,7 @@ class VisualAnchorIntegrationPlanner:
         presentation_policy = self.presentation_policy or SeriesVisualSignaturePresentationPolicy.from_strategy(
             self.series_visual_signature_strategy,
         )
+        policy = policy_for_presentation_mode(policy, presentation_policy)
         role_strategy = presentation_policy.strategy_controls()
         identity_kernel = build_visual_identity_kernel(anchor_profile)
         frame_ids = [brief.frame_id for brief in briefs]
@@ -178,7 +182,11 @@ class VisualAnchorIntegrationPlanner:
                 attempt=attempt + 1,
                 errors=errors[:24],
                 presentation_policy=presentation_policy,
-                instruction="Rewrite every failed frame as one flat visible plan object. Preserve accepted frames. For visible_supporting_character, use a real small supporting character on ground/floor/roadside/beside the main subject.",
+                instruction=(
+                    "Rewrite every failed frame as one flat visible content-bound plan object. Use action_executor, reader_proxy, observation_gateway, system_component, conflict_participant, scale_reference, explanation_director, or transformation_medium. Do not use cards, labels, bookmarks, stickers, stamps, bookplates, surface marks, or small carrier props."
+                    if policy.is_content_bound_mandatory
+                    else "Rewrite every failed frame as one flat visible plan object. Preserve accepted frames. For visible_supporting_character, use a real small supporting character on ground/floor/roadside/beside the main subject."
+                ),
             )
             logger.warning(
                 "series visual signature integration rejected attempt {}: {}",
@@ -200,6 +208,7 @@ class VisualAnchorIntegrationPlanner:
             anchor_profile=anchor_profile,
             presentation_policy=presentation_policy,
             identity_kernel=identity_kernel,
+            visual_signature_policy=policy,
         ).plan_failed_frames(
             base_visual_briefs=briefs,
             failed_frame_ids=missing_frame_ids,
@@ -375,12 +384,21 @@ def _anchor_profile_payload(
         "negative_constraints": list(anchor_profile.negative_constraints),
         "policy_version": policy.version,
         "presentation_policy": presentation_policy.to_prompt_policy(),
-        "guidance": [
-            "The identity must appear visibly in the final prompt.",
-            "Prefer the frame-level IP duty and presentation_policy over lower-level strategy conflicts.",
-            "If no natural carrier exists, add a small content-compatible real scene carrier.",
-            "Use only natural visual language in the final integrated prompt; do not echo internal policy or forbidden-form labels.",
-        ],
+        "guidance": (
+            [
+                "The identity must appear visibly in the final prompt as a content participant.",
+                "Use the frame-level content_bound_ip_presence_plan as the source of truth.",
+                "If no natural action slot exists, rewrite the scene around the frame physical metaphor; never add a card, label, bookmark, sticker, stamp, logo, bookplate, or surface mark.",
+                "Use only provider-facing positive visual language in the final integrated prompt.",
+            ]
+            if policy.is_content_bound_mandatory
+            else [
+                "The identity must appear visibly in the final prompt.",
+                "Prefer the frame-level IP duty and presentation_policy over lower-level strategy conflicts.",
+                "If no natural carrier exists, add a small content-compatible real scene carrier.",
+                "Use only natural visual language in the final integrated prompt; do not echo internal policy or forbidden-form labels.",
+            ]
+        ),
     }
 
 
@@ -486,6 +504,7 @@ def _placement_plan_from_raw_plan(
         identity_kernel=identity_kernel,
         presentation_policy=presentation_policy,
         ip_duty_plan=ip_duty_plan,
+        policy=policy,
     )
     projection_gate = validate_visual_anchor_projection(plan, policy=policy)
     if not projection_gate.passed:
@@ -504,13 +523,26 @@ def _candidate_to_plan(
     identity_kernel: Sequence[str] = (),
     presentation_policy: SeriesVisualSignaturePresentationPolicy | None = None,
     ip_duty_plan: Mapping[str, Any] | None = None,
+    policy: VisualSignaturePolicy | None = None,
 ) -> VisualAnchorPlacementPlan:
     prompt = _prompt_text(candidate)
     duty_plan = _resolved_ip_duty_for_candidate(candidate, ip_duty_plan, frame_id=frame_id)
     carrier_type = _enum_value(candidate.get("carrier_type"), AnchorCarrierType, AnchorCarrierType.BOOKPLATE_OR_STAMP)
     anchor_function = _enum_value(candidate.get("anchor_function"), AnchorFunction, AnchorFunction.MATERIAL_SIGNATURE)
     prominence = _enum_value(candidate.get("prominence"), AnchorProminence, AnchorProminence.EMBEDDED_MARK)
-    if role_strategy.requires_subject_replacement:
+    if policy is not None and policy.is_content_bound_mandatory:
+        mechanism = _first_text(candidate.get("ip_participation_mechanism"), candidate.get("participation_mechanism"))
+        if mechanism in {"system_component", "transformation_medium"}:
+            carrier_type = AnchorCarrierType.CONTENT_BOUND_SYSTEM_COMPONENT
+        elif mechanism == "scale_reference":
+            carrier_type = AnchorCarrierType.CONTENT_BOUND_SCALE_REFERENCE
+        elif mechanism in {"explanation_director", "observation_gateway"}:
+            carrier_type = AnchorCarrierType.CONTENT_BOUND_EXPLANATION_DIRECTOR
+        else:
+            carrier_type = AnchorCarrierType.CONTENT_BOUND_IP_ACTOR
+        anchor_function = AnchorFunction.CONTENT_BOUND_PARTICIPANT
+        prominence = AnchorProminence.CONTENT_PARTICIPANT
+    elif role_strategy.requires_subject_replacement:
         carrier_type = AnchorCarrierType.LIVING_CHARACTER
         anchor_function = AnchorFunction.PRIMARY_CARRIER
         prominence = AnchorProminence.PRIMARY_CARRIER
@@ -583,7 +615,12 @@ def _candidate_errors(
         errors.append(f"{frame_id}: prompt does not contain configured visual identity kernel")
     if role_strategy.requires_subject_replacement and not _looks_primary(candidate, combined):
         errors.append(f"{frame_id}: subject_replacement requires primary subject manifestation")
-    if role_strategy.requires_supporting_integration:
+    if policy.is_content_bound_mandatory:
+        if _has_content_free_carrier_language(combined):
+            errors.append(f"{frame_id}: content-bound IP cannot use cards, labels, bookmarks, stickers, stamps, bookplates, surface marks, or decorative carriers")
+        if not _has_content_bound_action(candidate, combined):
+            errors.append(f"{frame_id}: content-bound IP requires a visible semantic action bound to the frame metaphor")
+    elif role_strategy.requires_supporting_integration:
         if _looks_primary(candidate, combined) and not _looks_small_supporting_character(candidate, combined):
             errors.append(f"{frame_id}: supporting_integration must not replace source subject")
         if not _has_supporting_carrier(candidate, combined, presentation_policy=presentation_policy):
@@ -702,6 +739,28 @@ def _has_supporting_carrier(
     if presentation_policy.presentation_mode is SeriesVisualSignaturePresentationMode.VISIBLE_SUPPORTING_CHARACTER and _looks_small_supporting_character(candidate, lowered):
         return True
     return False
+
+
+def _has_content_free_carrier_language(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(token in lowered for token in (
+        "贴纸", "标签", "卡片", "书签", "藏书票", "印章", "表面图案", "压印", "雕刻",
+        "sticker", "label", "card", "bookmark", "bookplate", "stamp", "surface graphic", "printed mark", "badge",
+    ))
+
+
+def _has_content_bound_action(candidate: Mapping[str, Any], text: str) -> bool:
+    combined = " ".join([
+        text,
+        _first_text(candidate.get("action_verb")),
+        _first_text(candidate.get("interaction_target")),
+        _first_text(candidate.get("scene_binding")),
+        _first_text(candidate.get("contact_relation")),
+    ]).lower()
+    return any(token in combined for token in (
+        "操作", "拉动", "推动", "连接", "承受", "支撑", "衡量", "整理", "排列", "搭建", "修复", "转化", "过滤", "观察",
+        "operate", "pull", "push", "connect", "carry", "weigh", "arrange", "repair", "transform", "filter", "observe",
+    ))
 
 
 def _has_flat_candidate_fields(plan: Mapping[str, Any]) -> bool:

@@ -20,6 +20,8 @@ class AnchorFunction(str, Enum):
     EMBEDDED_MARK = "embedded_mark"
     MATERIAL_SIGNATURE = "material_signature"
     SCENE_BOUND_PROP = "scene_bound_prop"
+    CONTENT_BOUND_PARTICIPANT = "content_bound_participant"
+    CONTENT_EXPLANATION_DIRECTOR = "content_explanation_director"
     MICRO_CAMEO = "micro_cameo"
     SUPPRESSED = "suppressed"
 
@@ -44,6 +46,10 @@ class AnchorCarrierType(str, Enum):
     WEARABLE_SYMBOL = "wearable_symbol"
     SMALL_SUPPORTING_PROP = "small_supporting_prop"
     MINOR_SUPPORTING_CHARACTER = "minor_supporting_character"
+    CONTENT_BOUND_IP_ACTOR = "content_bound_ip_actor"
+    CONTENT_BOUND_SYSTEM_COMPONENT = "content_bound_system_component"
+    CONTENT_BOUND_SCALE_REFERENCE = "content_bound_scale_reference"
+    CONTENT_BOUND_EXPLANATION_DIRECTOR = "content_bound_explanation_director"
     SUPPRESSED = "suppressed"
 
 
@@ -60,6 +66,7 @@ class AnchorProminence(str, Enum):
     TINY_PROP = "tiny_prop"
     MICRO_CAMEO = "micro_cameo"
     SMALL_SIDE_CHARACTER = "small_side_character"
+    CONTENT_PARTICIPANT = "content_participant"
     PRIMARY_CARRIER = "primary_carrier"
 
 
@@ -182,7 +189,13 @@ class VisualAnchorPlacementPlan:
 def _role_slot_for_anchor_function(anchor_function: AnchorFunction) -> IPRoleSlot:
     if anchor_function is AnchorFunction.PRIMARY_CARRIER:
         return IPRoleSlot.PROTAGONIST
-    if anchor_function in {AnchorFunction.CO_PRESENT_SUPPORT, AnchorFunction.EXPLAINER_POINTER, AnchorFunction.SCENE_BOUND_PROP}:
+    if anchor_function in {
+        AnchorFunction.CO_PRESENT_SUPPORT,
+        AnchorFunction.EXPLAINER_POINTER,
+        AnchorFunction.SCENE_BOUND_PROP,
+        AnchorFunction.CONTENT_BOUND_PARTICIPANT,
+        AnchorFunction.CONTENT_EXPLANATION_DIRECTOR,
+    }:
         return IPRoleSlot.SUPPORTING
     if anchor_function in {
         AnchorFunction.ENVIRONMENTAL_SIGNATURE,
@@ -196,7 +209,7 @@ def _role_slot_for_anchor_function(anchor_function: AnchorFunction) -> IPRoleSlo
 
 def _clamped_prompt_weight(value: Any) -> float:
     try:
-        return min(float(value or 0.0), 0.35)
+        return min(float(value or 0.0), 0.55)
     except (TypeError, ValueError):
         return 0.25
 

@@ -53,6 +53,18 @@ from pixelle_video.utils.os_util import get_temp_path
 from pixelle_video.utils.template_util import parse_template_size
 
 
+def _meta_content_int(meta_attrs: list[dict[str, str]], name: str) -> int | None:
+    for attrs in meta_attrs:
+        if attrs.get("name", "").lower() != name:
+            continue
+        try:
+            value = int(attrs.get("content", "0"))
+        except ValueError:
+            return None
+        return value if value > 0 else None
+    return None
+
+
 @dataclass
 class _BrowserState:
     browser: Any
@@ -186,7 +198,10 @@ class HTMLFrameGenerator:
         Returns:
             Tuple of (width, height) or (None, None) if not found
         """
-        from bs4 import BeautifulSoup
+        try:
+            from bs4 import BeautifulSoup
+        except ModuleNotFoundError:
+            return self._parse_media_size_from_meta_without_bs4()
         
         try:
             soup = BeautifulSoup(self.template, 'html.parser')
@@ -207,6 +222,28 @@ class HTMLFrameGenerator:
         except Exception as e:
             logger.warning(f"Failed to parse media size from meta tags: {e}")
             return None, None
+
+    def _parse_media_size_from_meta_without_bs4(self) -> tuple[Optional[int], Optional[int]]:
+        """Parse the media-size meta tags without optional HTML parser dependencies."""
+        try:
+            meta_attrs = []
+            for match in re.finditer(r"<meta\b[^>]*>", self.template, flags=re.IGNORECASE):
+                attrs: dict[str, str] = {}
+                for attr in re.finditer(
+                    r"([:\w-]+)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'>/]+))",
+                    match.group(0),
+                    flags=re.IGNORECASE,
+                ):
+                    attrs[attr.group(1).lower()] = attr.group(2) or attr.group(3) or attr.group(4) or ""
+                meta_attrs.append(attrs)
+            width = _meta_content_int(meta_attrs, "template:media-width")
+            height = _meta_content_int(meta_attrs, "template:media-height")
+            if width and height:
+                logger.debug(f"Found media size in meta tags without bs4: {width}x{height}")
+                return width, height
+        except Exception as e:
+            logger.warning(f"Failed to parse media size from meta tags without bs4: {e}")
+        return None, None
     
     def get_media_size(self) -> tuple[int, int]:
         """

@@ -350,10 +350,7 @@ def test_render_style_config_comfyui_tts_shows_inline_selfhost_notice(monkeypatc
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     original_radio = fake_st.radio
 
@@ -500,10 +497,7 @@ def test_render_style_config_comfyui_tts_default_workflow_prefers_omnivoice_when
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     class _FakeTTS:
         @staticmethod
@@ -643,10 +637,7 @@ def test_render_style_config_warns_when_selected_tts_requires_reference_audio(mo
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     class _FakeTTS:
         @staticmethod
@@ -774,10 +765,7 @@ def test_render_style_config_returns_tts_duration_for_duration_workflow(monkeypa
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     class _FakeTTS:
         @staticmethod
@@ -913,10 +901,7 @@ def test_render_style_config_local_mode_preview_button_does_not_require_ref_audi
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     class _FakeMedia:
         @staticmethod
@@ -1457,10 +1442,7 @@ def test_render_style_config_disables_storyboard_for_static_templates(monkeypatc
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     original_radio = fake_st.radio
 
@@ -1582,10 +1564,7 @@ def test_render_style_config_shows_expanded_image_notice_when_template_does_not_
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     original_radio = fake_st.radio
 
@@ -1701,10 +1680,7 @@ def test_render_style_config_defaults_image_text_suppression_to_false(monkeypatc
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     original_radio = fake_st.radio
 
@@ -1825,10 +1801,7 @@ def test_render_style_config_allows_switching_storyboard_prompt_language(monkeyp
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     class _FakeMedia:
         @staticmethod
@@ -1941,10 +1914,7 @@ def test_render_style_config_does_not_apply_no_text_override_when_storyboard_dis
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     original_radio = fake_st.radio
 
@@ -2064,10 +2034,7 @@ def test_render_style_config_restores_session_image_text_choice(monkeypatch):
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     original_radio = fake_st.radio
 
@@ -2192,10 +2159,7 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     original_radio = fake_st.radio
 
@@ -2225,7 +2189,7 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     assert result["media_workflow"] == "selfhost/image_z_image_turbo_gguf.json"
     assert ("section.image", False) in fake_st.expanders
     assert fake_st.nested_expanders == []
-    assert ["orientation.portrait"] in fake_st.tab_label_sets
+    assert any("orientation.portrait" in labels for labels in fake_st.tab_label_sets)
     assert ["caption_style.tab", "title_style.tab"] in fake_st.tab_label_sets
     assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
     expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
@@ -2331,10 +2295,7 @@ def test_render_style_config_keeps_video_generation_section_expanded_by_default(
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     original_radio = fake_st.radio
 
@@ -2444,10 +2405,7 @@ def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_i
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     original_radio = fake_st.radio
 
@@ -2570,10 +2528,7 @@ def test_render_style_config_does_not_emit_ip_prompt_chain_payload(monkeypatch):
         def get_media_size(self):
             return (1080, 1920)
 
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
+    monkeypatch.setattr(style_config, "HTMLFrameGenerator", _FakeFrameGenerator)
 
     original_radio = fake_st.radio
 
@@ -2603,6 +2558,8 @@ def test_render_style_config_does_not_emit_ip_prompt_chain_payload(monkeypatch):
     assert "series_visual_signature_enabled" not in result
     assert "series_visual_signature_asset_bible_id" not in result
     assert "series_visual_signature_profile_id" not in result
+    assert "series_visual_signature_presentation_mode" not in result
+    assert "series_visual_signature_fallback_mode" not in result
     assert "style_ip_asset_bibles" not in fake_st.session_state
     assert "style_ip_profile_world_hint" not in fake_st.session_state
 

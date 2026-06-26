@@ -215,9 +215,18 @@ def _book_brief() -> BaseVisualBrief:
     )
 
 
+def _embedded_scene_mark_policy() -> SeriesVisualSignaturePresentationPolicy:
+    return SeriesVisualSignaturePresentationPolicy.from_mapping(
+        {"series_visual_signature_presentation_mode": "embedded_scene_mark"}
+    )
+
+
 def test_series_visual_signature_anchor_planner_uses_flat_typed_scene_bound_plan():
     plans = asyncio.run(
-        VisualAnchorIntegrationPlanner(llm_service=ValidSceneBoundLLM()).plan_batch(
+        VisualAnchorIntegrationPlanner(
+            llm_service=ValidSceneBoundLLM(),
+            presentation_policy=_embedded_scene_mark_policy(),
+        ).plan_batch(
             base_visual_briefs=(_book_brief(),),
             anchor_profile=_profile(),
         )
@@ -237,7 +246,10 @@ def test_series_visual_signature_anchor_planner_uses_typed_schema_and_repairs_va
     llm = TypedRepairLLM()
 
     plans = asyncio.run(
-        VisualAnchorIntegrationPlanner(llm_service=llm).plan_batch(
+        VisualAnchorIntegrationPlanner(
+            llm_service=llm,
+            presentation_policy=_embedded_scene_mark_policy(),
+        ).plan_batch(
             base_visual_briefs=(_book_brief(),),
             anchor_profile=_ascii_profile(),
         )

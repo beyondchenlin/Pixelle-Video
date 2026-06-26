@@ -15,14 +15,15 @@
 
 ## 3. 依赖分类
 
-- 模型文件：`OmniVoice-bf16` 等 OmniVoice 模型。
+- 模型文件：`OmniVoice-bf16`、`whisper-large-v3`。Longform 工作流会通过 `OmniVoiceWhisperLoader` 加载 Whisper 模型，用于参考音频转写和对齐。
 - 插件：`ComfyUI-OmniVoice`（或其他提供 OmniVoice 节点的插件）、`ComfyUI-VideoHelperSuite`。
 - Python 包：`torch`、`torchaudio`、`transformers`、`accelerate`、`safetensors`、`huggingface_hub`、`soundfile`、`librosa` 等。
 - 系统工具：Windows 下建议安装 Visual Studio C++ Build Tools。
 
 ## 4. 目标目录
 
-- ComfyUI 模型目录（根据 OmniVoice 插件配置而定，通常为 ComfyUI 的 models 目录下的子目录）
+- OmniVoice 模型目录：`E:\ComfyUIData\models\omnivoice\OmniVoice-bf16`
+- Whisper 模型目录：`E:\ComfyUIData\models\audio_encoders\whisper-large-v3`
 - 当前机器插件目录：`E:\ComfyUIData\custom_nodes\ComfyUI-OmniVoice`（以实际路径为准）
 - ComfyUI 输入目录：`E:\comfyui-venv\input`
 - 默认参考音频：`E:\comfyui-venv\input\ref_audio.wav`
@@ -32,6 +33,21 @@
 ## 5. 下载优先级
 
 根据仓库规则，模型文件默认优先使用 `ModelScope`。只有 `ModelScope` 缺少所需文件或不可用时，才回退到其他来源。
+
+### 5.1 ModelScope 模型下载
+
+```powershell
+E:\ComfyUIData\.venv\Scripts\python.exe -m pip install -U modelscope
+modelscope download --model drbaph/OmniVoice-bf16 --local_dir E:\ComfyUIData\models\omnivoice\OmniVoice-bf16
+modelscope download --model openai/whisper-large-v3 --local_dir E:\ComfyUIData\models\audio_encoders\whisper-large-v3
+```
+
+仅当 ModelScope 缺少文件或当前不可用时，才使用 Hugging Face 回退地址：
+
+```powershell
+huggingface-cli download drbaph/OmniVoice-bf16 --local-dir E:\ComfyUIData\models\omnivoice\OmniVoice-bf16
+huggingface-cli download openai/whisper-large-v3 --local-dir E:\ComfyUIData\models\audio_encoders\whisper-large-v3
+```
 
 ## 6. 安装命令
 
@@ -94,6 +110,8 @@ Pixelle 的 `model_cleanup_mode: comfyui_and_extensions` 会先调用 ComfyUI `/
 ### 验证补丁脚本
 
 ```powershell
+python -m pytest tests/test_selfhost_workflows.py -k tts_omnivoice -q
+
 # 验证补丁脚本存在
 Test-Path tools\patch_omnivoice_plugin.py
 

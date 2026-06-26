@@ -26,6 +26,7 @@ from pixelle_video.services.visual_signature_policy_loader import load_visual_si
 _FORBIDDEN_PROVIDER_TERMS = (
     "IP角色",
     "IP character",
+    "visual IP",
     "visual anchor",
     "视觉锚点",
     "source subjects",
@@ -43,6 +44,10 @@ _FORBIDDEN_PROVIDER_TERMS = (
     "non-IP",
     "non ip",
     "history-teaching",
+    "必须",
+    "不要",
+    "禁止",
+    "不能",
 )
 
 
@@ -62,7 +67,7 @@ class MandatoryIPProjectionError(ValueError):
 @dataclass(frozen=True)
 class ProviderPromptProjector:
     renderer_id: str = "provider_prompt_projector_z_image"
-    renderer_version: str = "v3_2_visual_signature_scene_bound"
+    renderer_version: str = "v4_0_content_bound_ip"
 
     def project(
         self,
@@ -79,17 +84,29 @@ class ProviderPromptProjector:
         policy = visual_signature_policy or load_visual_signature_policy()
         projection_gate = validate_visual_anchor_projection(visual_anchor_plan, policy=policy)
         anchor_clause = projection_gate.anchor_clause if projection_gate.passed else ""
+        content_bound_anchor_active = bool(
+            anchor_clause and visual_anchor_plan is not None and policy.is_content_bound_mandatory
+        )
         if policy.requires_every_frame_signature and policy.requires_repair_or_fail and not anchor_clause:
             raise MandatoryIPProjectionError(
                 f"{base_visual_brief.frame_id}: mandatory IP participation was lost before provider projection",
                 code=projection_gate.code,
             )
+        if _is_positive_only(workflow, capabilities):
+            prompt_negative_rules = (
+                _content_bound_prompt_safe_negative_rules(negative_rules)
+                if content_bound_anchor_active
+                else tuple(negative_rules)
+            )
+        else:
+            prompt_negative_rules = ()
         prompt = self._build_prompt(
             base_visual_brief=base_visual_brief,
             visual_anchor_plan=visual_anchor_plan,
             visual_anchor_clause=anchor_clause,
-            negative_rules=negative_rules if _is_positive_only(workflow, capabilities) else (),
+            negative_rules=prompt_negative_rules,
             policy=policy,
+            content_bound_anchor_active=content_bound_anchor_active,
         )
         negative_prompt = None if _is_positive_only(workflow, capabilities) else _join_rules(negative_rules)
         try:
@@ -153,12 +170,13 @@ class ProviderPromptProjector:
         visual_anchor_clause: str,
         negative_rules: Sequence[str],
         policy: VisualSignaturePolicy,
+        content_bound_anchor_active: bool,
     ) -> str:
         base_prompt = _strip_anchor_mentions_from_base_prompt(
             base_visual_brief.base_image_prompt,
             visual_anchor_plan=visual_anchor_plan,
         )
-        prompt_guards = policy.positive_prompt_guards if visual_anchor_clause else ()
+        prompt_guards = () if content_bound_anchor_active else (policy.positive_prompt_guards if visual_anchor_clause else ())
         parts = [
             base_prompt,
             visual_anchor_clause,
@@ -288,6 +306,53 @@ def _positive_readability_text(rules: Sequence[str]) -> str:
     return "；".join(_dedupe(positive_rules))
 
 
+def _content_bound_prompt_safe_negative_rules(rules: Sequence[str]) -> tuple[str, ...]:
+    safe_rules: list[str] = []
+    for rule in rules:
+        text = str(rule or "").strip()
+        if not text:
+            continue
+        if _looks_like_content_bound_internal_rule(text):
+            continue
+        safe_rules.append(text)
+    return tuple(safe_rules)
+
+
+def _looks_like_content_bound_internal_rule(text: str) -> bool:
+    lowered = text.lower()
+    return any(
+        token in lowered
+        for token in (
+            "ip",
+            "visual signature",
+            "visual anchor",
+            "policy",
+            "forbidden",
+            "must",
+            "do not",
+            "don't",
+            "sticker",
+            "corner badge",
+            "watermark",
+            "bookmark",
+            "bookplate",
+            "surface graphic",
+            "printed mark",
+            "视觉签名",
+            "视觉锚点",
+            "贴纸",
+            "角标",
+            "水印",
+            "书签",
+            "藏书票",
+            "表面图案",
+            "禁止",
+            "不要",
+            "不能",
+        )
+    )
+
+
 def _positive_requirements(rules: Sequence[str]) -> str:
     if not rules:
         return ""
@@ -332,7 +397,7 @@ def _negative_rule_to_positive_visual_requirement(text: str) -> str:
     if "不能变成蓝色兔子" in text or "blue rabbit" in lowered:
         return "白色科技兔子保持白色身体，蓝色领结只是小面积识别点"
     if any(token in text for token in ("不能替代", "不要替代")) or "replace source" in lowered or "source subjects" in lowered:
-        return "主要画面主体保持清晰可见，频道视觉元素贴合场景内物体表面"
+        return "主要画面主体保持清晰可见，辅助角色动作服务内容表达"
     if "不要给奥特曼添加红色披风" in text:
         return "奥特曼保持无披风的银红外星英雄造型"
     if "不要画成蓝色紧身衣人类英雄" in text:
@@ -349,7 +414,9 @@ def _negative_rule_to_positive_visual_requirement(text: str) -> str:
 def _sanitize_provider_prompt(prompt: str, *, policy: VisualSignaturePolicy) -> str:
     cleaned = " ".join(str(prompt or "").split())
     replacements = {
-        "IP角色": "频道标志物",
+        "IP角色": "角色",
+        "视觉IP": "角色",
+        "visual IP": "character",
         "文案主体": "主要画面主体",
         "source subjects": "main subjects",
         "character layer": "character",
@@ -359,19 +426,18 @@ def _sanitize_provider_prompt(prompt: str, *, policy: VisualSignaturePolicy) -> 
         cleaned = cleaned.replace(source, target)
     for term in _FORBIDDEN_PROVIDER_TERMS:
         cleaned = cleaned.replace(term, "")
+    cleaned = re.sub(r"\bIP\b", "", cleaned)
+    cleaned = re.sub(r"(?i)\bmust\b|\bdo not\b|\bforbidden\b|\bpolicy\b|\brule\b", "", cleaned)
     cleaned = re.sub(r"\bhistory-teaching[^，。;；]*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bnon[- ]?IP[^，。;；]*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\d+\s*%\s*(到|至|-|~)?\s*\d*\s*%?", "", cleaned)
     cleaned = " ".join(cleaned.split()).strip()
-    if policy.contains_forbidden_final_prompt_text(cleaned):
-        # Do not try to surgically remove policy-forbidden text from the whole base prompt.
-        # The visual-signature clause is already gated before this point; returning the
-        # cleaned base prompt preserves source intent without reintroducing an overlay.
-        cleaned = _remove_sentences_with_forbidden_terms(cleaned, policy=policy)
+    if policy.contains_forbidden_overlay_text(cleaned):
+        cleaned = _remove_sentences_with_forbidden_terms(cleaned, policy=policy, overlay_only=True)
     return cleaned
 
 
-def _remove_sentences_with_forbidden_terms(text: str, *, policy: VisualSignaturePolicy) -> str:
+def _remove_sentences_with_forbidden_terms(text: str, *, policy: VisualSignaturePolicy, overlay_only: bool = False) -> str:
     sentences = re.split(r"([。；;!?！？])", text)
     kept: list[str] = []
     index = 0
@@ -379,7 +445,8 @@ def _remove_sentences_with_forbidden_terms(text: str, *, policy: VisualSignature
         sentence = sentences[index]
         punct = sentences[index + 1] if index + 1 < len(sentences) else ""
         combined = sentence + punct
-        if combined.strip() and not policy.contains_forbidden_final_prompt_text(combined):
+        blocked = policy.contains_forbidden_overlay_text(combined) if overlay_only else policy.contains_forbidden_final_prompt_text(combined)
+        if combined.strip() and not blocked:
             kept.append(combined)
         index += 2
     return "".join(kept).strip() or text

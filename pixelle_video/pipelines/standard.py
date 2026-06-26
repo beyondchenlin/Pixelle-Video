@@ -322,7 +322,11 @@ def _size_params_with_template_defaults(params: Mapping[str, Any]) -> dict[str, 
         return size_params
 
     resolved_template = resolve_template_path(str(frame_template))
+    template_width, template_height = parse_template_size(resolved_template)
+    size_params["canvas_width"] = template_width
+    size_params["canvas_height"] = template_height
     size_params["video_orientation"] = get_template_orientation(resolved_template)
+    size_params["video_resolution_preset"] = f"{template_width}x{template_height}"
     return size_params
 
 
@@ -880,7 +884,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
 
             ctx.image_prompts = styled_batch.prompts
-            ctx.rendered_media_prompts = list(styled_batch.rendered_prompts)
+            ctx.rendered_media_prompts = list(getattr(styled_batch, "rendered_prompts", ()) or ())
             ctx.resolved_style = styled_batch.resolved_style
             ctx.media_negative_prompt = styled_batch.negative_prompt
             ctx.planning_snapshot = dict(styled_batch.planning_snapshot or {}) or None

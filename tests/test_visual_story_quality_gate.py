@@ -9,12 +9,30 @@ from pixelle_video.models.visual_story_engine import (
     VisualRouteCandidate,
     VisualStoryEnginePlan,
 )
+from pixelle_video.services.content_bound_ip_planner import ContentBoundIPPlanner
 from pixelle_video.services.visual_story_quality_gate import VisualStoryQualityGate
 
 
-def _plan_with_fusion(text):
+def _plan_with_fusion(text: str, *, replacement: bool = False):
     article = ArticleVisualUnderstanding("full_article", "summary", "claim", "problem")
     route = VisualRouteCandidate("r", "R", "editorial_diagram", "premise", "fits")
+    frame_payload = ContentBoundIPPlanner().enrich_frame_visual_plan(
+        {
+            "frame_id": "f",
+            "frame_index": 0,
+            "source_text": "source",
+            "local_claim": "claim",
+            "visual_task": "task",
+            "visual_logic": "logic",
+            "required_subjects": ("subject",),
+        },
+        selected_visual_route=route.to_dict(),
+        article_summary=article.to_dict(),
+    )
+    fusion_payload = ContentBoundIPPlanner().plan_for_frame(frame_payload, selected_visual_route=route.to_dict())
+    fusion_payload["action_or_function"] = text
+    if replacement:
+        fusion_payload["relation_to_article_subject"] = "replace the article subject"
     return VisualStoryEnginePlan(
         plan_id="p",
         article=article,
@@ -22,15 +40,15 @@ def _plan_with_fusion(text):
         compatibility_reports=(IPRouteCompatibilityReport("r", True, "guide", "low", 0.7, "ok"),),
         selection=RouteSelectionDecision("r", "r", "api_auto", "best"),
         style_harmonization=StyleHarmonizationPlan("r", "hybrid_layered", "ip", "scene", "boundary"),
-        frame_visual_plans=(FrameVisualPlan("f", 0, "source", "claim", "task", "logic", required_subjects=("subject",)),),
-        frame_ip_fusion_plans=(FrameIPFusionPlan("f", "guide", "low", text, "support", "not replacing", "hybrid_layered"),),
+        frame_visual_plans=(FrameVisualPlan.from_mapping(frame_payload),),
+        frame_ip_fusion_plans=(FrameIPFusionPlan.from_mapping(fusion_payload),),
     )
 
 
 def test_quality_gate_rejects_replacement_language():
     with pytest.raises(ValueError):
-        VisualStoryQualityGate().assert_valid(_plan_with_fusion("replace the article subject"))
+        VisualStoryQualityGate().assert_valid(_plan_with_fusion("content-bound action", replacement=True))
 
 
-def test_quality_gate_accepts_support_language():
-    VisualStoryQualityGate().assert_valid(_plan_with_fusion("stand beside the article subject"))
+def test_quality_gate_accepts_content_bound_action_contract():
+    VisualStoryQualityGate().assert_valid(_plan_with_fusion("operate the explanatory model"))

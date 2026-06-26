@@ -6,6 +6,7 @@ from typing import Any
 
 from pixelle_video.models.visual_anchor_planning import AnchorCarrierType, VisualAnchorPlacementPlan
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
+from pixelle_video.services.visual_anchor_policy import is_content_bound_carrier_type, sanitize_provider_anchor_clause
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 
 
@@ -33,6 +34,16 @@ _IDENTITY_SUFFIXES = (
     "小人",
     "机器人",
 )
+_LEGACY_DECORATIVE_CARRIER_TYPES = {
+    AnchorCarrierType.BOOKPLATE_OR_STAMP.value,
+    AnchorCarrierType.PRINTED_MARK.value,
+    AnchorCarrierType.EMBOSSED_MARK.value,
+    AnchorCarrierType.ENGRAVED_MARK.value,
+    AnchorCarrierType.SURFACE_GRAPHIC.value,
+    AnchorCarrierType.DECORATIVE_OBJECT.value,
+    AnchorCarrierType.WEARABLE_SYMBOL.value,
+    AnchorCarrierType.SMALL_SUPPORTING_PROP.value,
+}
 
 
 def render_visual_signature_candidate_clause(
@@ -51,10 +62,26 @@ def render_visual_signature_candidate_clause(
     contact = _clean_fragment(contact_relation)
     placement_text = _clean_fragment(placement)
     combined = " ".join([support, contact, placement_text, source_text])
-    if not support or policy.contains_forbidden_final_prompt_text(combined):
+    if not support:
         return ""
 
-    passthrough = _source_text_as_natural_clause(source_text, support=support, policy=policy)
+    if policy.is_content_bound_mandatory:
+        if carrier_value in _LEGACY_DECORATIVE_CARRIER_TYPES or not is_content_bound_carrier_type(carrier_value):
+            return ""
+        if policy.contains_forbidden_overlay_text(combined):
+            return ""
+        identity = _identity_kernel(source_text, identity_kernel=identity_kernel, policy=policy)
+        if not identity:
+            return ""
+        clause = _content_bound_clause(source_text, identity=identity, policy=policy)
+        if policy.contains_forbidden_final_prompt_text(clause):
+            return ""
+        return clause
+
+    if policy.contains_forbidden_final_prompt_text(combined):
+        return ""
+
+    passthrough = _source_text_as_natural_clause(source_text, support=support, policy=policy, carrier_type=carrier_value)
     if passthrough:
         return passthrough
 
@@ -131,22 +158,39 @@ def render_visual_anchor_plan_clause(
             visual_anchor_plan.contact_relation,
         ]
     )
-    if policy.contains_forbidden_final_prompt_text(combined):
+    if policy.is_content_bound_mandatory:
+        if policy.contains_forbidden_overlay_text(combined):
+            return ""
+        if policy.contains_forbidden_final_prompt_text(clause):
+            return ""
+    elif policy.contains_forbidden_final_prompt_text(combined):
         return ""
     return clause
 
 
-def _source_text_as_natural_clause(source_text: str, *, support: str, policy: VisualSignaturePolicy) -> str:
+def _content_bound_clause(source_text: str, *, identity: str, policy: VisualSignaturePolicy) -> str:
+    text = _clean_fragment(source_text)
+    if not text:
+        return ""
+    clause = text.replace("configured recurring identity", identity)
+    clause = clause.replace("configured recurring IP", identity).replace("recurring IP", "recurring character")
+    return _final_clean(sanitize_provider_anchor_clause(clause), policy=policy, allow_content_bound=True)
+
+
+def _source_text_as_natural_clause(source_text: str, *, support: str, policy: VisualSignaturePolicy, carrier_type: str = "") -> str:
     text = _clean_fragment(source_text)
     if not text or len(text) < 8:
         return ""
-    if policy.contains_forbidden_final_prompt_text(text):
+    if policy.contains_forbidden_final_prompt_text(text) and not (policy.is_content_bound_mandatory and is_content_bound_carrier_type(carrier_type)):
         return ""
+    if policy.is_content_bound_mandatory and is_content_bound_carrier_type(carrier_type):
+        return _final_clean(text, policy=policy, allow_content_bound=True)
     if support not in text and not any(token in text for token in ("纸", "卡片", "书", "桌", "墙", "板", "资料夹", "路径", "按钮", "时间线")):
         return ""
     if not any(token in text for token in ("印", "压", "刻", "画", "站", "接触", "放在", "整理", "指向", "拉", "推", "守", "连接", "观察", "称量", "修复")):
         return ""
     return _final_clean(text, policy=policy)
+
 
 def _metadata_identity_kernel(metadata: Any) -> tuple[str, ...]:
     if not isinstance(metadata, dict):
@@ -193,7 +237,6 @@ def _extract_identity_from_text(text: str) -> str:
     value = str(text or "")
     if "蓝领结白兔" in value:
         return "蓝领结白兔轮廓"
-    # Prefer explicit descriptive noun phrases such as “带着黑色墨镜的斑点狗”.
     phrase_patterns = (
         r"(?:带着|戴着|穿着|拿着)[^，。；,.;]{1,24}的[^，。；,.;]{1,18}(?:狗|猫|兔|鸟|雀|角色|机器人|小人)",
         r"(?:小黑|斑点狗|白兔|麻雀|黑猫|小狗|机器人|小人)",
@@ -202,9 +245,6 @@ def _extract_identity_from_text(text: str) -> str:
         match = re.search(pattern, value)
         if match:
             return _clean_identity_text(match.group(0))
-
-    # Backward-compatible special cases, now including dog/cat instead of falling
-    # back to an anonymous “channel identifier”.
     if "斑点狗" in value:
         return "戴黑色墨镜的斑点狗" if "黑色墨镜" in value else "斑点狗"
     if "狗" in value:
@@ -251,9 +291,13 @@ def _clean_fragment(text: str) -> str:
     return " ".join(cleaned.split()).strip(" ，,。;；")
 
 
-def _final_clean(text: str, *, policy: VisualSignaturePolicy) -> str:
+def _final_clean(text: str, *, policy: VisualSignaturePolicy, allow_content_bound: bool = False) -> str:
     cleaned = _clean_fragment(text)
-    if policy.contains_forbidden_final_prompt_text(cleaned):
+    if policy.contains_forbidden_overlay_text(cleaned):
+        return ""
+    if policy.contains_forbidden_final_prompt_text(cleaned) and not allow_content_bound:
+        return ""
+    if allow_content_bound and policy.contains_forbidden_final_prompt_text(cleaned):
         return ""
     return cleaned
 

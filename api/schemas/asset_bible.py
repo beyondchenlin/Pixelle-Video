@@ -10,6 +10,8 @@ from pixelle_video.models.asset_bible import (
     AssetBible,
     CharacterProfile,
     IPProfile,
+    IPRenderingStyle,
+    IPStyleScope,
     PropAsset,
     SceneAsset,
     StyleProfile,
@@ -98,6 +100,10 @@ class IPProfileDraft(PublicMetadataModel):
     logline: str | None = None
     world_hint: str | None = None
     style_hint: str | None = None
+    rendering_style: IPRenderingStyle | str = IPRenderingStyle.STYLE_INHERITED
+    style_scope: IPStyleScope | str = IPStyleScope.IP_CHARACTER_ONLY
+    exclusive_visual_layer: bool = False
+    style_boundary_rules: list[str] = Field(default_factory=list)
     identity_lock: list[str] = Field(default_factory=list)
     identity_anchors: list[str] = Field(default_factory=list)
     identity_suppression_rules: list[str] = Field(default_factory=list)
@@ -135,6 +141,7 @@ class IPProfileDraft(PublicMetadataModel):
         "presence_spectrum",
         "adaptable_slots",
         "forbidden_elements",
+        "style_boundary_rules",
     )
     @classmethod
     def validate_text_list(cls, value: list[str], info) -> list[str]:
@@ -160,6 +167,10 @@ class IPProfileDraft(PublicMetadataModel):
             logline=self.logline,
             world_hint=self.world_hint,
             style_hint=self.style_hint,
+            rendering_style=self.rendering_style,
+            style_scope=self.style_scope,
+            exclusive_visual_layer=self.exclusive_visual_layer,
+            style_boundary_rules=tuple(self.style_boundary_rules),
             identity_lock=tuple(self.identity_lock),
             identity_anchors=tuple(self.identity_anchors),
             identity_suppression_rules=tuple(self.identity_suppression_rules),
@@ -357,6 +368,10 @@ class IPProfileResponse(BaseModel):
     logline: str | None = None
     world_hint: str | None = None
     style_hint: str | None = None
+    rendering_style: IPRenderingStyle | str = IPRenderingStyle.STYLE_INHERITED
+    style_scope: IPStyleScope | str = IPStyleScope.IP_CHARACTER_ONLY
+    exclusive_visual_layer: bool = False
+    style_boundary_rules: list[str] = Field(default_factory=list)
     identity_lock: list[str] = Field(default_factory=list)
     identity_anchors: list[str] = Field(default_factory=list)
     identity_suppression_rules: list[str] = Field(default_factory=list)

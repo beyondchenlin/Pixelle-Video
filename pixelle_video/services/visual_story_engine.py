@@ -34,6 +34,7 @@ from pixelle_video.prompts.visual_story_engine import (
     render_style_harmonization_prompt,
 )
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
+from pixelle_video.services.content_bound_ip_planner import ContentBoundIPPlanner
 from pixelle_video.services.visual_story_quality_gate import VisualStoryQualityGate
 
 
@@ -382,20 +383,24 @@ class VisualStoryEngineService:
                 f"Follow selected route '{selected_route.route_name}': {selected_route.visual_premise}. "
                 f"This frame should express: {visual_goal or source_text}."
             )
-            plans.append(
-                FrameVisualPlan(
-                    frame_id=frame_id,
-                    frame_index=index,
-                    source_text=source_text or article.core_claim,
-                    local_claim=visual_goal or source_text or article.core_claim,
-                    visual_task=visual_task,
-                    visual_logic=visual_logic,
-                    required_subjects=tuple(item for item in subjects if str(item or "").strip()) or article.key_subjects,
-                    forbidden_losses=("do not replace article subjects", "do not switch visual route mid-video"),
-                    evidence_refs=(frame_id,),
-                    visible_text_policy="no_visible_text",
-                )
+            base_plan = FrameVisualPlan(
+                frame_id=frame_id,
+                frame_index=index,
+                source_text=source_text or article.core_claim,
+                local_claim=visual_goal or source_text or article.core_claim,
+                visual_task=visual_task,
+                visual_logic=visual_logic,
+                required_subjects=tuple(item for item in subjects if str(item or "").strip()) or article.key_subjects,
+                forbidden_losses=("do not replace article subjects", "do not switch visual route mid-video"),
+                evidence_refs=(frame_id,),
+                visible_text_policy="no_visible_text",
+            ).to_dict()
+            enriched = ContentBoundIPPlanner().enrich_frame_visual_plan(
+                base_plan,
+                selected_visual_route=selected_route.to_dict(),
+                article_summary=article.to_dict(),
             )
+            plans.append(FrameVisualPlan.from_mapping(enriched))
         return tuple(plans)
 
     async def _frame_ip_fusion(
@@ -437,14 +442,18 @@ class VisualStoryEngineService:
                 payload,
                 ("frame_ip_fusion_plans", "plans", "data", "items"),
             )
-            plans = tuple(
-                FrameIPFusionPlan.from_mapping(item)
-                for item in fusion_payloads
-                if isinstance(item, Mapping)
-            )
-            if len(plans) != len(frame_visual_plans):
+            raw_plans = tuple(dict(item) for item in fusion_payloads if isinstance(item, Mapping))
+            if len(raw_plans) != len(frame_visual_plans):
                 raise ValueError("frame IP fusion count mismatch")
-            return plans
+            repaired = ContentBoundIPPlanner().repair_batch(
+                frame_visual_plans=[plan.to_dict() for plan in frame_visual_plans],
+                frame_ip_fusion_plans=raw_plans,
+                selected_visual_route=selected_route.to_dict(),
+                style_harmonization=style_plan.to_dict(),
+                article_summary={},
+                ip_profile=ip_profile,
+            )
+            return tuple(FrameIPFusionPlan.from_mapping(item) for item in repaired.frame_ip_fusion_plans)
         except Exception as exc:
             logger.warning("Frame IP fusion failed; using deterministic fallback: {}", exc)
             return tuple(_deterministic_fusion(frame, selected_route, compatibility_report, style_plan) for frame in frame_visual_plans)
@@ -667,19 +676,12 @@ def _deterministic_fusion(
     report: IPRouteCompatibilityReport,
     style_plan: StyleHarmonizationPlan,
 ) -> FrameIPFusionPlan:
-    role = report.recommended_role
-    visibility = _visibility_for_role(role)
-    return FrameIPFusionPlan.deterministic(
-        frame_id=frame.frame_id,
-        route_type=route.route_type,
-        ip_role=role,
-        ip_visibility=visibility,
-        local_claim=frame.local_claim,
-        visual_task=frame.visual_task or route.visual_premise,
-        relation_to_article_subject="IP performs a frame duty while preserving required article subjects.",
-        style_harmonization=style_plan.mode,
-        risk_text=" ".join([*route.risk_notes, *report.safety_warnings]),
+    payload = ContentBoundIPPlanner().plan_for_frame(
+        frame.to_dict(),
+        selected_visual_route=route.to_dict(),
+        style_harmonization=style_plan.to_dict(),
     )
+    return FrameIPFusionPlan.from_mapping(payload)
 
 
 def _visibility_for_role(role: VisualSignatureRole) -> IPVisibilityLevel:

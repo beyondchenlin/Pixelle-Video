@@ -22,6 +22,9 @@ from pixelle_video.models.visual_anchor_planning import (
 )
 from pixelle_video.services.mandatory_ip_prompt_compiler import compile_mandatory_ip_participation_plan
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
+from pixelle_video.services.visual_signature_policy_resolver import (
+    policy_for_presentation_mode,
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,7 @@ class VisualSignatureFallbackPlanner:
     anchor_profile: IPProfile
     presentation_policy: SeriesVisualSignaturePresentationPolicy
     identity_kernel: Sequence[str] = ()
+    visual_signature_policy: Any | None = None
 
     def plan_failed_frames(
         self,
@@ -81,7 +85,10 @@ class VisualSignatureFallbackPlanner:
         *,
         reason: Sequence[str] = (),
     ) -> VisualAnchorPlacementPlan:
-        policy = load_visual_signature_policy()
+        policy = policy_for_presentation_mode(
+            self.visual_signature_policy or load_visual_signature_policy(),
+            self.presentation_policy,
+        )
         mode = self.presentation_policy.presentation_mode
         if self.presentation_policy.fallback_mode is SeriesVisualSignatureFallbackMode.DEFAULT_SIGNATURE:
             mode = SeriesVisualSignaturePresentationMode.AUTO
@@ -89,11 +96,15 @@ class VisualSignatureFallbackPlanner:
         use_mode_specific_mandatory_fallback = (
             policy.requires_every_frame_signature
             and policy.fallback_strategy == "inject_safe_carrier"
-            and mode is SeriesVisualSignaturePresentationMode.VISIBLE_SUPPORTING_CHARACTER
+            and mode in {
+                SeriesVisualSignaturePresentationMode.VISIBLE_SUPPORTING_CHARACTER,
+                SeriesVisualSignaturePresentationMode.PRIMARY_CHARACTER,
+            }
+            and not policy.is_content_bound_mandatory
         )
         if (
             policy.requires_every_frame_signature
-            and policy.fallback_strategy == "inject_safe_carrier"
+            and policy.fallback_strategy in {"inject_safe_carrier", "rewrite_content_action"}
             and not use_mode_specific_mandatory_fallback
         ):
             plan = compile_mandatory_ip_participation_plan(

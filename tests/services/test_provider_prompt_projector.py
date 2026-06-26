@@ -10,6 +10,7 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
+from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.services.provider_prompt_projector import ProviderPromptProjector
 from pixelle_video.services.visual_anchor_placement_planner import VisualAnchorPlacementPlanner
 
@@ -49,10 +50,34 @@ def _anchor():
     )
 
 
+def _legacy_policy() -> VisualSignaturePolicy:
+    return VisualSignaturePolicy(
+        version="visual_signature_policy.v1_legacy_visual_mark",
+        coverage_mode="sparse",
+        suppress_allowed=True,
+        fallback_strategy="inject_safe_carrier",
+        projection_failure="allow_anchor_free",
+        require_concrete_identity=False,
+        allowed_visible_carrier_types=(
+            "bookplate_or_stamp",
+            "printed_mark",
+            "embossed_mark",
+            "engraved_mark",
+            "surface_graphic",
+            "decorative_object",
+            "wearable_symbol",
+            "small_supporting_prop",
+            "minor_supporting_character",
+        ),
+        final_prompt_forbidden_terms=(),
+    )
+
+
 def test_provider_prompt_projector_removes_internal_terms_and_raw_style():
     rendered = ProviderPromptProjector().project(
         base_visual_brief=_brief(),
         visual_anchor_plan=_anchor(),
+        visual_signature_policy=_legacy_policy(),
         workflow="selfhost/image_z_image_turbo_gguf.json",
     )
     assert "蓝领结白兔" in rendered.prompt
@@ -66,6 +91,7 @@ def test_provider_prompt_projector_removes_duplicate_anchor_from_base_prompt():
     rendered = ProviderPromptProjector().project(
         base_visual_brief=_brief(),
         visual_anchor_plan=_anchor(),
+        visual_signature_policy=_legacy_policy(),
         workflow="selfhost/image_z_image_turbo_gguf.json",
     )
     assert rendered.prompt.count("兔子") <= 1
@@ -75,6 +101,7 @@ def test_provider_prompt_projector_converts_negative_subject_rules_to_positive()
     rendered = ProviderPromptProjector().project(
         base_visual_brief=_brief(),
         visual_anchor_plan=_anchor(),
+        visual_signature_policy=_legacy_policy(),
         workflow="selfhost/image_z_image_turbo_gguf.json",
     )
     assert "不要画成" not in rendered.prompt
@@ -86,6 +113,7 @@ def test_provider_prompt_projector_avoids_percent_scale_language_and_overlay_ter
     rendered = ProviderPromptProjector().project(
         base_visual_brief=_brief(),
         visual_anchor_plan=_anchor(),
+        visual_signature_policy=_legacy_policy(),
         workflow="selfhost/image_z_image_turbo_gguf.json",
     )
     assert "%" not in rendered.prompt
@@ -113,6 +141,7 @@ def test_visual_prompt_planning_projector_accepts_series_visual_signature_strate
     rendered = ProviderPromptProjector().project(
         base_visual_brief=_brief(),
         visual_anchor_plan=_anchor(),
+        visual_signature_policy=_legacy_policy(),
         workflow="selfhost/image_z_image_turbo_gguf.json",
         series_visual_signature_strategy=role_strategy,
     )
@@ -121,7 +150,7 @@ def test_visual_prompt_planning_projector_accepts_series_visual_signature_strate
     assert rendered.prompt_contract.metadata["series_visual_signature_strategy"] == role_strategy.to_dict()
 
 
-def test_planner_uses_background_signature_for_named_comparison_subjects_by_default():
+def test_planner_uses_content_bound_participant_for_named_comparison_subjects_by_default():
     profile = IPProfile(
         series_visual_signature_profile_id="rabbit",
         workspace_id="ws",
@@ -132,4 +161,6 @@ def test_planner_uses_background_signature_for_named_comparison_subjects_by_defa
     )
     plan = VisualAnchorPlacementPlanner().plan_frame(base_visual_brief=_brief(), anchor_profile=profile)
     assert plan.visible
-    assert plan.metadata["ip_duty_preset"] == "background_signature"
+    assert plan.anchor_function is AnchorFunction.CONTENT_BOUND_PARTICIPANT
+    assert plan.anchor_carrier_type is AnchorCarrierType.CONTENT_BOUND_IP_ACTOR
+    assert plan.metadata["content_relation_type"] == "content_bound"

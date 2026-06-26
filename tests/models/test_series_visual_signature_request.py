@@ -50,6 +50,11 @@ def test_series_visual_signature_controls_accepts_v4_fields():
         "series_visual_signature_expression_mode": "infographic_layout",
         "series_visual_signature_structure_mode": "workflow",
         "series_visual_signature_participation_mode": "operator_demonstrator",
+        "series_visual_signature_presentation_mode": "visible_supporting_character",
+        "series_visual_signature_enforcement": "soft",
+        "series_visual_signature_fallback_enabled": True,
+        "series_visual_signature_fallback_mode": "auto_repair",
+        "series_visual_signature_min_visibility": "clear",
         "series_visual_signature_mode": "supporting_integration",
         "series_visual_signature_consistency_mode": "supporting_character",
         "effective_series_visual_signature_mode": "supporting_integration",
@@ -149,9 +154,28 @@ def test_normalize_standard_video_generation_params_preserves_v4_fields():
     assert normalized["series_visual_signature_expression_mode"] == "infographic_layout"
     assert normalized["series_visual_signature_structure_mode"] == "workflow"
     assert normalized["series_visual_signature_participation_mode"] == "operator_demonstrator"
+    assert normalized["series_visual_signature_presentation_mode"] == "visible_supporting_character"
+    assert normalized["series_visual_signature_enforcement"] == "soft"
+    assert normalized["series_visual_signature_fallback_enabled"] is True
+    assert normalized["series_visual_signature_fallback_mode"] == "auto_repair"
+    assert normalized["series_visual_signature_min_visibility"] == "clear"
     assert normalized["series_visual_signature_mode"] == "supporting_integration"
     assert normalized["series_visual_signature_consistency_mode"] == "supporting_character"
     assert normalized["effective_series_visual_signature_mode"] == "supporting_integration"
+
+
+def test_normalize_standard_video_generation_params_keeps_string_false_disabled():
+    normalized = normalize_standard_video_generation_params(
+        {
+            "series_visual_signature_enabled": "false",
+            "series_visual_signature_asset_bible_id": "asset_bible_1",
+            "series_visual_signature_profile_id": "rabbit_host",
+            "series_visual_signature_presentation_mode": "legacy_visual_mark",
+        }
+    )
+
+    assert normalized["series_visual_signature_enabled"] is False
+    assert "series_visual_signature_presentation_mode" not in normalized
 
 
 @pytest.mark.parametrize(
@@ -202,7 +226,7 @@ def test_normalize_standard_video_generation_params_allows_participant_subject_r
     assert normalized["effective_series_visual_signature_mode"] == "subject_replacement"
 
 
-def test_normalize_standard_video_generation_params_does_not_auto_promote_host_explainer():
+def test_normalize_standard_video_generation_params_defaults_host_explainer_to_content_bound():
     normalized = normalize_standard_video_generation_params(
         _enabled_params(
             series_visual_signature_mode="auto",
@@ -213,7 +237,7 @@ def test_normalize_standard_video_generation_params_does_not_auto_promote_host_e
 
     assert normalized["series_visual_signature_strategy"] == "host_explainer"
     assert normalized["series_visual_signature_consistency_mode"] == "primary_character"
-    assert normalized["effective_series_visual_signature_mode"] == "auto"
+    assert normalized["effective_series_visual_signature_mode"] == "supporting_integration"
 
 
 def test_validate_standard_video_generation_params_accepts_series_visual_signature_controls():

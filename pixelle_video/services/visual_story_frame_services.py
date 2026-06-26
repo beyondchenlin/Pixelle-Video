@@ -8,6 +8,7 @@ from loguru import logger
 
 from pixelle_video.models.llm_interaction_trace import trace_context_with_prompt_template
 from pixelle_video.models.visual_story_engine import FrameIPFusionPlan, FrameVisualPlan
+from pixelle_video.services.content_bound_ip_planner import ContentBoundIPPlanner
 from pixelle_video.prompts.visual_story_execution import (
     render_frame_ip_fusion_batch_prompt,
     render_frame_visual_plan_batch_prompt,
@@ -51,7 +52,17 @@ class FrameVisualPlanBatchService:
                 trace_recorder=trace_recorder,
             )
             plans = _list_payload(response, "frame_visual_plans")
-            return tuple(FrameVisualPlan.from_mapping(item).to_dict() for item in plans)
+            planner = ContentBoundIPPlanner()
+            return tuple(
+                FrameVisualPlan.from_mapping(
+                    planner.enrich_frame_visual_plan(
+                        item,
+                        selected_visual_route=selected_visual_route,
+                        article_summary=article_summary,
+                    )
+                ).to_dict()
+                for item in plans
+            )
         except Exception as exc:
             logger.warning("Frame visual plan batch failed; using deterministic fallback: {}", exc)
             return tuple(
@@ -102,7 +113,14 @@ class FrameIPFusionPlanBatchService:
                 trace_recorder=trace_recorder,
             )
             plans = _list_payload(response, "frame_ip_fusion_plans")
-            return tuple(FrameIPFusionPlan.from_mapping(item).to_dict() for item in plans)
+            repair = ContentBoundIPPlanner().repair_batch(
+                frame_visual_plans=frame_visual_plans,
+                frame_ip_fusion_plans=plans,
+                selected_visual_route=selected_visual_route,
+                style_harmonization=style_harmonization,
+                ip_profile=ip_profile,
+            )
+            return tuple(FrameIPFusionPlan.from_mapping(item).to_dict() for item in repair.frame_ip_fusion_plans)
         except Exception as exc:
             logger.warning("Frame IP fusion batch failed; using deterministic fallback: {}", exc)
             return tuple(
@@ -195,7 +213,7 @@ def _fallback_visual_plan(frame: Mapping[str, Any]) -> dict[str, Any]:
     frame_id = str(frame.get("frame_id") or "frame")
     source_text = str(frame.get("source_text") or frame.get("frame_source_text") or "")
     visual_goal = str(frame.get("visual_goal") or source_text or "visualize frame")
-    return FrameVisualPlan(
+    base = FrameVisualPlan(
         frame_id=frame_id,
         frame_index=int(frame.get("frame_index") or 0),
         source_text=source_text or visual_goal,
@@ -207,6 +225,7 @@ def _fallback_visual_plan(frame: Mapping[str, Any]) -> dict[str, Any]:
         evidence_refs=(),
         visible_text_policy="no_visible_text",
     ).to_dict()
+    return ContentBoundIPPlanner().enrich_frame_visual_plan(base)
 
 
 def _fallback_ip_plan(
@@ -214,16 +233,12 @@ def _fallback_ip_plan(
     selected_visual_route: Mapping[str, Any],
     style_harmonization: Mapping[str, Any],
 ) -> dict[str, Any]:
-    return FrameIPFusionPlan.deterministic(
-        frame_id=str(frame_visual_plan.get("frame_id") or "frame"),
-        route_type=selected_visual_route.get("route_type"),
-        ip_role=selected_visual_route.get("recommended_ip_role") or "silent_witness",
-        ip_visibility="low",
-        local_claim=str(frame_visual_plan.get("local_claim") or ""),
-        visual_task=str(frame_visual_plan.get("visual_task") or ""),
-        relation_to_article_subject="The IP performs a frame duty while preserving article subjects.",
-        style_harmonization=style_harmonization.get("mode") or "hybrid_layered",
-        risk_text=str(selected_visual_route.get("risk") or ""),
+    return FrameIPFusionPlan.from_mapping(
+        ContentBoundIPPlanner().plan_for_frame(
+            frame_visual_plan,
+            selected_visual_route=selected_visual_route,
+            style_harmonization=style_harmonization,
+        )
     ).to_dict()
 
 

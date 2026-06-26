@@ -24,6 +24,10 @@ VisibleAnchorCarrierType = Literal[
     "wearable_symbol",
     "small_supporting_prop",
     "minor_supporting_character",
+    "content_bound_ip_actor",
+    "content_bound_system_component",
+    "content_bound_scale_reference",
+    "content_bound_explanation_director",
 ]
 VisibleAnchorFunction = Literal[
     "primary_carrier",
@@ -34,12 +38,15 @@ VisibleAnchorFunction = Literal[
     "material_signature",
     "scene_bound_prop",
     "micro_cameo",
+    "content_bound_participant",
+    "content_explanation_director",
 ]
 VisibleAnchorProminence = Literal[
     "embedded_mark",
     "tiny_prop",
     "micro_cameo",
     "small_side_character",
+    "content_participant",
     "primary_carrier",
 ]
 AnchorStyleRelationValue = Literal["blended", "accented", "contrasting", "independent"]

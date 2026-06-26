@@ -18,6 +18,11 @@ def test_formal_field_set_is_narrow():
         "series_visual_signature_participation_mode",
         "series_visual_signature_mode",
         "series_visual_signature_consistency_mode",
+        "series_visual_signature_presentation_mode",
+        "series_visual_signature_enforcement",
+        "series_visual_signature_fallback_enabled",
+        "series_visual_signature_fallback_mode",
+        "series_visual_signature_min_visibility",
     }
 
 
@@ -40,10 +45,15 @@ def test_build_formal_payload_drops_helper_and_removed_fields():
             "generation_world_hint": "script world",
             "series_visual_signature_expression_mode": "explanatory_diagram",
             "series_visual_signature_structure_mode": "workflow",
-            "series_visual_signature_participation_mode": "guide_explainer",
-            "ip_profile_world_hint": "asset helper",
-            "generation_world_hint_source": "ip_default",
-            "generation_notes": "old notes",
+        "series_visual_signature_participation_mode": "guide_explainer",
+        "ip_profile_world_hint": "asset helper",
+        "series_visual_signature_presentation_mode": "legacy_visual_mark",
+        "series_visual_signature_enforcement": "strict",
+        "series_visual_signature_fallback_enabled": False,
+        "series_visual_signature_fallback_mode": "disabled",
+        "series_visual_signature_min_visibility": "prominent",
+        "generation_world_hint_source": "ip_default",
+        "generation_notes": "old notes",
             "slot_preference_override": "prefer_main",
             "presence_strength": "strong",
             "unknown": "ignored",
@@ -58,9 +68,14 @@ def test_build_formal_payload_drops_helper_and_removed_fields():
         "series_visual_signature_expression_mode": "explanatory_diagram",
         "series_visual_signature_structure_mode": "workflow",
         "series_visual_signature_participation_mode": "guide_explainer",
-        "series_visual_signature_mode": "auto",
+        "series_visual_signature_mode": "supporting_integration",
         "series_visual_signature_consistency_mode": "off",
-        "effective_series_visual_signature_mode": "auto",
+        "series_visual_signature_presentation_mode": "legacy_visual_mark",
+        "series_visual_signature_enforcement": "strict",
+        "series_visual_signature_fallback_enabled": False,
+        "series_visual_signature_fallback_mode": "disabled",
+        "series_visual_signature_min_visibility": "prominent",
+        "effective_series_visual_signature_mode": "supporting_integration",
     }
     assert "unknown" not in payload
 
@@ -78,9 +93,14 @@ def test_enabled_ip_omits_blank_ids_but_preserves_world_hint():
         "series_visual_signature_expression_mode": "auto",
         "series_visual_signature_structure_mode": "auto",
         "series_visual_signature_participation_mode": "auto",
-        "series_visual_signature_mode": "auto",
+        "series_visual_signature_mode": "supporting_integration",
         "series_visual_signature_consistency_mode": "off",
-        "effective_series_visual_signature_mode": "auto",
+        "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
+        "series_visual_signature_enforcement": "soft",
+        "series_visual_signature_fallback_enabled": True,
+        "series_visual_signature_fallback_mode": "auto_repair",
+        "series_visual_signature_min_visibility": "clear",
+        "effective_series_visual_signature_mode": "supporting_integration",
         "generation_world_hint": "request world",
     }
 
@@ -89,6 +109,20 @@ def test_disabled_ip_still_carries_request_world_hint():
     assert build_formal_content_ip_world_payload(
         {
             "series_visual_signature_enabled": False,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
+            "generation_world_hint": "world without selected IP",
+        }
+    ) == {
+        "series_visual_signature_enabled": False,
+        "generation_world_hint": "world without selected IP",
+    }
+
+
+def test_string_false_does_not_enable_formal_content_ip_payload():
+    assert build_formal_content_ip_world_payload(
+        {
+            "series_visual_signature_enabled": "false",
             "series_visual_signature_asset_bible_id": "bible_demo",
             "series_visual_signature_profile_id": "ip_main",
             "generation_world_hint": "world without selected IP",

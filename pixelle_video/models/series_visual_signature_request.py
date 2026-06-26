@@ -17,6 +17,7 @@ from pixelle_video.models.series_visual_signature_strategy import (
     SeriesVisualSignatureStrategyControls,
 )
 from pixelle_video.models.visual_expression import VisualExpressionMode
+from pixelle_video.utils.bool_parsing import coerce_bool
 
 SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION = "v4_expression"
 SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION = "v4_2_identity_contract"
@@ -75,7 +76,7 @@ class SeriesVisualSignatureControlsContract:
         )
         presentation_policy = SeriesVisualSignaturePresentationPolicy.from_mapping(mapping)
         return cls(
-            enabled=bool(mapping.get("series_visual_signature_enabled", False)),
+            enabled=coerce_bool(mapping.get("series_visual_signature_enabled", False), default=False),
             asset_bible_id=_normalize_optional_string(mapping.get("series_visual_signature_asset_bible_id")),
             profile_id=_normalize_optional_string(mapping.get("series_visual_signature_profile_id")),
             expression_mode=VisualExpressionMode.from_value(mapping.get("series_visual_signature_expression_mode")),
@@ -98,7 +99,7 @@ class SeriesVisualSignatureControlsContract:
         return bool(set(self.explicit_fields) & _SERIES_VISUAL_SIGNATURE_V4_OPTION_KEYS)
 
     def to_generation_dict(self) -> dict[str, Any]:
-        if not self.enabled and not self.has_explicit_v4_fields:
+        if not self.enabled:
             return {}
         return {
             "series_visual_signature_expression_mode": self.expression_mode.value,

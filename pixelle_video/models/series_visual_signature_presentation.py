@@ -10,14 +10,17 @@ from pixelle_video.models.series_visual_signature_strategy import (
     SeriesVisualSignatureMode,
     SeriesVisualSignatureStrategyControls,
 )
+from pixelle_video.utils.bool_parsing import coerce_bool
 
 
 class SeriesVisualSignaturePresentationMode(str, Enum):
     AUTO = "auto"
+    CONTENT_BOUND_MANDATORY_IP = "content_bound_mandatory_ip"
     FUNCTION_BOUND_IP_ACTOR = "function_bound_ip_actor"
     VISIBLE_SUPPORTING_CHARACTER = "visible_supporting_character"
     EMBEDDED_SCENE_MARK = "embedded_scene_mark"
     PRIMARY_CHARACTER = "primary_character"
+    LEGACY_VISUAL_MARK = "legacy_visual_mark"
 
 
 class SeriesVisualSignatureEnforcementMode(str, Enum):
@@ -58,7 +61,7 @@ class SeriesVisualSignaturePresentationPolicy:
     to strategy controls, prompt guidance, validation, and fallback behavior.
     """
 
-    presentation_mode: SeriesVisualSignaturePresentationMode = SeriesVisualSignaturePresentationMode.AUTO
+    presentation_mode: SeriesVisualSignaturePresentationMode = SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP
     enforcement: SeriesVisualSignatureEnforcementMode = SeriesVisualSignatureEnforcementMode.SOFT
     fallback_enabled: bool = True
     fallback_mode: SeriesVisualSignatureFallbackMode = SeriesVisualSignatureFallbackMode.AUTO_REPAIR
@@ -86,7 +89,7 @@ class SeriesVisualSignaturePresentationPolicy:
         if has_product_mode:
             presentation_mode = _presentation_mode_from_value(
                 mapping.get("series_visual_signature_presentation_mode"),
-                default=SeriesVisualSignaturePresentationMode.AUTO,
+                default=SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP,
             )
             source_label = "product_field"
         else:
@@ -102,12 +105,14 @@ class SeriesVisualSignaturePresentationPolicy:
             mapping.get("series_visual_signature_fallback_mode"),
             default=SeriesVisualSignatureFallbackMode.AUTO_REPAIR,
         )
-        fallback_enabled = _coerce_bool(
+        fallback_enabled = coerce_bool(
             mapping.get("series_visual_signature_fallback_enabled"),
             default=fallback_mode is not SeriesVisualSignatureFallbackMode.DISABLED,
         )
         if fallback_mode is SeriesVisualSignatureFallbackMode.DISABLED:
             fallback_enabled = False
+        elif not fallback_enabled:
+            fallback_mode = SeriesVisualSignatureFallbackMode.DISABLED
 
         policy = cls(
             presentation_mode=presentation_mode,
@@ -149,7 +154,10 @@ class SeriesVisualSignaturePresentationPolicy:
         return self.enforcement is SeriesVisualSignatureEnforcementMode.STRICT
 
     def strategy_controls(self) -> SeriesVisualSignatureStrategyControls:
-        if self.presentation_mode is SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR:
+        if self.presentation_mode in {
+            SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP,
+            SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR,
+        }:
             return SeriesVisualSignatureStrategyControls(
                 signature_mode=SeriesVisualSignatureMode.SUPPORTING_INTEGRATION,
                 consistency_mode=SeriesVisualSignatureConsistencyMode.OFF,
@@ -159,7 +167,7 @@ class SeriesVisualSignaturePresentationPolicy:
                 signature_mode=SeriesVisualSignatureMode.SUPPORTING_INTEGRATION,
                 consistency_mode=SeriesVisualSignatureConsistencyMode.SUPPORTING_CHARACTER,
             )
-        if self.presentation_mode is SeriesVisualSignaturePresentationMode.EMBEDDED_SCENE_MARK:
+        if self.presentation_mode in {SeriesVisualSignaturePresentationMode.EMBEDDED_SCENE_MARK, SeriesVisualSignaturePresentationMode.LEGACY_VISUAL_MARK}:
             return SeriesVisualSignatureStrategyControls(
                 signature_mode=SeriesVisualSignatureMode.SUPPORTING_INTEGRATION,
                 consistency_mode=SeriesVisualSignatureConsistencyMode.OFF,
@@ -204,12 +212,16 @@ class SeriesVisualSignaturePresentationPolicy:
         }
 
     def prompt_guidance(self) -> list[str]:
-        if self.presentation_mode is SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR:
+        if self.presentation_mode in {
+            SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP,
+            SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR,
+        }:
             return [
-                "Every frame must keep the configured IP visibly present through the frame-level IP duty plan.",
-                "Vary duty, action, carrier, scale, and presentation form; never vary visibility to hidden.",
-                "If the duty is action-based, the IP performs or supports the frame's action; if the duty is sensitive or background-oriented, use a real scene object or material surface.",
-                "The final provider prompt should describe natural visual action and physical scene binding, not internal enum names.",
+                "Every frame must keep the configured IP visibly present as a content-bound participant.",
+                "Choose one mechanism: action_executor, reader_proxy, observation_gateway, system_component, conflict_participant, scale_reference, explanation_director, or transformation_medium.",
+                "If no natural action slot exists, rewrite the physical metaphor; never add a sticker, logo, corner badge, bookmark, label, stamp, bookplate, surface mark, or decorative card.",
+                "For serious or sensitive content, put the IP in a neutral explanation space such as an archive room, map table, model desk, evidence wall, or analytical diagram space.",
+                "The final provider prompt should be positive visual language only, not internal enum names or policy rules.",
             ]
         if self.presentation_mode is SeriesVisualSignaturePresentationMode.VISIBLE_SUPPORTING_CHARACTER:
             return [
@@ -219,7 +231,7 @@ class SeriesVisualSignaturePresentationPolicy:
                 "Use concrete physical placement: foreground ground, floor, roadside, grass, desk edge, room corner, beside the main subject, or edge of the scene.",
                 "The final prompt must preserve the exact identity phrase and describe a physical relationship such as standing, sitting, lying, watching, following, leaning, or walking near the scene.",
             ]
-        if self.presentation_mode is SeriesVisualSignaturePresentationMode.EMBEDDED_SCENE_MARK:
+        if self.presentation_mode in {SeriesVisualSignaturePresentationMode.EMBEDDED_SCENE_MARK, SeriesVisualSignaturePresentationMode.LEGACY_VISUAL_MARK}:
             return [
                 "The configured identity should appear as a clear but subordinate in-scene mark, prop graphic, bookplate, poster, screen graphic, surface motif, or small object.",
                 "The identity must remain readable and specific; never collapse it into a generic channel identifier.",
@@ -231,8 +243,8 @@ class SeriesVisualSignaturePresentationPolicy:
                 "Preserve the source meaning while making the identity carry the main action.",
             ]
         return [
-            "Choose the least disruptive visible presentation that preserves the source intent and the frame-level IP duty.",
-            "Prefer the duty-specific form: action-based actor, evidence/background surface, structural carrier, emotional proxy, or real scene prop.",
+            "Use content-bound visible participation unless an explicit legacy mode is requested.",
+            "Prefer visible action, explanation direction, system component, scale reference, reader proxy, or transformation medium over marks or props.",
             "Always preserve the configured identity phrase in the final prompt.",
         ]
 
@@ -246,8 +258,8 @@ def _presentation_mode_from_strategy(strategy: SeriesVisualSignatureStrategyCont
     ):
         return SeriesVisualSignaturePresentationMode.VISIBLE_SUPPORTING_CHARACTER
     if strategy.effective_signature_mode is SeriesVisualSignatureMode.SUPPORTING_INTEGRATION:
-        return SeriesVisualSignaturePresentationMode.EMBEDDED_SCENE_MARK
-    return SeriesVisualSignaturePresentationMode.AUTO
+        return SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP
+    return SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP
 
 
 def _presentation_mode_from_value(
@@ -263,9 +275,14 @@ def _presentation_mode_from_value(
     if not text:
         return default
     aliases = {
-        "functional_ip_actor": SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR,
-        "function_bound_actor": SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR,
-        "ip_duty_actor": SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR,
+        "functional_ip_actor": SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP,
+        "function_bound_actor": SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP,
+        "ip_duty_actor": SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP,
+        "content_bound": SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP,
+        "content_bound_ip_actor": SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP,
+        "content_role_ip": SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP,
+        "legacy_mark": SeriesVisualSignaturePresentationMode.LEGACY_VISUAL_MARK,
+        "legacy_visual_signature": SeriesVisualSignaturePresentationMode.LEGACY_VISUAL_MARK,
     }
     if text.lower() in aliases:
         return aliases[text.lower()]
@@ -314,20 +331,6 @@ def _normalize_min_visibility(value: Any, *, default: str) -> str:
     if text not in {"subtle", "clear", "prominent"}:
         return default
     return text
-
-
-def _coerce_bool(value: Any, *, default: bool) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"true", "1", "yes", "on"}:
-            return True
-        if normalized in {"false", "0", "no", "off", ""}:
-            return False
-    return bool(value)
 
 
 def _advanced_conflicts(

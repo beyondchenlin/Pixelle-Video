@@ -2,6 +2,11 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from pixelle_video.models.size_contract import (
+    DEFAULT_MEDIA_RESOLUTION_PRESET,
+    DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION,
+    STANDARD_VIDEO_SIZE_PRESETS,
+)
 from web.components import style_config
 
 
@@ -241,9 +246,9 @@ def test_render_generation_size_controls_uses_valid_non_square_media_default(
 
     contract = style_config._render_generation_size_controls()
 
-    assert fake_st.media_resolution_default == "2k"
+    assert fake_st.media_resolution_default == DEFAULT_MEDIA_RESOLUTION_PRESET
     assert contract.media_orientation == "landscape"
-    assert contract.media_resolution_preset == "2k"
+    assert contract.media_resolution_preset == DEFAULT_MEDIA_RESOLUTION_PRESET
 
 
 def test_render_generation_size_controls_uses_orientation_video_default(
@@ -286,9 +291,11 @@ def test_render_generation_size_controls_uses_orientation_video_default(
 
     contract = style_config._render_generation_size_controls()
 
-    assert fake_st.video_resolution_default == "portrait_full_hd"
-    assert contract.video_resolution_preset == "portrait_full_hd"
-    assert (contract.canvas_width, contract.canvas_height) == (1080, 1920)
+    expected_preset = DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION["portrait"]
+    expected_size = STANDARD_VIDEO_SIZE_PRESETS["portrait"][expected_preset].as_tuple()
+    assert fake_st.video_resolution_default == expected_preset
+    assert contract.video_resolution_preset == expected_preset
+    assert (contract.canvas_width, contract.canvas_height) == expected_size
 
 
 def test_render_generation_size_controls_syncs_image_size_to_canvas(monkeypatch):

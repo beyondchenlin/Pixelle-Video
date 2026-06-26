@@ -34,6 +34,9 @@ from pixelle_video.services.visual_signature_fallback_planner import (
     fallback_ledger_from_plans,
 )
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
+from pixelle_video.services.visual_signature_policy_resolver import (
+    policy_for_presentation_mode,
+)
 from pixelle_video.utils.json_safety import to_json_compatible
 
 
@@ -145,6 +148,7 @@ class VisualPromptPlanningService:
                         "series_visual_signature_consistency_mode": series_visual_signature_consistency_mode,
                     }
                 )
+        policy = policy_for_presentation_mode(policy, presentation_policy)
         base_visual_briefs = BaseVisualBriefPlanner().plan_batch(
             base_prompts=base_prompts,
             frame_contexts=frame_contexts,
@@ -171,6 +175,7 @@ class VisualPromptPlanningService:
                     anchor_profile=anchor_profile,
                     presentation_policy=presentation_policy,
                     identity_kernel=identity_kernel,
+                    visual_signature_policy=policy,
                 ).plan_failed_frames(
                     base_visual_briefs=base_visual_briefs,
                     failed_frame_ids=[brief.frame_id for brief in base_visual_briefs],
@@ -291,6 +296,8 @@ def _should_use_deterministic_anchor_planning(
         return False
     return presentation_policy.presentation_mode in {
         SeriesVisualSignaturePresentationMode.AUTO,
+        SeriesVisualSignaturePresentationMode.CONTENT_BOUND_MANDATORY_IP,
+        SeriesVisualSignaturePresentationMode.FUNCTION_BOUND_IP_ACTOR,
         SeriesVisualSignaturePresentationMode.EMBEDDED_SCENE_MARK,
     }
 

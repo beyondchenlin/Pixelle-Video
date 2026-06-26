@@ -72,7 +72,7 @@ def validate_visual_anchor_projection(
         return VisualAnchorProjectionGateResult(
             passed=False,
             code="scene_bound_anchor_rejected",
-            reason="anchor clause is not bound to a concrete in-scene carrier",
+            reason="anchor clause is not bound to a concrete in-scene content action or legacy carrier",
         )
     return VisualAnchorProjectionGateResult(
         passed=True,

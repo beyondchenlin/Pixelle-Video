@@ -65,18 +65,9 @@ from pixelle_video.prompt_language import (
 from pixelle_video.prompts.prompt_prefix_generation import (
     render_prompt_prefix_generation_prompt,
 )
-from pixelle_video.services.frame_html import HTMLFrameGenerator
+from pixelle_video.services import frame_html as _frame_html
 from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
-from pixelle_video.utils.template_util import (
-    get_supported_template_orientations,
-    get_template_preview_path,
-    get_template_type,
-    get_templates_grouped_by_size_and_type,
-    parse_template_size,
-    resolve_compatible_template_for_orientation,
-    resolve_default_template_for_type_and_orientation,
-    resolve_template_path,
-)
+from pixelle_video.utils import template_util as _template_util
 from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.prompt_trace_artifacts import (
@@ -100,6 +91,7 @@ from pixelle_video.utils.text_splitting import (
 from web.components import storyboard_planning_controls
 from web.components.layer_design_config import render_layer_design_config
 from web.components.layered_template_state import (
+    LAYERED_TEMPLATE_EDITOR_STATE_KEY,
     LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY,
     LayeredTemplateEditorState,
     apply_pending_layered_template_widget_state,
@@ -153,6 +145,43 @@ from web.utils.tts_ui import (
     tts_workflow_supports_duration,
 )
 from web.utils.workflow_defaults import resolve_selectbox_default_index
+
+
+def HTMLFrameGenerator(*args, **kwargs):
+    return _frame_html.HTMLFrameGenerator(*args, **kwargs)
+
+
+def get_supported_template_orientations(*args, **kwargs):
+    return _template_util.get_supported_template_orientations(*args, **kwargs)
+
+
+def get_template_preview_path(*args, **kwargs):
+    return _template_util.get_template_preview_path(*args, **kwargs)
+
+
+def get_template_type(*args, **kwargs):
+    return _template_util.get_template_type(*args, **kwargs)
+
+
+def get_templates_grouped_by_size_and_type(*args, **kwargs):
+    return _template_util.get_templates_grouped_by_size_and_type(*args, **kwargs)
+
+
+def parse_template_size(*args, **kwargs):
+    return _template_util.parse_template_size(*args, **kwargs)
+
+
+def resolve_compatible_template_for_orientation(*args, **kwargs):
+    return _template_util.resolve_compatible_template_for_orientation(*args, **kwargs)
+
+
+def resolve_default_template_for_type_and_orientation(*args, **kwargs):
+    return _template_util.resolve_default_template_for_type_and_orientation(*args, **kwargs)
+
+
+def resolve_template_path(*args, **kwargs):
+    return _template_util.resolve_template_path(*args, **kwargs)
+
 
 STORYBOARD_SHOT_PRESET_AUTO_VALUE = storyboard_planning_controls.STORYBOARD_SHOT_PRESET_AUTO_VALUE
 
@@ -500,7 +529,59 @@ def _selected_size_snapshot_still_active(
     )
 
 
+def _preserve_unsnapshotted_layered_template_size(
+    session_state,
+    size_contract: GenerationSizeContract,
+) -> GenerationSizeContract:
+    if resolve_layered_template_selected_size_params(session_state) is not None:
+        return size_contract
+    if not has_layered_template_spec_identity(session_state):
+        return size_contract
+    existing = session_state.get(LAYERED_TEMPLATE_EDITOR_STATE_KEY)
+    if not isinstance(existing, LayeredTemplateEditorState) or not existing.layers:
+        return size_contract
+    existing_size = (
+        int(existing.canvas_width),
+        int(existing.canvas_height),
+        int(existing.media_width),
+        int(existing.media_height),
+    )
+    current_size = (
+        int(size_contract.canvas_width),
+        int(size_contract.canvas_height),
+        int(size_contract.media_width),
+        int(size_contract.media_height),
+    )
+    if existing_size == current_size:
+        return size_contract
+    return GenerationSizeContract.from_params(
+        {
+            "canvas_width": existing.canvas_width,
+            "canvas_height": existing.canvas_height,
+            "media_width": existing.media_width,
+            "media_height": existing.media_height,
+            "sync_media_size_to_canvas": False,
+        }
+    )
+
+
+def _seed_size_controls_from_selected_snapshot(session_state) -> dict[str, Any] | None:
+    selected_size_snapshot = resolve_layered_template_selected_size_params(session_state)
+    if selected_size_snapshot is None:
+        return None
+    for key in (
+        "video_orientation",
+        "video_resolution_preset",
+        "media_orientation",
+        "media_resolution_preset",
+        "sync_media_size_to_canvas",
+    ):
+        session_state.setdefault(key, selected_size_snapshot[key])
+    return selected_size_snapshot
+
+
 def _render_generation_size_controls() -> GenerationSizeContract:
+    selected_size_snapshot = _seed_size_controls_from_selected_snapshot(st.session_state)
     orientation_labels = {
         "landscape": tr("orientation.landscape"),
         "portrait": tr("orientation.portrait"),
@@ -565,9 +646,6 @@ def _render_generation_size_controls() -> GenerationSizeContract:
             "sync_media_size_to_canvas",
             value=False,
         ),
-    )
-    selected_size_snapshot = resolve_layered_template_selected_size_params(
-        st.session_state
     )
     contract_params = {
         "video_orientation": video_orientation,
@@ -2524,98 +2602,11 @@ def _render_image_prompt_prefix_library(
 
 
 
-def render_series_visual_signature_presentation_controls() -> dict:
-    """Render product-level visual-signature presentation policy controls."""
-    presentation_options = [
-        "auto",
-        "visible_supporting_character",
-        "embedded_scene_mark",
-        "primary_character",
-    ]
-    fallback_options = ["auto_repair", "default_signature", "disabled"]
-    presentation_labels = {
-        "auto": tr("series_visual_signature.presentation.auto", fallback="自动决定"),
-        "visible_supporting_character": tr("series_visual_signature.presentation.visible_supporting_character", fallback="每帧可见实体角色"),
-        "embedded_scene_mark": tr("series_visual_signature.presentation.embedded_scene_mark", fallback="嵌入为场景小标识"),
-        "primary_character": tr("series_visual_signature.presentation.primary_character", fallback="允许成为主角"),
-    }
-    fallback_labels = {
-        "auto_repair": tr("series_visual_signature.fallback.auto_repair", fallback="自动修复并继续生成（推荐）"),
-        "default_signature": tr("series_visual_signature.fallback.default_signature", fallback="回退到默认视觉签名继续生成"),
-        "disabled": tr("series_visual_signature.fallback.disabled", fallback="不自动兜底"),
-    }
-    with render_middle_column_collapsible_section(
-        tr("series_visual_signature.presentation.section", fallback="视觉签名呈现策略"),
-        expanded=False,
-    ):
-        st.caption(
-            tr(
-                "series_visual_signature.presentation.caption",
-                fallback="这是产品级策略：优先保留你的视觉签名角色，同时避免高级参数冲突导致整条生成失败。",
-            )
-        )
-        presentation_mode = st.selectbox(
-            tr("series_visual_signature.presentation.label", fallback="视觉签名呈现方式"),
-            presentation_options,
-            index=presentation_options.index(
-                st.session_state.get("series_visual_signature_presentation_mode", "auto")
-                if st.session_state.get("series_visual_signature_presentation_mode", "auto") in presentation_options
-                else "auto"
-            ),
-            format_func=lambda value: presentation_labels.get(value, value),
-            key="series_visual_signature_presentation_mode",
-            help=tr(
-                "series_visual_signature.presentation.help",
-                fallback="普通用户只需要选择这一项。高级的融入模式/角色一致性会由系统自动映射和纠偏。",
-            ),
-        )
-        fallback_enabled = st.toggle(
-            tr("series_visual_signature.fallback.enabled", fallback="规划失败时自动兜底，不中断生成"),
-            value=bool(st.session_state.get("series_visual_signature_fallback_enabled", True)),
-            key="series_visual_signature_fallback_enabled",
-            help=tr(
-                "series_visual_signature.fallback.enabled_help",
-                fallback="推荐开启：只修失败帧，保留成功帧，并在日志里记录回退原因。",
-            ),
-        )
-        fallback_mode = st.selectbox(
-            tr("series_visual_signature.fallback.mode", fallback="失败处理"),
-            fallback_options,
-            index=fallback_options.index(
-                st.session_state.get("series_visual_signature_fallback_mode", "auto_repair")
-                if st.session_state.get("series_visual_signature_fallback_mode", "auto_repair") in fallback_options
-                else "auto_repair"
-            ),
-            format_func=lambda value: fallback_labels.get(value, value),
-            key="series_visual_signature_fallback_mode",
-            disabled=not fallback_enabled,
-        )
-        strict = st.toggle(
-            tr("series_visual_signature.enforcement.strict", fallback="严格模式：签名规划失败就停止生成"),
-            value=bool(st.session_state.get("series_visual_signature_enforcement_strict", False)),
-            key="series_visual_signature_enforcement_strict",
-            help=tr(
-                "series_visual_signature.enforcement.strict_help",
-                fallback="仅建议开发/评测时开启。普通 Web 生成应保持关闭。",
-            ),
-        )
-        st.caption(
-            tr(
-                "series_visual_signature.presentation.note",
-                fallback="如果你选择“每帧可见实体角色”，系统会先通过提示词自然融入；只有失败帧才会自动 fallback。",
-            )
-        )
-    return {
-        "series_visual_signature_presentation_mode": presentation_mode,
-        "series_visual_signature_enforcement": "strict" if strict else "soft",
-        "series_visual_signature_fallback_enabled": bool(fallback_enabled),
-        "series_visual_signature_fallback_mode": fallback_mode if fallback_enabled else "disabled",
-        "series_visual_signature_min_visibility": "clear",
-    }
-
-
 def _reference_image_config_mapping() -> dict[str, Any]:
-    config = config_manager.get("reference_image", {})
+    get_config = getattr(config_manager, "get", None)
+    if not callable(get_config):
+        return {}
+    config = get_config("reference_image", {})
     return dict(config) if isinstance(config, dict) else {}
 
 
@@ -3037,7 +3028,6 @@ def render_style_config(
         tts_split_settings = render_tts_split_settings()
 
     element_animation_settings = render_element_animation_controls()
-    series_visual_signature_presentation_settings = render_series_visual_signature_presentation_controls()
     reference_image_settings = render_reference_image_controls()
 
     # ====================================================================
@@ -3087,6 +3077,10 @@ def render_style_config(
 
         with render_middle_column_detail_section(tr("size.final_video_title")):
             size_contract = _render_generation_size_controls()
+            size_contract = _preserve_unsnapshotted_layered_template_size(
+                st.session_state,
+                size_contract,
+            )
 
         # Get templates grouped by size, filtered by selected type
         grouped_templates = get_templates_grouped_by_size_and_type(selected_template_type)
@@ -3697,7 +3691,6 @@ def render_style_config(
         ),
         "selected_template_preset_id": selected_template_preset_id,
         **element_animation_settings,
-        **series_visual_signature_presentation_settings,
     }
     if text_rendering:
         result["text_rendering"] = text_rendering

@@ -57,17 +57,17 @@ class _FakeUI:
         self.successes.append(message)
 
     def text_input(self, label, value="", **kwargs):
-        self.text_inputs.append({"label": label, "value": value, **kwargs})
         key = kwargs.get("key")
         if key in self.session_state:
-            return self.session_state[key]
+            value = self.session_state[key]
+        self.text_inputs.append({"label": label, "value": value, **kwargs})
         return value
 
     def text_area(self, label, value="", **kwargs):
-        self.text_areas.append({"label": label, "value": value, **kwargs})
         key = kwargs.get("key")
         if key in self.session_state:
-            return self.session_state[key]
+            value = self.session_state[key]
+        self.text_areas.append({"label": label, "value": value, **kwargs})
         return value
 
     def selectbox(self, label, options, index=0, **kwargs):
@@ -151,6 +151,10 @@ class _FakeIPDesignClient:
         )
         self.asset_bibles = [payload]
         return {"success": True, "asset_bible": payload}
+
+
+def _last_call(client: _FakeIPDesignClient, method: str) -> dict[str, Any]:
+    return next(call for call in reversed(client.calls) if call["method"] == method)
 
 
 def _asset_bible(**overrides: Any) -> dict[str, Any]:
@@ -238,7 +242,7 @@ def test_ip_design_workbench_lists_assets_and_scene_casts():
 
     rendered = "\n".join(fake_ui.markdowns + fake_ui.captions)
     assert "bible_demo" in rendered
-    assert "IP" in rendered
+    assert "ip_design.intro.what_is_ip" in rendered
     assert "cast_frame_1" in rendered
     assert "char_luna" in rendered
     assert client.calls[:2] == [
@@ -297,7 +301,7 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
             "ip_design_ip_type": "cartoon_animal",
             "ip_design_visual_summary": "白色卡通兔子，蓝色领结，长耳朵。",
             "ip_design_identity_lock": "白色卡通兔子, 长耳朵, 圆润脸型",
-            "ip_design_color_rules": "#FFFFFF white body, bright blue tie",
+            "ip_design_color_palette": "#FFFFFF white body, bright blue tie",
             "ip_design_minimal_traits": "蓝色领结一角, 长耳朵轮廓",
             "ip_design_adaptable_slots": "服装配饰, 手持道具, 动作姿势",
             "ip_design_default_slot_preference": "prefer_supporting",
@@ -319,7 +323,7 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
         translate=lambda key, **_kwargs: key,
     )
 
-    saved_call = client.calls[-1]
+    saved_call = _last_call(client, "save_asset_bible")
     assert saved_call["method"] == "save_asset_bible"
     assert saved_call["asset_bible_id"] == "bible_new"
     saved_profiles = saved_call["payload"]["ip_profiles"]
@@ -356,7 +360,7 @@ def test_ip_design_workbench_preserves_non_rule_palette_entries_when_saving():
             "ip_design_series_visual_signature_profile_id": "ip_main",
             "ip_design_ip_name": "Updated IP",
             "ip_design_identity_lock": "white rabbit",
-            "ip_design_color_rules": "#FFFFFF white body",
+            "ip_design_color_palette": "#FFFFFF white body",
             "ip_design_save_asset_bible": True,
             "_form_populated": True,
         }
@@ -385,7 +389,7 @@ def test_ip_design_workbench_preserves_non_rule_palette_entries_when_saving():
         translate=lambda key, **_kwargs: key,
     )
 
-    profile = client.calls[-1]["payload"]["ip_profiles"][0]
+    profile = _last_call(client, "save_asset_bible")["payload"]["ip_profiles"][0]
     assert profile["color_palette"] == {
         "brand": {"hex": "#101010", "prompt": "ink outlines"},
         "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
@@ -460,7 +464,7 @@ def test_ip_design_workbench_preserves_sibling_ip_profiles_when_saving():
         translate=lambda key, **_kwargs: key,
     )
 
-    saved_profiles = client.calls[-1]["payload"]["ip_profiles"]
+    saved_profiles = _last_call(client, "save_asset_bible")["payload"]["ip_profiles"]
     assert len(saved_profiles) == 2
     main_profile = next(p for p in saved_profiles if p["series_visual_signature_profile_id"] == "ip_main")
     side_profile = next(p for p in saved_profiles if p["series_visual_signature_profile_id"] == "ip_side")
@@ -547,7 +551,7 @@ def test_ip_design_workbench_renders_existing_color_mapping_prompts():
     )
 
     by_key = {item["key"]: item for item in fake_ui.text_inputs}
-    assert by_key["ip_design_color_rules"]["value"] == "white body, bright blue tie"
+    assert by_key["ip_design_color_palette"]["value"] == "white body, bright blue tie"
 
 
 def test_ip_design_workbench_noop_save_does_not_duplicate_non_rule_mapping_prompt():
@@ -579,7 +583,7 @@ def test_ip_design_workbench_noop_save_does_not_duplicate_non_rule_mapping_promp
         translate=lambda key, **_kwargs: key,
     )
 
-    profile = client.calls[-1]["payload"]["ip_profiles"][0]
+    profile = _last_call(client, "save_asset_bible")["payload"]["ip_profiles"][0]
     assert profile["color_palette"] == {
         "brand": {"hex": "#101010", "prompt": "ink outlines"},
         "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
@@ -654,7 +658,7 @@ def test_ip_design_workbench_saves_scene_cast_through_client():
         translate=lambda key, **_kwargs: key,
     )
 
-    assert client.calls[-1] == {
+    assert _last_call(client, "save_scene_cast") == {
         "method": "save_scene_cast",
         "workspace_id": "workspace_1",
         "project_id": "project_1",

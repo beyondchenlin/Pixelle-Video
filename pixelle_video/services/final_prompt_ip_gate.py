@@ -50,10 +50,10 @@ def assert_mandatory_ip_final_prompt(
         raise FinalPromptIPGateError("mandatory IP prompt gate failed: visible anchor plan missing")
     if not anchor_clause or anchor_clause not in prompt:
         raise FinalPromptIPGateError("mandatory IP prompt gate failed: final prompt lost the anchor clause")
+    if policy.contains_forbidden_overlay_text(prompt):
+        raise FinalPromptIPGateError("mandatory IP prompt gate failed: final prompt contains overlay/corner language")
     if policy.contains_forbidden_final_prompt_text(anchor_clause):
-        raise FinalPromptIPGateError("mandatory IP prompt gate failed: anchor clause contains forbidden overlay language")
-    if policy.contains_forbidden_final_prompt_text(prompt):
-        raise FinalPromptIPGateError("mandatory IP prompt gate failed: final prompt contains forbidden overlay language")
+        raise FinalPromptIPGateError("mandatory IP prompt gate failed: anchor clause contains content-free IP carrier language")
 
     identity_kernel = _identity_kernel(anchor_profile, visual_anchor_plan)
     if policy.require_concrete_identity and not identity_kernel:

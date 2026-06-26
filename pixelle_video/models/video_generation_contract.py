@@ -39,6 +39,7 @@ from pixelle_video.prompt_language import (
     normalize_prompt_language,
 )
 from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
+from pixelle_video.utils.bool_parsing import coerce_bool
 
 LEGACY_STANDARD_STORYBOARD_PARAMS = frozenset(
     {
@@ -147,7 +148,7 @@ class IPControlsContract:
     @classmethod
     def from_mapping(cls, params: Mapping[str, Any] | None) -> "IPControlsContract":
         mapping = params or {}
-        series_visual_signature_enabled = bool(mapping.get("series_visual_signature_enabled", False))
+        series_visual_signature_enabled = coerce_bool(mapping.get("series_visual_signature_enabled", False), default=False)
         series_visual_signature_asset_bible_id = _normalize_optional_contract_string(mapping.get("series_visual_signature_asset_bible_id"))
         series_visual_signature_profile_id = _normalize_optional_contract_string(mapping.get("series_visual_signature_profile_id"))
         visual_controls = SeriesVisualSignatureControlsContract.from_mapping(mapping)

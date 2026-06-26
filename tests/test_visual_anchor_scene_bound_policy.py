@@ -14,6 +14,7 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
+from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.services.provider_prompt_projector import (
     MandatoryIPProjectionError,
     ProviderPromptProjector,
@@ -40,6 +41,29 @@ FORBIDDEN_ANCHOR_WORDS = (
 )
 
 
+def _legacy_policy() -> VisualSignaturePolicy:
+    return VisualSignaturePolicy(
+        version="visual_signature_policy.v1_legacy_visual_mark",
+        coverage_mode="sparse",
+        suppress_allowed=True,
+        fallback_strategy="inject_safe_carrier",
+        projection_failure="allow_anchor_free",
+        require_concrete_identity=False,
+        allowed_visible_carrier_types=(
+            "bookplate_or_stamp",
+            "printed_mark",
+            "embossed_mark",
+            "engraved_mark",
+            "surface_graphic",
+            "decorative_object",
+            "wearable_symbol",
+            "small_supporting_prop",
+            "minor_supporting_character",
+        ),
+        final_prompt_forbidden_terms=(),
+    )
+
+
 def assert_no_forbidden_anchor_words(text: str) -> None:
     lowered = text.lower()
     for word in FORBIDDEN_ANCHOR_WORDS:
@@ -63,6 +87,7 @@ def test_scene_bound_policy_accepts_bookplate_stamp() -> None:
         placement="附着在打开的书页纸面",
         contact_relation="作为打开的书页纸面的压印纹理细节",
         carrier_type=AnchorCarrierType.BOOKPLATE_OR_STAMP,
+        policy=_legacy_policy(),
     )
 
 
@@ -102,7 +127,7 @@ def test_integration_plan_filters_selected_overlay_candidate() -> None:
         selected_index=0,
     )
 
-    placement_plan = response.to_placement_plan()
+    placement_plan = response.to_placement_plan(policy=_legacy_policy())
 
     assert placement_plan.visible
     assert placement_plan.support_anchor == "打开的书页纸面"

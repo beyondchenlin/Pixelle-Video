@@ -1,4 +1,5 @@
 from web.components import series_visual_signature_controls
+from web import i18n
 
 
 class _FakeStyleConfigUI:
@@ -10,7 +11,7 @@ class _FakeStyleConfigUI:
     def toggle(self, label, value=False, **kwargs):
         key = kwargs.get("key")
         self.toggle_calls.append({"label": label, "value": value, **kwargs})
-        return bool(self.session_state.get(key, value))
+        return self.session_state.get(key, value)
 
     def selectbox(self, label, options, index=0, key=None, **kwargs):
         self.selectbox_calls.append(
@@ -34,6 +35,16 @@ class _FakeStyleConfigUI:
             yield None
 
         return _null_context()
+
+
+def _default_presentation_payload():
+    return {
+        "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
+        "series_visual_signature_enforcement": "soft",
+        "series_visual_signature_fallback_enabled": True,
+        "series_visual_signature_fallback_mode": "auto_repair",
+        "series_visual_signature_min_visibility": "clear",
+    }
 
 
 def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
@@ -64,6 +75,7 @@ def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
         "series_visual_signature_participation_mode": "auto",
         "series_visual_signature_mode": "auto",
         "series_visual_signature_consistency_mode": "off",
+        **_default_presentation_payload(),
     }
     assert [call["key"] for call in fake_ui.selectbox_calls] == [
         "style_series_visual_signature_asset_bible_id",
@@ -73,7 +85,23 @@ def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
         "style_ip_series_visual_signature_participation_mode",
         "style_ip_series_visual_signature_mode",
         "style_ip_series_visual_signature_consistency_mode",
+        "style_ip_series_visual_signature_presentation_mode",
+        "style_ip_series_visual_signature_fallback_mode",
     ]
+
+
+def test_series_visual_signature_presentation_i18n_keys_are_translated():
+    i18n.set_language("en_US")
+    assert (
+        i18n.tr("series_visual_signature.presentation.content_bound_mandatory_ip")
+        == "Content-bound IP actor (recommended)"
+    )
+
+    i18n.set_language("zh_CN")
+    assert (
+        i18n.tr("series_visual_signature.presentation.content_bound_mandatory_ip")
+        == "内容角色型 IP 出镜（推荐）"
+    )
 
 
 def test_render_series_visual_signature_controls_returns_selected_profile_world_hint():
@@ -159,6 +187,7 @@ def test_render_series_visual_signature_controls_supports_content_state_prefix()
         "series_visual_signature_participation_mode": "auto",
         "series_visual_signature_mode": "auto",
         "series_visual_signature_consistency_mode": "off",
+        **_default_presentation_payload(),
         "ip_profile_world_hint": "Friendly guide world.",
     }
     assert fake_ui.toggle_calls[0]["key"] == "content_series_visual_signature_enabled"
@@ -170,6 +199,8 @@ def test_render_series_visual_signature_controls_supports_content_state_prefix()
         "content_ip_series_visual_signature_participation_mode",
         "content_ip_series_visual_signature_mode",
         "content_ip_series_visual_signature_consistency_mode",
+        "content_ip_series_visual_signature_presentation_mode",
+        "content_ip_series_visual_signature_fallback_mode",
     ]
 
 
@@ -203,6 +234,29 @@ def test_resolve_selected_ip_prompt_chain_profile_summary_supports_content_state
     }
 
 
+def test_resolve_selected_ip_prompt_chain_profile_summary_treats_string_false_as_disabled():
+    summary = series_visual_signature_controls.resolve_selected_ip_prompt_chain_profile_summary(
+        session_state={
+            "style_series_visual_signature_enabled": "false",
+            "style_series_visual_signature_asset_bible_id": "bible_demo",
+            "style_series_visual_signature_profile_id": "ip_main",
+        },
+        asset_bibles=[
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {
+                        "series_visual_signature_profile_id": "ip_main",
+                        "name": "White Rabbit Guide",
+                    }
+                ],
+            }
+        ],
+    )
+
+    assert summary == {}
+
+
 def test_style_config_hides_ip_selectors_when_disabled():
     fake_ui = _FakeStyleConfigUI()
 
@@ -213,6 +267,21 @@ def test_style_config_hides_ip_selectors_when_disabled():
     )
 
     assert payload == {"series_visual_signature_enabled": False}
+    assert fake_ui.selectbox_calls == []
+
+
+def test_style_config_treats_string_false_enable_state_as_disabled():
+    fake_ui = _FakeStyleConfigUI()
+    fake_ui.session_state["style_series_visual_signature_enabled"] = "false"
+
+    payload = series_visual_signature_controls.render_series_visual_signature_controls(
+        ui=fake_ui,
+        asset_bibles=[],
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert payload == {"series_visual_signature_enabled": False}
+    assert fake_ui.toggle_calls[0]["value"] is False
     assert fake_ui.selectbox_calls == []
 
 
@@ -256,4 +325,27 @@ def test_style_config_loads_ip_assets_after_enable_toggle():
         "series_visual_signature_participation_mode": "auto",
         "series_visual_signature_mode": "auto",
         "series_visual_signature_consistency_mode": "off",
+        **_default_presentation_payload(),
     }
+
+
+def test_style_config_treats_string_false_fallback_state_as_disabled():
+    fake_ui = _FakeStyleConfigUI()
+    fake_ui.session_state["style_series_visual_signature_enabled"] = True
+    fake_ui.session_state["style_ip_series_visual_signature_fallback_enabled"] = "false"
+
+    payload = series_visual_signature_controls.render_series_visual_signature_controls(
+        ui=fake_ui,
+        asset_bibles=[
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {"series_visual_signature_profile_id": "ip_main", "name": "正定向导兔"}
+                ],
+            }
+        ],
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert payload["series_visual_signature_fallback_enabled"] is False
+    assert payload["series_visual_signature_fallback_mode"] == "disabled"

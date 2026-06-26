@@ -265,10 +265,6 @@ class VideoGenerateRequest(BaseModel):
     template_id: Optional[str] = Field(None, description="Public frame template resource ID resolved server-side")
     bgm_id: Optional[str] = Field(None, description="Public background music resource ID resolved server-side")
     workflow_preset_id: Optional[str] = Field(None, description="Public media workflow preset resource ID resolved server-side")
-    media_workflow: Optional[str] = Field(
-        None,
-        description="Local debug media workflow key. Public clients should prefer workflow_preset_id.",
-    )
     tts_workflow_preset_id: Optional[str] = Field(None, description="Public TTS workflow preset resource ID resolved server-side")
     reference_image: Optional[ReferenceImageInputRequest] = Field(
         None,
@@ -285,6 +281,19 @@ class VideoGenerateRequest(BaseModel):
     series_visual_signature_participation_mode: Optional[str] = Field(None, description="V4 series-visual-signature participation mode.")
     series_visual_signature_mode: Optional[str] = Field(None, description="V4 series-visual-signature strategy mode.")
     series_visual_signature_consistency_mode: Optional[str] = Field(None, description="V4 series-visual-signature consistency mode.")
+    series_visual_signature_presentation_mode: Optional[Literal[
+        "content_bound_mandatory_ip",
+        "function_bound_ip_actor",
+        "visible_supporting_character",
+        "embedded_scene_mark",
+        "primary_character",
+        "legacy_visual_mark",
+        "auto",
+    ]] = Field(None, description="Product-level IP presentation mode. Omit to use content-bound mandatory IP when visual signature is enabled.")
+    series_visual_signature_enforcement: Optional[Literal["soft", "strict"]] = Field(None, description="Validation enforcement for recurring IP planning.")
+    series_visual_signature_fallback_enabled: Optional[bool] = Field(None, description="Allow deterministic content-bound repair when LLM planning fails.")
+    series_visual_signature_fallback_mode: Optional[Literal["auto_repair", "default_signature", "disabled"]] = Field(None, description="Fallback strategy for recurring IP planning.")
+    series_visual_signature_min_visibility: Optional[Literal["subtle", "clear", "prominent"]] = Field(None, description="Minimum readable presence for recurring IP.")
     article_understanding_mode: ArticleUnderstandingModeRequest = Field("auto", description="V4.4 article understanding mode.")
     visual_planning_mode: VisualPlanningModeRequest = Field("auto", description="V4.4 visual planning mode.")
     series_visual_signature_strategy: SeriesVisualSignatureStrategyRequest = Field("auto", description="V4.4 series visual signature strategy.")
@@ -440,6 +449,11 @@ class VideoGenerateRequest(BaseModel):
             {
                 "series_visual_signature_mode": self.series_visual_signature_mode,
                 "series_visual_signature_consistency_mode": self.series_visual_signature_consistency_mode,
+                "series_visual_signature_presentation_mode": self.series_visual_signature_presentation_mode,
+                "series_visual_signature_enforcement": self.series_visual_signature_enforcement,
+                "series_visual_signature_fallback_enabled": self.series_visual_signature_fallback_enabled,
+                "series_visual_signature_fallback_mode": self.series_visual_signature_fallback_mode,
+                "series_visual_signature_min_visibility": self.series_visual_signature_min_visibility,
             }
         )
 
