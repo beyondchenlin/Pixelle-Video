@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
+from pixelle_video.services import element_segmentation as element_segmentation_module
 from pixelle_video.services.element_segmentation import ElementSegmentationService
 
 
@@ -73,6 +74,18 @@ def _mask(path: Path, bbox: tuple[int, int, int, int] | None) -> None:
         draw = ImageDraw.Draw(image)
         draw.rectangle(bbox, fill=(255, 255, 255, 255))
     image.save(path)
+
+
+@pytest.fixture(autouse=True)
+def _trust_fake_workflow_output_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        element_segmentation_module,
+        "configured_workflow_output_roots",
+        lambda: (tmp_path,),
+    )
 
 
 async def test_segment_image_builds_manifest_from_comfy_outputs(tmp_path: Path) -> None:
@@ -225,11 +238,19 @@ async def test_segment_image_downloads_url_outputs(
 
     downloaded: list[tuple[str, Path]] = []
 
-    async def fake_download(self, url: str, target: Path) -> None:
-        downloaded.append((url, target))
-        _png(target, (10, 20, 30, 255))
+    async def fake_materialize(source_value: str, target: Path, **_kwargs) -> Path:
+        if source_value.startswith(("http://", "https://")):
+            downloaded.append((source_value, target))
+            _png(target, (10, 20, 30, 255))
+        else:
+            target.write_bytes(Path(source_value).read_bytes())
+        return target
 
-    monkeypatch.setattr(ElementSegmentationService, "_download_url", fake_download)
+    monkeypatch.setattr(
+        element_segmentation_module,
+        "materialize_media_source",
+        fake_materialize,
+    )
     kit = FakeKit(
         FakeComfyResult(
             images=[
