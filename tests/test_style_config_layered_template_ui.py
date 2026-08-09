@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 from pixelle_video.models.layered_template import LayerSourceSpec
@@ -339,6 +340,10 @@ def test_render_style_config_updates_text_layer_style_from_editor_controls(monke
     monkeypatch.setattr(style_config, "render_text_rendering_controls", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
     monkeypatch.setattr(style_config.config_manager, "get_comfyui_config", _fake_comfyui_config)
+    monkeypatch.setattr(
+        "web.components.text_rendering_config.discover_font_options",
+        lambda *_args: [SimpleNamespace(family="SimHei", path=Path("fonts/simhei.ttf"))],
+    )
     monkeypatch.setattr("pixelle_video.utils.template_util.get_supported_template_orientations", lambda _template_type: ["portrait"])
     monkeypatch.setattr("pixelle_video.utils.template_util.resolve_default_template_for_type_and_orientation", lambda *_args: "1080x1920/image_default.html")
     monkeypatch.setattr("pixelle_video.utils.template_util.resolve_compatible_template_for_orientation", lambda current_template, **_kwargs: current_template)
