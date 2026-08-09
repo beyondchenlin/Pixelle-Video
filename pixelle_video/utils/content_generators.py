@@ -42,6 +42,10 @@ from pixelle_video.models.llm_interaction_trace import (
     LLMTraceError,
     trace_context_with_prompt_template,
 )
+from pixelle_video.models.llm_response import (
+    LLMProviderRequestError,
+    LLMResponseContractError,
+)
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.prompt_context import (
@@ -59,11 +63,11 @@ from pixelle_video.models.text_overlay import (
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
 from pixelle_video.services.content_world_planner import ContentWorldPlanner
-from pixelle_video.services.llm_capabilities import estimate_input_tokens
 from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
 )
 from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+from pixelle_video.services.llm_capabilities import estimate_input_tokens
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import (
     LLMTraceCollector,
@@ -100,11 +104,6 @@ from pixelle_video.utils.prompt_helper import (
     select_image_text_negative_prompt,
     select_negative_text_rules,
 )
-
-# Conservative safety margin for pre-flight batch sizing.
-# The authoritative guard lives in LLMService.__call__ using per-model limits.
-_LLM_BATCH_SAFE_TOKENS = 25000
-
 from pixelle_video.utils.style_resolution import (
     normalize_storyboard_style,
     resolve_style_source,
@@ -547,6 +546,130 @@ def _native_prompt_source_candidate_ids(
     return candidate_ids
 
 
+_TITLE_STRATEGIES = frozenset({"auto", "direct", "llm"})
+_TITLE_LABEL_RE = re.compile(
+    r"^(?:title|video\s+title|标题|视频标题)\s*[:：]\s*",
+    re.IGNORECASE,
+)
+
+# Conservative safety margin for pre-flight batch sizing.
+# The authoritative guard lives in LLMService.__call__ using per-model limits.
+_LLM_BATCH_SAFE_TOKENS = 25000
+_TITLE_QUOTE_PAIRS = (
+    ('"', '"'),
+    ("'", "'"),
+    ("“", "”"),
+    ("‘", "’"),
+    ("《", "》"),
+    ("「", "」"),
+    ("『", "』"),
+)
+_ZERO_WIDTH_JOINER = "\u200d"
+
+
+def _validate_title_request(*, content: Any, strategy: Any, max_length: Any) -> str:
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("title source content must be a non-empty string")
+    if strategy not in _TITLE_STRATEGIES:
+        raise ValueError("title strategy must be one of: auto, direct, llm")
+    if type(max_length) is not int or max_length < 1:
+        raise ValueError("title max_length must be a positive integer")
+    return content.strip()
+
+
+def _title_output_token_budget(max_length: int) -> int:
+    """Bound cost while leaving room for multilingual provider tokenization."""
+
+    return min(2000, max(64, max_length * 2))
+
+
+def _normalize_title_candidate(value: Any) -> str:
+    if not isinstance(value, str):
+        raise TypeError("title model response must be a string")
+    normalized = unicodedata.normalize("NFKC", value).strip()
+    lines = [
+        line.strip()
+        for line in normalized.splitlines()
+        if line.strip() and not line.strip().startswith("```")
+    ]
+    if not lines:
+        return ""
+    title = _TITLE_LABEL_RE.sub("", lines[0]).strip()
+    title = title.lstrip("#*- ").strip()
+    for opening, closing in _TITLE_QUOTE_PAIRS:
+        if title.startswith(opening) and title.endswith(closing):
+            title = title[len(opening) : len(title) - len(closing)].strip()
+            break
+    while title and unicodedata.category(title[-1]).startswith("P"):
+        title = title[:-1].rstrip()
+    return title
+
+
+def _truncate_title(title: str, max_length: int) -> str:
+    clusters = _grapheme_clusters_for_title(title)
+    if len(clusters) <= max_length:
+        return title
+    truncated_clusters = list(clusters[:max_length])
+    whitespace_indexes = [
+        index
+        for index, cluster in enumerate(truncated_clusters)
+        if cluster.isspace()
+    ]
+    if whitespace_indexes and whitespace_indexes[-1] > max_length * 0.6:
+        truncated_clusters = truncated_clusters[: whitespace_indexes[-1]]
+    truncated = "".join(truncated_clusters).rstrip()
+    while truncated and unicodedata.category(truncated[-1]).startswith("P"):
+        truncated = truncated[:-1].rstrip()
+    return truncated
+
+
+def _grapheme_clusters_for_title(text: str) -> tuple[str, ...]:
+    clusters: list[str] = []
+    current = ""
+    for char in text:
+        if not current:
+            current = char
+            continue
+        if (
+            current.endswith(_ZERO_WIDTH_JOINER)
+            or char == _ZERO_WIDTH_JOINER
+            or _is_title_grapheme_extension(char)
+            or (
+                len(current) == 1
+                and _is_regional_indicator(current)
+                and _is_regional_indicator(char)
+            )
+        ):
+            current += char
+            continue
+        clusters.append(current)
+        current = char
+    if current:
+        clusters.append(current)
+    return tuple(clusters)
+
+
+def _is_title_grapheme_extension(char: str) -> bool:
+    codepoint = ord(char)
+    return (
+        unicodedata.combining(char) != 0
+        or unicodedata.category(char) in {"Mn", "Mc", "Me"}
+        or 0xFE00 <= codepoint <= 0xFE0F
+        or 0x1F3FB <= codepoint <= 0x1F3FF
+    )
+
+
+def _is_regional_indicator(char: str) -> bool:
+    return 0x1F1E6 <= ord(char) <= 0x1F1FF
+
+
+def _deterministic_title_fallback(content: str, max_length: int) -> str:
+    title = _truncate_title(_normalize_title_candidate(content), max_length)
+    if not title:
+        raise ValueError("title source content did not contain usable title text")
+    return title
+
+
 async def generate_title(
     llm_service,
     content: str,
@@ -572,8 +695,12 @@ async def generate_title(
     Returns:
         Generated title
     """
+    stripped_content = _validate_title_request(
+        content=content,
+        strategy=strategy,
+        max_length=max_length,
+    )
     start_time = perf_counter()
-    stripped_content = content.strip()
     logger.info(
         f"Starting title generation (strategy={strategy}, input_length={len(stripped_content)}, max_length={max_length})"
     )
@@ -588,7 +715,7 @@ async def generate_title(
     )
 
     if strategy == "direct":
-        title = stripped_content[:max_length] if len(stripped_content) > max_length else stripped_content
+        title = _deterministic_title_fallback(stripped_content, max_length)
         elapsed_ms = round((perf_counter() - start_time) * 1000)
         emit_stage_event(
             channel="ai_creation",
@@ -608,7 +735,8 @@ async def generate_title(
         return title
     
     if strategy == "auto":
-        if len(stripped_content) <= 15:
+        if len(_grapheme_clusters_for_title(stripped_content)) <= max_length:
+            title = _deterministic_title_fallback(stripped_content, max_length)
             elapsed_ms = round((perf_counter() - start_time) * 1000)
             emit_stage_event(
                 channel="ai_creation",
@@ -625,19 +753,23 @@ async def generate_title(
             logger.info(
                 f"Title generation completed via auto-direct shortcut in {perf_counter() - start_time:.2f}s"
             )
-            return stripped_content
+            return title
         # Fall through to LLM
     
     # Use LLM to generate title
     from pixelle_video.prompts.title_generation import render_title_generation_prompt
     
     # Pass max_length to prompt so LLM knows the character limit
-    rendered_prompt = render_title_generation_prompt(content, max_length=max_length)
+    rendered_prompt = render_title_generation_prompt(
+        stripped_content,
+        max_length=max_length,
+    )
+    fallback_reason = ""
     try:
         response = await llm_service(
             rendered_prompt.text,
-            temperature=0.7,
-            max_tokens=50,
+            temperature=0.4,
+            max_tokens=_title_output_token_budget(max_length),
             trace_context=_trace_context_for_rendered_prompt(
                 trace_context,
                 rendered_prompt=rendered_prompt,
@@ -646,7 +778,11 @@ async def generate_title(
             ),
             trace_recorder=trace_recorder,
         )
-    except Exception:
+        title = _truncate_title(_normalize_title_candidate(response), max_length)
+        if not title:
+            fallback_reason = "normalized_model_title_empty"
+            title = _deterministic_title_fallback(stripped_content, max_length)
+    except LLMTraceError:
         emit_stage_event(
             channel="ai_creation",
             stage="title_generation",
@@ -660,33 +796,13 @@ async def generate_title(
             strategy=strategy,
         )
         raise
-    
-    # Clean up response
-    title = response.strip()
-    
-    # Remove quotes if present
-    if title.startswith('"') and title.endswith('"'):
-        title = title[1:-1]
-    if title.startswith("'") and title.endswith("'"):
-        title = title[1:-1]
-    
-    # Remove trailing punctuation
-    title = title.rstrip('.,!?;:\'"')
-    
-    # Safety: if still over limit, truncate smartly
-    if len(title) > max_length:
-        # Try to truncate at word boundary
-        truncated = title[:max_length]
-        last_space = truncated.rfind(' ')
-        
-        # Only use word boundary if it's not too far back (at least 60% of max_length)
-        if last_space > max_length * 0.6:
-            title = truncated[:last_space]
-        else:
-            title = truncated
-        
-        # Remove any trailing punctuation after truncation
-        title = title.rstrip('.,!?;:\'"')
+    except (LLMProviderRequestError, LLMResponseContractError) as exc:
+        fallback_reason = type(exc).__name__
+        title = _deterministic_title_fallback(stripped_content, max_length)
+        logger.warning(
+            "Title model call failed; using deterministic fallback: error_type={}",
+            fallback_reason,
+        )
     
     elapsed = perf_counter() - start_time
     emit_stage_event(
@@ -699,9 +815,14 @@ async def generate_title(
         latency_ms=round(elapsed * 1000),
         llm_call_count=1,
         retry_count=0,
-        strategy=strategy,
+        strategy=(f"{strategy}_fallback" if fallback_reason else strategy),
+        fallback_reason=fallback_reason,
     )
-    logger.info(f"Title generation completed in {elapsed:.2f}s")
+    logger.info(
+        "Title generation completed in {:.2f}s{}",
+        elapsed,
+        " with deterministic fallback" if fallback_reason else "",
+    )
     logger.debug(f"Generated title: '{title}' (length: {len(title)})")
     return title
 

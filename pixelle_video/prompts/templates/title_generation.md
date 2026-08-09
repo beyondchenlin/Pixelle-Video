@@ -19,7 +19,7 @@ Requirements:
    - Strictly follow the language of the input content
 
 2. **Character Limit (CRITICAL)**: The title MUST NOT exceed {max_length} characters
-   - Count every character including spaces
+   - Count each user-perceived character, including spaces
    - The title must be complete and meaningful within this limit
    - Do NOT generate a title that would need to be cut off
 

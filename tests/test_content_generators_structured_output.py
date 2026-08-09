@@ -2,6 +2,8 @@ import asyncio
 
 import pytest
 
+from pixelle_video.models.llm_interaction_trace import LLMTraceRecordingError
+from pixelle_video.models.llm_response import LLMResponseContractError
 from pixelle_video.prompts.image_generation import build_image_prompt_prompt
 from pixelle_video.utils import content_generators
 
@@ -26,6 +28,126 @@ async def test_generate_title_reports_stage_callback():
     assert observed[0]["stage"] == "title_generation"
     assert observed[1]["latency_ms"] >= 0
     assert observed[1]["llm_call_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_title_auto_respects_custom_limit_and_dynamic_budget():
+    calls = []
+
+    class FakeLLM:
+        async def __call__(self, prompt, **kwargs):
+            calls.append(kwargs)
+            return "Short"
+
+    title = await content_generators.generate_title(
+        FakeLLM(),
+        "abcdefghij",
+        strategy="auto",
+        max_length=5,
+    )
+
+    assert title == "Short"
+    assert calls[0]["max_tokens"] == 64
+    assert calls[0]["temperature"] == 0.4
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("content", "max_length", "expected"),
+    [
+        ("👩‍💻学习日记", 1, "👩‍💻"),
+        ("🇨🇳🇺🇸新闻", 2, "🇨🇳🇺🇸"),
+        ("Cafe\u0301 journal", 4, "Café"),
+    ],
+)
+async def test_generate_title_direct_truncates_user_perceived_characters(
+    content,
+    max_length,
+    expected,
+):
+    title = await content_generators.generate_title(
+        object(),
+        content,
+        strategy="direct",
+        max_length=max_length,
+    )
+
+    assert title == expected
+
+
+@pytest.mark.asyncio
+async def test_generate_title_normalizes_provider_wrappers_and_unicode_punctuation():
+    class FakeLLM:
+        async def __call__(self, prompt, **kwargs):
+            return "```text\n视频标题：《高效学习！》\n额外解释\n```"
+
+    title = await content_generators.generate_title(
+        FakeLLM(),
+        "一篇关于高效学习方法的长文章",
+        strategy="llm",
+        max_length=15,
+    )
+
+    assert title == "高效学习"
+
+
+@pytest.mark.asyncio
+async def test_generate_title_uses_observable_fallback_for_invalid_provider_response():
+    observed = []
+
+    class FakeLLM:
+        async def __call__(self, prompt, **kwargs):
+            raise LLMResponseContractError(
+                "provider returned no choices",
+                reason="choices_empty",
+            )
+
+    title = await content_generators.generate_title(
+        FakeLLM(),
+        "Deterministic source title with details",
+        strategy="llm",
+        max_length=13,
+        stage_callback=observed.append,
+    )
+
+    assert title == "Deterministic"
+    assert observed[-1]["event"] == "end"
+    assert observed[-1]["strategy"] == "llm_fallback"
+    assert observed[-1]["fallback_reason"] == "LLMResponseContractError"
+
+
+@pytest.mark.asyncio
+async def test_generate_title_never_falls_back_when_mandatory_trace_fails():
+    observed = []
+
+    class FakeLLM:
+        async def __call__(self, prompt, **kwargs):
+            raise LLMTraceRecordingError("trace unavailable")
+
+    with pytest.raises(LLMTraceRecordingError):
+        await content_generators.generate_title(
+            FakeLLM(),
+            "A long source title requiring generation",
+            strategy="llm",
+            stage_callback=observed.append,
+        )
+
+    assert observed[-1]["event"] == "fail"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"content": ""},
+        {"content": "topic", "strategy": "unknown"},
+        {"content": "topic", "max_length": 0},
+        {"content": "topic", "max_length": True},
+    ],
+)
+async def test_generate_title_rejects_invalid_contract(kwargs):
+    with pytest.raises(ValueError):
+        await content_generators.generate_title(object(), **kwargs)
 
 
 @pytest.mark.asyncio
