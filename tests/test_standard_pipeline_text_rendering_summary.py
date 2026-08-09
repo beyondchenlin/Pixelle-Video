@@ -449,7 +449,7 @@ class _FakeHyperFramesProjectService:
 
 
 class _FakeHyperFramesRenderer:
-    def render(self, project_dir, **kwargs):
+    async def render_async(self, project_dir, **kwargs):
         output_path = kwargs["output_path"]
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         Path(output_path).write_bytes(b"hyperframes")

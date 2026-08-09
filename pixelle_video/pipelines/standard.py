@@ -3670,7 +3670,7 @@ class StandardPipeline(LinearVideoPipeline):
             0.90,
         )
 
-        final_video_path = self.core.hyperframes_renderer.render(
+        final_video_path = await self.core.hyperframes_renderer.render_async(
             str(project_paths.project_dir),
             output_path=ctx.final_video_path,
             width=canvas_width,

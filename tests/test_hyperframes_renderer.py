@@ -1,12 +1,12 @@
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 import pixelle_video.service as service_module
-import pixelle_video.services.hyperframes_renderer as hyperframes_renderer_module
 from pixelle_video.service import PixelleVideoCore
 from pixelle_video.services.alignment_service import AlignmentService
 from pixelle_video.services.audio_edit_service import AudioEditService
@@ -48,6 +48,26 @@ def _write_template(template_root: Path) -> None:
     )
 
 
+def _stub_successful_bridge(monkeypatch, renderer, output_path: Path, captured=None) -> None:
+    def fake_run(request):
+        if captured is not None:
+            captured["command"] = list(request.command)
+            captured["cwd"] = str(request.project_path)
+            captured["env"] = request.environment
+            captured["stdout_log"] = request.stdout_log
+            captured["stderr_log"] = request.stderr_log
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"video")
+        request.stdout_log.write_text(
+            json.dumps({"output_path": str(output_path)}),
+            encoding="utf-8",
+        )
+        request.stderr_log.write_text("", encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(renderer, "_run_bridge_sync", fake_run)
+
+
 def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_path):
     project_dir = tmp_path / "output" / "task-6" / "hyperframes"
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -62,38 +82,12 @@ def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_p
     expected_output = project_dir / "renders" / "task-6.mp4"
     captured: dict[str, object] = {}
 
-    fake_chrome = tmp_path / "chrome.exe"
-    fake_chrome.write_bytes(b"test-browser")
-    monkeypatch.delenv("PRODUCER_HEADLESS_SHELL_PATH", raising=False)
-    monkeypatch.setattr(
-        hyperframes_renderer_module,
-        "_system_browser_candidates",
-        lambda: (fake_chrome,),
-    )
-
-    def fake_run(command, capture_output, text, check, cwd, env, encoding=None, errors=None):
-        captured["command"] = command
-        captured["capture_output"] = capture_output
-        captured["text"] = text
-        captured["check"] = check
-        captured["cwd"] = cwd
-        captured["env"] = env
-        captured["encoding"] = encoding
-        captured["errors"] = errors
-        return subprocess.CompletedProcess(
-            args=command,
-            returncode=0,
-            stdout=json.dumps({"output_path": str(expected_output)}),
-            stderr="",
-        )
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
     renderer = HyperFramesRenderer(
         node_executable="node-custom",
         bridge_script=str(bridge_script),
         template_root=str(template_root),
     )
+    _stub_successful_bridge(monkeypatch, renderer, expected_output, captured)
 
     output_path = renderer.render(str(project_dir))
 
@@ -105,15 +99,11 @@ def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_p
         str(project_dir),
         "--output-path",
         str(expected_output),
-        "--chrome-path",
-        str(fake_chrome),
     ]
     assert captured["cwd"] == str(project_dir)
-    assert captured["env"]["PRODUCER_HEADLESS_SHELL_PATH"] == str(fake_chrome)
-    assert captured["encoding"] == "utf-8"
-    assert captured["errors"] == "replace"
     assert (project_dir / "index.html").read_text(encoding="utf-8") == "<!doctype html><title>template</title>"
     assert (project_dir / "compositions" / "captions.html").exists()
+    assert (project_dir / "runtime" / "vendor" / "gsap.min.js").exists()
 
 
 def test_render_preserves_compiled_project_entrypoint_when_present(monkeypatch, tmp_path):
@@ -133,19 +123,14 @@ def test_render_preserves_compiled_project_entrypoint_when_present(monkeypatch, 
     bridge_script = tmp_path / "render.mjs"
     bridge_script.write_text("// bridge placeholder", encoding="utf-8")
 
-    def fake_run(command, capture_output, text, check, cwd, env, encoding=None, errors=None):
-        return subprocess.CompletedProcess(
-            args=command,
-            returncode=0,
-            stdout=json.dumps({"output_path": str(project_dir / "renders" / "task-compiled.mp4")}),
-            stderr="",
-        )
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
     renderer = HyperFramesRenderer(
         bridge_script=str(bridge_script),
         template_root=str(tmp_path / "missing-templates"),
+    )
+    _stub_successful_bridge(
+        monkeypatch,
+        renderer,
+        project_dir / "renders" / "task-compiled.mp4",
     )
 
     renderer.render(str(project_dir))
@@ -173,20 +158,11 @@ def test_render_allows_compiled_project_without_manifest_when_output_path_is_exp
     bridge_script.write_text("// bridge placeholder", encoding="utf-8")
     explicit_output = project_dir / "renders" / "task-compiled.mp4"
 
-    def fake_run(command, capture_output, text, check, cwd, env, encoding=None, errors=None):
-        return subprocess.CompletedProcess(
-            args=command,
-            returncode=0,
-            stdout=json.dumps({"output_path": str(explicit_output)}),
-            stderr="",
-        )
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
     renderer = HyperFramesRenderer(
         bridge_script=str(bridge_script),
         template_root=str(tmp_path / "missing-templates"),
     )
+    _stub_successful_bridge(monkeypatch, renderer, explicit_output)
 
     output_path = renderer.render(
         str(project_dir),
@@ -207,19 +183,14 @@ def test_render_rejects_video_without_audio_stream(monkeypatch, tmp_path):
     bridge_script = tmp_path / "render.mjs"
     bridge_script.write_text("// bridge placeholder", encoding="utf-8")
 
-    def fake_run(command, capture_output, text, check, cwd, env, encoding=None, errors=None):
-        return subprocess.CompletedProcess(
-            args=command,
-            returncode=0,
-            stdout=json.dumps({"output_path": str(project_dir / "renders" / "task-7.mp4")}),
-            stderr="",
-        )
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
     renderer = HyperFramesRenderer(
         bridge_script=str(bridge_script),
         template_root=str(template_root),
+    )
+    _stub_successful_bridge(
+        monkeypatch,
+        renderer,
+        project_dir / "renders" / "task-7.mp4",
     )
     monkeypatch.setattr(
         renderer,
@@ -230,6 +201,7 @@ def test_render_rejects_video_without_audio_stream(monkeypatch, tmp_path):
             "duration": 8.0,
             "width": 1080,
             "height": 1920,
+            "fps": 30.0,
         },
     )
 
@@ -289,6 +261,108 @@ def test_render_rejects_empty_template_id(tmp_path):
 
     with pytest.raises(ValueError, match="template_id"):
         renderer.render(str(project_dir))
+
+
+def test_render_request_forwards_fps_to_bridge(tmp_path):
+    project_dir = tmp_path / "output" / "task-fps" / "hyperframes"
+    compositions_dir = project_dir / "compositions"
+    compositions_dir.mkdir(parents=True)
+    _write_manifest(project_dir, task_id="task-fps")
+    (project_dir / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    (compositions_dir / "captions.html").write_text("<div></div>", encoding="utf-8")
+
+    renderer = HyperFramesRenderer()
+    request = renderer._prepare_render_request(
+        str(project_dir),
+        output_path=str(project_dir / "renders" / "task-fps.mp4"),
+        width=1280,
+        height=720,
+        fps=24,
+        expected_duration=5.0,
+        expect_audio=False,
+    )
+
+    assert request.command[-2:] == ("--fps", "24")
+
+
+@pytest.mark.parametrize("fps", [0, -1, 121, 23.5, True])
+def test_render_rejects_invalid_fps_before_launch(tmp_path, fps):
+    renderer = HyperFramesRenderer()
+
+    with pytest.raises(ValueError, match="fps"):
+        renderer.render(str(tmp_path), fps=fps)
+
+
+def test_render_rejects_remote_executable_dependencies(tmp_path):
+    project_dir = tmp_path / "output" / "task-remote" / "hyperframes"
+    compositions_dir = project_dir / "compositions"
+    compositions_dir.mkdir(parents=True)
+    _write_manifest(project_dir, task_id="task-remote")
+    (project_dir / "index.html").write_text(
+        '<!doctype html><script src="https://example.invalid/runtime.js"></script>',
+        encoding="utf-8",
+    )
+    (compositions_dir / "captions.html").write_text("<div></div>", encoding="utf-8")
+
+    renderer = HyperFramesRenderer()
+
+    with pytest.raises(RuntimeError, match="remote origins"):
+        renderer.render(str(project_dir))
+
+
+def test_render_timeout_terminates_bridge_and_reports_log_paths(tmp_path):
+    project_dir = tmp_path / "output" / "task-timeout" / "hyperframes"
+    compositions_dir = project_dir / "compositions"
+    compositions_dir.mkdir(parents=True)
+    _write_manifest(project_dir, task_id="task-timeout")
+    (project_dir / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    (compositions_dir / "captions.html").write_text("<div></div>", encoding="utf-8")
+    bridge_script = tmp_path / "slow_bridge.py"
+    bridge_script.write_text(
+        "import sys, time\nprint('bridge-started', file=sys.stderr, flush=True)\ntime.sleep(30)\n",
+        encoding="utf-8",
+    )
+    renderer = HyperFramesRenderer(
+        node_executable=sys.executable,
+        bridge_script=str(bridge_script),
+        render_timeout_seconds=0.2,
+    )
+
+    with pytest.raises(RuntimeError, match=r"timed out.*Logs"):
+        renderer.render(
+            str(project_dir),
+            output_path=str(project_dir / "renders" / "task-timeout.mp4"),
+        )
+
+
+def test_probe_output_reports_fractional_frame_rate(monkeypatch, tmp_path):
+    output_path = tmp_path / "video.mp4"
+    output_path.write_bytes(b"video")
+    payload = {
+        "streams": [
+            {
+                "codec_type": "video",
+                "width": 1280,
+                "height": 720,
+                "avg_frame_rate": "24000/1001",
+            }
+        ],
+        "format": {"duration": "5.0"},
+    }
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps(payload),
+            stderr="",
+        ),
+    )
+    probe = HyperFramesRenderer()._probe_output(str(output_path))
+
+    assert probe["fps"] == pytest.approx(23.976, abs=0.001)
 
 
 @pytest.mark.asyncio

@@ -209,7 +209,7 @@ class _FakeHyperFramesRenderer:
     def __init__(self):
         self.calls: list[dict] = []
 
-    def render(
+    async def render_async(
         self,
         project_dir,
         output_path=None,
@@ -736,7 +736,7 @@ async def test_post_production_switches_to_ffmpeg_manifest_after_real_audio_exce
             output_path.write_bytes(b"video")
             return str(output_path)
 
-    def fail_hyperframes_render(*args, **kwargs):
+    async def fail_hyperframes_render(*args, **kwargs):
         raise AssertionError("hyperframes renderer should not run after late ffmpeg switch")
 
     monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
@@ -746,7 +746,7 @@ async def test_post_production_switches_to_ffmpeg_manifest_after_real_audio_exce
         "pixelle_video.services.ffmpeg_manifest_renderer.FfmpegManifestRenderer",
         FakeFfmpegManifestRenderer,
     )
-    monkeypatch.setattr(core.hyperframes_renderer, "render", fail_hyperframes_render)
+    monkeypatch.setattr(core.hyperframes_renderer, "render_async", fail_hyperframes_render)
 
     assert pipeline._resolve_effective_render_backend(ctx) == "hyperframes_compiled"
 

@@ -5,7 +5,12 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { renderProject, resolveRenderRequest } from "../src/render.mjs";
+import {
+  parseArgs,
+  renderProject,
+  resolveBrowserExecutable,
+  resolveRenderRequest,
+} from "../src/render.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..", "..");
@@ -54,7 +59,7 @@ test("resolveRenderRequest derives render job config from the manifest", async (
 
 test("resolveRenderRequest forwards an explicit Chrome path to the producer", async () => {
   const projectDir = await createProjectDir({ taskId: "task-browser", fps: 24 });
-  const chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+  const chromePath = process.execPath;
 
   const request = await resolveRenderRequest({
     projectDir,
@@ -89,6 +94,9 @@ test("renderProject calls createRenderJob and executeRenderJob with resolved pat
     },
     {
       producer,
+      browser: {
+        puppeteerExecutablePath: () => process.execPath,
+      },
       onProgress: (progress, message) => progressEvents.push([progress, message]),
     },
   );
@@ -96,9 +104,50 @@ test("renderProject calls createRenderJob and executeRenderJob with resolved pat
   assert.equal(outputPath, path.join(projectDir, "renders", "task-9.mp4"));
   assert.equal(calls.jobConfig.fps, 30);
   assert.equal(calls.jobConfig.quality, "high");
+  assert.equal(calls.jobConfig.producerConfig.chromePath, process.execPath);
   assert.equal(calls.projectDir, projectDir);
   assert.equal(calls.outputPath, outputPath);
   assert.deepEqual(progressEvents, [[0.5, "halfway"]]);
+});
+
+test("parseArgs rejects integer prefixes and resolveRenderRequest enforces ranges", async () => {
+  assert.throws(() => parseArgs(["--project-dir", ".", "--fps", "24oops"]), /integer/i);
+  const projectDir = await createProjectDir({ taskId: "task-range", fps: 0 });
+  await assert.rejects(() => resolveRenderRequest({ projectDir }), /between 1 and 120/i);
+  const validProjectDir = await createProjectDir({ taskId: "task-quality", fps: 24 });
+  await assert.rejects(
+    () => resolveRenderRequest({ projectDir: validProjectDir, quality: "ultra" }),
+    /quality must be one of/i,
+  );
+});
+
+test("resolveBrowserExecutable rejects a stale explicit override", async () => {
+  await assert.rejects(
+    () =>
+      resolveBrowserExecutable(
+        { chromePath: path.join(tmpdir(), "missing-pixelle-browser") },
+        {
+          environment: {},
+          platform: process.platform,
+          puppeteerExecutablePath: () => process.execPath,
+        },
+      ),
+    /does not exist or is not executable/i,
+  );
+});
+
+test("resolveBrowserExecutable prefers the pinned Puppeteer browser over system candidates", async () => {
+  const resolved = await resolveBrowserExecutable(
+    {},
+    {
+      environment: {},
+      platform: process.platform,
+      puppeteerExecutablePath: () => process.execPath,
+      systemBrowserCandidates: () => [path.join(tmpdir(), "unused-system-browser")],
+    },
+  );
+
+  assert.equal(resolved, path.resolve(process.execPath));
 });
 
 test("resolveRenderRequest rejects malformed manifest task ids before deriving output paths", async () => {
@@ -147,4 +196,5 @@ test("reference templates explicitly pad timelines to the resolved duration", as
   assert.match(captionsTemplate, /function padTimelineToDuration\(timeline, duration\)/);
   assert.match(indexTemplate, /padTimelineToDuration\(tl, duration\);/);
   assert.match(captionsTemplate, /padTimelineToDuration\(tl, duration\);/);
+  assert.doesNotMatch(indexTemplate, /<script[^>]+https?:\/\//i);
 });

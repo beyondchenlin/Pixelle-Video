@@ -1,9 +1,11 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { access, mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { createRenderJob, executeRenderJob, resolveConfig } from "@hyperframes/producer";
+import puppeteer from "puppeteer";
 
 const SAFE_MANIFEST_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
@@ -15,11 +17,29 @@ function requireValue(flag, value) {
 }
 
 function parseInteger(flag, value) {
-  const parsed = Number.parseInt(requireValue(flag, value), 10);
-  if (Number.isNaN(parsed)) {
+  const rawValue = requireValue(flag, value);
+  if (!/^[+-]?\d+$/.test(rawValue)) {
     throw new Error(`Invalid integer for ${flag}: ${value}`);
   }
+  const parsed = Number(rawValue);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`Integer out of safe range for ${flag}: ${value}`);
+  }
   return parsed;
+}
+
+function requireIntegerInRange(fieldName, value, minimum, maximum) {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`${fieldName} must be an integer between ${minimum} and ${maximum}`);
+  }
+  return value;
+}
+
+function requireChoice(fieldName, value, choices) {
+  if (!choices.includes(value)) {
+    throw new Error(`${fieldName} must be one of: ${choices.join(", ")}`);
+  }
+  return value;
 }
 
 export function parseArgs(argv) {
@@ -98,11 +118,16 @@ function validateManifestIdentifier(fieldName, value) {
 }
 
 function buildJobConfig(options, manifest) {
+  const fps = requireIntegerInRange("fps", options.fps ?? manifest.fps ?? 30, 1, 120);
+  const workers =
+    options.workers === undefined
+      ? undefined
+      : requireIntegerInRange("workers", options.workers, 1, 64);
   const jobConfig = {
-    fps: options.fps ?? manifest.fps ?? 30,
-    quality: options.quality ?? "standard",
-    format: options.format ?? "mp4",
-    workers: options.workers,
+    fps,
+    quality: requireChoice("quality", options.quality ?? "standard", ["draft", "standard", "high"]),
+    format: requireChoice("format", options.format ?? "mp4", ["mp4", "webm", "mov"]),
+    workers,
     useGpu: options.useGpu ?? false,
     hdr: options.hdr ?? false,
   };
@@ -115,13 +140,112 @@ function buildJobConfig(options, manifest) {
   }
 
   if (options.crf !== undefined) {
-    jobConfig.crf = options.crf;
+    jobConfig.crf = requireIntegerInRange("crf", options.crf, 0, 51);
   }
   if (options.videoBitrate !== undefined) {
     jobConfig.videoBitrate = options.videoBitrate;
   }
 
   return jobConfig;
+}
+
+function environmentValue(environment, name) {
+  const matchingKey = Object.keys(environment).find(
+    (candidate) => candidate.toLowerCase() === name.toLowerCase(),
+  );
+  return matchingKey ? environment[matchingKey] : undefined;
+}
+
+function systemBrowserCandidates(platform, environment) {
+  const candidates = [];
+  if (platform === "win32") {
+    for (const environmentName of ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"]) {
+      const basePath = environmentValue(environment, environmentName);
+      if (!basePath) continue;
+      candidates.push(
+        path.join(basePath, "Google", "Chrome", "Application", "chrome.exe"),
+        path.join(basePath, "Microsoft", "Edge", "Application", "msedge.exe"),
+      );
+    }
+  } else if (platform === "darwin") {
+    candidates.push(
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    );
+  }
+
+  const executableNames =
+    platform === "win32"
+      ? ["chrome.exe", "msedge.exe"]
+      : [
+          "google-chrome",
+          "google-chrome-stable",
+          "chromium",
+          "chromium-browser",
+          "microsoft-edge",
+          "msedge",
+        ];
+  const pathValue = environmentValue(environment, "PATH") ?? "";
+  for (const directory of pathValue.split(path.delimiter).filter(Boolean)) {
+    for (const executableName of executableNames) {
+      candidates.push(path.join(directory, executableName));
+    }
+  }
+  return [...new Set(candidates.map((candidate) => path.resolve(candidate)))];
+}
+
+async function isUsableBrowserExecutable(candidate, platform) {
+  if (!candidate || candidate.trim().length === 0) return false;
+  try {
+    await access(
+      path.resolve(candidate),
+      platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK,
+    );
+    return (await stat(path.resolve(candidate))).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveBrowserExecutable(options = {}, dependencies = {}) {
+  const environment = dependencies.environment ?? process.env;
+  const platform = dependencies.platform ?? process.platform;
+  const explicitlyConfigured =
+    options.chromePath ?? environmentValue(environment, "PRODUCER_HEADLESS_SHELL_PATH");
+  if (explicitlyConfigured?.trim()) {
+    const explicitPath = path.resolve(explicitlyConfigured.trim());
+    if (!(await isUsableBrowserExecutable(explicitPath, platform))) {
+      throw new Error(`Configured browser executable does not exist or is not executable: ${explicitPath}`);
+    }
+    return explicitPath;
+  }
+
+  const puppeteerExecutablePath =
+    dependencies.puppeteerExecutablePath ?? (() => puppeteer.executablePath());
+  try {
+    const pinnedPath = path.resolve(puppeteerExecutablePath());
+    if (await isUsableBrowserExecutable(pinnedPath, platform)) {
+      return pinnedPath;
+    }
+  } catch {
+    // Continue to system browsers and report one consolidated diagnostic below.
+  }
+
+  const candidates =
+    dependencies.systemBrowserCandidates?.(platform, environment) ??
+    systemBrowserCandidates(platform, environment);
+  for (const candidate of candidates) {
+    if (await isUsableBrowserExecutable(candidate, platform)) {
+      return path.resolve(candidate);
+    }
+  }
+
+  throw new Error(
+    "No compatible Chrome, Chromium, or Edge executable was found. " +
+      "Install the pinned browser with `npx puppeteer browsers install chrome` " +
+      "or set PRODUCER_HEADLESS_SHELL_PATH to an existing executable.",
+  );
 }
 
 export async function resolveRenderRequest(options) {
@@ -149,6 +273,11 @@ export async function resolveRenderRequest(options) {
 export async function renderProject(options, dependencies = {}) {
   const producer = dependencies.producer ?? { createRenderJob, executeRenderJob };
   const request = await resolveRenderRequest(options);
+  const chromePath = await resolveBrowserExecutable(options, dependencies.browser);
+  request.jobConfig.producerConfig = {
+    ...resolveConfig(),
+    chromePath,
+  };
   const job = producer.createRenderJob(request.jobConfig);
   const onProgress =
     typeof dependencies.onProgress === "function"

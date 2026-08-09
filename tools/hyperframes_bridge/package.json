@@ -9,6 +9,7 @@
     "test": "node --test tests/render.test.mjs"
   },
   "dependencies": {
-    "@hyperframes/producer": "0.4.11"
+    "@hyperframes/producer": "0.4.11",
+    "puppeteer": "24.42.0"
   }
 }
