@@ -40,7 +40,9 @@ class VisualStoryFrameRef:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_id", _required_text(self.frame_id, "frame_id"))
-        object.__setattr__(self, "frame_index", _int_value(self.frame_index, "frame_index", minimum=0))
+        object.__setattr__(
+            self, "frame_index", _int_value(self.frame_index, "frame_index", minimum=0)
+        )
         object.__setattr__(self, "source_text", _optional_text(self.source_text))
         object.__setattr__(self, "visual_goal", _optional_text(self.visual_goal))
         object.__setattr__(self, "prompt_intent", _optional_text(self.prompt_intent))
@@ -58,7 +60,7 @@ class VisualStoryFrameRef:
     @classmethod
     def from_mapping(cls, source: Mapping[str, Any]) -> "VisualStoryFrameRef":
         return cls(
-            frame_id=source.get("frame_id") or source.get("id") or "frame",
+            frame_id=source.get("frame_id") or source.get("id") or "",
             frame_index=source.get("frame_index", source.get("index", 0)),
             source_text=source.get("source_text") or source.get("frame_source_text") or "",
             visual_goal=source.get("visual_goal") or "",
@@ -95,7 +97,9 @@ class VisualStoryExecutionBatch:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "batch_id", _required_text(self.batch_id, "batch_id"))
-        object.__setattr__(self, "batch_index", _int_value(self.batch_index, "batch_index", minimum=0))
+        object.__setattr__(
+            self, "batch_index", _int_value(self.batch_index, "batch_index", minimum=0)
+        )
         refs = tuple(
             ref if isinstance(ref, VisualStoryFrameRef) else VisualStoryFrameRef.from_mapping(ref)
             for ref in self.frame_refs
@@ -103,14 +107,24 @@ class VisualStoryExecutionBatch:
         if not refs:
             raise ValueError("frame_refs must not be empty")
         object.__setattr__(self, "frame_refs", refs)
-        object.__setattr__(self, "tasks", tuple(_enum_value(task, VisualStoryBatchTask, "tasks") for task in self.tasks))
-        object.__setattr__(self, "max_context_chars", _int_value(self.max_context_chars, "max_context_chars", minimum=1200))
+        object.__setattr__(
+            self,
+            "tasks",
+            tuple(_enum_value(task, VisualStoryBatchTask, "tasks") for task in self.tasks),
+        )
+        object.__setattr__(
+            self,
+            "max_context_chars",
+            _int_value(self.max_context_chars, "max_context_chars", minimum=1200),
+        )
         object.__setattr__(
             self,
             "requires_previous_continuity_digest",
             bool(self.requires_previous_continuity_digest),
         )
-        object.__setattr__(self, "status", _enum_value(self.status, VisualStoryBatchStatus, "status"))
+        object.__setattr__(
+            self, "status", _enum_value(self.status, VisualStoryBatchStatus, "status")
+        )
         object.__setattr__(self, "fallback_used", bool(self.fallback_used))
         object.__setattr__(self, "fallback_reason", _optional_text(self.fallback_reason) or None)
 
@@ -146,7 +160,9 @@ class ContinuityLedger:
         object.__setattr__(self, "route_digest", _optional_text(self.route_digest))
         object.__setattr__(self, "ip_identity_digest", _optional_text(self.ip_identity_digest))
         object.__setattr__(self, "style_digest", _optional_text(self.style_digest))
-        object.__setattr__(self, "previous_batch_digest", _optional_text(self.previous_batch_digest))
+        object.__setattr__(
+            self, "previous_batch_digest", _optional_text(self.previous_batch_digest)
+        )
         object.__setattr__(self, "recurring_symbols", _text_tuple(self.recurring_symbols))
         object.__setattr__(self, "warnings", _text_tuple(self.warnings))
 
@@ -181,29 +197,68 @@ class VisualStoryExecutionPlan:
     batches: Sequence[VisualStoryExecutionBatch | Mapping[str, Any]]
     batch_size: int = DEFAULT_VISUAL_STORY_BATCH_SIZE
     max_context_chars: int = DEFAULT_VISUAL_STORY_CONTEXT_BUDGET
-    continuity_ledger: ContinuityLedger | Mapping[str, Any] = field(default_factory=ContinuityLedger)
+    continuity_ledger: ContinuityLedger | Mapping[str, Any] = field(
+        default_factory=ContinuityLedger
+    )
     version: str = VISUAL_STORY_EXECUTION_PLAN_VERSION
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "execution_plan_id", _required_text(self.execution_plan_id, "execution_plan_id"))
-        object.__setattr__(self, "source_text_digest", _required_text(self.source_text_digest, "source_text_digest"))
-        object.__setattr__(self, "selected_route_id", _required_text(self.selected_route_id, "selected_route_id"))
+        object.__setattr__(
+            self, "execution_plan_id", _required_text(self.execution_plan_id, "execution_plan_id")
+        )
+        object.__setattr__(
+            self,
+            "source_text_digest",
+            _required_text(self.source_text_digest, "source_text_digest"),
+        )
+        object.__setattr__(
+            self, "selected_route_id", _required_text(self.selected_route_id, "selected_route_id")
+        )
         object.__setattr__(self, "batch_size", _int_value(self.batch_size, "batch_size", minimum=1))
-        object.__setattr__(self, "max_context_chars", _int_value(self.max_context_chars, "max_context_chars", minimum=1200))
+        object.__setattr__(
+            self,
+            "max_context_chars",
+            _int_value(self.max_context_chars, "max_context_chars", minimum=1200),
+        )
         batches = tuple(
-            batch if isinstance(batch, VisualStoryExecutionBatch) else VisualStoryExecutionBatch(**dict(batch))
+            batch
+            if isinstance(batch, VisualStoryExecutionBatch)
+            else VisualStoryExecutionBatch(**dict(batch))
             for batch in self.batches
         )
         if not batches:
             raise ValueError("batches must not be empty")
+        batch_ids = tuple(batch.batch_id for batch in batches)
+        duplicate_batch_ids = _duplicates(batch_ids)
+        if duplicate_batch_ids:
+            raise ValueError(f"batch_id values must be unique: {duplicate_batch_ids!r}")
+        batch_indexes = tuple(batch.batch_index for batch in batches)
+        if batch_indexes != tuple(range(len(batches))):
+            raise ValueError("batch_index values must be contiguous and ordered from zero")
+        frame_ids = tuple(frame_id for batch in batches for frame_id in batch.frame_ids)
+        duplicate_frame_ids = _duplicates(frame_ids)
+        if duplicate_frame_ids:
+            raise ValueError(
+                f"frame_id values must be unique across batches: {duplicate_frame_ids!r}"
+            )
+        if any(len(batch.frame_refs) > self.batch_size for batch in batches):
+            raise ValueError("batch frame count must not exceed batch_size")
         object.__setattr__(self, "batches", batches)
         if not isinstance(self.continuity_ledger, ContinuityLedger):
-            object.__setattr__(self, "continuity_ledger", ContinuityLedger.from_mapping(self.continuity_ledger))
-        object.__setattr__(self, "version", _optional_text(self.version) or VISUAL_STORY_EXECUTION_PLAN_VERSION)
+            object.__setattr__(
+                self, "continuity_ledger", ContinuityLedger.from_mapping(self.continuity_ledger)
+            )
+        object.__setattr__(
+            self, "version", _optional_text(self.version) or VISUAL_STORY_EXECUTION_PLAN_VERSION
+        )
 
     @property
     def frame_count(self) -> int:
         return sum(len(batch.frame_refs) for batch in self.batches)
+
+    @property
+    def frame_ids(self) -> tuple[str, ...]:
+        return tuple(frame_id for batch in self.batches for frame_id in batch.frame_ids)
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -294,6 +349,16 @@ def _enum_value(value: Any, enum_cls: type[Enum], field_name: str) -> Any:
 
 def _digest(text: str) -> str:
     return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()[:16]
+
+
+def _duplicates(values: Sequence[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for value in values:
+        if value in seen and value not in duplicates:
+            duplicates.append(value)
+        seen.add(value)
+    return tuple(duplicates)
 
 
 __all__ = [

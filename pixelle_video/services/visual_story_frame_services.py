@@ -1,19 +1,34 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
 
 from pixelle_video.models.llm_interaction_trace import trace_context_with_prompt_template
 from pixelle_video.models.visual_story_engine import FrameIPFusionPlan, FrameVisualPlan
-from pixelle_video.services.content_bound_ip_planner import ContentBoundIPPlanner
 from pixelle_video.prompts.visual_story_execution import (
     render_frame_ip_fusion_batch_prompt,
     render_frame_visual_plan_batch_prompt,
 )
-from pixelle_video.utils.json_parsing import parse_llm_json_response
+from pixelle_video.services.content_bound_ip_planner import ContentBoundIPPlanner
+from pixelle_video.services.frame_batch_contract import (
+    FrameBatchContractError,
+    frame_ids_from_records,
+    normalize_frame_records,
+    parse_frame_batch_response,
+    validate_frame_batch_coverage,
+)
+
+
+@dataclass(frozen=True)
+class FrameBatchPlanOutcome:
+    plans: tuple[dict[str, Any], ...]
+    source: str
+    fallback_used: bool = False
+    fallback_reason_code: str | None = None
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -30,6 +45,38 @@ class FrameVisualPlanBatchService:
         trace_context: Any = None,
         trace_recorder: Any = None,
     ) -> tuple[dict[str, Any], ...]:
+        outcome = await self.plan_with_diagnostics(
+            llm_service=llm_service,
+            article_summary=article_summary,
+            selected_visual_route=selected_visual_route,
+            batch_payload=batch_payload,
+            continuity_ledger=continuity_ledger,
+            target_language=target_language,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+        )
+        return outcome.plans
+
+    async def plan_with_diagnostics(
+        self,
+        *,
+        llm_service: Any,
+        article_summary: Mapping[str, Any],
+        selected_visual_route: Mapping[str, Any],
+        batch_payload: Mapping[str, Any],
+        continuity_ledger: Mapping[str, Any],
+        target_language: str = "zh",
+        trace_context: Any = None,
+        trace_recorder: Any = None,
+    ) -> FrameBatchPlanOutcome:
+        frame_contexts = normalize_frame_records(
+            batch_payload.get("frame_contexts") or (),
+            stage="frame_visual_plan_input",
+        )
+        expected_frame_ids = frame_ids_from_records(
+            frame_contexts,
+            stage="frame_visual_plan_input",
+        )
         rendered_prompt = render_frame_visual_plan_batch_prompt(
             article_summary=article_summary,
             selected_visual_route=selected_visual_route,
@@ -51,9 +98,14 @@ class FrameVisualPlanBatchService:
                 ),
                 trace_recorder=trace_recorder,
             )
-            plans = _list_payload(response, "frame_visual_plans")
+            plans = parse_frame_batch_response(
+                response,
+                primary_key="frame_visual_plans",
+                expected_frame_ids=expected_frame_ids,
+                stage="frame_visual_plan_response",
+            )
             planner = ContentBoundIPPlanner()
-            return tuple(
+            enriched = tuple(
                 FrameVisualPlan.from_mapping(
                     planner.enrich_frame_visual_plan(
                         item,
@@ -63,12 +115,25 @@ class FrameVisualPlanBatchService:
                 ).to_dict()
                 for item in plans
             )
+            validated = validate_frame_batch_coverage(
+                enriched,
+                expected_frame_ids=expected_frame_ids,
+                stage="frame_visual_plan_output",
+            )
+            return FrameBatchPlanOutcome(plans=validated, source="model")
         except Exception as exc:
             logger.warning("Frame visual plan batch failed; using deterministic fallback: {}", exc)
-            return tuple(
-                _fallback_visual_plan(item)
-                for item in batch_payload.get("frame_contexts", ())
-                if isinstance(item, Mapping)
+            fallback = tuple(_fallback_visual_plan(item) for item in frame_contexts)
+            validated = validate_frame_batch_coverage(
+                fallback,
+                expected_frame_ids=expected_frame_ids,
+                stage="frame_visual_plan_fallback",
+            )
+            return FrameBatchPlanOutcome(
+                plans=validated,
+                source="deterministic_fallback",
+                fallback_used=True,
+                fallback_reason_code=_fallback_reason_code(exc),
             )
 
 
@@ -87,14 +152,54 @@ class FrameIPFusionPlanBatchService:
         trace_context: Any = None,
         trace_recorder: Any = None,
     ) -> tuple[dict[str, Any], ...]:
+        outcome = await self.plan_with_diagnostics(
+            llm_service=llm_service,
+            selected_visual_route=selected_visual_route,
+            style_harmonization=style_harmonization,
+            ip_profile=ip_profile,
+            frame_visual_plans=frame_visual_plans,
+            continuity_ledger=continuity_ledger,
+            target_language=target_language,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+        )
+        return outcome.plans
+
+    async def plan_with_diagnostics(
+        self,
+        *,
+        llm_service: Any,
+        selected_visual_route: Mapping[str, Any],
+        style_harmonization: Mapping[str, Any],
+        ip_profile: Mapping[str, Any],
+        frame_visual_plans: Sequence[Mapping[str, Any]],
+        continuity_ledger: Mapping[str, Any],
+        target_language: str = "zh",
+        trace_context: Any = None,
+        trace_recorder: Any = None,
+    ) -> FrameBatchPlanOutcome:
+        normalized_visual_plans = normalize_frame_records(
+            frame_visual_plans,
+            stage="frame_ip_fusion_input",
+        )
+        expected_frame_ids = frame_ids_from_records(
+            normalized_visual_plans,
+            stage="frame_ip_fusion_input",
+        )
         if not ip_profile:
-            return tuple(_no_ip_plan(plan) for plan in frame_visual_plans)
+            no_ip_plans = tuple(_no_ip_plan(plan) for plan in normalized_visual_plans)
+            validated = validate_frame_batch_coverage(
+                no_ip_plans,
+                expected_frame_ids=expected_frame_ids,
+                stage="frame_ip_fusion_no_profile",
+            )
+            return FrameBatchPlanOutcome(plans=validated, source="no_ip_profile")
         compact_ip_profile = _compact_ip_profile(ip_profile)
         rendered_prompt = render_frame_ip_fusion_batch_prompt(
             selected_visual_route=selected_visual_route,
             style_harmonization=style_harmonization,
             ip_profile=compact_ip_profile,
-            frame_visual_plans=frame_visual_plans,
+            frame_visual_plans=normalized_visual_plans,
             continuity_ledger=continuity_ledger,
             target_language=target_language,
         )
@@ -108,28 +213,59 @@ class FrameIPFusionPlanBatchService:
                     trace_context,
                     rendered_prompt=rendered_prompt,
                     stage="frame_ip_fusion_plan_batch",
-                    batch_payload={"frame_visual_plans": list(frame_visual_plans)},
+                    batch_payload={"frame_visual_plans": list(normalized_visual_plans)},
                 ),
                 trace_recorder=trace_recorder,
             )
-            plans = _list_payload(response, "frame_ip_fusion_plans")
+            plans = parse_frame_batch_response(
+                response,
+                primary_key="frame_ip_fusion_plans",
+                expected_frame_ids=expected_frame_ids,
+                stage="frame_ip_fusion_response",
+            )
             repair = ContentBoundIPPlanner().repair_batch(
-                frame_visual_plans=frame_visual_plans,
+                frame_visual_plans=normalized_visual_plans,
                 frame_ip_fusion_plans=plans,
                 selected_visual_route=selected_visual_route,
                 style_harmonization=style_harmonization,
                 ip_profile=ip_profile,
             )
-            return tuple(FrameIPFusionPlan.from_mapping(item).to_dict() for item in repair.frame_ip_fusion_plans)
+            repaired_plans = tuple(
+                FrameIPFusionPlan.from_mapping(item).to_dict()
+                for item in repair.frame_ip_fusion_plans
+            )
+            validated = validate_frame_batch_coverage(
+                repaired_plans,
+                expected_frame_ids=expected_frame_ids,
+                stage="frame_ip_fusion_output",
+            )
+            return FrameBatchPlanOutcome(
+                plans=validated,
+                source="model_repaired" if repair.diagnostics.get("repair_count") else "model",
+                diagnostics=dict(repair.diagnostics),
+            )
         except Exception as exc:
             logger.warning("Frame IP fusion batch failed; using deterministic fallback: {}", exc)
-            return tuple(
+            fallback = tuple(
                 _fallback_ip_plan(plan, selected_visual_route, style_harmonization)
-                for plan in frame_visual_plans
+                for plan in normalized_visual_plans
+            )
+            validated = validate_frame_batch_coverage(
+                fallback,
+                expected_frame_ids=expected_frame_ids,
+                stage="frame_ip_fusion_fallback",
+            )
+            return FrameBatchPlanOutcome(
+                plans=validated,
+                source="deterministic_fallback",
+                fallback_used=True,
+                fallback_reason_code=_fallback_reason_code(exc),
             )
 
 
-def _stage_trace_context(trace_context: Any, *, rendered_prompt: Any, stage: str, batch_payload: Mapping[str, Any]) -> Any:
+def _stage_trace_context(
+    trace_context: Any, *, rendered_prompt: Any, stage: str, batch_payload: Mapping[str, Any]
+) -> Any:
     if trace_context is None:
         return None
     try:
@@ -156,30 +292,10 @@ def _frame_ids_from_payload(payload: Mapping[str, Any]) -> list[str]:
     return result[:20]
 
 
-def _list_payload(response: Any, key: str) -> list[Mapping[str, Any]]:
-    if hasattr(response, "model_dump"):
-        response = response.model_dump(mode="json")
-    elif isinstance(response, str):
-        response = parse_llm_json_response(
-            response.strip(),
-            allow_code_fence=True,
-            allow_embedded_json=False,
-        )
-    if not isinstance(response, Mapping):
-        raise ValueError(f"{key} response must be a mapping")
-    values = (
-        response.get(key)
-        or response.get("frames")
-        or response.get("plans")
-        or response.get("data")
-        or response.get("items")
-        or []
-    )
-    if isinstance(values, Mapping):
-        values = list(values.values())
-    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
-        raise ValueError(f"{key} must be a list")
-    return [dict(item) for item in values if isinstance(item, Mapping)]
+def _fallback_reason_code(exc: Exception) -> str:
+    if isinstance(exc, FrameBatchContractError):
+        return exc.code
+    return type(exc).__name__
 
 
 def _compact_ip_profile(ip_profile: Mapping[str, Any]) -> dict[str, Any]:
@@ -264,4 +380,8 @@ def _truncate(value: Any, limit: int) -> str:
     return text[: max(limit - 3, 0)].rstrip() + "..."
 
 
-__all__ = ["FrameVisualPlanBatchService", "FrameIPFusionPlanBatchService"]
+__all__ = [
+    "FrameBatchPlanOutcome",
+    "FrameVisualPlanBatchService",
+    "FrameIPFusionPlanBatchService",
+]

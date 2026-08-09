@@ -12,7 +12,7 @@ from pixelle_video.models.visual_story_engine import (
     VisualRouteScores,
     VisualStoryEnginePlan,
 )
-from pixelle_video.services.visual_story_frame_services import _list_payload
+from pixelle_video.services.frame_batch_contract import extract_frame_batch_records
 from pixelle_video.services.visual_story_engine import VisualStoryEngineService
 
 
@@ -53,13 +53,17 @@ def test_evidence_span_accepts_string_source():
     assert span.role == "support"
 
 
-def test_visual_story_frame_list_payload_accepts_wrapped_data_items():
-    assert _list_payload({"data": [{"frame_id": "f1"}]}, "frame_visual_plans") == [
-        {"frame_id": "f1"}
-    ]
-    assert _list_payload({"items": [{"frame_id": "f2"}]}, "frame_visual_plans") == [
-        {"frame_id": "f2"}
-    ]
+def test_visual_story_frame_response_contract_accepts_wrapped_data_items():
+    assert extract_frame_batch_records(
+        {"data": [{"frame_id": "f1"}]},
+        primary_key="frame_visual_plans",
+        stage="test",
+    ) == ({"frame_id": "f1"},)
+    assert extract_frame_batch_records(
+        {"items": [{"frame_id": "f2"}]},
+        primary_key="frame_visual_plans",
+        stage="test",
+    ) == ({"frame_id": "f2"},)
 
 
 @pytest.mark.asyncio
@@ -96,7 +100,13 @@ def test_visual_story_engine_plan_roundtrip():
         route_type="philosophical_metaphor",
         visual_premise="premise",
         why_it_fits_article="because",
-        scores=VisualRouteScores(content_fit=0.9, memorability=0.8, ip_compatibility=0.7, production_reliability=0.8, risk=0.1),
+        scores=VisualRouteScores(
+            content_fit=0.9,
+            memorability=0.8,
+            ip_compatibility=0.7,
+            production_reliability=0.8,
+            risk=0.1,
+        ),
     )
     compat = IPRouteCompatibilityReport(
         route_id="route-a",

@@ -4,51 +4,119 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from pixelle_video.models.visual_story_execution import VisualStoryLoopResult
-from pixelle_video.services.visual_story_context_contract import PromptBudgetPolicy, VisualStoryContextContractBuilder
-from pixelle_video.services.visual_story_continuity_ledger import VisualStoryContinuityLedgerService
-from pixelle_video.services.visual_story_execution_planner import VisualStoryExecutionPlanner
 from pixelle_video.models.visual_story_engine import (
     RouteSelectionDecision,
     RouteSelectionSource,
     VisualStoryEnginePlan,
 )
+from pixelle_video.models.visual_story_execution import VisualStoryLoopResult
 from pixelle_video.services.content_bound_ip_planner import ContentBoundIPPlanner
+from pixelle_video.services.frame_batch_contract import validate_frame_batch_coverage
+from pixelle_video.services.visual_story_context_contract import (
+    PromptBudgetPolicy,
+    VisualStoryContextContractBuilder,
+)
+from pixelle_video.services.visual_story_continuity_ledger import VisualStoryContinuityLedgerService
+from pixelle_video.services.visual_story_execution_planner import VisualStoryExecutionPlanner
+from pixelle_video.services.visual_story_frame_services import (
+    FrameIPFusionPlanBatchService,
+    FrameVisualPlanBatchService,
+)
 from pixelle_video.services.visual_story_quality_gate import VisualStoryQualityGate
-from pixelle_video.services.visual_story_frame_services import FrameIPFusionPlanBatchService, FrameVisualPlanBatchService
 
 
 @dataclass(frozen=True)
 class VisualStoryBatchOrchestrator:
     """Local loop planner + batch LLM orchestrator."""
 
-    async def prepare(self, *, llm_service: Any, source_text: str, storyboard_plan: Any, visual_story_plan: Any, ip_profile: Any = None, batch_size: int = 4, max_context_chars: int = 9000, target_language: str = "zh", trace_context: Any = None, trace_recorder: Any = None, max_ip_rewrite_passes: int = 1) -> VisualStoryLoopResult:
-        plan_payload = visual_story_plan.to_dict() if hasattr(visual_story_plan, "to_dict") else dict(visual_story_plan or {})
-        selected_route = dict(plan_payload.get("selected_visual_route") or plan_payload.get("selected_route") or {})
+    async def prepare(
+        self,
+        *,
+        llm_service: Any,
+        source_text: str,
+        storyboard_plan: Any,
+        visual_story_plan: Any,
+        ip_profile: Any = None,
+        batch_size: int = 4,
+        max_context_chars: int = 9000,
+        target_language: str = "zh",
+        trace_context: Any = None,
+        trace_recorder: Any = None,
+        max_ip_rewrite_passes: int = 1,
+    ) -> VisualStoryLoopResult:
+        plan_payload = (
+            visual_story_plan.to_dict()
+            if hasattr(visual_story_plan, "to_dict")
+            else dict(visual_story_plan or {})
+        )
+        selected_route = dict(
+            plan_payload.get("selected_visual_route") or plan_payload.get("selected_route") or {}
+        )
         style = dict(plan_payload.get("style_harmonization") or {})
         article = dict(plan_payload.get("article") or {})
         ip_payload = _ip_profile_payload(ip_profile)
 
         ledger_service = VisualStoryContinuityLedgerService()
-        ledger = ledger_service.initial(selected_visual_route=selected_route, ip_profile=ip_payload, style_plan=style)
-        execution_plan = VisualStoryExecutionPlanner().plan(source_text=source_text, storyboard_plan=storyboard_plan, selected_visual_route=selected_route, batch_size=batch_size, max_context_chars=max_context_chars, continuity_ledger=ledger)
+        ledger = ledger_service.initial(
+            selected_visual_route=selected_route, ip_profile=ip_payload, style_plan=style
+        )
+        execution_plan = VisualStoryExecutionPlanner().plan(
+            source_text=source_text,
+            storyboard_plan=storyboard_plan,
+            selected_visual_route=selected_route,
+            batch_size=batch_size,
+            max_context_chars=max_context_chars,
+            continuity_ledger=ledger,
+        )
 
         visual_plans = []
         ip_plans = []
-        context_builder = VisualStoryContextContractBuilder(PromptBudgetPolicy(max_total_chars=max_context_chars))
+        context_builder = VisualStoryContextContractBuilder(
+            PromptBudgetPolicy(max_total_chars=max_context_chars)
+        )
         visual_service = FrameVisualPlanBatchService()
         ip_service = FrameIPFusionPlanBatchService()
         content_bound_planner = ContentBoundIPPlanner()
         repair_diagnostics = []
+        batch_diagnostics = []
 
         for batch in execution_plan.batches:
             raw_contexts = [
-                {"frame_id": ref.frame_id, "frame_index": ref.frame_index, "source_text": ref.source_text, "visual_goal": ref.visual_goal, "prompt_intent": ref.prompt_intent, "selected_visual_route": selected_route}
+                {
+                    "frame_id": ref.frame_id,
+                    "frame_index": ref.frame_index,
+                    "source_text": ref.source_text,
+                    "visual_goal": ref.visual_goal,
+                    "prompt_intent": ref.prompt_intent,
+                    "selected_visual_route": selected_route,
+                }
                 for ref in batch.frame_refs
             ]
             contract = context_builder.build_for_visual_anchor(frame_contexts=raw_contexts)
-            batch_visual = await visual_service.plan(llm_service=llm_service, article_summary=article, selected_visual_route=selected_route, batch_payload=contract.payload, continuity_ledger=ledger.to_dict(), target_language=target_language, trace_context=trace_context, trace_recorder=trace_recorder)
-            batch_ip = await ip_service.plan(llm_service=llm_service, selected_visual_route=selected_route, style_harmonization=style, ip_profile=ip_payload, frame_visual_plans=batch_visual, continuity_ledger=ledger.to_dict(), target_language=target_language, trace_context=trace_context, trace_recorder=trace_recorder)
+            expected_batch_frame_ids = batch.frame_ids
+            visual_outcome = await visual_service.plan_with_diagnostics(
+                llm_service=llm_service,
+                article_summary=article,
+                selected_visual_route=selected_route,
+                batch_payload=contract.payload,
+                continuity_ledger=ledger.to_dict(),
+                target_language=target_language,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+            )
+            batch_visual = visual_outcome.plans
+            ip_outcome = await ip_service.plan_with_diagnostics(
+                llm_service=llm_service,
+                selected_visual_route=selected_route,
+                style_harmonization=style,
+                ip_profile=ip_payload,
+                frame_visual_plans=batch_visual,
+                continuity_ledger=ledger.to_dict(),
+                target_language=target_language,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+            )
+            batch_ip = ip_outcome.plans
             repaired = content_bound_planner.repair_batch(
                 frame_visual_plans=batch_visual,
                 frame_ip_fusion_plans=batch_ip,
@@ -58,13 +126,55 @@ class VisualStoryBatchOrchestrator:
                 ip_profile=ip_payload,
                 max_rewrite_passes=max_ip_rewrite_passes,
             )
-            batch_visual = repaired.frame_visual_plans
-            batch_ip = repaired.frame_ip_fusion_plans
+            batch_visual = validate_frame_batch_coverage(
+                repaired.frame_visual_plans,
+                expected_frame_ids=expected_batch_frame_ids,
+                stage=f"{batch.batch_id}_visual_output",
+            )
+            batch_ip = validate_frame_batch_coverage(
+                repaired.frame_ip_fusion_plans,
+                expected_frame_ids=expected_batch_frame_ids,
+                stage=f"{batch.batch_id}_ip_output",
+            )
             if repaired.diagnostics.get("repair_count"):
                 repair_diagnostics.append({"batch_id": batch.batch_id, **repaired.diagnostics})
+            batch_diagnostics.append(
+                {
+                    "batch_id": batch.batch_id,
+                    "frame_ids": list(expected_batch_frame_ids),
+                    "visual_plan_source": visual_outcome.source,
+                    "visual_plan_fallback_used": visual_outcome.fallback_used,
+                    "visual_plan_fallback_reason_code": visual_outcome.fallback_reason_code,
+                    "ip_plan_source": ip_outcome.source,
+                    "ip_plan_fallback_used": ip_outcome.fallback_used,
+                    "ip_plan_fallback_reason_code": ip_outcome.fallback_reason_code,
+                    "ip_plan_diagnostics": dict(ip_outcome.diagnostics),
+                    "content_bound_repair_diagnostics": dict(repaired.diagnostics),
+                }
+            )
             visual_plans.extend(dict(item) for item in batch_visual)
             ip_plans.extend(dict(item) for item in batch_ip)
-            ledger = ledger_service.update_after_batch(ledger=ledger, batch_id=batch.batch_id, frame_visual_plans=batch_visual, frame_ip_fusion_plans=batch_ip)
+            ledger = ledger_service.update_after_batch(
+                ledger=ledger,
+                batch_id=batch.batch_id,
+                frame_visual_plans=batch_visual,
+                frame_ip_fusion_plans=batch_ip,
+            )
+
+        visual_plans = list(
+            validate_frame_batch_coverage(
+                visual_plans,
+                expected_frame_ids=execution_plan.frame_ids,
+                stage="visual_story_global_visual_output",
+            )
+        )
+        ip_plans = list(
+            validate_frame_batch_coverage(
+                ip_plans,
+                expected_frame_ids=execution_plan.frame_ids,
+                stage="visual_story_global_ip_output",
+            )
+        )
 
         prompt_context = {
             "visual_story_engine": {
@@ -85,11 +195,30 @@ class VisualStoryBatchOrchestrator:
             "content_bound_repair_diagnostics": repair_diagnostics,
         }
         final_plan = _visual_story_plan_from_payload(visual_story_plan, visual_plans, ip_plans)
-        VisualStoryQualityGate().assert_valid(final_plan)
-        return VisualStoryLoopResult(execution_plan=execution_plan, frame_visual_plans=tuple(visual_plans), frame_ip_fusion_plans=tuple(ip_plans), prompt_context=prompt_context, diagnostics={"batch_count": len(execution_plan.batches), "frame_count": execution_plan.frame_count, "batch_size": execution_plan.batch_size, "max_context_chars": execution_plan.max_context_chars, "content_bound_repair_diagnostics": repair_diagnostics})
+        VisualStoryQualityGate().assert_valid(
+            final_plan, expected_frame_ids=execution_plan.frame_ids
+        )
+        return VisualStoryLoopResult(
+            execution_plan=execution_plan,
+            frame_visual_plans=tuple(visual_plans),
+            frame_ip_fusion_plans=tuple(ip_plans),
+            prompt_context=prompt_context,
+            diagnostics={
+                "batch_count": len(execution_plan.batches),
+                "frame_count": execution_plan.frame_count,
+                "batch_size": execution_plan.batch_size,
+                "max_context_chars": execution_plan.max_context_chars,
+                "content_bound_repair_diagnostics": repair_diagnostics,
+                "batch_diagnostics": batch_diagnostics,
+            },
+        )
 
 
-def _visual_story_plan_from_payload(visual_story_plan: Any, visual_plans: Sequence[Mapping[str, Any]], ip_plans: Sequence[Mapping[str, Any]]) -> VisualStoryEnginePlan:
+def _visual_story_plan_from_payload(
+    visual_story_plan: Any,
+    visual_plans: Sequence[Mapping[str, Any]],
+    ip_plans: Sequence[Mapping[str, Any]],
+) -> VisualStoryEnginePlan:
     if isinstance(visual_story_plan, VisualStoryEnginePlan):
         return VisualStoryEnginePlan(
             plan_id=visual_story_plan.plan_id,
@@ -106,8 +235,12 @@ def _visual_story_plan_from_payload(visual_story_plan: Any, visual_plans: Sequen
         raise TypeError("visual_story_plan must be a VisualStoryEnginePlan or mapping")
 
     payload = dict(visual_story_plan)
-    selected_route = dict(payload.get("selected_visual_route") or payload.get("selected_route") or {})
-    selection_payload = payload.get("selection") if isinstance(payload.get("selection"), Mapping) else {}
+    selected_route = dict(
+        payload.get("selected_visual_route") or payload.get("selected_route") or {}
+    )
+    selection_payload = (
+        payload.get("selection") if isinstance(payload.get("selection"), Mapping) else {}
+    )
     selected_route_id = str(
         selection_payload.get("selected_route_id")
         or selected_route.get("route_id")
@@ -121,13 +254,19 @@ def _visual_story_plan_from_payload(visual_story_plan: Any, visual_plans: Sequen
         selected_route.setdefault("route_id", selected_route_id)
 
     candidate_routes = list(payload.get("candidate_routes") or ())
-    if not any(isinstance(route, Mapping) and str(route.get("route_id") or route.get("id") or "") == selected_route_id for route in candidate_routes):
+    if not any(
+        isinstance(route, Mapping)
+        and str(route.get("route_id") or route.get("id") or "") == selected_route_id
+        for route in candidate_routes
+    ):
         candidate_routes.append(selected_route)
 
     style_harmonization = dict(payload.get("style_harmonization") or {})
     style_harmonization.setdefault("route_id", selected_route_id)
     selection = RouteSelectionDecision(
-        recommended_route_id=str(selection_payload.get("recommended_route_id") or selected_route_id),
+        recommended_route_id=str(
+            selection_payload.get("recommended_route_id") or selected_route_id
+        ),
         selected_route_id=selected_route_id,
         selection_source=selection_payload.get("selection_source") or RouteSelectionSource.API_AUTO,
         reason=str(selection_payload.get("reason") or "selected route from request payload"),
@@ -162,7 +301,16 @@ def _ip_profile_payload(ip_profile: Any) -> dict[str, Any]:
     if isinstance(ip_profile, Mapping):
         return dict(ip_profile)
     result = {}
-    for key in ("name", "visual_summary", "identity_lock", "minimal_traits", "identity_anchors", "style_hint", "negative_constraints", "world_hint"):
+    for key in (
+        "name",
+        "visual_summary",
+        "identity_lock",
+        "minimal_traits",
+        "identity_anchors",
+        "style_hint",
+        "negative_constraints",
+        "world_hint",
+    ):
         value = getattr(ip_profile, key, None)
         if value is not None:
             result[key] = value
