@@ -38,3 +38,13 @@ def test_parse_llm_json_response_rejects_embedded_json_when_disabled():
             'Here is the result: {"frames": [], "planner_version": "1.0"}',
             allow_embedded_json=False,
         )
+
+
+def test_parse_llm_json_response_does_not_log_response_content(caplog):
+    secret = "private-user-article-content"
+
+    with pytest.raises(json.JSONDecodeError):
+        parse_llm_json_response(f"not-json {secret}")
+
+    assert secret not in caplog.text
+    assert "Text length" in caplog.text

@@ -46,7 +46,7 @@ def _iter_balanced_json_candidates(text: str):
                     break
                 expected_closers.pop()
                 if not expected_closers:
-                    yield text[start_index:end_index + 1]
+                    yield text[start_index : end_index + 1]
                     break
 
 
@@ -58,7 +58,7 @@ def parse_llm_json_response(
 ) -> Any:
     """Parse JSON from an LLM response with configurable tolerance for wrappers."""
     cleaned = text.strip()
-    
+
     if not cleaned:
         logger.error("Empty response after stripping whitespace")
         raise json.JSONDecodeError("No valid JSON found", text, 0)
@@ -89,16 +89,25 @@ def parse_llm_json_response(
             except json.JSONDecodeError:
                 continue
 
-    # All attempts failed - log detailed diagnostics
-    logger.error(f"JSON parsing failed. Text length: {len(text)}, cleaned length: {len(cleaned)}")
-    preview_len = min(500, len(text))
-    logger.error(f"Content preview (first {preview_len} chars): {text[:preview_len]!r}")
+    # Never copy model output into logs: it can contain user content or secrets.
+    logger.error(
+        "JSON parsing failed. Text length: %s, cleaned length: %s",
+        len(text),
+        len(cleaned),
+    )
     if allow_code_fence and _JSON_CODE_BLOCK_PATTERN.match(cleaned):
         logger.error("Markdown code fence was found but content inside is not valid JSON")
     else:
         logger.error("No Markdown code fence found in response")
-    logger.error(f"Last JSON decode error: {last_error}")
-    
+    if last_error is not None:
+        logger.error(
+            "Last JSON decode error at line %s column %s (position %s): %s",
+            last_error.lineno,
+            last_error.colno,
+            last_error.pos,
+            last_error.msg,
+        )
+
     raise last_error or json.JSONDecodeError("No valid JSON found", text, 0)
 
 
