@@ -14,7 +14,6 @@
 TTS (Text-to-Speech) Service - Supports both local and ComfyUI inference
 """
 
-import shutil
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -23,6 +22,11 @@ from loguru import logger
 
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.services.comfy_base_service import ComfyBaseService
+from pixelle_video.services.remote_media import (
+    configured_workflow_output_origins,
+    configured_workflow_output_roots,
+    materialize_media_source,
+)
 from pixelle_video.services.tts_trace_artifacts import (
     write_tts_service_result_artifact,
     write_tts_workflow_result_artifact,
@@ -149,6 +153,15 @@ class TTSService(ComfyBaseService):
         
         # Route to appropriate implementation
         if mode == "local":
+            legacy_voice = params.pop("voice_id", None)
+            if voice is not None and legacy_voice is not None and voice != legacy_voice:
+                raise ValueError("voice and voice_id must not specify different local voices")
+            if voice is None and legacy_voice is not None:
+                logger.warning("voice_id is deprecated for local TTS; use voice")
+                voice = legacy_voice
+            if params:
+                unsupported = ", ".join(sorted(str(key) for key in params))
+                raise TypeError(f"unsupported local TTS parameters: {unsupported}")
             return await self._call_local_tts(
                 text=text,
                 voice=voice,
@@ -437,24 +450,13 @@ class TTSService(ComfyBaseService):
         if not output_path:
             return audio_path
 
-        target_path = Path(output_path)
-        if audio_path.startswith(("http://", "https://")):
-            import httpx
-
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Downloading audio from {audio_path} to {target_path}")
-            async with httpx.AsyncClient() as client:
-                response = await client.get(audio_path)
-                response.raise_for_status()
-                target_path.write_bytes(response.content)
-            return str(target_path)
-
-        source_path = Path(audio_path)
-        if source_path.resolve() == target_path.resolve():
-            return str(target_path)
-
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_path, target_path)
+        target_path = await materialize_media_source(
+            audio_path,
+            output_path,
+            media_type="audio",
+            trusted_private_origins=configured_workflow_output_origins(self.core),
+            trusted_local_roots=configured_workflow_output_roots(),
+        )
         return str(target_path)
 
     def _get_workflow_metadata(self, workflow_info: dict):

@@ -28,14 +28,15 @@ from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent, ProgressEventType
 from pixelle_video.utils.os_util import get_temp_path
 from web.components.bgm_config import render_bgm_section
-from web.state.storyboard_capture import capture_snapshot_from_result
 from web.components.content_input import render_version_info
 from web.components.output_preview import render_scaled_video_preview
 from web.components.selfhost_workflow_notice import render_selfhost_workflow_notice
 from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
+from web.state.storyboard_capture import capture_snapshot_from_result
 from web.utils.async_helpers import run_async
 from web.utils.progress_i18n import format_progress_event_message
+from web.utils.upload_store import MIXED_MEDIA_UPLOAD_POLICY, store_uploaded_files
 
 
 class AssetBasedPipelineUI(PipelineUI):
@@ -109,16 +110,14 @@ class AssetBasedPipelineUI(PipelineUI):
             # Save uploaded files to temp directory with unique session ID
             asset_paths = []
             if uploaded_files:
-                import uuid
-                session_id = str(uuid.uuid4()).replace('-', '')[:12]
-                temp_dir = Path(get_temp_path(f"assets_{session_id}"))
+                temp_dir = Path(get_temp_path("uploads", "asset_based"))
                 temp_dir.mkdir(parents=True, exist_ok=True)
                 
-                for uploaded_file in uploaded_files:
-                    file_path = temp_dir / uploaded_file.name
-                    with open(file_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    asset_paths.append(str(file_path.absolute()))
+                asset_paths = store_uploaded_files(
+                    uploaded_files,
+                    temp_dir,
+                    policy=MIXED_MEDIA_UPLOAD_POLICY,
+                )
                 
                 st.success(tr("asset_based.assets.count", count=len(asset_paths)))
                 

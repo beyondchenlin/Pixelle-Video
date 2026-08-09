@@ -404,7 +404,7 @@ def test_non_selfhost_workflow_info_uses_key_fallback_for_index_tts2_detection(t
 @pytest.mark.asyncio
 async def test_tts_service_copies_local_comfyui_result_to_output_path(tmp_path):
     source_path = tmp_path / "comfyui-result.flac"
-    source_path.write_bytes(b"flac-data")
+    source_path.write_bytes(b"fLaC\x00\x00\x00\x22")
     output_path = tmp_path / "requested" / "audio.flac"
     output_path.parent.mkdir()
     output_path.write_bytes(b"old-data")
@@ -434,8 +434,8 @@ async def test_tts_service_copies_local_comfyui_result_to_output_path(tmp_path):
     )
 
     assert returned_path == str(output_path)
-    assert output_path.read_bytes() == b"flac-data"
-    assert source_path.read_bytes() == b"flac-data"
+    assert output_path.read_bytes() == b"fLaC\x00\x00\x00\x22"
+    assert source_path.read_bytes() == b"fLaC\x00\x00\x00\x22"
 
 
 @pytest.mark.asyncio
@@ -495,7 +495,7 @@ async def test_tts_service_rejects_core_without_provenance_execute_boundary():
 @pytest.mark.asyncio
 async def test_tts_service_writes_trace_for_comfyui_workflow(tmp_path, monkeypatch):
     source_path = tmp_path / "comfyui-result.wav"
-    source_path.write_bytes(b"audio-data")
+    source_path.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt ")
     output_path = tmp_path / "requested" / "audio.wav"
     captured = {}
 
@@ -549,7 +549,7 @@ async def test_tts_service_writes_trace_for_comfyui_workflow(tmp_path, monkeypat
     assert result_path.is_file()
     assert "pixelle.tts_service_result.v1" in result_text
     assert '"status": "completed"' in result_text
-    assert output_path.read_bytes() == b"audio-data"
+    assert output_path.read_bytes() == b"RIFF\x24\x00\x00\x00WAVEfmt "
 
 
 @pytest.mark.asyncio

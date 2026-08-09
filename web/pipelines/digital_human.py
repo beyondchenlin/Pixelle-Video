@@ -3,7 +3,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import httpx
 import streamlit as st
 from loguru import logger
 
@@ -13,7 +12,7 @@ from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_
 from pixelle_video.services.prompt_trace_artifacts import (
     write_single_media_prompt_trace_context,
 )
-from pixelle_video.utils.os_util import create_task_output_dir, get_temp_path
+from pixelle_video.utils.os_util import get_temp_path
 from web.components.content_input import render_version_info
 from web.components.digital_tts_config import render_style_config
 from web.components.output_preview import render_scaled_video_preview
@@ -21,6 +20,8 @@ from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
 from web.state.storyboard_capture import capture_snapshot_from_task_dir
 from web.utils.async_helpers import run_async
+from web.utils.generation_history import WebGenerationRun
+from web.utils.upload_store import IMAGE_UPLOAD_POLICY, store_uploaded_files
 
 
 def build_tts_generation_kwargs(
@@ -140,16 +141,14 @@ class DigitalHumanPipelineUI(PipelineUI):
             # Save uploaded files to temp directory with unique session ID
             character_asset_paths = []
             if uploaded_files:
-                import uuid
-                session_id = str(uuid.uuid4()).replace('-', '')[:12]
-                temp_dir = Path(get_temp_path(f"assets_{session_id}"))
+                temp_dir = Path(get_temp_path("uploads", "digital_human", "character"))
                 temp_dir.mkdir(parents=True, exist_ok=True)
                 
-                for uploaded_file in uploaded_files:
-                    file_path = temp_dir / uploaded_file.name
-                    with open(file_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    character_asset_paths.append(str(file_path.absolute()))
+                character_asset_paths = store_uploaded_files(
+                    uploaded_files,
+                    temp_dir,
+                    policy=IMAGE_UPLOAD_POLICY,
+                )
                 
                 st.success(tr("digital_human.assets.character_sucess"))
                 
@@ -263,16 +262,14 @@ class DigitalHumanPipelineUI(PipelineUI):
                 # Save uploaded files to temp directory with unique session ID
                 goods_asset_paths = []
                 if uploaded_files:
-                    import uuid
-                    session_id = str(uuid.uuid4()).replace('-', '')[:12]
-                    temp_dir = Path(get_temp_path(f"assets_{session_id}"))
+                    temp_dir = Path(get_temp_path("uploads", "digital_human", "goods"))
                     temp_dir.mkdir(parents=True, exist_ok=True)
                 
-                    for uploaded_file in uploaded_files:
-                        file_path = temp_dir / uploaded_file.name
-                        with open(file_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                        goods_asset_paths.append(str(file_path.absolute()))
+                    goods_asset_paths = store_uploaded_files(
+                        uploaded_files,
+                        temp_dir,
+                        policy=IMAGE_UPLOAD_POLICY,
+                    )
                 
                     st.success(tr("digital_human.assets.goods_sucess"))
                 
@@ -406,8 +403,9 @@ class DigitalHumanPipelineUI(PipelineUI):
                 
                 try:
                     # Define async generation function
-                    async def generate_digital_human_video():
-                        task_dir, task_id = create_task_output_dir()
+                    async def _generate_digital_human_video(generation: WebGenerationRun):
+                        task_dir = str(generation.task_dir)
+                        task_id = generation.task_id
                         workflow_path = video_params["workflow_path"]
 
                         if mode == "customize":
@@ -477,20 +475,12 @@ class DigitalHumanPipelineUI(PipelineUI):
                             if not generated_video_url:
                                 raise Exception("The second step of the workflow did not return a video. Please check the workflow configuration.")
                                         
-                            final_video_path = os.path.join(task_dir, "final.mp4")
-                            timeout = httpx.Timeout(300.0)
-                            async with httpx.AsyncClient(timeout=timeout) as client:
-                                response = await client.get(generated_video_url)
-                                response.raise_for_status()
-                                with open(final_video_path, 'wb') as f:
-                                    f.write(response.content)
-                            progress_bar.progress(100)
-                            status_text.text(tr("status.success"))
-                            return final_video_path
+                            return generated_video_url
                         
                         else:
                             #Initialization and parameter preparation
-                            task_dir, task_id = create_task_output_dir()
+                            task_dir = str(generation.task_dir)
+                            task_id = generation.task_id
                             logger.info(f"[Initialization] Task Directory: {task_dir}")
 
                             first_workflow_path = Path(workflow_path.get("first_workflow_path"))
@@ -595,16 +585,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 if not generated_video_url:
                                     raise Exception("The second step of the workflow did not return a video. Please check the workflow configuration.")
                                             
-                                final_video_path = os.path.join(task_dir, "final.mp4")
-                                timeout = httpx.Timeout(300.0)
-                                async with httpx.AsyncClient(timeout=timeout) as client:
-                                    response = await client.get(generated_video_url)
-                                    response.raise_for_status()
-                                    with open(final_video_path, 'wb') as f:
-                                        f.write(response.content)
-                                progress_bar.progress(100)
-                                status_text.text(tr("status.success"))
-                                return final_video_path
+                                return generated_video_url
                                 
                             else:
                                 workflow_path = first_workflow_path
@@ -704,16 +685,20 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 if not generated_video_url:
                                     raise Exception("The second step of the workflow did not return a video. Please check the workflow configuration.")
                                             
-                                final_video_path = os.path.join(task_dir, "final.mp4")
-                                timeout = httpx.Timeout(300.0)
-                                async with httpx.AsyncClient(timeout=timeout) as client:
-                                    response = await client.get(generated_video_url)
-                                    response.raise_for_status()
-                                    with open(final_video_path, 'wb') as f:
-                                        f.write(response.content)
-                                progress_bar.progress(100)
-                                status_text.text(tr("status.success"))
-                                return final_video_path
+                                return generated_video_url
+
+                    async def generate_digital_human_video():
+                        generation = await WebGenerationRun.start(
+                            core=pixelle_video,
+                            pipeline="digital_human",
+                            input_params=video_params,
+                        )
+                        final_video_path = await generation.execute(
+                            _generate_digital_human_video
+                        )
+                        progress_bar.progress(100)
+                        status_text.text(tr("status.success"))
+                        return final_video_path
                                 
                     # Execute async generation
                     final_video_path = run_async(generate_digital_human_video())

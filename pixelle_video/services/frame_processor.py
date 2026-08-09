@@ -28,7 +28,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
-import httpx
 from loguru import logger
 
 from pixelle_video.models.progress import ProgressEvent, ProgressEventType, ProgressFrameAction
@@ -37,6 +36,11 @@ from pixelle_video.services.prompt_trace_artifacts import (
     build_media_prompt_trace_context,
     build_workflow_params_trace,
     write_single_media_prompt_trace_context,
+)
+from pixelle_video.services.remote_media import (
+    configured_workflow_output_origins,
+    configured_workflow_output_roots,
+    materialize_media_source,
 )
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
@@ -415,7 +419,6 @@ class FrameProcessor:
             "text": text,
             "inference_mode": config.tts_inference_mode,
             "output_path": output_path,
-            "index": index,  # 1-based index for workflow
         }
 
         if config.tts_inference_mode == "local":
@@ -426,6 +429,7 @@ class FrameProcessor:
                 tts_params["speed"] = config.tts_speed
         else:  # comfyui
             # ComfyUI mode: pass workflow, voice, speed, and ref_audio
+            tts_params["index"] = index  # 1-based index for workflow
             if config.tts_workflow:
                 tts_params["workflow"] = config.tts_workflow
             if config.voice_id:
@@ -752,11 +756,11 @@ class FrameProcessor:
         template_body_text: Optional[str] = None,
     ) -> str:
         """Compose frame using HTML template"""
-        from pixelle_video.services.template_visual_materializer import TemplateVisualMaterializer
         from pixelle_video.models.template_text_policy import (
             resolve_caption_renderer_text,
             resolve_template_text_policy_for_body_override,
         )
+        from pixelle_video.services.template_visual_materializer import TemplateVisualMaterializer
         from pixelle_video.utils.template_util import resolve_template_path
 
         # Resolve template path (handles various input formats)
@@ -913,13 +917,13 @@ class FrameProcessor:
         from pixelle_video.utils.os_util import get_task_frame_path
         output_path = get_task_frame_path(task_id, frame_index, media_type)
 
-        timeout = httpx.Timeout(connect=10.0, read=60, write=60, pool=60)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-
-            with open(output_path, 'wb') as f:
-                f.write(response.content)
+        await materialize_media_source(
+            url,
+            output_path,
+            media_type=media_type,
+            trusted_private_origins=configured_workflow_output_origins(self.core),
+            trusted_local_roots=configured_workflow_output_roots(),
+        )
 
         return output_path
 

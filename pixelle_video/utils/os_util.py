@@ -24,6 +24,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional, Tuple
 
+from pixelle_video.utils.path_safety import resolve_path_within, validate_task_id
+
 _RUNTIME_CACHE_DIRS = {
     "UV_CACHE_DIR": "uv-cache",
     "RUFF_CACHE_DIR": "ruff-cache",
@@ -363,6 +365,7 @@ def create_task_output_dir(task_id: Optional[str] = None) -> Tuple[str, str]:
     """
     if task_id is None:
         task_id = create_task_id()
+    task_id = validate_task_id(task_id)
     
     task_dir = get_output_path(task_id)
     frames_dir = os.path.join(task_dir, "frames")
@@ -388,10 +391,11 @@ def get_task_path(task_id: str, *paths: str) -> str:
         >>> get_task_path("20251028_143052_ab3d", "final.mp4")
         >>> # Returns: "/path/to/project/output/20251028_143052_ab3d/final.mp4"
     """
-    task_dir = get_output_path(task_id)
+    output_root = Path(get_output_path()).resolve()
+    task_dir = resolve_path_within(output_root, validate_task_id(task_id))
     if paths:
-        return os.path.join(task_dir, *paths)
-    return task_dir
+        return str(resolve_path_within(task_dir, *paths))
+    return str(task_dir)
 
 
 def get_task_frame_path(

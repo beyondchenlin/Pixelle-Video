@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-import httpx
 from PIL import Image
 
 from pixelle_video.models.element_animation import (
@@ -27,6 +25,11 @@ from pixelle_video.services.element_animation_presets import (
 )
 from pixelle_video.services.prompt_trace_artifacts import (
     write_single_media_prompt_trace_context,
+)
+from pixelle_video.services.remote_media import (
+    configured_workflow_output_origins,
+    configured_workflow_output_roots,
+    materialize_media_source,
 )
 
 DEFAULT_SEGMENTATION_PROMPT_TEMPLATE_ID = "element_segmentation"
@@ -221,10 +224,13 @@ class ElementSegmentationService:
 
     async def _copy_media_output(self, source: str, target: Path) -> None:
         resolved_url = self._resolve_download_url(source)
-        if resolved_url is not None:
-            await self._download_url(resolved_url, target)
-            return
-        shutil.copy2(source, target)
+        await materialize_media_source(
+            resolved_url or source,
+            target,
+            media_type="image",
+            trusted_private_origins=configured_workflow_output_origins(self.core),
+            trusted_local_roots=configured_workflow_output_roots(),
+        )
 
     def _resolve_download_url(self, source: str) -> str | None:
         parsed = urlparse(source)
@@ -237,12 +243,6 @@ class ElementSegmentationService:
             if base_url:
                 return urljoin(base_url.rstrip("/") + "/", source.lstrip("/"))
         return None
-
-    async def _download_url(self, url: str, target: Path) -> None:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            target.write_bytes(response.content)
 
     @staticmethod
     def _mask_bbox(mask_path: Path, *, width: int, height: int) -> tuple[list[int], bool]:
