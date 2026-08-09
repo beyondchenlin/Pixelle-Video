@@ -52,6 +52,18 @@ test("resolveRenderRequest derives render job config from the manifest", async (
   assert.equal(request.jobConfig.hdr, false);
 });
 
+test("resolveRenderRequest forwards an explicit Chrome path to the producer", async () => {
+  const projectDir = await createProjectDir({ taskId: "task-browser", fps: 24 });
+  const chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+
+  const request = await resolveRenderRequest({
+    projectDir,
+    chromePath,
+  });
+
+  assert.equal(request.jobConfig.producerConfig.chromePath, chromePath);
+});
+
 test("renderProject calls createRenderJob and executeRenderJob with resolved paths", async () => {
   const projectDir = await createProjectDir({ taskId: "task-9", fps: 30 });
   const progressEvents = [];

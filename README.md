@@ -246,9 +246,28 @@ sudo apt install ffmpeg
 
 安装完成后，在终端中运行 `ffmpeg -version` 验证安装成功。
 
-##### 安装 Puppeteer Chrome（用于 HyperFrames 渲染）
+##### 准备 Chrome（用于 HyperFrames 渲染）
 
-项目使用 Puppeteer 进行视频帧渲染，需要安装 Chrome 浏览器：
+项目使用 Puppeteer 驱动 Chrome 进行视频帧渲染。渲染器按以下顺序选择浏览器：
+
+1. 环境变量 `PRODUCER_HEADLESS_SHELL_PATH` 指定的浏览器。
+2. Windows、macOS 或 Linux 常见安装位置中的系统 Chrome、Edge 或 Chromium。
+3. Puppeteer 缓存中下载的专用浏览器。
+
+系统已经安装 Chrome、Edge 或 Chromium 时，不需要重复下载。Windows 可以先检查常用的 Chrome 路径：
+
+```powershell
+Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+```
+
+返回 `True` 后，Pixelle 会自动发现并仅把该路径传给渲染子进程。如果浏览器安装在自定义位置，在启动 Pixelle 前显式指定：
+
+```powershell
+$env:PRODUCER_HEADLESS_SHELL_PATH='D:\Apps\Chrome\chrome.exe'
+.\start_web.bat
+```
+
+本机没有兼容浏览器时，再安装 Puppeteer 锁定的专用版本：
 
 ```bash
 cd tools/hyperframes_bridge
@@ -256,7 +275,7 @@ npx puppeteer browsers install chrome
 cd ../..
 ```
 
-> 注意：如果跳过此步骤，在渲染视频时会报错 `Could not find Chrome`。
+出现 `Could not find Chrome` 时，先检查浏览器路径和 `PRODUCER_HEADLESS_SHELL_PATH`，再执行下载命令。
 
 
 #### 第一步：下载项目
@@ -294,24 +313,252 @@ uv run streamlit run web/app.py
 
 > 注意：`uv run streamlit run web/app.py` 只启动 Web 界面，不会自动启动 Pixelle API。Stage1/Stage2 的工作台、分镜候选图、状态查询等功能需要 `http://localhost:8888/api` 可用。
 
-#### 本地 ComfyUI 后端端口与命令
+#### 本地单实例 ComfyUI 后端：完整使用说明
 
-Pixelle 本地运行时只启动一个 ComfyUI 后端，图片与语音工作流共享同一进程：
+##### 1. 先理解三个独立服务
 
-| 角色 | 地址 | 启动 | 停止 | 检查 |
-| ---- | ---- | ---- | ---- | ---- |
-| 图片与语音共用的 ComfyUI | `http://127.0.0.1:8000` | `scripts\comfyui\start_backend.bat` | `scripts\comfyui\stop_backend.bat` | `scripts\comfyui\check_backend.bat` |
-| Pixelle API | `http://localhost:8888` | `start_web.bat` 或 `uv run uvicorn api.app:app --host 127.0.0.1 --port 8888` | 关闭对应终端窗口或按 `Ctrl+C` | `http://localhost:8888/health` |
-| Web UI | `http://localhost:8501` | `start_web.bat` 或 `uv run streamlit run web/app.py` | 关闭对应终端窗口或按 `Ctrl+C` | 浏览器打开 `http://localhost:8501` |
+完整的本地生成链路由三个服务组成。图片生成和语音生成不再使用两个 ComfyUI 进程，而是路由到同一个受 Pixelle 托管的 `default` 后端：
 
-Windows 用户优先双击 `.bat` 入口，不需要手写 PowerShell 参数：
+```text
+Web UI（8501） -> Pixelle API（8888） -> 单个 ComfyUI（8000）
+                                              ├─ 图片工作流
+                                              └─ TTS 语音工作流
+```
 
-```bat
-start_web.bat
+| 服务 | 默认地址 | 用途 | 是否由 `start_web.bat` 启动 |
+| ---- | ---- | ---- | ---- |
+| Web UI | `http://localhost:8501` | 用户操作界面 | 是 |
+| Pixelle API | `http://localhost:8888` | 任务编排、状态查询和工作流提交 | 是 |
+| 共享 ComfyUI | `http://127.0.0.1:8000` | 执行本地图片与 TTS 工作流 | 否；首个本地工作流可按需自动拉起 |
+
+> `start_web.bat` 只启动 Pixelle API 和 Web UI。它不会在启动时立刻运行 ComfyUI。启用托管模式后，Pixelle 会在第一个本地图片或 TTS 工作流执行前检查并按需启动 ComfyUI。
+
+##### 2. 执行命令前确认项目根目录
+
+所有相对路径命令都必须在项目根目录执行。项目根目录中应当直接存在 `start_web.bat`、`config.example.yaml`、`scripts` 和 `pixelle_video`。
+
+在 PowerShell 中检查：
+
+```powershell
+Get-Location
+Test-Path .\start_web.bat
+Test-Path .\scripts\comfyui\start_backend.ps1
+```
+
+两个 `Test-Path` 命令都应返回 `True`。如果返回 `False`，先进入真正的仓库目录。例如仓库位于 `D:\demo1\Pixelle\Pixelle`：
+
+```powershell
+Set-Location 'D:\demo1\Pixelle\Pixelle'
+```
+
+如果当前位于外层目录 `D:\demo1\Pixelle`，也可以直接使用包含下一层目录的脚本路径：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Pixelle\scripts\comfyui\start_backend.ps1
+```
+
+出现“`-File` 形式参数的实际参数不存在”时，原因就是当前目录不对或脚本路径少了一层；这不是 ComfyUI 启动失败。
+
+##### 3. 配置单实例后端
+
+本地 `config.yaml` 中应保留一个后端配置，并把图片、语音和默认路由全部指向它：
+
+```yaml
+comfyui:
+  comfyui_url: http://127.0.0.1:8000
+  backend_management_mode: auto
+  backends:
+    default:
+      url: http://127.0.0.1:8000
+      python_exe: E:/ComfyUIData/.venv/Scripts/python.exe
+      comfyui_root: E:/comfyui/resources/ComfyUI
+      managed: true
+      restart_after_batch: true
+      data_root: E:/ComfyUIData/pixelle
+      runtime_dir: _runtime/comfyui
+      logs_dir: logs/comfyui
+      database_url: sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db
+  workflow_routing:
+    image: default
+    tts: default
+    default: default
+  tts:
+    inference_mode: comfyui
+```
+
+首次配置时，如果项目中没有 `config.yaml`，先复制示例文件：
+
+```powershell
+Copy-Item .\config.example.yaml .\config.yaml
+```
+
+然后按照本机实际安装位置修改以下字段：
+
+| 字段 | 含义 | 要求 |
+| ---- | ---- | ---- |
+| `python_exe` | ComfyUI 使用的 Python 解释器 | 文件必须存在，并已安装 ComfyUI 所需依赖 |
+| `comfyui_root` | ComfyUI 程序根目录 | 目录中必须存在 `main.py` |
+| `data_root` | Pixelle 专用输入、输出、用户数据目录 | 建议与其他 ComfyUI 实例隔离 |
+| `database_url` | Pixelle 专用 ComfyUI 数据库 | 应指向 `data_root/user/comfyui.db` |
+| `runtime_dir` | 托管进程 PID 文件目录 | 使用项目内独立目录 |
+| `logs_dir` | 后端日志目录 | 使用项目内独立目录 |
+
+`backend_management_mode: auto`、`managed: true` 和本机地址同时满足时，Pixelle 才会自动启动、停止和重启该后端。远程 ComfyUI、RunningHub 或其他云端工作流不会触发本地后端启动。
+
+##### 4. 推荐启动方式：先预启动后端，再启动项目
+
+首次安装、升级 ComfyUI、修改节点或更换模型后，推荐先手动启动一次后端。这样可以在进入生成任务前发现路径、依赖、节点和端口问题。
+
+在项目根目录执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\comfyui\start_backend.ps1
+```
+
+Windows 用户也可以直接双击：
+
+```text
 scripts\comfyui\start_backend.bat
-scripts\comfyui\stop_backend.bat
+```
+
+启动脚本是幂等的：托管后端已经在 `8000` 端口运行时，脚本会报告 `already_running`，不会再创建第二个实例。
+
+确认后端启动后，再启动 Pixelle：
+
+```powershell
+.\start_web.bat
+```
+
+默认访问地址：
+
+- Web UI：`http://localhost:8501`
+- Pixelle API 健康检查：`http://localhost:8888/health`
+- API 文档：`http://localhost:8888/docs`
+- ComfyUI：`http://127.0.0.1:8000`
+
+##### 5. 简化启动方式：让首个任务自动拉起后端
+
+日常使用时，也可以只启动项目：
+
+```powershell
+.\start_web.bat
+```
+
+随后在 Web UI 提交本地图片或 TTS 任务。任务执行前，Pixelle 会：
+
+1. 等待同一后端上正在进行的重启结束。
+2. 检查 `8000` 端口和托管进程状态。
+3. 后端未运行时调用 `scripts\comfyui\start_backend.ps1`。
+4. 等待后端开始监听，再清理生成前残留状态。
+5. 把图片或 TTS 工作流提交给同一个 `default` 后端。
+
+如果后端已经运行，Pixelle 会直接复用它。自动启动失败时，当前生成任务会明确失败并在日志中记录原因，不会静默切换到未知端口或创建第二个实例。
+
+##### 6. 任务完成后的自动重启
+
+当前示例配置使用：
+
+```yaml
+restart_after_batch: true
+```
+
+这表示每批本地工作流完成后，Pixelle 会重启共享 ComfyUI，以释放 GPU 显存和 CPU 内存。重启期间，新任务会等待后端重新就绪。因此看到 ComfyUI 的进程 PID 在任务后变化属于正常行为，并不代表服务崩溃。
+
+如果显存充足并且更重视连续任务速度，可以改为：
+
+```yaml
+restart_after_batch: false
+```
+
+关闭任务后重启会让模型继续留在显存中，后续请求更快，但图片模型与 TTS 模型切换时更容易累积显存和内存占用。单显卡同时运行多类大模型时，建议保持 `true`。
+
+##### 7. API 端口被占用时
+
+Pixelle API 默认使用 `8888`。如果该端口已被其他程序占用，可以在启动前覆盖为 `8890`：
+
+```powershell
+$env:PIXELLE_API_PORT='8890'
+$env:PIXELLE_API_BASE_URL='http://localhost:8890/api'
+.\start_web.bat
+```
+
+此时使用：
+
+- Web UI：`http://localhost:8501`
+- Pixelle API 健康检查：`http://localhost:8890/health`
+- API 文档：`http://localhost:8890/docs`
+
+这两个环境变量只对当前 PowerShell 窗口和从它启动的子进程生效。关闭窗口后不会永久修改系统配置。
+
+##### 8. 检查运行状态
+
+检查共享 ComfyUI 是否正在监听，以及该进程是否由 Pixelle 管理：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\comfyui\check_backend.ps1
+```
+
+Windows 用户也可以双击：
+
+```text
 scripts\comfyui\check_backend.bat
 ```
+
+输出中应当包含 `127.0.0.1:8000` 和 `managed=True`。也可以直接执行健康检查：
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8000/system_stats'
+Invoke-RestMethod 'http://localhost:8888/health'
+```
+
+如果 API 改为 `8890`，第二条命令中的端口也要改成 `8890`。
+
+##### 9. 停止服务
+
+安全停止 Pixelle 托管的 ComfyUI：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\comfyui\stop_backend.ps1
+```
+
+Windows 用户也可以双击：
+
+```text
+scripts\comfyui\stop_backend.bat
+```
+
+停止脚本只会停止命令行、端口、数据目录和 PID 记录均匹配的 Pixelle 托管进程。`8000` 端口属于其他程序时，脚本会拒绝误杀该进程。
+
+停止 Web UI 和 Pixelle API 时，关闭 `start_web.bat` 创建的对应终端窗口。手动分开启动时，在各自终端中按 `Ctrl+C`。
+
+##### 10. 日志与运行文件
+
+默认文件位置：
+
+| 内容 | 路径 |
+| ---- | ---- |
+| 标准输出日志 | `logs/comfyui/comfyui-backend.stdout.log` |
+| 错误日志 | `logs/comfyui/comfyui-backend.stderr.log` |
+| 后端 PID | `_runtime/comfyui/comfyui-backend.pid` |
+| 启动器 PID | `_runtime/comfyui/comfyui-backend.launcher.pid` |
+| 图片与音频输出 | 配置的 `data_root/output` |
+| ComfyUI 用户数据和数据库 | 配置的 `data_root/user` |
+
+每次重新启动时，旧日志会添加时间戳后归档，不会直接覆盖。排查启动失败时先查看错误日志，再查看标准输出日志。
+
+##### 11. 常见问题
+
+| 现象 | 原因 | 处理方式 |
+| ---- | ---- | ---- |
+| `-File` 参数指向的脚本不存在 | 当前目录不是项目根目录 | 执行 `Test-Path .\start_web.bat`，再进入真正的仓库目录 |
+| `8000` 已被占用 | ComfyUI Desktop 或其他进程正在监听 | 先运行检查脚本；关闭冲突进程，不要同时启动两个 ComfyUI |
+| 启动后 90 秒仍未监听 | Python、ComfyUI 路径、依赖或自定义节点加载失败 | 查看 `logs/comfyui/comfyui-backend.stderr.log` |
+| Web UI 能打开但操作失败 | Pixelle API 未启动或前端使用了错误端口 | 检查 `/health`，并确认 `PIXELLE_API_BASE_URL` 与实际端口一致 |
+| 图片或语音节点不存在 | 更新后自定义节点未安装、被禁用或导入失败 | 查看 ComfyUI 启动日志并修复对应节点依赖 |
+| 任务结束后进程 PID 变化 | `restart_after_batch: true` 正在释放内存 | 无需处理，等待后端重新就绪 |
+| 云端工作流没有启动本地 ComfyUI | 云端执行不使用本地后端 | 这是正常行为；只有 `selfhost` 本地工作流使用 `8000` |
+
+旧式双后端入口已经删除，图片与语音必须通过共享后端运行。
 
 #### 第三步：在 Web 界面配置
 
@@ -349,7 +596,7 @@ scripts\comfyui\check_backend.bat
 用于生成视频配图的 AI。
 
 **本地部署（推荐）**  
-- ComfyUI URL: 本地 ComfyUI 服务地址（默认 http://127.0.0.1:8188）
+- ComfyUI URL: 本地 ComfyUI 服务地址（单实例默认 http://127.0.0.1:8000）
 - 点击「测试连接」确认服务可用
 
 **云端部署**  

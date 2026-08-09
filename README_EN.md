@@ -242,6 +242,37 @@ sudo apt install ffmpeg
 
 After installation, run `ffmpeg -version` in the terminal to verify successful installation.
 
+##### Prepare Chrome for HyperFrames rendering
+
+Pixelle uses Puppeteer to drive Chrome for video frame rendering. The renderer selects a browser in this order:
+
+1. A browser explicitly set through `PRODUCER_HEADLESS_SHELL_PATH`.
+2. System Chrome, Edge, or Chromium in common Windows, macOS, or Linux installation paths.
+3. A dedicated browser downloaded into the Puppeteer cache.
+
+If Chrome, Edge, or Chromium is already installed, no additional download is required. On Windows, check the common Chrome path first:
+
+```powershell
+Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+```
+
+When this returns `True`, Pixelle discovers the browser automatically and passes its path only to the render subprocess. If the browser is installed in a custom location, set it explicitly before launching Pixelle:
+
+```powershell
+$env:PRODUCER_HEADLESS_SHELL_PATH='D:\Apps\Chrome\chrome.exe'
+.\start_web.bat
+```
+
+Only when no compatible system browser exists, install the version pinned by Puppeteer:
+
+```bash
+cd tools/hyperframes_bridge
+npx puppeteer browsers install chrome
+cd ../..
+```
+
+For `Could not find Chrome`, verify the browser path and `PRODUCER_HEADLESS_SHELL_PATH` before downloading another browser.
+
 
 #### Step 1: Clone Project
 
@@ -278,24 +309,252 @@ Browser will automatically open http://localhost:8501. The API health check is h
 
 > Note: `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:8888/api`.
 
-#### Local ComfyUI Backend Ports and Commands
+#### Local Single-Instance ComfyUI Backend: Complete Guide
 
-Pixelle starts one local ComfyUI backend shared by image and TTS workflows:
+##### 1. Understand the three independent services
 
-| Role | Address | Start | Stop | Check |
-| ---- | ---- | ---- | ---- | ---- |
-| Shared image and TTS ComfyUI | `http://127.0.0.1:8000` | `scripts\comfyui\start_backend.bat` | `scripts\comfyui\stop_backend.bat` | `scripts\comfyui\check_backend.bat` |
-| Pixelle API | `http://localhost:8888` | `start_web.bat` or `uv run uvicorn api.app:app --host 127.0.0.1 --port 8888` | Close the terminal window or press `Ctrl+C` | `http://localhost:8888/health` |
-| Web UI | `http://localhost:8501` | `start_web.bat` or `uv run streamlit run web/app.py` | Close the terminal window or press `Ctrl+C` | Open `http://localhost:8501` in a browser |
+The complete local generation path contains three services. Image and speech generation no longer use separate ComfyUI processes. Both route to the same Pixelle-managed `default` backend:
 
-Windows users should prefer the `.bat` entry points and do not need to type PowerShell parameters manually:
+```text
+Web UI (8501) -> Pixelle API (8888) -> One ComfyUI (8000)
+                                           ├─ Image workflows
+                                           └─ TTS workflows
+```
 
-```bat
-start_web.bat
+| Service | Default address | Purpose | Started by `start_web.bat` |
+| ---- | ---- | ---- | ---- |
+| Web UI | `http://localhost:8501` | User interface | Yes |
+| Pixelle API | `http://localhost:8888` | Task orchestration, status queries, and workflow submission | Yes |
+| Shared ComfyUI | `http://127.0.0.1:8000` | Runs local image and TTS workflows | No; the first local workflow can start it on demand |
+
+> `start_web.bat` starts only the Pixelle API and Web UI. It does not launch ComfyUI immediately. With managed mode enabled, Pixelle checks and starts ComfyUI before the first local image or TTS workflow.
+
+##### 2. Confirm the repository root before running commands
+
+All relative commands must run from the repository root. That directory directly contains `start_web.bat`, `config.example.yaml`, `scripts`, and `pixelle_video`.
+
+Check from PowerShell:
+
+```powershell
+Get-Location
+Test-Path .\start_web.bat
+Test-Path .\scripts\comfyui\start_backend.ps1
+```
+
+Both `Test-Path` commands must return `True`. If either returns `False`, enter the actual repository directory first. For example, if the repository is at `D:\demo1\Pixelle\Pixelle`:
+
+```powershell
+Set-Location 'D:\demo1\Pixelle\Pixelle'
+```
+
+If the current directory is the outer `D:\demo1\Pixelle` folder, you can also include the nested directory in the script path:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Pixelle\scripts\comfyui\start_backend.ps1
+```
+
+An error stating that the `-File` argument does not exist means the current directory or relative path is wrong. It is not a ComfyUI startup failure.
+
+##### 3. Configure the single backend
+
+Keep one backend profile in the local `config.yaml` and route image, speech, and fallback workflows to it:
+
+```yaml
+comfyui:
+  comfyui_url: http://127.0.0.1:8000
+  backend_management_mode: auto
+  backends:
+    default:
+      url: http://127.0.0.1:8000
+      python_exe: E:/ComfyUIData/.venv/Scripts/python.exe
+      comfyui_root: E:/comfyui/resources/ComfyUI
+      managed: true
+      restart_after_batch: true
+      data_root: E:/ComfyUIData/pixelle
+      runtime_dir: _runtime/comfyui
+      logs_dir: logs/comfyui
+      database_url: sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db
+  workflow_routing:
+    image: default
+    tts: default
+    default: default
+  tts:
+    inference_mode: comfyui
+```
+
+If `config.yaml` does not exist on first setup, copy the example:
+
+```powershell
+Copy-Item .\config.example.yaml .\config.yaml
+```
+
+Then change these fields to match the local installation:
+
+| Field | Meaning | Requirement |
+| ---- | ---- | ---- |
+| `python_exe` | Python interpreter used by ComfyUI | The file must exist and include the ComfyUI dependencies |
+| `comfyui_root` | ComfyUI application root | The directory must contain `main.py` |
+| `data_root` | Pixelle-specific input, output, and user data | Keep it isolated from other ComfyUI instances |
+| `database_url` | Pixelle-specific ComfyUI database | Point it to `data_root/user/comfyui.db` |
+| `runtime_dir` | Managed process PID files | Use a dedicated project directory |
+| `logs_dir` | Backend logs | Use a dedicated project directory |
+
+Pixelle starts, stops, and restarts the backend only when `backend_management_mode: auto`, `managed: true`, and a manageable local URL are all active. Remote ComfyUI, RunningHub, and other cloud workflows do not start the local backend.
+
+##### 4. Recommended startup: pre-start the backend, then start Pixelle
+
+After first installation, a ComfyUI upgrade, node changes, or model changes, manually start the backend once. This exposes path, dependency, node, and port errors before a generation task begins.
+
+Run from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\comfyui\start_backend.ps1
+```
+
+Windows users can also double-click:
+
+```text
 scripts\comfyui\start_backend.bat
-scripts\comfyui\stop_backend.bat
+```
+
+The command is idempotent. If the managed backend already owns port `8000`, it reports `already_running` instead of creating a second instance.
+
+After the backend is ready, start Pixelle:
+
+```powershell
+.\start_web.bat
+```
+
+Default addresses:
+
+- Web UI: `http://localhost:8501`
+- Pixelle API health check: `http://localhost:8888/health`
+- API documentation: `http://localhost:8888/docs`
+- ComfyUI: `http://127.0.0.1:8000`
+
+##### 5. Simplified startup: let the first task start the backend
+
+For routine use, you can start only Pixelle:
+
+```powershell
+.\start_web.bat
+```
+
+Then submit a local image or TTS task from the Web UI. Before execution, Pixelle:
+
+1. Waits for any in-progress restart of the shared backend.
+2. Checks port `8000` and the managed process state.
+3. Calls `scripts\comfyui\start_backend.ps1` when the backend is not running.
+4. Waits for the listener, then clears stale pre-generation state.
+5. Submits the image or TTS workflow to the same `default` backend.
+
+If the backend is already running, Pixelle reuses it. If automatic startup fails, the current task fails with a specific logged reason. Pixelle does not silently move to an unknown port or create a second instance.
+
+##### 6. Automatic restart after each batch
+
+The example configuration uses:
+
+```yaml
+restart_after_batch: true
+```
+
+After each local workflow batch, Pixelle restarts the shared ComfyUI process to release GPU and CPU memory. New tasks wait for the backend to become ready. A changed ComfyUI PID after a task is expected behavior, not a crash.
+
+If memory is sufficient and repeated-request latency matters more, use:
+
+```yaml
+restart_after_batch: false
+```
+
+Disabling restart keeps models in GPU memory and speeds up follow-up requests, but image and TTS model switches can accumulate GPU and system memory. Keep `true` when one GPU runs several large model families.
+
+##### 7. When the API port is occupied
+
+The Pixelle API uses `8888` by default. If another program owns that port, override it with `8890` before startup:
+
+```powershell
+$env:PIXELLE_API_PORT='8890'
+$env:PIXELLE_API_BASE_URL='http://localhost:8890/api'
+.\start_web.bat
+```
+
+Then use:
+
+- Web UI: `http://localhost:8501`
+- Pixelle API health check: `http://localhost:8890/health`
+- API documentation: `http://localhost:8890/docs`
+
+These environment variables affect only the current PowerShell session and its child processes. Closing the window does not permanently change the system configuration.
+
+##### 8. Check status
+
+Check whether the shared ComfyUI listener exists and whether Pixelle manages it:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\comfyui\check_backend.ps1
+```
+
+Windows users can also double-click:
+
+```text
 scripts\comfyui\check_backend.bat
 ```
+
+The output should contain `127.0.0.1:8000` and `managed=True`. Direct health checks are also available:
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8000/system_stats'
+Invoke-RestMethod 'http://localhost:8888/health'
+```
+
+If the API uses `8890`, change the second command to port `8890`.
+
+##### 9. Stop services
+
+Safely stop the Pixelle-managed ComfyUI process:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\comfyui\stop_backend.ps1
+```
+
+Windows users can also double-click:
+
+```text
+scripts\comfyui\stop_backend.bat
+```
+
+The stop script terminates only a process whose command line, port, data directory, and PID record all match the Pixelle-managed backend. It refuses to terminate an unrelated owner of port `8000`.
+
+To stop the Web UI and Pixelle API, close the matching terminal windows created by `start_web.bat`. When started separately, press `Ctrl+C` in each terminal.
+
+##### 10. Logs and runtime files
+
+Default locations:
+
+| Content | Path |
+| ---- | ---- |
+| Standard output log | `logs/comfyui/comfyui-backend.stdout.log` |
+| Error log | `logs/comfyui/comfyui-backend.stderr.log` |
+| Backend PID | `_runtime/comfyui/comfyui-backend.pid` |
+| Launcher PID | `_runtime/comfyui/comfyui-backend.launcher.pid` |
+| Image and audio outputs | Configured `data_root/output` |
+| ComfyUI user data and database | Configured `data_root/user` |
+
+On each restart, old logs are archived with a timestamp instead of being overwritten. For startup failures, inspect the error log first and then the standard output log.
+
+##### 11. Troubleshooting
+
+| Symptom | Cause | Fix |
+| ---- | ---- | ---- |
+| The script passed to `-File` does not exist | The current directory is not the repository root | Run `Test-Path .\start_web.bat`, then enter the actual repository directory |
+| Port `8000` is occupied | ComfyUI Desktop or another process is listening | Run the check command and close the conflicting process; do not run two ComfyUI instances |
+| No listener after 90 seconds | Python path, ComfyUI path, dependencies, or custom nodes failed | Read `logs/comfyui/comfyui-backend.stderr.log` |
+| Web UI opens but actions fail | Pixelle API is not running or the UI uses the wrong port | Check `/health` and make `PIXELLE_API_BASE_URL` match the actual port |
+| Image or speech nodes are missing | Custom nodes were removed, disabled, or failed to import after an update | Read the ComfyUI startup logs and repair the corresponding node dependencies |
+| Process PID changes after a task | `restart_after_batch: true` is releasing memory | No action is required; wait for the backend to become ready |
+| A cloud workflow does not start local ComfyUI | Cloud execution does not use the local backend | This is expected; only local `selfhost` workflows use port `8000` |
+
+Legacy dual-backend entry points have been removed. Image and speech workflows must use the shared backend.
 
 #### Step 3: Configure in Web Interface
 
@@ -333,7 +592,7 @@ Used for generating video scripts.
 Used for generating video images.
 
 **Local Deployment (Recommended)**  
-- ComfyUI URL: Local ComfyUI service address (default http://127.0.0.1:8188)
+- ComfyUI URL: Local ComfyUI service address (single-instance default http://127.0.0.1:8000)
 - Click "Test Connection" to confirm service is available
 
 **Cloud Deployment**  
