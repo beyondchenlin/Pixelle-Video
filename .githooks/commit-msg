@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+if [ -x scripts/agent-standards-hook.sh ]; then
+  scripts/agent-standards-hook.sh commit-msg "$1"
+else
+  printf '[FAIL] 缺少提交说明校验脚本：scripts/agent-standards-hook.sh\n' >&2
+  exit 1
+fi

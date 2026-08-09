@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+if [ -x scripts/agent-verify.sh ]; then
+  scripts/agent-verify.sh
+elif command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/agent-verify.ps1
+else
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/agent-verify.ps1
+fi
