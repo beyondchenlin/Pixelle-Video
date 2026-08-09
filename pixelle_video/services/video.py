@@ -28,6 +28,7 @@ import math
 import os
 import shutil
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 from typing import List, Literal, Optional
@@ -51,22 +52,21 @@ def check_ffmpeg() -> None:
     Raises:
         RuntimeError: If FFmpeg is not found
     """
-    if not shutil.which("ffmpeg"):
+    missing = [name for name in ("ffmpeg", "ffprobe") if not shutil.which(name)]
+    if missing:
         raise RuntimeError(
-            "FFmpeg not found. Please install it:\n"
+            f"Required media tools not found: {', '.join(missing)}. Please install FFmpeg:\n"
             "  macOS: brew install ffmpeg\n"
             "  Ubuntu/Debian: apt-get install ffmpeg\n"
             "  Windows: https://ffmpeg.org/download.html"
         )
 
 
-# Check FFmpeg availability on module import
-check_ffmpeg()
-
-
 def _ffmpeg_duration(value: float) -> str:
     """Format duration values for FFmpeg without scientific notation."""
-    formatted = format(max(value, 0.0), ".12f").rstrip("0").rstrip(".")
+    if not math.isfinite(value) or value < 0:
+        raise ValueError("duration must be a finite non-negative number")
+    formatted = format(value, ".12f").rstrip("0").rstrip(".")
     return formatted or "0"
 
 
@@ -108,6 +108,19 @@ class VideoService:
         ...     "segment.mp4"
         ... )
     """
+
+    def __init__(self) -> None:
+        self._ffmpeg_checked = False
+        self._ffmpeg_check_lock = threading.Lock()
+
+    def _ensure_ffmpeg(self) -> None:
+        if self._ffmpeg_checked:
+            return
+        with self._ffmpeg_check_lock:
+            if self._ffmpeg_checked:
+                return
+            check_ffmpeg()
+            self._ffmpeg_checked = True
 
     def concat_videos(
         self,
@@ -155,6 +168,8 @@ class VideoService:
             logger.info(f"Only one video provided, copying to {output}")
             shutil.copy(videos[0], output)
             return output
+
+        self._ensure_ffmpeg()
         
         logger.info(f"Concatenating {len(videos)} videos using {method} method")
         
@@ -204,6 +219,7 @@ class VideoService:
         output_path = Path(output).resolve()
         if input_path == output_path:
             raise ValueError("input_video and output cannot be the same path")
+        self._ensure_ffmpeg()
 
         resolved_fonts_dir = self._resolve_ass_fonts_dir(fonts_dir, font_file)
         ass_filter = self._build_ass_filter(ass_file, fonts_dir=resolved_fonts_dir)
@@ -277,6 +293,7 @@ class VideoService:
         FFmpeg equivalent:
             ffmpeg -f concat -safe 0 -i filelist.txt -c copy output.mp4
         """
+        self._ensure_ffmpeg()
         # Create temporary file list
         with tempfile.NamedTemporaryFile(
             mode='w',
@@ -318,6 +335,7 @@ class VideoService:
             ffmpeg -i v1.mp4 -i v2.mp4 -filter_complex "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]"
                    -map "[v]" -map "[a]" output.mp4
         """
+        self._ensure_ffmpeg()
         try:
             # Build filter_complex string manually
             n = len(videos)
@@ -359,6 +377,7 @@ class VideoService:
     
     def _get_video_duration(self, video: str) -> float:
         """Get video duration in seconds"""
+        self._ensure_ffmpeg()
         try:
             probe = ffmpeg.probe(video)
             duration = float(probe['format']['duration'])
@@ -369,6 +388,7 @@ class VideoService:
     
     def _get_audio_duration(self, audio: str) -> float:
         """Get audio duration in seconds"""
+        self._ensure_ffmpeg()
         try:
             probe = ffmpeg.probe(audio)
             duration = float(probe['format']['duration'])
@@ -392,6 +412,7 @@ class VideoService:
         Returns:
             True if video has audio stream, False otherwise
         """
+        self._ensure_ffmpeg()
         try:
             probe = ffmpeg.probe(video)
             audio_streams = [s for s in probe.get('streams', []) if s['codec_type'] == 'audio']
@@ -457,6 +478,7 @@ class VideoService:
             - When replace_audio=True and video has audio, original audio is removed
             - When replace_audio=False and video has audio, original and new audio are mixed
         """
+        self._ensure_ffmpeg()
         # Get durations of video and audio
         video_duration = self._get_video_duration(video)
         audio_duration = self._get_audio_duration(audio)
@@ -648,6 +670,9 @@ class VideoService:
             - Final video size matches overlay image size
             - Video codec is re-encoded to support overlay
         """
+        self._ensure_ffmpeg()
+        if scale_mode not in {"contain", "cover", "stretch"}:
+            raise ValueError("scale_mode must be contain, cover, or stretch")
         logger.info(f"Overlaying image on video (scale_mode={scale_mode})")
         
         try:
@@ -738,6 +763,9 @@ class VideoService:
             ...     "segment.mp4"
             ... )
         """
+        if isinstance(fps, bool) or not isinstance(fps, int) or fps < 1:
+            raise ValueError("fps must be a positive integer")
+        self._ensure_ffmpeg()
         logger.info("Creating video from image and audio")
         
         try:
@@ -831,6 +859,13 @@ class VideoService:
             - If loop=True, BGM repeats until video ends
             - Fade effects are applied to BGM only
         """
+        self._ensure_ffmpeg()
+        if not math.isfinite(bgm_volume) or bgm_volume < 0:
+            raise ValueError("bgm_volume must be a finite non-negative number")
+        if not math.isfinite(fade_in) or fade_in < 0:
+            raise ValueError("fade_in must be a finite non-negative number")
+        if not math.isfinite(fade_out) or fade_out < 0:
+            raise ValueError("fade_out must be a finite non-negative number")
         logger.info(f"Adding BGM to video (volume={bgm_volume}, loop={loop})")
         
         try:
@@ -1022,14 +1057,20 @@ class VideoService:
         Raises:
             RuntimeError: If FFmpeg execution fails
         """
+        if not math.isfinite(target_duration) or target_duration <= 0:
+            raise ValueError("target_duration must be a finite positive number")
+        self._ensure_ffmpeg()
         output = self._get_unique_temp_path("trimmed", os.path.basename(video))
         
         try:
             # Use stream copy when possible for fast trimming
+            output_options = {"vcodec": "copy"}
+            if self.has_audio_stream(video):
+                output_options["acodec"] = "copy"
             (
                 ffmpeg
                 .input(video, t=_ffmpeg_duration(target_duration))
-                .output(output, vcodec='copy', acodec='copy' if self.has_audio_stream(video) else 'copy')
+                .output(output, **output_options)
                 .overwrite_output()
                 .run(capture_stdout=True, capture_stderr=True, quiet=True)
             )
@@ -1054,6 +1095,11 @@ class VideoService:
         Raises:
             RuntimeError: If FFmpeg execution fails
         """
+        if not math.isfinite(target_duration) or target_duration <= 0:
+            raise ValueError("target_duration must be a finite positive number")
+        if pad_strategy not in {"freeze", "black"}:
+            raise ValueError("pad_strategy must be freeze or black")
+        self._ensure_ffmpeg()
         output = self._get_unique_temp_path("padded", os.path.basename(video))
         
         video_duration = self._get_video_duration(video)

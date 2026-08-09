@@ -5,6 +5,7 @@ from pathlib import Path
 import ffmpeg
 import pytest
 
+from pixelle_video.services import video as video_module
 from pixelle_video.services.video import VideoService
 
 
@@ -148,3 +149,54 @@ def test_escape_ffmpeg_filter_path_handles_windows_drive_and_spaces():
     assert r"C\\:" not in escaped
     assert "测试 路径" in escaped
     assert "master.ass" in escaped
+
+
+def test_video_service_initialization_does_not_require_ffmpeg(monkeypatch):
+    monkeypatch.setattr(video_module.shutil, "which", lambda _name: None)
+
+    service = VideoService()
+
+    with pytest.raises(RuntimeError, match="ffmpeg, ffprobe"):
+        service._ensure_ffmpeg()
+
+
+@pytest.mark.parametrize("duration", [float("nan"), float("inf"), -1.0])
+def test_ffmpeg_duration_rejects_invalid_values(duration):
+    with pytest.raises(ValueError, match="finite non-negative"):
+        video_module._ffmpeg_duration(duration)
+
+
+def test_trim_silent_video_omits_audio_codec_option(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeGraph:
+        def output(self, output, **options):
+            captured["output"] = output
+            captured["options"] = options
+            return self
+
+        def overwrite_output(self):
+            return self
+
+        def run(self, **_kwargs):
+            return None
+
+    service = VideoService()
+    service._ffmpeg_checked = True
+    monkeypatch.setattr(video_module.ffmpeg, "input", lambda *_args, **_kwargs: FakeGraph())
+    monkeypatch.setattr(service, "has_audio_stream", lambda _video: False)
+    monkeypatch.setattr(
+        service,
+        "_get_unique_temp_path",
+        lambda _prefix, _name: str(tmp_path / "trimmed.mp4"),
+    )
+
+    service._trim_video_to_duration("silent.mp4", 1.5)
+
+    assert captured["options"] == {"vcodec": "copy"}
+
+
+@pytest.mark.parametrize("fps", [0, -1, 1.5, True])
+def test_create_video_from_image_rejects_invalid_fps_before_running_ffmpeg(fps):
+    with pytest.raises(ValueError, match="positive integer"):
+        VideoService().create_video_from_image("image.png", "audio.mp3", "video.mp4", fps=fps)
