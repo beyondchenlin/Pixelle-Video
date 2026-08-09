@@ -13,8 +13,10 @@
 - 项目根目录：以 `git rev-parse --show-toplevel` 的输出为准，不在仓库文件中固化机器专属绝对路径。
 - 默认基线分支：`main`；默认任务来源与集成分支：`dev`。
 - 任务分支默认使用 `codex/<任务名>`；需要隔离时，linked worktree 放在已忽略的 `.worktrees/` 下。
-- 开发环境初始化入口：`uv sync`；通用测试入口：`uv run pytest`；Python 静态检查入口：`uv run ruff check <改动路径>`。
-- 贡献流程见 `docs/zh/development/contributing.md`；具体功能存在专项测试或合入清单时，以对应文档和持续集成配置为准。
+- 代理工作流初始化入口：Windows 使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-bootstrap.ps1`，其他系统使用 `sh scripts/agent-bootstrap.sh`。
+- 代理基础验证入口：Windows 使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-verify.ps1`，其他系统使用 `sh scripts/agent-verify.sh`。
+- 应用开发环境使用 `uv sync` 初始化；通用测试使用 `uv run pytest`；Python 静态检查使用 `uv run ruff check <改动路径>`。
+- 分支流程、任务写法和项目长参考分别见 `docs/agent/branch-workflow.md`、`docs/agent/prompting-workflow.md`、`docs/agent/project-reference.md`；贡献流程见 `docs/zh/development/contributing.md`。
 
 ## 3. 安全底线
 
@@ -32,7 +34,7 @@
 - 并行任务、子代理编辑、长周期改动或切换 checkout 会干扰用户工作时，必须使用独立分支和独立 linked worktree；轻量单任务可按风险决定，用户明确要求时必须使用。
 - 创建 worktree 前运行 `git worktree list`，并从将接收合并的集成分支创建任务分支；进入后重新读取本文件，并优先运行仓库已有初始化脚本。
 - 发现无关问题时只记录并说明，不顺手修改；必须触碰用户已有改动时，先理解其意图并在其基础上继续。
-- 发送外部消息、发布内容、合入共享分支、部署或修改他人依赖的信息属于共享副作用，必须取得用户在当前任务中的明确授权。
+- 发送外部消息、发布内容、推送远程、合入共享分支、部署或修改他人依赖的信息属于共享副作用，必须取得用户在当前任务中的明确授权。
 
 ## 5. 执行方式与分层
 
@@ -41,7 +43,8 @@
 - 并行或子代理只在用户明确要求，且子任务互不影响、边界清晰、可独立验证时使用；同一文件、共享契约、根配置、CI、锁文件或根因未明的调试任务默认串行。
 - 搜索仓库内容优先使用 `rg` 或 `rg --files`。
 - 只有每次会话都必须知道的高频硬规则才保留在本文件；路径专属约束放到相应目录的局部规则文件。
-- 多步判断流程与专题清单沉淀为 skill 或 `docs/agent/` 文档；可机械判断的检查放到 `scripts/`，必须在生命周期节点执行的确定性检查由 Git hooks 调用脚本完成。
+- 多步判断流程与专题清单沉淀为 skill 或 `docs/agent/` 文档；任务 Prompt 的按需写法以 `docs/agent/prompting-workflow.md` 为准，不强制用户套固定模板。
+- 可机械判断的检查放到 `scripts/`，必须在生命周期节点执行的确定性检查由 Git hooks 调用脚本完成。
 - hooks 必须保持确定性，不调用 LLM，不承载复杂判断；长链接、背景资料和长示例放到 `docs/`，不常驻本文件。
 
 ## 6. 模型与大体积制品
@@ -63,7 +66,7 @@
 
 - 每次提交只包含一个独立、完整、可单独理解和回滚的变更意图；暂存时显式限定任务文件，不得夹带无关改动。
 - 提交说明使用中文和分类标签前缀，格式为 `<类型>: <标题>`；常用类型包括 `feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`chore`，复杂提交使用中文正文列出主要改动。
-- 原子变更通过匹配验证后直接提交，不再询问是否提交；提交后立即推送当前任务分支。用户明确要求仅本地提交时除外；推送失败必须说明真实阻塞原因。
+- 原子变更通过匹配验证后直接提交，不再询问是否提交；只有用户在当前任务中明确授权远程同步时才推送任务分支，推送失败必须说明真实阻塞原因。
 - 合入 `dev`、`main` 或其他共享分支必须取得用户明确同意，并在合入前同步目标分支、复跑匹配验证；禁止强制推送。
 - 发布、部署、`ship`、`land-and-deploy` 等动作必须由用户明确授权，不能仅凭代码完成自动执行。
 - 仓库存在 Git hooks 时不得绕过；新增或修改钩子时，钩子只负责调用可独立运行的校验脚本。
@@ -71,6 +74,6 @@
 ## 9. 验证与完成标准
 
 - 声称完成、提交、推送或同步前，必须运行与改动范围和风险匹配的验证，并如实报告命令与结果。
-- 文档改动至少运行 `git diff --check` 并核对 UTF-8 编码、链接、命令和路径；代码改动运行相关测试与受影响路径的静态检查。
+- 提交前先运行 `scripts/agent-verify.ps1` 或 `scripts/agent-verify.sh`；文档改动还要核对 UTF-8 编码、链接、命令和路径，代码改动还要运行相关测试与受影响路径的静态检查。
 - 修改工作流、加载器或依赖说明时，还必须执行文档中列出的实际可用性验证，不得以静态检查代替运行验证。
 - 无法执行某项验证时，必须说明原因、未覆盖范围和剩余风险，不能虚构测试、截图或命令输出。
