@@ -4162,30 +4162,181 @@ def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkey
     assert captured == {"gallery": True, "generated": False}
 
 
-def test_render_single_output_sections_orders_generation_workbench_and_recent(monkeypatch):
-    sections = []
+def _recording_slot_streamlit(events, *, session_state=None):
+    class _FakeContext:
+        def __enter__(self):
+            events.append("slot_enter")
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            events.append("slot_exit")
+            return False
+
+    class _FakeSlot:
+        def empty(self):
+            events.append("slot_clear")
+
+        def container(self):
+            return _FakeContext()
+
+    class _FakeStreamlit:
+        def __init__(self):
+            self.session_state = dict(session_state or {})
+
+        def empty(self):
+            events.append("slot_create")
+            return _FakeSlot()
+
+    return _FakeStreamlit()
+
+
+def test_render_single_output_sections_keeps_idle_content_in_stable_slot(monkeypatch):
+    events = []
+    monkeypatch.setattr(output_preview, "st", _recording_slot_streamlit(events))
 
     monkeypatch.setattr(
         output_preview,
         "_render_layout_preview_workbench_section",
-        lambda *args, **kwargs: sections.append("workbench"),
+        lambda *args, **kwargs: events.append(
+            ("workbench", kwargs.get("key_suffix"))
+        ),
         raising=False,
     )
     monkeypatch.setattr(
         output_preview,
         "render_recent_video_gallery",
-        lambda *args, **kwargs: sections.append("recent"),
+        lambda *args, **kwargs: events.append(("recent", kwargs.get("key_suffix"))),
     )
     monkeypatch.setattr(
         output_preview,
         "_render_generation_section",
-        lambda *args, **kwargs: sections.append("generation"),
+        lambda *args, **kwargs: events.append("generation"),
         raising=False,
     )
 
     output_preview._render_single_output_sections(object(), {"text": "demo"})
 
-    assert sections == ["generation", "workbench", "recent"]
+    assert events == [
+        "generation",
+        "slot_create",
+        "slot_enter",
+        ("workbench", ""),
+        ("recent", ""),
+        "slot_exit",
+    ]
+
+
+def test_render_single_output_sections_refreshes_same_slot_after_generation(monkeypatch):
+    events = []
+
+    def _generation_runner(*, refresh_output_content):
+        events.append("generation_start")
+        refresh_output_content(refresh=True)
+        events.append("generation_end")
+
+    monkeypatch.setattr(output_preview, "st", _recording_slot_streamlit(events))
+    monkeypatch.setattr(
+        output_preview,
+        "_render_layout_preview_workbench_section",
+        lambda *args, **kwargs: events.append(
+            ("workbench", kwargs.get("key_suffix"))
+        ),
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "render_recent_video_gallery",
+        lambda *args, **kwargs: events.append(("recent", kwargs.get("key_suffix"))),
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "_render_generation_section",
+        lambda *args, **kwargs: _generation_runner,
+    )
+
+    output_preview._render_single_output_sections(object(), {"text": "demo"})
+
+    assert events == [
+        "slot_create",
+        "slot_enter",
+        ("workbench", ""),
+        ("recent", ""),
+        "slot_exit",
+        "generation_start",
+        "slot_clear",
+        "slot_enter",
+        ("workbench", "_refresh_2"),
+        ("recent", "_refresh_2"),
+        "slot_exit",
+        "generation_end",
+    ]
+
+
+def test_render_single_output_sections_resets_pending_state_when_content_render_fails(
+    monkeypatch,
+):
+    fake_st = _recording_slot_streamlit(
+        [],
+        session_state={
+            output_preview.SINGLE_VIDEO_GENERATING_KEY: True,
+            output_preview.SINGLE_VIDEO_REQUESTED_KEY: True,
+        },
+    )
+    generation_entered = {"value": False}
+
+    def _generation_runner(*, refresh_output_content):
+        generation_entered["value"] = True
+
+    monkeypatch.setattr(output_preview, "st", fake_st)
+    monkeypatch.setattr(
+        output_preview,
+        "_render_generation_section",
+        lambda *args, **kwargs: _generation_runner,
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "_render_layout_preview_workbench_section",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("preview failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="preview failed"):
+        output_preview._render_single_output_sections(object(), {"text": "demo"})
+
+    assert generation_entered["value"] is False
+    assert fake_st.session_state[output_preview.SINGLE_VIDEO_GENERATING_KEY] is False
+    assert fake_st.session_state[output_preview.SINGLE_VIDEO_REQUESTED_KEY] is False
+
+
+def test_render_single_output_sections_resets_pending_state_on_script_control_signal(
+    monkeypatch,
+):
+    class _ScriptControlSignal(BaseException):
+        pass
+
+    fake_st = _recording_slot_streamlit(
+        [],
+        session_state={
+            output_preview.SINGLE_VIDEO_GENERATING_KEY: True,
+            output_preview.SINGLE_VIDEO_REQUESTED_KEY: True,
+        },
+    )
+
+    monkeypatch.setattr(output_preview, "st", fake_st)
+    monkeypatch.setattr(
+        output_preview,
+        "_render_generation_section",
+        lambda *args, **kwargs: lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "_render_layout_preview_workbench_section",
+        lambda *args, **kwargs: (_ for _ in ()).throw(_ScriptControlSignal()),
+    )
+
+    with pytest.raises(_ScriptControlSignal):
+        output_preview._render_single_output_sections(object(), {"text": "demo"})
+
+    assert fake_st.session_state[output_preview.SINGLE_VIDEO_GENERATING_KEY] is False
+    assert fake_st.session_state[output_preview.SINGLE_VIDEO_REQUESTED_KEY] is False
 
 
 def test_render_batch_output_writes_last_successful_planning_snapshot(monkeypatch):

@@ -1485,35 +1485,43 @@ def render_single_output(pixelle_video, video_params):
 
 def _render_single_output_sections(pixelle_video, video_params):
     generation_runner = _render_generation_section(pixelle_video, video_params)
-    if generation_runner is None:
-        _render_layout_preview_workbench_section({**video_params, "pixelle_video": pixelle_video})
-        render_recent_video_gallery(pixelle_video)
-        return
 
-    gallery_slot = RefreshableSlot(st.empty())
+    try:
+        # Keep this placeholder present on every rerun. Streamlit reconciles elements
+        # by their structural position, so switching between direct rendering while
+        # idle and placeholder rendering while generating leaves the previous
+        # interactive subtree stale until the long-running generation call returns.
+        output_content_slot = RefreshableSlot(st.empty())
 
-    def render_gallery(*, refresh: bool = False) -> None:
-        def render_gallery_section(key_suffix: str) -> None:
-            _render_layout_preview_workbench_section(
-                {**video_params, "pixelle_video": pixelle_video},
-                key_suffix=key_suffix,
+        def render_output_content(*, refresh: bool = False) -> None:
+            def render_preview_and_recent_sections(key_suffix: str) -> None:
+                _render_layout_preview_workbench_section(
+                    {**video_params, "pixelle_video": pixelle_video},
+                    key_suffix=key_suffix,
+                )
+                render_recent_video_gallery(
+                    pixelle_video,
+                    key_suffix=key_suffix,
+                )
+
+            output_content_slot.render(
+                render_preview_and_recent_sections,
+                refresh=refresh,
             )
-            render_recent_video_gallery(
-                pixelle_video,
-                key_suffix=key_suffix,
-            )
 
-        gallery_slot.render(
-            render_gallery_section,
-            refresh=refresh,
-        )
-
-    render_gallery()
-    generation_runner(render_gallery=render_gallery)
+        render_output_content()
+        if generation_runner is not None:
+            generation_runner(refresh_output_content=render_output_content)
+    except BaseException:
+        # Rendering failures and Streamlit script-control signals must never strand
+        # the single-flight state. Re-raising preserves normal framework behavior.
+        if generation_runner is not None:
+            _reset_single_video_generation_state()
+        raise
 
 
 def _render_generation_section(pixelle_video, video_params):
-    """Render single video generation output with a recent-video gallery."""
+    """Render generation controls and return a pending generation runner."""
     # Extract parameters from video_params dict
     text = video_params.get("text", "")
     mode = video_params.get("mode", "generate")
@@ -1610,7 +1618,7 @@ def _render_generation_section(pixelle_video, video_params):
                 status_text = st.empty()
                 result_summary_slot = RefreshableSlot(st.empty())
 
-                def run_generation(*, render_gallery) -> None:
+                def run_generation(*, refresh_output_content) -> None:
                     # Record start time for generation
                     import time
 
@@ -1709,7 +1717,7 @@ def _render_generation_section(pixelle_video, video_params):
                             )
                             render_result_summary(refresh=True)
                             store_recent_generated_video(result, st.session_state)
-                            render_gallery(refresh=True)
+                            refresh_output_content(refresh=True)
                             rerun_after_generation = storyboard_snapshot_changed
                         else:
                             _clear_single_video_result_summary(st.session_state)
