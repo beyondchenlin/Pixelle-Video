@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -9,10 +10,17 @@ from PIL import Image
 
 from pixelle_video.services.remote_media import (
     RemoteMediaError,
+    configured_workflow_output_origins,
     materialize_media_source,
 )
 from pixelle_video.utils.path_safety import resolve_path_within, validate_task_id
-from web.utils.upload_store import IMAGE_UPLOAD_POLICY, store_uploaded_files
+from web.utils import upload_store as upload_store_module
+from web.utils.upload_store import (
+    IMAGE_UPLOAD_POLICY,
+    VIDEO_UPLOAD_POLICY,
+    store_uploaded_files,
+    store_uploaded_files_with_feedback,
+)
 
 
 class UploadedFileStub:
@@ -22,6 +30,11 @@ class UploadedFileStub:
 
     def getbuffer(self) -> memoryview:
         return memoryview(self._content)
+
+
+class PublicNetworkStreamStub:
+    def get_extra_info(self, name: str):
+        return ("8.8.8.8", 443) if name == "server_addr" else None
 
 
 def _png_bytes() -> bytes:
@@ -64,6 +77,39 @@ def test_resolve_path_within_rejects_absolute_component_even_below_root(
 ) -> None:
     with pytest.raises(ValueError, match="relative"):
         resolve_path_within(tmp_path, tmp_path / "child")
+
+
+def test_configured_workflow_origin_preserves_ipv6_brackets() -> None:
+    core = type(
+        "Core",
+        (),
+        {"config": {"comfyui": {"comfyui_url": "http://[::1]:8188"}}},
+    )()
+
+    assert configured_workflow_output_origins(core) == ("http://[::1]:8188",)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"max_bytes": 0}, "max_bytes must"),
+        ({"max_redirects": True}, "max_redirects must"),
+        ({"request_timeout_seconds": float("nan")}, "request_timeout_seconds must"),
+    ],
+)
+async def test_remote_media_rejects_invalid_resource_limit_contract(
+    tmp_path: Path,
+    kwargs: dict,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        await materialize_media_source(
+            str(tmp_path / "source.mp4"),
+            tmp_path / "target.mp4",
+            media_type="video",
+            **kwargs,
+        )
 
 
 def test_upload_store_uses_generated_name_and_validates_image(tmp_path: Path) -> None:
@@ -109,6 +155,72 @@ def test_upload_store_rejects_extension_content_mismatch(tmp_path: Path) -> None
         )
 
 
+def test_upload_feedback_reports_validation_failure_without_crashing_page(
+    tmp_path: Path,
+) -> None:
+    reported: list[str] = []
+
+    stored = store_uploaded_files_with_feedback(
+        [UploadedFileStub("fake.png", b"not-an-image")],
+        tmp_path,
+        policy=IMAGE_UPLOAD_POLICY,
+        report_error=reported.append,
+    )
+
+    assert stored == []
+    assert len(reported) == 1
+    assert "Upload rejected" in reported[0]
+
+
+def test_video_upload_requires_bounded_valid_container_probe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(upload_store_module.shutil, "which", lambda _name: "ffprobe")
+    monkeypatch.setattr(
+        upload_store_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            stdout=(
+                '{"format":{"duration":"12.5"},'
+                '"streams":[{"codec_type":"video","width":1920,"height":1080}]}'
+            )
+        ),
+    )
+
+    stored = store_uploaded_files(
+        [UploadedFileStub("clip.mp4", _mp4_bytes())],
+        tmp_path,
+        policy=VIDEO_UPLOAD_POLICY,
+    )
+
+    assert Path(stored[0]).is_file()
+
+
+def test_video_upload_rejects_excessive_duration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(upload_store_module.shutil, "which", lambda _name: "ffprobe")
+    monkeypatch.setattr(
+        upload_store_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            stdout=(
+                '{"format":{"duration":"99999"},'
+                '"streams":[{"codec_type":"video","width":1920,"height":1080}]}'
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duration exceeds"):
+        store_uploaded_files(
+            [UploadedFileStub("clip.mp4", _mp4_bytes())],
+            tmp_path,
+            policy=VIDEO_UPLOAD_POLICY,
+        )
+
+
 @pytest.mark.asyncio
 async def test_remote_media_streams_valid_content_atomically(tmp_path: Path) -> None:
     payload = _mp4_bytes()
@@ -119,6 +231,7 @@ async def test_remote_media_streams_valid_content_atomically(tmp_path: Path) -> 
             200,
             headers={"content-type": "video/mp4", "content-length": str(len(payload))},
             content=payload,
+            extensions={"network_stream": PublicNetworkStreamStub()},
         )
 
     target = tmp_path / "final.mp4"
@@ -174,7 +287,13 @@ async def test_remote_media_preserves_existing_target_after_failed_download(
     target.write_bytes(b"existing")
     oversized = _mp4_bytes(b"x" * 100)
     async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda request: httpx.Response(200, content=oversized))
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                content=oversized,
+                extensions={"network_stream": PublicNetworkStreamStub()},
+            )
+        )
     ) as client:
         with pytest.raises(RemoteMediaError, match="byte limit"):
             await materialize_media_source(
@@ -186,6 +305,23 @@ async def test_remote_media_preserves_existing_target_after_failed_download(
             )
 
     assert target.read_bytes() == b"existing"
+
+
+@pytest.mark.asyncio
+async def test_remote_media_rejects_unverifiable_public_connection_peer(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "final.mp4"
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, content=_mp4_bytes()))
+    ) as client:
+        with pytest.raises(RemoteMediaError, match="peer could not be verified"):
+            await materialize_media_source(
+                "https://8.8.8.8/output.mp4",
+                target,
+                media_type="video",
+                client=client,
+            )
 
 
 @pytest.mark.asyncio
@@ -204,3 +340,21 @@ async def test_local_media_must_be_within_trusted_runtime_root(tmp_path: Path) -
             trusted_target_dir / "final.mp4",
             media_type="video",
         )
+
+
+@pytest.mark.asyncio
+async def test_local_media_same_source_and_target_still_uses_bounded_atomic_copy(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(_mp4_bytes())
+
+    result = await materialize_media_source(
+        str(source),
+        source,
+        media_type="video",
+        trusted_local_roots=(tmp_path,),
+    )
+
+    assert result == source.resolve()
+    assert source.read_bytes() == _mp4_bytes()

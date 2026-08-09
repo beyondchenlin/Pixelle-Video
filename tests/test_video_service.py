@@ -140,10 +140,19 @@ def test_burn_ass_subtitles_rejects_same_input_and_output(tmp_path):
         VideoService().burn_ass_subtitles(str(video), str(ass), str(video))
 
 
+def test_burn_ass_subtitles_validates_files_before_ffmpeg(monkeypatch, tmp_path):
+    monkeypatch.setattr(video_module.shutil, "which", lambda _name: None)
+
+    with pytest.raises(ValueError, match="input_video must be an existing file"):
+        VideoService().burn_ass_subtitles(
+            str(tmp_path / "missing.mp4"),
+            str(tmp_path / "missing.ass"),
+            str(tmp_path / "output.mp4"),
+        )
+
+
 def test_escape_ffmpeg_filter_path_handles_windows_drive_and_spaces():
-    escaped = VideoService()._escape_ffmpeg_filter_path(
-        r"C:\测试 路径\master.ass"
-    )
+    escaped = VideoService()._escape_ffmpeg_filter_path(r"C:\测试 路径\master.ass")
 
     assert r"C\:" in escaped
     assert r"C\\:" not in escaped
@@ -194,6 +203,79 @@ def test_trim_silent_video_omits_audio_codec_option(monkeypatch, tmp_path):
     service._trim_video_to_duration("silent.mp4", 1.5)
 
     assert captured["options"] == {"vcodec": "copy"}
+
+
+@pytest.mark.parametrize("has_original_audio", [False, True])
+def test_add_bgm_implements_fade_out_and_supports_silent_video(
+    monkeypatch,
+    tmp_path,
+    has_original_audio,
+):
+    filter_calls = []
+    output_calls = []
+
+    class FakeStream:
+        @property
+        def audio(self):
+            return self
+
+        @property
+        def video(self):
+            return self
+
+        def filter(self, name, *args, **kwargs):
+            filter_calls.append((name, args, kwargs))
+            return self
+
+    class FakeOutput(FakeStream):
+        def overwrite_output(self):
+            return self
+
+        def run(self, **_kwargs):
+            return None
+
+    monkeypatch.setattr(video_module.ffmpeg, "input", lambda *_args, **_kwargs: FakeStream())
+
+    def fake_filter(_streams, name, *args, **kwargs):
+        filter_calls.append((name, args, kwargs))
+        return FakeStream()
+
+    monkeypatch.setattr(video_module.ffmpeg, "filter", fake_filter)
+
+    def fake_output(*streams, **kwargs):
+        output_calls.append((streams, kwargs))
+        return FakeOutput()
+
+    monkeypatch.setattr(video_module.ffmpeg, "output", fake_output)
+
+    service = VideoService()
+    service._ffmpeg_checked = True
+    monkeypatch.setattr(service, "_get_video_duration", lambda _video: 10.0)
+    monkeypatch.setattr(service, "_get_audio_duration", lambda _audio: 8.0)
+    monkeypatch.setattr(service, "has_audio_stream", lambda _video: has_original_audio)
+
+    output = tmp_path / "mixed.mp4"
+    service.add_bgm(
+        "video.mp4",
+        "music.mp3",
+        str(output),
+        loop=False,
+        fade_in=1.0,
+        fade_out=2.0,
+    )
+
+    fade_out_calls = [
+        call for call in filter_calls if call[0] == "afade" and call[2].get("type") == "out"
+    ]
+    assert fade_out_calls == [
+        (
+            "afade",
+            (),
+            {"type": "out", "start_time": "6", "duration": "2"},
+        )
+    ]
+    assert any(call[0] == "amix" for call in filter_calls) is has_original_audio
+    assert output_calls[0][0][-1] == str(output)
 
 
 @pytest.mark.parametrize("fps", [0, -1, 1.5, True])

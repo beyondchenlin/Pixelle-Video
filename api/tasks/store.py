@@ -121,14 +121,7 @@ class TaskStore(Protocol):
     async def count_tasks(self, status: TaskStatus | None) -> int:
         raise NotImplementedError
 
-    async def cancel_task(
-        self,
-        task_id: str,
-        *,
-        expected_owner_id: str | None = None,
-        expected_lease_token: str | None = None,
-        require_lease_match: bool = False,
-    ) -> bool:
+    async def cancel_task(self, task_id: str) -> bool:
         raise NotImplementedError
 
 
@@ -172,15 +165,10 @@ class InMemoryTaskStore:
             matches = [
                 task
                 for task in self._tasks.values()
-                if task.task_type == task_type
-                and task.generation_fingerprint == fingerprint
+                if task.task_type == task_type and task.generation_fingerprint == fingerprint
             ]
 
-            active = [
-                task
-                for task in matches
-                if task.status in active_statuses
-            ]
+            active = [task for task in matches if task.status in active_statuses]
             if active:
                 active.sort(key=lambda task: task.created_at, reverse=True)
                 return self._clone(active[0])
@@ -355,7 +343,10 @@ class InMemoryTaskStore:
                 return len(self._tasks)
             return sum(1 for task in self._tasks.values() if task.status == status)
 
-    async def cancel_task(
+    async def cancel_task(self, task_id: str) -> bool:
+        return await self.cancel_task_if_owned(task_id)
+
+    async def cancel_task_if_owned(
         self,
         task_id: str,
         *,
@@ -370,8 +361,7 @@ class InMemoryTaskStore:
             if task.status not in {TaskStatus.PENDING, TaskStatus.RUNNING}:
                 return False
             if require_lease_match and (
-                task.owner_id != expected_owner_id
-                or task.lease_token != expected_lease_token
+                task.owner_id != expected_owner_id or task.lease_token != expected_lease_token
             ):
                 return False
 

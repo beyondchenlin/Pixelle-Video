@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
+import os
+import shutil
+import subprocess
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import ffmpeg
 from loguru import logger
 
 from pixelle_video.services.remote_media import (
@@ -67,10 +70,14 @@ class WebGenerationRun:
             task_dir=Path(task_dir_text).resolve(),
             created_at=created_at,
         )
-        await persistence.save_task_metadata(
-            task_id,
-            run._metadata(status="running"),
-        )
+        try:
+            await persistence.save_task_metadata(
+                task_id,
+                run._metadata(status="running"),
+            )
+        except Exception:
+            await asyncio.to_thread(shutil.rmtree, run.task_dir, True)
+            raise
         return run
 
     async def execute(self, operation: GenerationOperation) -> str:
@@ -79,10 +86,20 @@ class WebGenerationRun:
         try:
             source = await operation(self)
             return await self.complete(source)
-        except BaseException as error:
+        except (Exception, asyncio.CancelledError) as error:
             if not self._terminal:
+                failure_task = asyncio.create_task(self.fail(error))
                 try:
-                    await asyncio.shield(self.fail(error))
+                    await asyncio.shield(failure_task)
+                except asyncio.CancelledError:
+                    try:
+                        await failure_task
+                    except Exception as persistence_error:
+                        logger.error(
+                            "Failed to persist cancelled generation {}: {}",
+                            self.task_id,
+                            persistence_error,
+                        )
                 except Exception as persistence_error:
                     logger.error(
                         "Failed to persist generation failure for {}: {}",
@@ -103,7 +120,11 @@ class WebGenerationRun:
             trusted_private_origins=configured_workflow_output_origins(self.core),
             trusted_local_roots=configured_workflow_output_roots(),
         )
-        duration = await asyncio.to_thread(_probe_video_duration, final_path)
+        try:
+            duration = await asyncio.to_thread(_probe_video_duration, final_path)
+        except Exception:
+            final_path.unlink(missing_ok=True)
+            raise
         file_size = final_path.stat().st_size
         completed_at = _utc_now_text()
         metadata = self._metadata(
@@ -194,20 +215,59 @@ def _sanitize_history_value(
         if key.endswith("_assets"):
             return {"count": len(value)}
         return [
-            _sanitize_history_value(item, key=key, depth=depth + 1)
-            for item in list(value)[:100]
+            _sanitize_history_value(item, key=key, depth=depth + 1) for item in list(value)[:100]
         ]
     return redact_credentials_in_text(str(value)[:1_000])
 
 
 def _probe_video_duration(path: Path) -> float:
+    with path.open("rb") as handle:
+        header = handle.read(12)
+    if len(header) < 12 or header[4:8] != b"ftyp":
+        raise ValueError("generated workflow output is not a valid MP4 container")
+
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("generated video validation requires ffprobe")
+    creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     try:
-        probe = ffmpeg.probe(str(path))
-        duration = float(probe.get("format", {}).get("duration", 0))
-        return duration if math.isfinite(duration) and duration >= 0 else 0.0
-    except Exception as error:
-        logger.warning("Failed to probe generated video duration: {}", error)
-        return 0.0
+        completed = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration:stream=codec_type",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=creation_flags,
+        )
+        probe = json.loads(completed.stdout)
+        if not isinstance(probe, dict):
+            raise ValueError("generated video probe result is invalid")
+        streams = probe.get("streams")
+        if not isinstance(streams, list) or not any(
+            isinstance(stream, dict) and stream.get("codec_type") == "video" for stream in streams
+        ):
+            raise ValueError("generated output does not contain a video stream")
+        format_data = probe.get("format")
+        if not isinstance(format_data, dict):
+            raise ValueError("generated video format metadata is invalid")
+        duration = float(format_data.get("duration"))
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as error:
+        raise ValueError("generated video container is invalid") from error
+    except (TypeError, ValueError) as error:
+        raise ValueError("generated video metadata is invalid") from error
+
+    if not math.isfinite(duration) or not 0 < duration <= 14_400:
+        raise ValueError("generated video duration exceeds safe limits")
+    return duration
 
 
 def _utc_now_text() -> str:

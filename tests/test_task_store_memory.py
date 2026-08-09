@@ -261,7 +261,7 @@ async def test_memory_store_compare_and_swap_cancel_rejects_changed_owner():
         )
     )
 
-    cancelled = await store.cancel_task(
+    cancelled = await store.cancel_task_if_owned(
         "task-1",
         expected_owner_id="worker-old",
         expected_lease_token="token-old",

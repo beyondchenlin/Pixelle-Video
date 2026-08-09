@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import math
 import os
-import shutil
 import socket
 import tempfile
 from collections.abc import Iterable
@@ -43,12 +43,23 @@ async def materialize_media_source(
 
     if media_type not in DEFAULT_MAX_MEDIA_BYTES:
         raise ValueError("unsupported media type")
-    byte_limit = max_bytes or DEFAULT_MAX_MEDIA_BYTES[media_type]
-    if byte_limit < 1:
+    byte_limit = DEFAULT_MAX_MEDIA_BYTES[media_type] if max_bytes is None else max_bytes
+    if isinstance(byte_limit, bool) or not isinstance(byte_limit, int) or byte_limit < 1:
         raise ValueError("max_bytes must be positive")
-    if max_redirects < 0 or max_redirects > 10:
+    if (
+        isinstance(max_redirects, bool)
+        or not isinstance(max_redirects, int)
+        or max_redirects < 0
+        or max_redirects > 10
+    ):
         raise ValueError("max_redirects must be between zero and ten")
-    if request_timeout_seconds <= 0 or request_timeout_seconds > 3600:
+    if (
+        isinstance(request_timeout_seconds, bool)
+        or not isinstance(request_timeout_seconds, (int, float))
+        or not math.isfinite(request_timeout_seconds)
+        or request_timeout_seconds <= 0
+        or request_timeout_seconds > 3600
+    ):
         raise ValueError("request_timeout_seconds must be between zero and 3600")
 
     source_text = str(source or "").strip()
@@ -61,7 +72,7 @@ async def materialize_media_source(
     if parsed.scheme.lower() not in {"http", "https"}:
         if parsed.scheme and not PureWindowsPath(source_text).is_absolute():
             raise RemoteMediaError("workflow output URL scheme is not allowed")
-        local_roots = [target_path.parent, target_path.parent.parent, *trusted_local_roots]
+        local_roots = [target_path.parent, *trusted_local_roots]
         return await asyncio.to_thread(
             _copy_local_media_atomically,
             Path(source_text),
@@ -246,7 +257,9 @@ async def _validate_remote_url(
     return allow_private
 
 
-def _resolve_host_addresses(host: str, port: int) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+def _resolve_host_addresses(
+    host: str, port: int
+) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
     for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM):
         addresses.add(ipaddress.ip_address(item[4][0]))
@@ -254,18 +267,20 @@ def _resolve_host_addresses(host: str, port: int) -> set[ipaddress.IPv4Address |
 
 
 def _validate_connected_peer(response: httpx.Response, *, allow_private: bool) -> None:
+    if allow_private:
+        return
     stream = response.extensions.get("network_stream")
     get_extra_info = getattr(stream, "get_extra_info", None)
     if not callable(get_extra_info):
-        return
+        raise RemoteMediaError("workflow output connection peer could not be verified")
     peer = get_extra_info("server_addr")
     if not peer:
-        return
+        raise RemoteMediaError("workflow output connection peer could not be verified")
     try:
         address = ipaddress.ip_address(peer[0] if isinstance(peer, tuple) else peer)
-    except ValueError:
-        return
-    if not allow_private and not address.is_global:
+    except ValueError as exc:
+        raise RemoteMediaError("workflow output connection peer address is invalid") from exc
+    if not address.is_global:
         raise RemoteMediaError("workflow output connection reached a non-public address")
 
 
@@ -303,34 +318,39 @@ def _copy_local_media_atomically(
     resolved_source = source.expanduser().resolve()
     resolved_roots = [Path(root).expanduser().resolve() for root in trusted_local_roots]
     if not any(
-        resolved_source == root or resolved_source.is_relative_to(root)
-        for root in resolved_roots
+        resolved_source == root or resolved_source.is_relative_to(root) for root in resolved_roots
     ):
         raise RemoteMediaError("local workflow output is outside trusted runtime roots")
     if not resolved_source.is_file():
         raise RemoteMediaError("local workflow output is not an existing file")
-    source_size = resolved_source.stat().st_size
-    if source_size < 1 or source_size > max_bytes:
-        raise RemoteMediaError("workflow output exceeded the configured byte limit")
-    with resolved_source.open("rb") as source_handle:
-        _validate_media_header(source_handle.read(64), media_type=media_type)
-    if resolved_source == target:
-        return target
-
     temporary_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            prefix=f".{target.name}.",
-            suffix=".tmp",
-            dir=target.parent,
-            delete=False,
-        ) as handle:
-            temporary_path = Path(handle.name)
-            with resolved_source.open("rb") as source_handle:
-                shutil.copyfileobj(source_handle, handle, length=64 * 1024)
-            handle.flush()
-            os.fsync(handle.fileno())
+        with resolved_source.open("rb") as source_handle:
+            source_size = os.fstat(source_handle.fileno()).st_size
+            if source_size < 1 or source_size > max_bytes:
+                raise RemoteMediaError("workflow output exceeded the configured byte limit")
+            _validate_media_header(source_handle.read(64), media_type=media_type)
+            source_handle.seek(0)
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                prefix=f".{target.name}.",
+                suffix=".tmp",
+                dir=target.parent,
+                delete=False,
+            ) as handle:
+                temporary_path = Path(handle.name)
+                total = 0
+                while chunk := source_handle.read(64 * 1024):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise RemoteMediaError("workflow output exceeded the configured byte limit")
+                    handle.write(chunk)
+                if total < 1:
+                    raise RemoteMediaError("workflow output was empty")
+                handle.flush()
+                os.fsync(handle.fileno())
+        with temporary_path.open("rb") as copied_handle:
+            _validate_media_header(copied_handle.read(64), media_type=media_type)
         temporary_path.replace(target)
         return target
     finally:
@@ -352,16 +372,9 @@ def _validate_media_header(header: bytes, *, media_type: MediaType) -> None:
             or (len(header) >= 2 and header[0] == 0xFF and header[1] & 0xE0 == 0xE0)
         )
     else:
-        valid = (
-            header.startswith(
-                (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a")
-            )
-            or (
-                len(header) >= 12
-                and header[:4] == b"RIFF"
-                and header[8:12] == b"WEBP"
-            )
-        )
+        valid = header.startswith(
+            (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a")
+        ) or (len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP")
     if not valid:
         raise RemoteMediaError("workflow output media signature is invalid")
 
@@ -383,7 +396,8 @@ def _normalize_origin(value: str) -> tuple[str, str, int]:
 def _origin_text(origin: tuple[str, str, int]) -> str:
     scheme, host, port = origin
     default_port = 443 if scheme == "https" else 80
-    netloc = host if port == default_port else f"{host}:{port}"
+    display_host = f"[{host}]" if ":" in host else host
+    netloc = display_host if port == default_port else f"{display_host}:{port}"
     return urlunsplit((scheme, netloc, "", "", ""))
 
 

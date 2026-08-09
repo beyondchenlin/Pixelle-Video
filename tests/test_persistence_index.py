@@ -92,3 +92,77 @@ async def test_persistence_rejects_task_path_escape(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="unsafe path"):
         service.get_task_dir("../escape")
     assert await service.delete_task("../escape") is False
+
+
+@pytest.mark.asyncio
+async def test_metadata_success_is_not_reversed_by_rebuildable_index_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = PersistenceService(output_dir=str(tmp_path))
+    metadata = _metadata("task-1", datetime(2026, 1, 1, tzinfo=timezone.utc))
+    metadata.pop("task_id")
+
+    def fail_index_update(*_args, **_kwargs) -> None:
+        raise OSError("simulated index write failure")
+
+    monkeypatch.setattr(service, "_replace_index_entry", fail_index_update)
+
+    await service.save_task_metadata("task-1", metadata)
+
+    assert (tmp_path / "task-1" / "metadata.json").is_file()
+    assert service.index_dirty_file.is_file()
+    assert "task_id" not in metadata
+
+    monkeypatch.undo()
+    tasks = await service.list_tasks()
+
+    assert [task["task_id"] for task in tasks] == ["task-1"]
+    assert not service.index_dirty_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_paginated_listing_handles_mixed_and_invalid_timestamps(
+    tmp_path: Path,
+) -> None:
+    service = PersistenceService(output_dir=str(tmp_path))
+    index = {
+        "version": "1.0",
+        "tasks": [
+            {"task_id": "invalid", "created_at": "not-a-date"},
+            {"task_id": "aware", "created_at": "2026-01-02T00:00:00+08:00"},
+            {"task_id": "naive", "created_at": "2026-01-01T00:00:00"},
+            {"task_id": "missing", "created_at": None},
+        ],
+    }
+    service._save_index(index)
+
+    result = await service.list_tasks_paginated(page=1, page_size=10)
+
+    assert [task["task_id"] for task in result["tasks"]] == [
+        "aware",
+        "naive",
+        "invalid",
+        "missing",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"page": 0}, "page must"),
+        ({"page_size": 0}, "page_size must"),
+        ({"sort_by": "unknown"}, "unsupported task sort field"),
+        ({"sort_order": "sideways"}, "sort_order must"),
+    ],
+)
+async def test_paginated_listing_rejects_invalid_query_contract(
+    tmp_path: Path,
+    kwargs: dict,
+    message: str,
+) -> None:
+    service = PersistenceService(output_dir=str(tmp_path))
+
+    with pytest.raises(ValueError, match=message):
+        await service.list_tasks_paginated(**kwargs)

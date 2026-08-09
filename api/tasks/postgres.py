@@ -84,7 +84,11 @@ worker_heartbeats = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
-Index("idx_generation_tasks_status_created_at", generation_tasks.c.status, generation_tasks.c.created_at)
+Index(
+    "idx_generation_tasks_status_created_at",
+    generation_tasks.c.status,
+    generation_tasks.c.created_at,
+)
 Index(
     "idx_generation_tasks_fingerprint_status",
     generation_tasks.c.generation_fingerprint,
@@ -223,7 +227,10 @@ class PostgresTaskStore:
             values["artifact_status"] = artifact_status.value
         if status in TERMINAL_TASK_STATUSES:
             values["lease_token"] = None
-            values["completed_at"] = completed_at or utc_now()
+            values["completed_at"] = func.coalesce(
+                generation_tasks.c.completed_at,
+                completed_at or utc_now(),
+            )
 
         await self._execute_update(
             task_id=task_id,
@@ -267,7 +274,9 @@ class PostgresTaskStore:
                 )
                 if task_types:
                     candidate = candidate.where(
-                        generation_tasks.c.task_type.in_([task_type.value for task_type in task_types])
+                        generation_tasks.c.task_type.in_(
+                            [task_type.value for task_type in task_types]
+                        )
                     )
 
                 result = await session.execute(candidate)
@@ -338,7 +347,9 @@ class PostgresTaskStore:
                 if expected_owner_id is not None:
                     statement = statement.where(generation_tasks.c.owner_id == expected_owner_id)
                 if expected_lease_token is not None:
-                    statement = statement.where(generation_tasks.c.lease_token == expected_lease_token)
+                    statement = statement.where(
+                        generation_tasks.c.lease_token == expected_lease_token
+                    )
 
                 result = await session.execute(statement)
                 row = result.mappings().first()
@@ -370,7 +381,10 @@ class PostgresTaskStore:
             result = await session.execute(query)
             return result.scalar_one()
 
-    async def cancel_task(
+    async def cancel_task(self, task_id: str) -> bool:
+        return await self.cancel_task_if_owned(task_id)
+
+    async def cancel_task_if_owned(
         self,
         task_id: str,
         *,
@@ -382,7 +396,11 @@ class PostgresTaskStore:
             statement = (
                 update(generation_tasks)
                 .where(generation_tasks.c.task_id == task_id)
-                .where(generation_tasks.c.status.in_([TaskStatus.PENDING.value, TaskStatus.RUNNING.value]))
+                .where(
+                    generation_tasks.c.status.in_(
+                        [TaskStatus.PENDING.value, TaskStatus.RUNNING.value]
+                    )
+                )
                 .values(
                     status=TaskStatus.CANCELLED.value,
                     owner_id=None,
@@ -442,12 +460,8 @@ class PostgresTaskStore:
             current = current_result.mappings().first()
             if current is None:
                 raise TaskNotFoundError(task_id)
-            if (
-                expected_owner_id is not None
-                and current["owner_id"] != expected_owner_id
-            ) or (
-                expected_lease_token is not None
-                and current["lease_token"] != expected_lease_token
+            if (expected_owner_id is not None and current["owner_id"] != expected_owner_id) or (
+                expected_lease_token is not None and current["lease_token"] != expected_lease_token
             ):
                 raise LostTaskLeaseError(task_id)
             if (

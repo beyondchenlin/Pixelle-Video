@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import json
+import math
 import os
+import shutil
+import subprocess
 import tempfile
 import warnings
 from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Callable, Iterable, Literal
 
+from loguru import logger
 from PIL import Image, UnidentifiedImageError
 
 from pixelle_video.utils.path_safety import resolve_path_within
@@ -23,12 +28,20 @@ class UploadPolicy:
     allowed_extensions: frozenset[str]
     max_bytes: int
     max_image_pixels: int = 100_000_000
+    max_image_frames: int = 500
+    max_video_pixels: int = 67_108_864
+    max_video_duration_seconds: float = 14_400.0
+    max_video_streams: int = 16
 
     def __post_init__(self) -> None:
         if self.max_bytes < 1:
             raise ValueError("upload max_bytes must be positive")
         if not self.allowed_extensions:
             raise ValueError("upload policy must allow at least one extension")
+        if self.max_image_frames < 1 or self.max_video_streams < 1:
+            raise ValueError("upload frame and stream limits must be positive")
+        if self.max_video_pixels < 1 or self.max_video_duration_seconds <= 0:
+            raise ValueError("upload video limits must be positive")
 
 
 IMAGE_UPLOAD_POLICY = UploadPolicy(
@@ -64,6 +77,29 @@ def store_uploaded_files(
     return stored_paths
 
 
+def store_uploaded_files_with_feedback(
+    uploaded_files: Iterable[Any],
+    destination_dir: str | Path,
+    *,
+    policy: UploadPolicy,
+    report_error: Callable[[str], Any],
+) -> list[str]:
+    """Store UI uploads without letting validation failures crash the page."""
+
+    try:
+        return store_uploaded_files(
+            uploaded_files,
+            destination_dir,
+            policy=policy,
+        )
+    except (ValueError, RuntimeError) as error:
+        report_error(f"Upload rejected: {error}")
+    except OSError as error:
+        logger.exception(f"Failed to persist uploaded media: {error}")
+        report_error("Upload could not be saved; verify temporary storage availability")
+    return []
+
+
 def _store_uploaded_file(
     uploaded_file: Any,
     destination_dir: Path,
@@ -94,13 +130,22 @@ def _store_uploaded_file(
         raise ValueError("uploaded file exceeds the configured size limit")
 
     if extension in IMAGE_UPLOAD_EXTENSIONS:
-        _validate_image(byte_view, extension=extension, max_pixels=policy.max_image_pixels)
+        _validate_image(
+            byte_view,
+            extension=extension,
+            max_pixels=policy.max_image_pixels,
+            max_frames=policy.max_image_frames,
+        )
     else:
         _validate_video_signature(byte_view, extension=extension)
 
     content_digest = sha256(byte_view).hexdigest()
     final_path = resolve_path_within(destination_dir, f"upload_{content_digest}{extension}")
-    if final_path.is_file() and final_path.stat().st_size == byte_size:
+    if (
+        final_path.is_file()
+        and final_path.stat().st_size == byte_size
+        and _file_sha256(final_path) == content_digest
+    ):
         return final_path
     temporary_path: Path | None = None
     try:
@@ -115,6 +160,8 @@ def _store_uploaded_file(
             handle.write(byte_view)
             handle.flush()
             os.fsync(handle.fileno())
+        if extension in VIDEO_UPLOAD_EXTENSIONS:
+            _validate_video_container(temporary_path, policy=policy)
         temporary_path.replace(final_path)
     finally:
         if temporary_path is not None and temporary_path.exists():
@@ -133,6 +180,7 @@ def _validate_image(
     *,
     extension: str,
     max_pixels: int,
+    max_frames: int,
 ) -> None:
     expected_formats = {
         ".gif": {"GIF"},
@@ -151,6 +199,8 @@ def _validate_image(
                     raise ValueError("uploaded image content does not match its extension")
                 if width < 1 or height < 1 or width * height > max_pixels:
                     raise ValueError("uploaded image dimensions exceed safe limits")
+                if int(getattr(image, "n_frames", 1)) > max_frames:
+                    raise ValueError("uploaded image contains too many animation frames")
                 image.verify()
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
         raise ValueError("uploaded image dimensions exceed safe limits") from exc
@@ -171,10 +221,85 @@ def _validate_video_signature(content: memoryview, *, extension: str) -> None:
         raise ValueError("uploaded video content does not match its extension")
 
 
+def _validate_video_container(path: Path, *, policy: UploadPolicy) -> None:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("video upload validation requires ffprobe")
+    creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    try:
+        completed = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration:stream=codec_type,width,height",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=creation_flags,
+        )
+        probe = json.loads(completed.stdout)
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as exc:
+        raise ValueError("uploaded video container is invalid") from exc
+
+    if not isinstance(probe, dict):
+        raise ValueError("uploaded video probe result is invalid")
+    streams = probe.get("streams", [])
+    if not isinstance(streams, list) or len(streams) > policy.max_video_streams:
+        raise ValueError("uploaded video contains too many media streams")
+    video_streams = [
+        stream
+        for stream in streams
+        if isinstance(stream, dict) and stream.get("codec_type") == "video"
+    ]
+    if not video_streams:
+        raise ValueError("uploaded video does not contain a video stream")
+    for stream in video_streams:
+        width = _bounded_integer(stream.get("width"))
+        height = _bounded_integer(stream.get("height"))
+        if width < 1 or height < 1 or width * height > policy.max_video_pixels:
+            raise ValueError("uploaded video dimensions exceed safe limits")
+
+    format_data = probe.get("format")
+    if not isinstance(format_data, dict):
+        raise ValueError("uploaded video format metadata is invalid")
+    try:
+        duration = float(format_data.get("duration"))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("uploaded video duration is invalid") from exc
+    if not math.isfinite(duration) or duration <= 0 or duration > policy.max_video_duration_seconds:
+        raise ValueError("uploaded video duration exceeds safe limits")
+
+
+def _bounded_integer(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    return parsed if 0 < parsed <= 1_000_000 else 0
+
+
+def _file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 __all__ = [
     "IMAGE_UPLOAD_POLICY",
     "MIXED_MEDIA_UPLOAD_POLICY",
     "UploadPolicy",
     "VIDEO_UPLOAD_POLICY",
     "store_uploaded_files",
+    "store_uploaded_files_with_feedback",
 ]

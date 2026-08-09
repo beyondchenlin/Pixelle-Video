@@ -73,18 +73,30 @@ class _RecordingTtsCore:
 
 
 def test_resolve_workflow_output_audio_extension_from_save_audio_nodes():
-    assert resolve_workflow_output_audio_extension(
-        {"8": {"class_type": "SaveAudio", "inputs": {"audio": ["5", 0]}}}
-    ) == ".flac"
-    assert resolve_workflow_output_audio_extension(
-        {"9": {"class_type": "SaveAudioMP3", "inputs": {"audio": ["5", 0]}}}
-    ) == ".mp3"
-    assert resolve_workflow_output_audio_extension(
-        {"10": {"class_type": "SaveAudioOpus", "inputs": {"audio": ["5", 0]}}}
-    ) == ".opus"
-    assert resolve_workflow_output_audio_extension(
-        {"11": {"class_type": "UnknownAudioSaver", "inputs": {"audio": ["5", 0]}}}
-    ) == ".mp3"
+    assert (
+        resolve_workflow_output_audio_extension(
+            {"8": {"class_type": "SaveAudio", "inputs": {"audio": ["5", 0]}}}
+        )
+        == ".flac"
+    )
+    assert (
+        resolve_workflow_output_audio_extension(
+            {"9": {"class_type": "SaveAudioMP3", "inputs": {"audio": ["5", 0]}}}
+        )
+        == ".mp3"
+    )
+    assert (
+        resolve_workflow_output_audio_extension(
+            {"10": {"class_type": "SaveAudioOpus", "inputs": {"audio": ["5", 0]}}}
+        )
+        == ".opus"
+    )
+    assert (
+        resolve_workflow_output_audio_extension(
+            {"11": {"class_type": "UnknownAudioSaver", "inputs": {"audio": ["5", 0]}}}
+        )
+        == ".mp3"
+    )
 
 
 def test_renamed_workflow_file_with_index_tts2_node_is_detected(tmp_path):
@@ -300,9 +312,7 @@ def test_tts_workflow_family_detects_omnivoice_longform_capability_from_node_cla
 
 def test_tts_workflow_family_does_not_treat_duration_clone_as_longform():
     assert (
-        is_omnivoice_longform_workflow_key(
-            "selfhost/tts_omnivoice_clone_duration_bf16.json"
-        )
+        is_omnivoice_longform_workflow_key("selfhost/tts_omnivoice_clone_duration_bf16.json")
         is False
     )
 
@@ -337,9 +347,7 @@ def test_tts_workflow_required_params_are_read_from_api_workflow_metadata():
     assert get_required_tts_workflow_params(
         "selfhost/tts_omnivoice_longform_bf16.json"
     ) == frozenset({"ref_audio", "text"})
-    assert tts_workflow_requires_ref_audio(
-        "selfhost/tts_omnivoice_longform_bf16.json"
-    )
+    assert tts_workflow_requires_ref_audio("selfhost/tts_omnivoice_longform_bf16.json")
     assert not tts_workflow_requires_ref_audio("selfhost/tts_edge.json")
 
 
@@ -402,7 +410,7 @@ def test_non_selfhost_workflow_info_uses_key_fallback_for_index_tts2_detection(t
 
 
 @pytest.mark.asyncio
-async def test_tts_service_copies_local_comfyui_result_to_output_path(tmp_path):
+async def test_tts_service_copies_local_comfyui_result_to_output_path(tmp_path, monkeypatch):
     source_path = tmp_path / "comfyui-result.flac"
     source_path.write_bytes(b"fLaC\x00\x00\x00\x22")
     output_path = tmp_path / "requested" / "audio.flac"
@@ -422,6 +430,10 @@ async def test_tts_service_copies_local_comfyui_result_to_output_path(tmp_path):
             return await _LocalResultKit().execute(workflow_input, params)
 
     service = TTSService({"comfyui": {"tts": {}}}, core=_LocalResultCore())
+    monkeypatch.setattr(
+        "pixelle_video.services.tts_service.configured_workflow_output_roots",
+        lambda: (tmp_path,),
+    )
 
     returned_path = await service._call_comfyui_workflow(
         {
@@ -523,6 +535,10 @@ async def test_tts_service_writes_trace_for_comfyui_workflow(tmp_path, monkeypat
     service = TTSService({"comfyui": {"tts": {}}})
     monkeypatch.setattr(service, "_execute_workflow", fake_execute)
     monkeypatch.setattr(service, "_validate_required_workflow_params", lambda *_args: None)
+    monkeypatch.setattr(
+        "pixelle_video.services.tts_service.configured_workflow_output_roots",
+        lambda: (tmp_path,),
+    )
 
     returned_path = await service._call_comfyui_workflow(
         {
@@ -628,9 +644,7 @@ async def test_tts_service_writes_trace_for_local_edge_tts(tmp_path, monkeypatch
     )
 
     artifacts = list((tmp_path / "prompt_traces" / "tts").glob("*/tts_workflow.md"))
-    result_artifacts = [
-        artifact.with_name("tts_workflow_result.md") for artifact in artifacts
-    ]
+    result_artifacts = [artifact.with_name("tts_workflow_result.md") for artifact in artifacts]
 
     assert returned_path == str(output_path)
     assert calls[0]["text"] == "local trace"
@@ -769,7 +783,9 @@ async def test_tts_service_maps_reference_audio_text_to_prompt_text_workflows(mo
 
     service = TTSService({"comfyui": {"tts": {}}})
     monkeypatch.setattr(service, "_execute_workflow", fake_execute)
-    monkeypatch.setattr(service, "_get_workflow_param_names", lambda _workflow_info: {"text", "prompt_text"})
+    monkeypatch.setattr(
+        service, "_get_workflow_param_names", lambda _workflow_info: {"text", "prompt_text"}
+    )
     monkeypatch.setattr(service, "_validate_required_workflow_params", lambda *_args: None)
 
     await service._call_comfyui_workflow(

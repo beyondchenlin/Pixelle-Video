@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -94,3 +95,31 @@ async def test_generation_run_persists_redacted_failure(task_directory: Path) ->
     assert [item["status"] for item in core.persistence.saved] == ["running", "failed"]
     assert "do-not-persist" not in core.persistence.saved[-1]["error"]
     assert "***" in core.persistence.saved[-1]["error"]
+
+
+@pytest.mark.asyncio
+async def test_generation_run_persists_failure_when_operation_is_cancelled(
+    task_directory: Path,
+) -> None:
+    core = CoreStub()
+    run = await WebGenerationRun.start(
+        core=core,
+        pipeline="image_to_video",
+        input_params={},
+    )
+
+    async def operation(_active_run: WebGenerationRun) -> str:
+        raise asyncio.CancelledError("cancelled by user")
+
+    with pytest.raises(asyncio.CancelledError):
+        await run.execute(operation)
+
+    assert [item["status"] for item in core.persistence.saved] == ["running", "failed"]
+
+
+def test_generated_video_probe_rejects_non_mp4_container(tmp_path: Path) -> None:
+    source = tmp_path / "wrong-container.mp4"
+    source.write_bytes(b"\x1aE\xdf\xa3webm-data")
+
+    with pytest.raises(ValueError, match="valid MP4 container"):
+        generation_history._probe_video_duration(source)
