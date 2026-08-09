@@ -10,13 +10,14 @@ import re
 import tempfile
 import warnings
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
 from loguru import logger
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import ValidationError
 
 from pixelle_video.config.schema import DirectMediaConfig, OpenAIImageProviderConfig
@@ -31,6 +32,7 @@ from pixelle_video.services.openai_client_pool import (
     create_openai_client,
 )
 from pixelle_video.services.vision_capabilities import sanitize_multimodal_trace_error
+from pixelle_video.utils.asyncio_util import await_cancel_safe_cleanup
 from pixelle_video.utils.network_proxy import resolve_provider_proxy_async
 
 
@@ -48,6 +50,35 @@ class DirectMediaProviderError(DirectMediaError, RuntimeError):
 
 class DirectMediaResponseError(DirectMediaError, ValueError):
     """Raised when a provider returns an unsafe or unusable media response."""
+
+
+@dataclass(frozen=True)
+class _MaterializedImage:
+    local_path: Path
+    provider_width: int
+    provider_height: int
+    output_width: int
+    output_height: int
+    image_format: str
+    output_bytes: int
+
+
+def builtin_direct_media_descriptor_dir() -> Path:
+    """Return package-owned provider descriptors included in wheel builds."""
+
+    return Path(__file__).resolve().parents[1] / "resources" / "workflows" / "provider"
+
+
+def builtin_direct_media_descriptor_path(filename: str) -> Path:
+    """Resolve one package-owned descriptor without permitting path traversal."""
+
+    if Path(filename).name != filename or not filename.endswith(".json"):
+        raise ValueError("built-in direct media descriptor filename is invalid")
+    descriptor_path = (builtin_direct_media_descriptor_dir() / filename).resolve()
+    descriptor_path.relative_to(builtin_direct_media_descriptor_dir().resolve())
+    if not descriptor_path.is_file():
+        raise FileNotFoundError(f"built-in direct media descriptor not found: {filename}")
+    return descriptor_path
 
 
 def load_direct_media_descriptor(path: str | Path) -> DirectMediaDescriptor:
@@ -141,7 +172,7 @@ class DirectMediaProviderRegistry:
                 config=config,
             )
         finally:
-            await self._release_adapter()
+            await await_cancel_safe_cleanup(self._release_adapter())
 
     async def _acquire_adapter(self, adapter_id: str) -> DirectMediaAdapter:
         async with self._lock:
@@ -222,6 +253,12 @@ class OpenAIImageAdapter:
             raise DirectMediaConfigurationError(
                 "transparent image backgrounds require png or webp output"
             )
+        _validate_requested_output_dimensions(
+            request.width,
+            request.height,
+            max_pixels=provider_config.max_output_pixels,
+            max_edge_px=provider_config.max_output_edge_px,
+        )
         size = _openai_image_size(request.width, request.height)
         settings = await _openai_image_client_settings(provider_config)
         request_kwargs: dict[str, Any] = {
@@ -253,36 +290,35 @@ class OpenAIImageAdapter:
             raise DirectMediaProviderError(safe_error) from exc
 
         encoded = _first_base64_image(response)
-        raw = _decode_bounded_base64_image(
-            encoded,
+        materialized = await asyncio.to_thread(
+            _materialize_openai_image,
+            encoded=encoded,
+            output_dir=request.output_dir,
+            requested_format=output_format,
+            provider_size=size,
+            target_width=request.width,
+            target_height=request.height,
             max_bytes=provider_config.max_output_size_mb * 1024 * 1024,
-        )
-        image_format, actual_width, actual_height = _validated_image_info(
-            raw,
             max_pixels=provider_config.max_output_pixels,
-        )
-        expected_format = "JPEG" if output_format == "jpeg" else output_format.upper()
-        if image_format != expected_format:
-            raise DirectMediaResponseError(
-                "image provider output format did not match the requested format"
-            )
-        local_path = _write_image_atomically(
-            request.output_dir,
-            raw,
-            image_format=image_format,
         )
         return DirectMediaOutput(
             media_type="image",
-            local_path=local_path,
+            local_path=materialized.local_path,
             provider_id=descriptor.provider_id,
             model=descriptor.model,
             request_id=_safe_request_id(response),
             provider_metadata={
-                "actual_width": actual_width,
-                "actual_height": actual_height,
-                "format": image_format.lower(),
-                "output_bytes": len(raw),
+                "actual_width": materialized.output_width,
+                "actual_height": materialized.output_height,
+                "provider_width": materialized.provider_width,
+                "provider_height": materialized.provider_height,
+                "format": materialized.image_format.lower(),
+                "output_bytes": materialized.output_bytes,
                 "requested_size": size,
+                "transformed": (
+                    materialized.provider_width != materialized.output_width
+                    or materialized.provider_height != materialized.output_height
+                ),
                 "usage": _safe_usage(response),
             },
         )
@@ -334,6 +370,25 @@ def _openai_image_size(width: int | None, height: int | None) -> str:
     return "1536x1024" if width > height else "1024x1536"
 
 
+def _validate_requested_output_dimensions(
+    width: int | None,
+    height: int | None,
+    *,
+    max_pixels: int,
+    max_edge_px: int,
+) -> None:
+    if width is None or height is None:
+        return
+    if width > max_edge_px or height > max_edge_px:
+        raise DirectMediaConfigurationError(
+            "direct image target dimensions exceeded the configured edge limit"
+        )
+    if width * height > max_pixels:
+        raise DirectMediaConfigurationError(
+            "direct image target dimensions exceeded the configured pixel limit"
+        )
+
+
 def _first_base64_image(response: Any) -> str:
     data = getattr(response, "data", None)
     if not isinstance(data, (list, tuple)) or not data:
@@ -363,28 +418,105 @@ def _decode_bounded_base64_image(encoded: str, *, max_bytes: int) -> bytes:
     return raw
 
 
-def _validated_image_info(raw: bytes, *, max_pixels: int) -> tuple[str, int, int]:
+def _materialize_openai_image(
+    *,
+    encoded: str,
+    output_dir: Path,
+    requested_format: str,
+    provider_size: str,
+    target_width: int | None,
+    target_height: int | None,
+    max_bytes: int,
+    max_pixels: int,
+) -> _MaterializedImage:
+    raw = _decode_bounded_base64_image(encoded, max_bytes=max_bytes)
+    expected_format = "JPEG" if requested_format == "jpeg" else requested_format.upper()
+    expected_provider_size = {
+        "1024x1024": (1024, 1024),
+        "1536x1024": (1536, 1024),
+        "1024x1536": (1024, 1536),
+    }[provider_size]
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(BytesIO(raw)) as image:
-                image.verify()
-            with Image.open(BytesIO(raw)) as image:
                 image_format = str(image.format or "").upper()
-                width, height = image.size
+                provider_width, provider_height = image.size
+                if image_format not in {"PNG", "JPEG", "WEBP"}:
+                    raise DirectMediaResponseError(
+                        "image provider output format is not allowed"
+                    )
+                if image_format != expected_format:
+                    raise DirectMediaResponseError(
+                        "image provider output format did not match the requested format"
+                    )
+                if provider_width < 1 or provider_height < 1:
+                    raise DirectMediaResponseError(
+                        "image provider output dimensions were invalid"
+                    )
+                if provider_width * provider_height > max_pixels:
+                    raise DirectMediaResponseError(
+                        "image provider output exceeded safe pixel limits"
+                    )
+                if (provider_width, provider_height) != expected_provider_size:
+                    raise DirectMediaResponseError(
+                        "image provider output dimensions did not match the requested provider size"
+                    )
+                image.load()
+                normalized_image = ImageOps.exif_transpose(image).copy()
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
         raise DirectMediaResponseError("image provider output exceeded safe pixel limits") from exc
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
+    except DirectMediaResponseError:
+        raise
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
         raise DirectMediaResponseError("image provider output was not a valid image") from exc
-    if image_format not in {"PNG", "JPEG", "WEBP"}:
-        raise DirectMediaResponseError(
-            f"image provider output format is not allowed: {image_format or 'unknown'}"
+
+    output_width = target_width or provider_width
+    output_height = target_height or provider_height
+    if normalized_image.size != (output_width, output_height):
+        normalized_image = ImageOps.fit(
+            normalized_image,
+            (output_width, output_height),
+            method=Image.Resampling.LANCZOS,
         )
-    if width < 1 or height < 1:
-        raise DirectMediaResponseError("image provider output dimensions were invalid")
-    if width * height > max_pixels:
-        raise DirectMediaResponseError("image provider output exceeded safe pixel limits")
-    return image_format, width, height
+    normalized_image = _normalized_image_mode(normalized_image, image_format=image_format)
+    output_buffer = BytesIO()
+    save_kwargs: dict[str, Any] = {}
+    if image_format == "JPEG":
+        save_kwargs["quality"] = 95
+    elif image_format == "WEBP":
+        save_kwargs["quality"] = 95
+        save_kwargs["method"] = 4
+    normalized_image.save(output_buffer, format=image_format, **save_kwargs)
+    normalized_raw = output_buffer.getvalue()
+    if not normalized_raw or len(normalized_raw) > max_bytes:
+        raise DirectMediaResponseError(
+            "normalized image provider output exceeded configured byte limit"
+        )
+    local_path = _write_image_atomically(
+        output_dir,
+        normalized_raw,
+        image_format=image_format,
+    )
+    return _MaterializedImage(
+        local_path=local_path,
+        provider_width=provider_width,
+        provider_height=provider_height,
+        output_width=output_width,
+        output_height=output_height,
+        image_format=image_format,
+        output_bytes=len(normalized_raw),
+    )
+
+
+def _normalized_image_mode(image: Image.Image, *, image_format: str) -> Image.Image:
+    if image_format == "JPEG":
+        return image if image.mode in {"L", "RGB"} else image.convert("RGB")
+    if image.mode in {"1", "L", "LA", "RGB", "RGBA"}:
+        return image
+    if image.mode == "P" and "transparency" in image.info:
+        return image.convert("RGBA")
+    return image.convert("RGB")
 
 
 def _write_image_atomically(output_dir: Path, raw: bytes, *, image_format: str) -> Path:
@@ -446,5 +578,7 @@ __all__ = [
     "DirectMediaProviderRegistry",
     "DirectMediaResponseError",
     "OpenAIImageAdapter",
+    "builtin_direct_media_descriptor_dir",
+    "builtin_direct_media_descriptor_path",
     "load_direct_media_descriptor",
 ]

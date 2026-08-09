@@ -45,6 +45,7 @@ from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.services.comfyui_errors import looks_like_memory_exhaustion
 from pixelle_video.services.direct_media import (
     DirectMediaProviderRegistry,
+    builtin_direct_media_descriptor_dir,
     load_direct_media_descriptor,
 )
 from pixelle_video.services.prompt_trace_artifacts import (
@@ -394,13 +395,16 @@ class MediaService(ComfyBaseService):
             return self._workflows_cache
 
         workflows = []
-        source_dirs = list_resource_dirs("workflows")
+        source_dirs = set(list_resource_dirs("workflows"))
+        builtin_provider_dir = builtin_direct_media_descriptor_dir()
+        if builtin_provider_dir.is_dir():
+            source_dirs.add(DIRECT_MEDIA_SOURCE)
 
         if not source_dirs:
             logger.warning("No workflow source directories found")
             return workflows
 
-        for source_name in source_dirs:
+        for source_name in sorted(source_dirs):
             if source_name == RUNNINGHUB_SOURCE:
                 registry_root = runninghub_registry_root()
                 workflow_paths = (
@@ -412,6 +416,17 @@ class MediaService(ComfyBaseService):
                     if registry_root.is_dir()
                     else []
                 )
+            elif source_name == DIRECT_MEDIA_SOURCE:
+                provider_paths = {
+                    path.name: path
+                    for path in builtin_provider_dir.iterdir()
+                    if path.is_file() and path.suffix.lower() == ".json"
+                } if builtin_provider_dir.is_dir() else {}
+                for filename in list_resource_files("workflows", source_name):
+                    provider_paths[filename] = Path(
+                        get_resource_path("workflows", source_name, filename)
+                    )
+                workflow_paths = [provider_paths[name] for name in sorted(provider_paths)]
             else:
                 workflow_paths = [
                     Path(get_resource_path("workflows", source_name, filename))

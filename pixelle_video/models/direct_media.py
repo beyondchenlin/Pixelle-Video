@@ -11,18 +11,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from pixelle_video.utils.secret_redaction import is_sensitive_key
+
 DIRECT_MEDIA_SOURCE = "provider"
-_CREDENTIAL_FIELD_NAMES = frozenset(
-    {
-        "access_key",
-        "api_key",
-        "authorization",
-        "password",
-        "secret",
-        "secret_key",
-        "token",
-    }
-)
 _PARAMETER_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _PARAMETER_CONTRACT_KEYS = frozenset({"enum", "type"})
 _PARAMETER_TYPES = frozenset({"boolean", "integer", "number", "string"})
@@ -58,7 +49,7 @@ class DirectMediaDescriptor(BaseModel):
         forbidden = {
             name
             for name in declared
-            if name.strip().lower().replace("-", "_") in _CREDENTIAL_FIELD_NAMES
+            if is_sensitive_key(name)
         }
         if forbidden:
             raise ValueError(

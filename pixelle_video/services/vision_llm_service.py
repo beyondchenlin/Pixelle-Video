@@ -50,6 +50,7 @@ from pixelle_video.services.vision_capabilities import (
     validate_multimodal_image_limits,
 )
 from pixelle_video.utils.network_proxy import resolve_provider_proxy_async
+from pixelle_video.utils.secret_redaction import is_sensitive_key
 
 
 def _config_value(config: Any, key: str, default: Any = None) -> Any:
@@ -255,7 +256,7 @@ class VisionLLMService:
 
                 response_payload = {
                     "content": _first_message_content(response),
-                    "response": _json_safe_copy(response),
+                    "response": _trace_safe_copy(response),
                 }
                 try:
                     content = normalize_chat_completion(
@@ -407,33 +408,7 @@ def _json_safe_copy(value: Any) -> Any:
 
 
 def _trace_safe_copy(value: Any, *, key: Any = None) -> Any:
-    normalized_key = str(key or "").strip().lower().replace("-", "_")
-    if normalized_key and (
-        normalized_key
-        in {
-            "access_key",
-            "access_token",
-            "api_key",
-            "authorization",
-            "cookie",
-            "password",
-            "proxy_authorization",
-            "secret",
-            "secret_key",
-            "token",
-        }
-        or normalized_key.endswith(
-            (
-                "_access_key",
-                "_api_key",
-                "_credential",
-                "_password",
-                "_secret",
-                "_secret_key",
-                "_token",
-            )
-        )
-    ):
+    if key is not None and is_sensitive_key(key):
         return "[REDACTED]"
     if isinstance(value, BaseModel):
         return _trace_safe_copy(value.model_dump(mode="json"))

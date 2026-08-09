@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from pixelle_video.models.direct_media import DirectMediaOutput
+from pixelle_video.services.direct_media import builtin_direct_media_descriptor_path
 from pixelle_video.services.media import MediaService
 from pixelle_video.services.prompt_trace_artifacts import (
     MEDIA_TRACE_MEDIA_RESULT_FILE_NAME,
@@ -63,8 +64,8 @@ async def test_direct_media_uses_existing_governance_and_result_boundary(
 ):
     media = _service()
     trace_context = _trace_context(media, tmp_path)
-    descriptor_bytes = Path(
-        "workflows/provider/image_openai_gpt_image.json"
+    descriptor_bytes = builtin_direct_media_descriptor_path(
+        "image_openai_gpt_image.json"
     ).read_bytes()
     assert trace_context["workflow_file_sha256"] == hashlib.sha256(
         descriptor_bytes

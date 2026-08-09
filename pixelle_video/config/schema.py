@@ -926,7 +926,12 @@ class OpenAIImageProviderConfig(ProviderTransportConfig):
     api_key: str = Field(default="")
     base_url: str = Field(default="https://api.openai.com/v1")
     max_output_size_mb: int = Field(default=25, ge=1, le=100)
-    max_output_pixels: int = Field(default=20_000_000, ge=1, le=100_000_000)
+    max_output_pixels: int = Field(
+        default=20_000_000,
+        ge=1_048_576,
+        le=100_000_000,
+    )
+    max_output_edge_px: int = Field(default=8192, ge=64, le=16384)
 
 
 class DirectMediaConfig(BaseModel):

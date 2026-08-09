@@ -19,7 +19,6 @@ Supports structured output via response_type parameter (Pydantic model).
 import hashlib
 import json
 import math
-import re
 from collections.abc import Mapping
 from time import perf_counter
 from types import SimpleNamespace
@@ -62,35 +61,14 @@ from pixelle_video.services.openai_client_pool import (
 )
 from pixelle_video.utils.json_parsing import parse_llm_json_response
 from pixelle_video.utils.network_proxy import resolve_provider_proxy_async
+from pixelle_video.utils.secret_redaction import (
+    is_sensitive_key,
+    redact_credentials_in_text,
+)
 
 T = TypeVar("T", bound=BaseModel)
 
 _REDACTED_VALUE = "[REDACTED]"
-_SENSITIVE_TRACE_KEYS = frozenset(
-    {
-        "access_key",
-        "access_token",
-        "api_key",
-        "apikey",
-        "authorization",
-        "cookie",
-        "password",
-        "proxy_authorization",
-        "refresh_token",
-        "secret",
-        "secret_key",
-        "set_cookie",
-        "token",
-        "x_api_key",
-    }
-)
-_SENSITIVE_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b(api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|access[_-]?token|"
-    r"refresh[_-]?token|password|authorization|cookie)\b(\s*[:=]\s*)"
-    r"([^\s,;]+)"
-)
-_BEARER_TOKEN_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+\-/]+=*")
-_URL_USERINFO_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
 _MAX_SAFE_ERROR_CHARS = 1000
 
 
@@ -1239,7 +1217,7 @@ class LLMService:
     def _build_response_payload(self, *, response: Any, content: Any) -> dict[str, Any]:
         return {
             "content": content,
-            "response": _json_safe_copy(response),
+            "response": _trace_safe_copy(response),
         }
 
     async def _record_llm_trace(
@@ -1334,27 +1312,8 @@ def _first_message_content(response: Any) -> Any:
     return getattr(message, "content", None)
 
 
-def _normalized_sensitive_key(value: Any) -> str:
-    return str(value or "").strip().lower().replace("-", "_")
-
-
-def _is_sensitive_trace_key(value: Any) -> bool:
-    normalized = _normalized_sensitive_key(value)
-    return normalized in _SENSITIVE_TRACE_KEYS or normalized.endswith(
-        (
-            "_access_key",
-            "_api_key",
-            "_credential",
-            "_password",
-            "_secret",
-            "_secret_key",
-            "_token",
-        )
-    )
-
-
 def _trace_safe_copy(value: Any, *, key: Any = None) -> Any:
-    if key is not None and _is_sensitive_trace_key(key):
+    if key is not None and is_sensitive_key(key):
         return _REDACTED_VALUE
     if isinstance(value, BaseModel):
         return _trace_safe_copy(value.model_dump(mode="json"))
@@ -1375,12 +1334,10 @@ def _trace_safe_copy(value: Any, *, key: Any = None) -> Any:
 
 def _sanitize_error_message(value: Any) -> str:
     message = str(value or type(value).__name__).strip() or type(value).__name__
-    message = _BEARER_TOKEN_RE.sub("Bearer [REDACTED]", message)
-    message = _SENSITIVE_ASSIGNMENT_RE.sub(
-        lambda match: f"{match.group(1)}{match.group(2)}{_REDACTED_VALUE}",
+    message = redact_credentials_in_text(
         message,
+        replacement=_REDACTED_VALUE,
     )
-    message = _URL_USERINFO_RE.sub(r"\1[REDACTED]@", message)
     if len(message) > _MAX_SAFE_ERROR_CHARS:
         return message[: _MAX_SAFE_ERROR_CHARS - 3] + "..."
     return message

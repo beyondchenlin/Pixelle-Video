@@ -93,6 +93,22 @@ async def test_generate_title_normalizes_provider_wrappers_and_unicode_punctuati
 
 
 @pytest.mark.asyncio
+async def test_generate_title_accepts_label_on_line_before_title():
+    class FakeLLM:
+        async def __call__(self, prompt, **kwargs):
+            return "Title:\nA Maintained Provider Boundary"
+
+    title = await content_generators.generate_title(
+        FakeLLM(),
+        "Long source content that requires a generated title",
+        strategy="llm",
+        max_length=40,
+    )
+
+    assert title == "A Maintained Provider Boundary"
+
+
+@pytest.mark.asyncio
 async def test_generate_title_uses_observable_fallback_for_invalid_provider_response():
     observed = []
 

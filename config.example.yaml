@@ -105,6 +105,7 @@ direct_media:
     max_retries: 1
     max_output_size_mb: 25
     max_output_pixels: 20000000
+    max_output_edge_px: 8192
 
 # ==================== ComfyUI Configuration ====================
 comfyui:

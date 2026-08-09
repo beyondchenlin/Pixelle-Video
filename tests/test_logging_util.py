@@ -5,6 +5,7 @@ from loguru import logger
 from pixelle_video.utils.logging_util import (
     build_content_observability,
     new_correlation_id,
+    redact_credentials_in_text,
     redact_mapping,
     redact_text,
     setup_logging,
@@ -75,6 +76,33 @@ def test_redact_text_masks_secret_bearing_message_fragments():
     assert "rh-secret" not in redacted
     assert "***" in redacted
     assert "model" in redacted
+
+
+def test_credential_redaction_handles_provider_error_variants_without_masking_usage():
+    message = (
+        'client_secret="oauth secret with spaces" '
+        "X-API-Key=provider-key private_key='private key value' "
+        "authorization=Bearer bearer-secret "
+        "url=https://user:password@example.test/v1"
+    )
+
+    redacted = redact_credentials_in_text(message, replacement="[REDACTED]")
+    mapping = redact_mapping(
+        {
+            "client_secret": "oauth-secret",
+            "total_tokens": 42,
+            "private_key": "private-key",
+        }
+    )
+
+    assert "oauth secret with spaces" not in redacted
+    assert "provider-key" not in redacted
+    assert "private key value" not in redacted
+    assert "bearer-secret" not in redacted
+    assert "user:password" not in redacted
+    assert mapping["client_secret"] == "***"
+    assert mapping["private_key"] == "***"
+    assert mapping["total_tokens"] == 42
 
 
 def test_redact_text_masks_private_generation_param_fragments():

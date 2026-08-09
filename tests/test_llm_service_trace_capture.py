@@ -163,11 +163,14 @@ def _recorder(trace_id):
 
 @pytest.mark.asyncio
 async def test_llm_service_records_successful_text_calls_at_gateway(monkeypatch):
-    fake_client, _ = _fake_client(
+    fake_client, create_recorder = _fake_client(
         base_url="https://api.deepseek.com/v1",
         content="plain answer",
         usage=Usage(),
     )
+    create_recorder.response.provider_metadata = {
+        "client_secret_value": "provider-response-secret"
+    }
     service = LLMService({})
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
     recorder, raw_store, trace_repository = _recorder("trace_text_success")
@@ -190,6 +193,9 @@ async def test_llm_service_records_successful_text_calls_at_gateway(monkeypatch)
         {"role": "user", "content": "Explain atomic habits"}
     ]
     assert raw_store.payloads[1]["payload"]["content"] == "plain answer"
+    assert raw_store.payloads[1]["payload"]["response"]["provider_metadata"] == {
+        "client_secret_value": "[REDACTED]"
+    }
     stored_trace = trace_repository.appended[0]["trace"]
     assert stored_trace["trace_id"] == "trace_text_success"
     assert stored_trace["status"] == "success"
@@ -415,7 +421,8 @@ async def test_llm_service_sanitizes_provider_errors_before_trace_and_reraise(mo
     fake_client, _ = _fake_client(
         base_url="https://api.deepseek.com/v1",
         create_exception=RuntimeError(
-            "authorization=Bearer super-secret api_key=provider-secret"
+            'authorization=Bearer super-secret api_key=provider-secret '
+            'client_secret="oauth secret with spaces"'
         ),
     )
     service = LLMService({})
@@ -437,9 +444,11 @@ async def test_llm_service_sanitizes_provider_errors_before_trace_and_reraise(mo
 
     assert "super-secret" not in str(exc_info.value)
     assert "provider-secret" not in str(exc_info.value)
+    assert "oauth secret with spaces" not in str(exc_info.value)
     trace_error = trace_repository.appended[0]["trace"]["error_message"]
     assert "super-secret" not in trace_error
     assert "provider-secret" not in trace_error
+    assert "oauth secret with spaces" not in trace_error
 
 
 @pytest.mark.asyncio

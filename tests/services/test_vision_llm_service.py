@@ -31,6 +31,7 @@ class _FakeCompletions:
         return SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))],
             usage=SimpleNamespace(prompt_tokens=7, completion_tokens=3, total_tokens=10),
+            provider_metadata={"client_secret_value": "provider-response-secret"},
         )
 
 
@@ -116,6 +117,9 @@ async def test_vision_llm_service_records_redacted_trace(monkeypatch):
     assert "sha256" in request_json
     assert recorder.records[0]["status"] == "success"
     assert recorder.records[0]["provider"] == "https://example.test"
+    assert recorder.records[0]["response_payload"]["response"]["provider_metadata"] == {
+        "client_secret_value": "[REDACTED]"
+    }
 
 
 @pytest.mark.asyncio

@@ -120,6 +120,7 @@ def test_direct_media_config_defaults_disabled_and_validates_resource_limits():
                 "api_key": "configured-secret",
                 "max_output_size_mb": 32,
                 "max_output_pixels": 12_000_000,
+                "max_output_edge_px": 4096,
             },
         }
     )
@@ -129,8 +130,11 @@ def test_direct_media_config_defaults_disabled_and_validates_resource_limits():
     assert config.direct_media.enabled is True
     assert config.direct_media.openai_image.max_output_size_mb == 32
     assert config.direct_media.openai_image.max_output_pixels == 12_000_000
+    assert config.direct_media.openai_image.max_output_edge_px == 4096
 
     with pytest.raises(ValidationError):
         PixelleVideoConfig(direct_media={"openai_image": {"max_output_size_mb": 0}})
     with pytest.raises(ValidationError):
         PixelleVideoConfig(direct_media={"openai_image": {"max_output_pixels": 0}})
+    with pytest.raises(ValidationError):
+        PixelleVideoConfig(direct_media={"openai_image": {"max_output_edge_px": 0}})

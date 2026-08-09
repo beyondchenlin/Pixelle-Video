@@ -14,6 +14,7 @@ from httpx import Timeout
 from loguru import logger
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
+from pixelle_video.utils.asyncio_util import await_cancel_safe_cleanup
 from pixelle_video.utils.network_proxy import ProviderProxyConfig
 
 
@@ -117,7 +118,7 @@ class AsyncOpenAIClientPool:
         try:
             yield entry.client
         finally:
-            await self._release_entry(fingerprint, entry)
+            await await_cancel_safe_cleanup(self._release_entry(fingerprint, entry))
 
     async def _acquire_entry(
         self,

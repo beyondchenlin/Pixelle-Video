@@ -130,7 +130,10 @@ def test_media_service_skips_selfhost_media_prefixed_tts_workflow(monkeypatch, t
         lambda _kind, _source, _filename: str(workflow_path),
     )
 
-    assert service._scan_workflows() == []
+    assert all(
+        workflow["key"] != "selfhost/image_voice_spoof.json"
+        for workflow in service._scan_workflows()
+    )
 
 
 def test_media_service_ignores_non_media_selfhost_workflows_before_parse(
@@ -157,13 +160,19 @@ def test_media_service_ignores_non_media_selfhost_workflows_before_parse(
         "pixelle_video.services.media.get_resource_path",
         lambda _kind, _source, _filename: str(workflow_path),
     )
-    monkeypatch.setattr(
-        service,
-        "_parse_workflow_file",
-        lambda *_args, **_kwargs: pytest.fail("non-media workflow should not be parsed"),
-    )
+    original_parse_workflow_file = service._parse_workflow_file
 
-    assert service._scan_workflows() == []
+    def parse_workflow_file(file_path, source_name):
+        if file_path == workflow_path:
+            pytest.fail("non-media workflow should not be parsed")
+        return original_parse_workflow_file(file_path, source_name)
+
+    monkeypatch.setattr(service, "_parse_workflow_file", parse_workflow_file)
+
+    assert all(
+        workflow["key"] != "selfhost/tts_omnivoice_longform_bf16.json"
+        for workflow in service._scan_workflows()
+    )
 
 
 def test_media_service_ignores_data_runninghub_descriptor_overrides(
@@ -209,7 +218,11 @@ def test_media_service_ignores_data_runninghub_descriptor_overrides(
         lambda: builtin_dir,
     )
 
-    assert [workflow["key"] for workflow in service._scan_workflows()] == [
+    assert [
+        workflow["key"]
+        for workflow in service._scan_workflows()
+        if workflow["source"] == "runninghub"
+    ] == [
         "runninghub/image_safe.json"
     ]
 

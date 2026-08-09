@@ -19,13 +19,14 @@ from pixelle_video.services.direct_media import (
     DirectMediaConfigurationError,
     DirectMediaProviderRegistry,
     DirectMediaResponseError,
+    builtin_direct_media_descriptor_path,
     load_direct_media_descriptor,
 )
 
 
 def _descriptor() -> DirectMediaDescriptor:
     return load_direct_media_descriptor(
-        Path("workflows/provider/image_openai_gpt_image.json")
+        builtin_direct_media_descriptor_path("image_openai_gpt_image.json")
     )
 
 
@@ -85,7 +86,7 @@ async def test_openai_image_adapter_is_lazy_reused_bounded_and_closed(
     monkeypatch,
     tmp_path,
 ):
-    encoded = base64.b64encode(_png_bytes()).decode("ascii")
+    encoded = base64.b64encode(_png_bytes(width=1536, height=1024)).decode("ascii")
     response = SimpleNamespace(
         data=[SimpleNamespace(b64_json=encoded)],
         _request_id="req_test-1",
@@ -121,12 +122,18 @@ async def test_openai_image_adapter_is_lazy_reused_bounded_and_closed(
     assert first.local_path.is_file()
     assert second.local_path.is_file()
     assert first.local_path != second.local_path
+    with Image.open(first.local_path) as generated_image:
+        assert generated_image.size == (800, 600)
+        assert generated_image.info == {}
     assert first.provider_metadata == {
-        "actual_width": 16,
-        "actual_height": 12,
+        "actual_width": 800,
+        "actual_height": 600,
+        "provider_width": 1536,
+        "provider_height": 1024,
         "format": "png",
-        "output_bytes": len(_png_bytes()),
+        "output_bytes": first.local_path.stat().st_size,
         "requested_size": "1536x1024",
+        "transformed": True,
         "usage": {"input_tokens": 11, "output_tokens": 22},
     }
     assert client.images.calls[0] == {
@@ -181,8 +188,8 @@ async def test_openai_image_adapter_rejects_invalid_or_oversized_output(
         SimpleNamespace(
             data=[
                 SimpleNamespace(
-                    b64_json=base64.b64encode(
-                        _png_bytes(width=20, height=20)
+                        b64_json=base64.b64encode(
+                            _png_bytes(width=1536, height=1024)
                     ).decode()
                 )
             ]
@@ -208,9 +215,33 @@ async def test_openai_image_adapter_rejects_invalid_or_oversized_output(
         await pixel_registry.generate(
             descriptor=_descriptor(),
             request=_request(tmp_path / "pixels"),
-            config=_config(max_output_pixels=100),
+            config=_config(max_output_pixels=1_100_000),
         )
     await pixel_registry.aclose()
+
+
+@pytest.mark.asyncio
+async def test_openai_image_adapter_rejects_provider_dimension_contract_violation(
+    monkeypatch,
+    tmp_path,
+):
+    encoded = base64.b64encode(_png_bytes()).decode("ascii")
+    client = _FakeClient(SimpleNamespace(data=[SimpleNamespace(b64_json=encoded)]))
+    monkeypatch.setenv("PIXELLE_PROXY_MODE", "direct")
+    monkeypatch.setattr(
+        "pixelle_video.services.direct_media.create_openai_client",
+        lambda _settings: client,
+    )
+    registry = DirectMediaProviderRegistry()
+
+    with pytest.raises(DirectMediaResponseError, match="provider size"):
+        await registry.generate(
+            descriptor=_descriptor(),
+            request=_request(tmp_path),
+            config=_config(),
+        )
+    assert list(tmp_path.glob("**/*")) == []
+    await registry.aclose()
 
 
 @pytest.mark.asyncio
@@ -279,13 +310,75 @@ async def test_registry_close_waits_for_in_flight_generation(tmp_path):
         )
 
 
+@pytest.mark.asyncio
+async def test_registry_release_survives_repeated_task_cancellation(
+    monkeypatch,
+    tmp_path,
+):
+    generation_started = asyncio.Event()
+    release_started = asyncio.Event()
+    allow_release = asyncio.Event()
+    adapter_closed = asyncio.Event()
+
+    class BlockingAdapter:
+        async def generate(self, **_kwargs):
+            generation_started.set()
+            await asyncio.Event().wait()
+
+        async def aclose(self):
+            adapter_closed.set()
+
+    registry = DirectMediaProviderRegistry({"openai_image": BlockingAdapter})
+    original_release = registry._release_adapter
+
+    async def delayed_release():
+        release_started.set()
+        await allow_release.wait()
+        await original_release()
+
+    monkeypatch.setattr(registry, "_release_adapter", delayed_release)
+    generation = asyncio.create_task(
+        registry.generate(
+            descriptor=_descriptor(),
+            request=_request(tmp_path),
+            config=_config(),
+        )
+    )
+    await generation_started.wait()
+    generation.cancel()
+    await release_started.wait()
+    generation.cancel()
+    await asyncio.sleep(0)
+    closing = asyncio.create_task(registry.aclose())
+    await asyncio.sleep(0)
+    assert closing.done() is False
+
+    allow_release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await generation
+    await closing
+    assert adapter_closed.is_set() is True
+
+
 def test_direct_media_descriptor_rejects_unsafe_or_ambiguous_contracts():
     base = _descriptor().model_dump(mode="json")
 
-    with pytest.raises(ValidationError, match="credential"):
-        DirectMediaDescriptor.model_validate(
-            {**base, "declared_params": {"api_key": {"type": "string"}}}
-        )
+    for credential_name in (
+        "api_key",
+        "client_secret",
+        "client_secret_value",
+        "openai_api_key",
+        "openai_api_key_value",
+        "provider_token",
+        "private_key",
+    ):
+        with pytest.raises(ValidationError, match="credential"):
+            DirectMediaDescriptor.model_validate(
+                {
+                    **base,
+                    "declared_params": {credential_name: {"type": "string"}},
+                }
+            )
     with pytest.raises(ValidationError, match="unsupported type"):
         DirectMediaDescriptor.model_validate(
             {**base, "declared_params": {"mode": {"type": "object"}}}
@@ -367,6 +460,12 @@ async def test_openai_image_adapter_rejects_invalid_requests_before_network_reso
             descriptor=_descriptor(),
             request=_request(tmp_path / "disabled"),
             config=DirectMediaConfig(),
+        )
+    with pytest.raises(DirectMediaConfigurationError, match="edge limit"):
+        await registry.generate(
+            descriptor=_descriptor(),
+            request=_request(tmp_path / "oversized", width=9000, height=1),
+            config=_config(),
         )
 
     await registry.aclose()

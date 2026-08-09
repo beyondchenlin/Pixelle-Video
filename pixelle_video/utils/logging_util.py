@@ -13,8 +13,11 @@ from typing import Any, Callable, Iterator
 from loguru import logger
 
 from pixelle_video.utils.os_util import get_runtime_path
+from pixelle_video.utils.secret_redaction import (
+    is_sensitive_key,
+    redact_credentials_in_text,
+)
 
-_SENSITIVE_TOKENS = ("api_key", "authorization", "bearer", "token", "secret", "password")
 _PRIVATE_TEXT_KEYS = frozenset(
     {
         "caption_text",
@@ -83,11 +86,6 @@ _REQUIRED_FIELDS = (
 )
 
 
-def is_sensitive_key(key: Any) -> bool:
-    lowered = str(key).lower()
-    return any(token in lowered for token in _SENSITIVE_TOKENS)
-
-
 def _normalized_log_key(key: Any) -> str:
     return re.sub(r"[^a-z0-9_]+", "_", str(key).strip().lower())
 
@@ -153,14 +151,7 @@ def redact_mapping(payload: Any) -> Any:
 
 
 def redact_text(message: str) -> str:
-    redacted = str(message)
-    token_pattern = "|".join(re.escape(token) for token in _SENSITIVE_TOKENS)
-    assignment_pattern = re.compile(
-        rf"([A-Za-z0-9_]*(?:{token_pattern})[A-Za-z0-9_]*['\"]?\s*[:=]\s*['\"]?)"
-        rf"([^,'\"\s}}]+)",
-        re.IGNORECASE,
-    )
-    redacted = assignment_pattern.sub(r"\1***", redacted)
+    redacted = redact_credentials_in_text(message)
 
     private_keys = sorted(
         _PRIVATE_TEXT_KEYS | _PRIVATE_PATH_KEYS | _PRIVATE_ASSET_COLLECTION_KEYS,
@@ -178,7 +169,7 @@ def redact_text(message: str) -> str:
     )
     redacted = quoted_private_assignment_pattern.sub(r"\1\2***\4", redacted)
     redacted = collection_private_assignment_pattern.sub(r"\1[***]", redacted)
-    return re.sub(r"Bearer\s+[A-Za-z0-9._\-]+", "Bearer ***", redacted, flags=re.IGNORECASE)
+    return redacted
 
 
 def build_content_observability(content: str | None, *, preview_chars: int = 120) -> dict[str, Any]:

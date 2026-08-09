@@ -593,10 +593,15 @@ def _normalize_title_candidate(value: Any) -> str:
         for line in normalized.splitlines()
         if line.strip() and not line.strip().startswith("```")
     ]
-    if not lines:
+    title = ""
+    for line in lines:
+        candidate = line.lstrip("#*- ").strip()
+        candidate = _TITLE_LABEL_RE.sub("", candidate).strip()
+        if candidate:
+            title = candidate
+            break
+    if not title:
         return ""
-    title = _TITLE_LABEL_RE.sub("", lines[0]).strip()
-    title = title.lstrip("#*- ").strip()
     for opening, closing in _TITLE_QUOTE_PAIRS:
         if title.startswith(opening) and title.endswith(closing):
             title = title[len(opening) : len(title) - len(closing)].strip()

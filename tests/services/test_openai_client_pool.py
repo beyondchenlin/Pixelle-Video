@@ -99,6 +99,41 @@ async def test_close_rejects_new_leases_and_defers_active_close():
     assert client.close_calls == 1
 
 
+@pytest.mark.asyncio
+async def test_lease_release_survives_repeated_task_cancellation(monkeypatch):
+    pool = AsyncOpenAIClientPool(max_size=1)
+    client = _FakeClient("cancelled")
+    using_client = asyncio.Event()
+    release_started = asyncio.Event()
+    allow_release = asyncio.Event()
+    original_release = pool._release_entry
+
+    async def delayed_release(fingerprint, entry):
+        release_started.set()
+        await allow_release.wait()
+        await original_release(fingerprint, entry)
+
+    monkeypatch.setattr(pool, "_release_entry", delayed_release)
+
+    async def use_client():
+        async with pool.acquire(fingerprint="cancelled", factory=lambda: client):
+            using_client.set()
+            await asyncio.Event().wait()
+
+    task = asyncio.create_task(use_client())
+    await using_client.wait()
+    task.cancel()
+    await release_started.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+    allow_release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await pool.close()
+    assert client.close_calls == 1
+
+
 def test_settings_fingerprint_is_secret_safe_and_transport_sensitive():
     direct = ProviderProxyConfig(mode="direct", trust_env=False)
     first = OpenAIClientSettings(

@@ -165,7 +165,26 @@ def resolve_workflow_candidate_path(candidate: str | Path | None) -> Path | None
         try:
             resource_path = Path(get_resource_path("workflows", source, *rest))
         except FileNotFoundError:
-            return None
+            if source != "provider":
+                return None
+            resource_path = (
+                Path(__file__).resolve().parent
+                / "resources"
+                / "workflows"
+                / "provider"
+                / Path(*rest)
+            ).resolve()
+            try:
+                resource_path.relative_to(
+                    (
+                        Path(__file__).resolve().parent
+                        / "resources"
+                        / "workflows"
+                        / "provider"
+                    ).resolve()
+                )
+            except ValueError:
+                return None
         return resource_path if resource_path.is_file() else None
     return None
 
