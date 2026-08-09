@@ -179,6 +179,27 @@ def test_local_runtime_target_requires_port_and_base_url_to_match() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("environment", "message"),
+    [
+        ({"PIXELLE_WEB_PORT": "invalid"}, "PIXELLE_WEB_PORT"),
+        ({"PIXELLE_WEB_PORT": "0"}, "PIXELLE_WEB_PORT"),
+        (
+            {"PIXELLE_API_PORT": "6789", "PIXELLE_WEB_PORT": "6789"},
+            "must be different",
+        ),
+        ({"PIXELLE_API_READY_TIMEOUT_SECONDS": "0"}, "positive finite"),
+        ({"PIXELLE_API_READY_TIMEOUT_SECONDS": "nan"}, "positive finite"),
+    ],
+)
+def test_runtime_target_rejects_invalid_web_and_timeout_boundaries(
+    environment: dict[str, str],
+    message: str,
+) -> None:
+    with pytest.raises(LaunchConfigurationError, match=message):
+        build_runtime_target(environment)
+
+
 @pytest.mark.parametrize("host", ["127.0.0.2", "[::1]"])
 def test_local_runtime_target_rejects_a_loopback_host_the_launcher_does_not_bind(
     host: str,
@@ -279,6 +300,7 @@ def test_supervisor_cleans_up_only_the_api_process_it_started(monkeypatch) -> No
     monkeypatch.setattr(launch_web, "probe_local_api", lambda _port: LocalApiState.ABSENT)
     monkeypatch.setattr(launch_web, "wait_for_local_api", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(launch_web, "_start_process", fake_start)
+    monkeypatch.setattr(launch_web, "_assert_port_available", lambda *_args, **_kwargs: None)
 
     assert launch_web.run_web_stack({}) == 0
     assert any("uvicorn" in arguments for arguments in started)
@@ -297,6 +319,7 @@ def test_supervisor_reuses_a_healthy_existing_api_without_owning_it(monkeypatch)
 
     monkeypatch.setattr(launch_web, "probe_local_api", lambda _port: LocalApiState.READY)
     monkeypatch.setattr(launch_web, "_start_process", fake_start)
+    monkeypatch.setattr(launch_web, "_assert_port_available", lambda *_args, **_kwargs: None)
 
     assert launch_web.run_web_stack({}) == 0
     assert len(started) == 1
@@ -306,6 +329,32 @@ def test_supervisor_reuses_a_healthy_existing_api_without_owning_it(monkeypatch)
 def test_supervisor_refuses_to_launch_web_against_a_foreign_local_service(monkeypatch) -> None:
     monkeypatch.setattr(launch_web, "probe_local_api", lambda _port: LocalApiState.OCCUPIED)
     monkeypatch.setattr(launch_web, "wait_for_local_api", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(launch_web, "_assert_port_available", lambda *_args, **_kwargs: None)
 
     with pytest.raises(LaunchConfigurationError, match="occupied"):
         launch_web.run_web_stack({})
+
+
+def test_supervisor_passes_explicit_web_port_and_runtime_environment(monkeypatch) -> None:
+    web_process = _FakeProcess(exit_code=0)
+    captured: dict[str, object] = {}
+
+    def fake_start(arguments: list[str], *, environ: dict[str, str]) -> _FakeProcess:
+        captured["arguments"] = arguments
+        captured["environment"] = environ
+        return web_process
+
+    monkeypatch.setattr(launch_web, "probe_local_api", lambda _port: LocalApiState.READY)
+    monkeypatch.setattr(launch_web, "_start_process", fake_start)
+    monkeypatch.setattr(launch_web, "_assert_port_available", lambda *_args, **_kwargs: None)
+
+    assert launch_web.run_web_stack({"PIXELLE_WEB_PORT": "8512"}) == 0
+
+    arguments = captured["arguments"]
+    environment = captured["environment"]
+    assert isinstance(arguments, list)
+    assert arguments[-1] == "8512"
+    assert isinstance(environment, dict)
+    assert environment["PIXELLE_WEB_PORT"] == "8512"
+    assert environment["PIXELLE_API_BASE_URL"] == "http://localhost:6789/api"
+    assert environment["TMP"].endswith("_runtime\\tmp")

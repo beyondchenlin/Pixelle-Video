@@ -3,7 +3,9 @@ from __future__ import annotations
 import http.client
 import ipaddress
 import json
+import math
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -35,8 +37,10 @@ class LocalApiState(str, Enum):
 @dataclass(frozen=True)
 class RuntimeTarget:
     port: int
+    web_port: int
     api_base_url: str
     supervise_local_api: bool
+    startup_timeout_seconds: float
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -60,6 +64,29 @@ def _api_origin_for_log(api_base_url: str) -> str:
 
 def build_runtime_target(environ: Mapping[str, str]) -> RuntimeTarget:
     port = configured_api_port(environ)
+    try:
+        web_port = int(str(environ.get("PIXELLE_WEB_PORT", "8501")).strip(), 10)
+    except ValueError as exc:
+        raise LaunchConfigurationError(
+            "PIXELLE_WEB_PORT must be an integer between 1 and 65535."
+        ) from exc
+    if not 1 <= web_port <= 65_535:
+        raise LaunchConfigurationError("PIXELLE_WEB_PORT must be between 1 and 65535.")
+
+    raw_timeout = str(
+        environ.get("PIXELLE_API_READY_TIMEOUT_SECONDS", STARTUP_TIMEOUT_SECONDS)
+    ).strip()
+    try:
+        startup_timeout_seconds = float(raw_timeout)
+    except ValueError as exc:
+        raise LaunchConfigurationError(
+            "PIXELLE_API_READY_TIMEOUT_SECONDS must be a positive finite number."
+        ) from exc
+    if not math.isfinite(startup_timeout_seconds) or startup_timeout_seconds <= 0:
+        raise LaunchConfigurationError(
+            "PIXELLE_API_READY_TIMEOUT_SECONDS must be a positive finite number."
+        )
+
     api_base_url = configured_api_base_url(environ)
     parsed = urlsplit(api_base_url)
     host = parsed.hostname or ""
@@ -84,11 +111,17 @@ def build_runtime_target(environ: Mapping[str, str]) -> RuntimeTarget:
             raise LaunchConfigurationError(
                 "A locally supervised PIXELLE_API_BASE_URL must end with /api."
             )
+        if port == web_port:
+            raise LaunchConfigurationError(
+                "PIXELLE_API_PORT and PIXELLE_WEB_PORT must be different."
+            )
 
     return RuntimeTarget(
         port=port,
+        web_port=web_port,
         api_base_url=api_base_url,
         supervise_local_api=supervise_local_api,
+        startup_timeout_seconds=startup_timeout_seconds,
     )
 
 
@@ -145,26 +178,93 @@ def wait_for_local_api(
 def _terminate_process(process: subprocess.Popen[bytes] | subprocess.Popen[str] | None) -> None:
     if process is None or process.poll() is not None:
         return
-    process.terminate()
     try:
-        process.wait(timeout=5)
+        if os.name == "nt":
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+        else:
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+    except (AttributeError, OSError, ProcessLookupError):
+        process.terminate()
+    try:
+        process.wait(timeout=8)
     except subprocess.TimeoutExpired:
-        process.kill()
+        if os.name == "nt" and getattr(process, "pid", None):
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=15,
+            )
+        elif getattr(process, "pid", None):
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            process.kill()
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            return
+            process.kill()
+
+
+def _process_group_options() -> dict[str, object]:
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
 
 
 def _start_process(arguments: list[str], *, environ: dict[str, str]) -> subprocess.Popen[bytes]:
-    return subprocess.Popen(arguments, cwd=PROJECT_ROOT, env=environ)
+    return subprocess.Popen(
+        arguments,
+        cwd=PROJECT_ROOT,
+        env=environ,
+        **_process_group_options(),
+    )
+
+
+def _assert_port_available(port: int, *, service_name: str) -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError as exc:
+            raise LaunchConfigurationError(
+                f"{service_name} port 127.0.0.1:{port} is already occupied."
+            ) from exc
+
+
+def _prepare_runtime_environment(environ: dict[str, str], target: RuntimeTarget) -> None:
+    runtime_root = PROJECT_ROOT / "_runtime"
+    temporary_root = runtime_root / "tmp"
+    uv_cache = runtime_root / "uv-cache"
+    ruff_cache = runtime_root / "ruff-cache"
+    for directory in (runtime_root, temporary_root, uv_cache, ruff_cache):
+        directory.mkdir(parents=True, exist_ok=True)
+
+    environ.update(
+        {
+            "PIXELLE_VIDEO_ROOT": str(PROJECT_ROOT),
+            "PIXELLE_VIDEO_RUNTIME_ROOT": str(runtime_root),
+            "PIXELLE_API_PORT": str(target.port),
+            "PIXELLE_WEB_PORT": str(target.web_port),
+            "PIXELLE_API_BASE_URL": target.api_base_url,
+            "TMP": str(temporary_root),
+            "TEMP": str(temporary_root),
+            "TMPDIR": str(temporary_root),
+            "UV_CACHE_DIR": str(uv_cache),
+            "RUFF_CACHE_DIR": str(ruff_cache),
+        }
+    )
 
 
 def run_web_stack(environ: dict[str, str] | None = None) -> int:
     child_environ = dict(os.environ if environ is None else environ)
     target = build_runtime_target(child_environ)
-    child_environ["PIXELLE_API_PORT"] = str(target.port)
-    child_environ["PIXELLE_API_BASE_URL"] = target.api_base_url
+    _prepare_runtime_environment(child_environ, target)
+    _assert_port_available(target.web_port, service_name="Web UI")
 
     api_process: subprocess.Popen[bytes] | None = None
     web_process: subprocess.Popen[bytes] | None = None
@@ -200,12 +300,12 @@ def run_web_stack(environ: dict[str, str] | None = None) -> int:
                 )
                 if not wait_for_local_api(
                     target.port,
-                    timeout=STARTUP_TIMEOUT_SECONDS,
+                    timeout=target.startup_timeout_seconds,
                     process=api_process,
                 ):
                     raise RuntimeError(
                         f"{API_HEALTH_SERVICE} did not become healthy within "
-                        f"{STARTUP_TIMEOUT_SECONDS:.0f} seconds."
+                        f"{target.startup_timeout_seconds:.1f} seconds."
                     )
                 if api_process.poll() is not None:
                     api_process = None
@@ -218,9 +318,19 @@ def run_web_stack(environ: dict[str, str] | None = None) -> int:
                 f"{_api_origin_for_log(target.api_base_url)}"
             )
 
-        print("Starting Pixelle-Video Web UI on http://localhost:8501 ...")
+        print(f"Starting Pixelle-Video Web UI on http://127.0.0.1:{target.web_port} ...")
         web_process = _start_process(
-            [sys.executable, "-m", "streamlit", "run", "web/app.py"],
+            [
+                sys.executable,
+                "-m",
+                "streamlit",
+                "run",
+                "web/app.py",
+                "--server.address",
+                "127.0.0.1",
+                "--server.port",
+                str(target.web_port),
+            ],
             environ=child_environ,
         )
         while True:
