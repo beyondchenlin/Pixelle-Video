@@ -64,7 +64,7 @@ function Resolve-PixelleComfyUIBackendConfig {
     )
 
     $repoRoot = Get-PixelleRepoRoot
-    $resolvedDataRoot = Resolve-BackendValue $DataRoot 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData'
+    $resolvedDataRoot = Resolve-BackendValue $DataRoot 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData\pixelle'
     $sharedBasePath = Resolve-BackendValue '' 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData'
     $resolvedComfyUIRoot = Resolve-BackendValue $ComfyUIRoot 'PIXELLE_COMFYUI_ROOT' 'E:\comfyui\resources\ComfyUI'
     $defaultFrontEndRoot = Join-Path $resolvedComfyUIRoot 'web_custom_versions\desktop_app'
@@ -74,7 +74,7 @@ function Resolve-PixelleComfyUIBackendConfig {
     return [ordered]@{
         ProfileName = $resolvedProfileName
         RepoRoot = $repoRoot
-        PythonExe = Resolve-BackendValue $PythonExe 'PIXELLE_COMFYUI_PYTHON' (Join-Path $resolvedDataRoot '.venv\Scripts\python.exe')
+        PythonExe = Resolve-BackendValue $PythonExe 'PIXELLE_COMFYUI_PYTHON' (Join-Path $sharedBasePath '.venv\Scripts\python.exe')
         ComfyUIRoot = $resolvedComfyUIRoot
         DataRoot = $resolvedDataRoot
         SharedBasePath = $sharedBasePath

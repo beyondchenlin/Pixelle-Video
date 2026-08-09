@@ -280,13 +280,11 @@ Browser will automatically open http://localhost:8501. The API health check is h
 
 #### Local ComfyUI Backend Ports and Commands
 
-Pixelle uses fixed local port roles so the API, Web UI, and multiple ComfyUI backends do not compete for the same port:
+Pixelle starts one local ComfyUI backend shared by image and TTS workflows:
 
 | Role | Address | Start | Stop | Check |
 | ---- | ---- | ---- | ---- | ---- |
-| Existing default ComfyUI (kept unchanged) | `http://127.0.0.1:8000` | `scripts\comfyui\start_backend.bat` | `scripts\comfyui\stop_backend.bat` | `scripts\comfyui\check_backend.bat` |
-| Image ComfyUI | `http://127.0.0.1:8001` | `scripts\comfyui\start_image_backend.bat` | `scripts\comfyui\stop_image_backend.bat` | `scripts\comfyui\check_image_backend.bat` |
-| TTS ComfyUI | `http://127.0.0.1:8002` | `scripts\comfyui\start_tts_backend.bat` | `scripts\comfyui\stop_tts_backend.bat` | `scripts\comfyui\check_tts_backend.bat` |
+| Shared image and TTS ComfyUI | `http://127.0.0.1:8000` | `scripts\comfyui\start_backend.bat` | `scripts\comfyui\stop_backend.bat` | `scripts\comfyui\check_backend.bat` |
 | Pixelle API | `http://localhost:8888` | `start_web.bat` or `uv run uvicorn api.app:app --host 127.0.0.1 --port 8888` | Close the terminal window or press `Ctrl+C` | `http://localhost:8888/health` |
 | Web UI | `http://localhost:8501` | `start_web.bat` or `uv run streamlit run web/app.py` | Close the terminal window or press `Ctrl+C` | Open `http://localhost:8501` in a browser |
 
@@ -295,11 +293,8 @@ Windows users should prefer the `.bat` entry points and do not need to type Powe
 ```bat
 start_web.bat
 scripts\comfyui\start_backend.bat
-scripts\comfyui\start_image_backend.bat
-scripts\comfyui\start_tts_backend.bat
 scripts\comfyui\stop_backend.bat
-scripts\comfyui\stop_image_backend.bat
-scripts\comfyui\stop_tts_backend.bat
+scripts\comfyui\check_backend.bat
 ```
 
 #### Step 3: Configure in Web Interface

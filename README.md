@@ -296,13 +296,11 @@ uv run streamlit run web/app.py
 
 #### 本地 ComfyUI 后端端口与命令
 
-Pixelle 本地运行时使用固定端口分工，避免 API、Web 和多个 ComfyUI 后端互相抢占端口：
+Pixelle 本地运行时只启动一个 ComfyUI 后端，图片与语音工作流共享同一进程：
 
 | 角色 | 地址 | 启动 | 停止 | 检查 |
 | ---- | ---- | ---- | ---- | ---- |
-| 原有默认 ComfyUI（保留不变） | `http://127.0.0.1:8000` | `scripts\comfyui\start_backend.bat` | `scripts\comfyui\stop_backend.bat` | `scripts\comfyui\check_backend.bat` |
-| 图片 ComfyUI | `http://127.0.0.1:8001` | `scripts\comfyui\start_image_backend.bat` | `scripts\comfyui\stop_image_backend.bat` | `scripts\comfyui\check_image_backend.bat` |
-| TTS ComfyUI | `http://127.0.0.1:8002` | `scripts\comfyui\start_tts_backend.bat` | `scripts\comfyui\stop_tts_backend.bat` | `scripts\comfyui\check_tts_backend.bat` |
+| 图片与语音共用的 ComfyUI | `http://127.0.0.1:8000` | `scripts\comfyui\start_backend.bat` | `scripts\comfyui\stop_backend.bat` | `scripts\comfyui\check_backend.bat` |
 | Pixelle API | `http://localhost:8888` | `start_web.bat` 或 `uv run uvicorn api.app:app --host 127.0.0.1 --port 8888` | 关闭对应终端窗口或按 `Ctrl+C` | `http://localhost:8888/health` |
 | Web UI | `http://localhost:8501` | `start_web.bat` 或 `uv run streamlit run web/app.py` | 关闭对应终端窗口或按 `Ctrl+C` | 浏览器打开 `http://localhost:8501` |
 
@@ -311,11 +309,8 @@ Windows 用户优先双击 `.bat` 入口，不需要手写 PowerShell 参数：
 ```bat
 start_web.bat
 scripts\comfyui\start_backend.bat
-scripts\comfyui\start_image_backend.bat
-scripts\comfyui\start_tts_backend.bat
 scripts\comfyui\stop_backend.bat
-scripts\comfyui\stop_image_backend.bat
-scripts\comfyui\stop_tts_backend.bat
+scripts\comfyui\check_backend.bat
 ```
 
 #### 第三步：在 Web 界面配置

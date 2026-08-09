@@ -41,27 +41,18 @@ def test_windows_batch_launchers_run_matching_powershell_scripts() -> None:
         assert "pause" in text.lower()
 
 
-def test_dual_backend_batch_launchers_wrap_profile_commands() -> None:
-    expected = {
-        "start_image_backend.bat": ("start_backend.ps1", "8001", "pixelle-image", "image"),
-        "start_tts_backend.bat": ("start_backend.ps1", "8002", "pixelle-tts", "tts"),
-        "stop_image_backend.bat": ("stop_backend.ps1", "8001", "pixelle-image", "image"),
-        "stop_tts_backend.bat": ("stop_backend.ps1", "8002", "pixelle-tts", "tts"),
-        "check_image_backend.bat": ("check_backend.ps1", "8001", "pixelle-image", "image"),
-        "check_tts_backend.bat": ("check_backend.ps1", "8002", "pixelle-tts", "tts"),
-    }
+def test_obsolete_dual_backend_batch_launchers_are_removed() -> None:
+    obsolete_launchers = (
+        "start_image_backend.bat",
+        "start_tts_backend.bat",
+        "stop_image_backend.bat",
+        "stop_tts_backend.bat",
+        "check_image_backend.bat",
+        "check_tts_backend.bat",
+    )
 
-    for filename, (script_name, port, data_root_name, profile_name) in expected.items():
-        batch_path = SCRIPT_DIR / filename
-
-        assert batch_path.exists()
-        text = batch_path.read_text(encoding="ascii")
-
-        assert f'"%~dp0{script_name}"' in text
-        assert f"-Port {port}" in text
-        assert f"E:\\ComfyUIData\\{data_root_name}" in text
-        assert f"_runtime\\comfyui\\{profile_name}" in text
-        assert f"logs\\comfyui\\{profile_name}" in text
+    for filename in obsolete_launchers:
+        assert not (SCRIPT_DIR / filename).exists()
 
 
 def test_root_readmes_document_fixed_local_backend_ports() -> None:
@@ -70,19 +61,17 @@ def test_root_readmes_document_fixed_local_backend_ports() -> None:
         "http://localhost:8888/health",
         "http://localhost:8501",
         "http://127.0.0.1:8000",
-        "http://127.0.0.1:8001",
-        "http://127.0.0.1:8002",
         r"scripts\comfyui\start_backend.bat",
-        r"scripts\comfyui\start_image_backend.bat",
-        r"scripts\comfyui\start_tts_backend.bat",
         r"scripts\comfyui\stop_backend.bat",
-        r"scripts\comfyui\stop_image_backend.bat",
-        r"scripts\comfyui\stop_tts_backend.bat",
         r"scripts\comfyui\check_backend.bat",
-        r"scripts\comfyui\check_image_backend.bat",
-        r"scripts\comfyui\check_tts_backend.bat",
     )
     forbidden_tokens = (
+        "http://127.0.0.1:8001",
+        "http://127.0.0.1:8002",
+        r"scripts\comfyui\start_image_backend.bat",
+        r"scripts\comfyui\start_tts_backend.bat",
+        r"scripts\comfyui\stop_image_backend.bat",
+        r"scripts\comfyui\stop_tts_backend.bat",
         "uv run uvicorn api.app:app --host 127.0.0.1 --port 8001",
         "http://localhost:8001/health",
         "http://localhost:8001/docs",

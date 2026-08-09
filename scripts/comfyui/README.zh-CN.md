@@ -21,22 +21,6 @@ start_backend.bat
 stop_backend.bat
 ```
 
-双 ComfyUI 后端可直接使用角色化入口，避免手写端口和目录参数：
-
-```text
-start_image_backend.bat
-start_tts_backend.bat
-stop_image_backend.bat
-stop_tts_backend.bat
-check_image_backend.bat
-check_tts_backend.bat
-```
-
-这些入口固定使用：
-
-- 图片 ComfyUI：`127.0.0.1:8001`，数据目录 `E:\ComfyUIData\pixelle-image`
-- TTS ComfyUI：`127.0.0.1:8002`，数据目录 `E:\ComfyUIData\pixelle-tts`
-
 双击 `.bat` 文件会真正执行对应命令，而不是打开脚本源码。
 
 `.bat` 文件会调用对应的 PowerShell 脚本，并使用：
@@ -67,9 +51,10 @@ logs\comfyui\
 
 - ComfyUI Python：`E:\ComfyUIData\.venv\Scripts\python.exe`
 - ComfyUI 根目录：`E:\comfyui\resources\ComfyUI`
-- ComfyUI 数据目录：`E:\ComfyUIData`
+- ComfyUI 数据目录：`E:\ComfyUIData\pixelle`
+- 共享模型与插件目录：`E:\ComfyUIData`
 - 前端资源目录：`E:\comfyui\resources\ComfyUI\web_custom_versions\desktop_app`
-- 数据库 URL：`sqlite:///E:/ComfyUIData/user/comfyui.db`
+- 数据库 URL：`sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db`
 - 监听地址：`127.0.0.1:8000`
 - 后端 PID 文件：`_runtime\comfyui\comfyui-backend.pid`
 - 启动器 PID 文件：`_runtime\comfyui\comfyui-backend.launcher.pid`
@@ -81,9 +66,9 @@ logs\comfyui\
 ```powershell
 $env:PIXELLE_COMFYUI_PYTHON = 'E:\ComfyUIData\.venv\Scripts\python.exe'
 $env:PIXELLE_COMFYUI_ROOT = 'E:\comfyui\resources\ComfyUI'
-$env:PIXELLE_COMFYUI_DATA_ROOT = 'E:\ComfyUIData'
+$env:PIXELLE_COMFYUI_DATA_ROOT = 'E:\ComfyUIData\pixelle'
 $env:PIXELLE_COMFYUI_FRONTEND_ROOT = 'E:\comfyui\resources\ComfyUI\web_custom_versions\desktop_app'
-$env:PIXELLE_COMFYUI_DATABASE_URL = 'sqlite:///E:/ComfyUIData/user/comfyui.db'
+$env:PIXELLE_COMFYUI_DATABASE_URL = 'sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db'
 $env:PIXELLE_COMFYUI_PORT = '8000'
 ```
 

@@ -3968,7 +3968,7 @@ async def test_release_comfyui_after_index_tts2_workflow_restarts_backend_when_e
 
 
 @pytest.mark.asyncio
-async def test_release_comfyui_after_index_tts2_workflow_skips_restart_when_disabled():
+async def test_release_comfyui_after_index_tts2_workflow_skips_restart_when_disabled(monkeypatch):
     events = []
 
     core = PixelleVideoCore()
@@ -3977,6 +3977,7 @@ async def test_release_comfyui_after_index_tts2_workflow_skips_restart_when_disa
         events.append(("restart", backend_role, reason))
         raise AssertionError("restart_after_batch=False should keep the backend alive")
 
+    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: False)
     core._restart_comfyui_backend_role = _restart
 
     assert await core.release_comfyui_after_index_tts2_workflow(
