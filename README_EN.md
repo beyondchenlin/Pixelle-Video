@@ -401,6 +401,8 @@ Then change these fields to match the local installation:
 | `runtime_dir` | Managed process PID files | Use a dedicated project directory |
 | `logs_dir` | Backend logs | Use a dedicated project directory |
 
+Relative paths such as `runtime_dir` and `logs_dir` are resolved from the directory containing the file passed through `--config`, not from the script installation directory or the current worktree. Process state and logs therefore remain owned by the same project even when the management command runs elsewhere.
+
 Pixelle starts, stops, and restarts the backend only when `backend_management_mode: auto`, `managed: true`, and a manageable local URL are all active. Remote ComfyUI, RunningHub, and other cloud workflows do not start the local backend.
 
 ##### 4. Recommended startup: pre-start the backend, then start Pixelle

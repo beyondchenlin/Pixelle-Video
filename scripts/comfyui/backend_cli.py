@@ -50,6 +50,7 @@ async def _run_action(action: str, config_path: Path, profile_name: str) -> dict
 
     backend = ManagedComfyUIBackend(
         repo_root=REPO_ROOT,
+        working_directory=config_path.parent,
         profile_name=profile_name,
         profile=profile,
         management_mode="required",

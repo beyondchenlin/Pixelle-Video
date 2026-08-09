@@ -405,6 +405,8 @@ Copy-Item .\config.example.yaml .\config.yaml
 | `runtime_dir` | 托管进程 PID 文件目录 | 使用项目内独立目录 |
 | `logs_dir` | 后端日志目录 | 使用项目内独立目录 |
 
+`runtime_dir` 和 `logs_dir` 等相对路径以 `--config` 指定的配置文件所在目录为基准，不以脚本安装目录或当前工作树为基准。这样从其他目录执行管理命令时，进程状态和日志仍归属于同一个项目。
+
 `backend_management_mode: auto`、`managed: true` 和本机地址同时满足时，Pixelle 才会自动启动、停止和重启该后端。远程 ComfyUI、RunningHub 或其他云端工作流不会触发本地后端启动。
 
 ##### 4. 推荐启动方式：先预启动后端，再启动项目

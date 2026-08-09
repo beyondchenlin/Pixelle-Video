@@ -32,6 +32,7 @@ class ManagedComfyUIBackend:
         self,
         *,
         repo_root: str | Path | None = None,
+        working_directory: str | Path | None = None,
         comfyui_url: str | None = None,
         profile_name: str = "default",
         profile: ComfyUIBackendProfile | None = None,
@@ -39,7 +40,12 @@ class ManagedComfyUIBackend:
         ready_timeout_seconds: int = 90,
         command_timeout_seconds: int | None = None,
     ) -> None:
-        self.repo_root = Path(repo_root) if repo_root else Path.cwd()
+        self.repo_root = (Path(repo_root) if repo_root else Path.cwd()).resolve()
+        self.working_directory = (
+            Path(working_directory).resolve()
+            if working_directory is not None
+            else self.repo_root
+        )
         self.profile_name = (profile_name or "default").strip() or "default"
         self.profile = profile or ComfyUIBackendProfile(url=comfyui_url)
         self.comfyui_url = str(self.profile.url or comfyui_url or "").strip()
@@ -235,7 +241,7 @@ class ManagedComfyUIBackend:
             with stderr_path.open("w", encoding="utf-8", errors="replace") as stderr_file:
                 return subprocess.run(
                     command,
-                    cwd=str(self.repo_root),
+                    cwd=str(self.working_directory),
                     stdout=stdout_file,
                     stderr=stderr_file,
                     text=True,

@@ -54,6 +54,7 @@ async def test_backend_cli_reads_default_profile_from_config(monkeypatch, tmp_pa
     payload = await backend_cli._run_action("start", config_path, "default")
 
     assert captured["profile_name"] == "default"
+    assert captured["working_directory"] == config_path.parent
     assert captured["profile"].shared_base_path == "D:/ComfyData"
     assert captured["reason"] == "manual-start"
     assert payload["result"] == {"started": True}

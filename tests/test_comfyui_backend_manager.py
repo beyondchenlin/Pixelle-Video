@@ -211,8 +211,11 @@ async def test_managed_backend_reads_script_output_from_files(monkeypatch, tmp_p
     scripts_dir = tmp_path / "scripts" / "comfyui"
     scripts_dir.mkdir(parents=True)
     (scripts_dir / "start_backend.ps1").write_text("# test", encoding="utf-8")
+    working_directory = tmp_path / "configured-project"
+    working_directory.mkdir()
     backend = ManagedComfyUIBackend(
         repo_root=tmp_path,
+        working_directory=working_directory,
         comfyui_url="http://127.0.0.1:8001",
         profile=ComfyUIBackendProfile(
             url="http://127.0.0.1:8001",
@@ -224,6 +227,7 @@ async def test_managed_backend_reads_script_output_from_files(monkeypatch, tmp_p
     )
 
     def fake_run(command, **kwargs):
+        assert kwargs["cwd"] == str(working_directory.resolve())
         assert kwargs.get("capture_output") is not True
         assert kwargs["stdout"] is not subprocess.PIPE
         assert kwargs["stderr"] is not subprocess.PIPE
