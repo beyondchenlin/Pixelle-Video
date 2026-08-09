@@ -242,9 +242,11 @@ sudo apt install ffmpeg
 
 After installation, run `ffmpeg -version` in the terminal to verify successful installation.
 
-##### Prepare Chrome for HyperFrames rendering
+##### Prepare Chrome for video rendering and HTML frame previews
 
-Pixelle uses Puppeteer to drive Chrome for video frame rendering. The renderer selects a browser in this order:
+Pixelle uses Puppeteer to drive Chrome for video rendering and Playwright for HTML frames and text previews. Both paths prefer explicit configuration, then a dependency-pinned build, and only then a system browser. An auto-updating system installation never takes precedence over a pinned build.
+
+The HyperFrames renderer selects a browser in this order:
 
 1. A browser explicitly set through `PRODUCER_HEADLESS_SHELL_PATH`.
 2. The Chrome build pinned to the installed Puppeteer dependency.
@@ -272,6 +274,21 @@ cd ../..
 ```
 
 For `Could not find Chrome`, verify the browser path and `PRODUCER_HEADLESS_SHELL_PATH` before downloading another browser.
+
+HTML frames and text previews select a browser in this order:
+
+1. `PIXELLE_BROWSER_EXECUTABLE` or a compatible browser-path environment variable.
+2. The installed Chromium build pinned by the current Playwright version.
+3. A pinned build in the Puppeteer cache.
+4. System Chrome, Edge, or Chromium.
+
+Use one explicit path for a custom browser installation:
+
+```powershell
+$env:PIXELLE_BROWSER_EXECUTABLE='D:\Apps\Chrome\chrome.exe'
+```
+
+A stale path fails immediately instead of silently selecting another version. Browser sandboxing remains enabled by default. Set `PIXELLE_BROWSER_DISABLE_SANDBOX=1` only inside a controlled container that cannot run the sandbox.
 
 
 #### Step 1: Clone Project

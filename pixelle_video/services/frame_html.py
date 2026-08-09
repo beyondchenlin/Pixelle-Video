@@ -22,7 +22,8 @@ Linux Environment Requirements:
     Ubuntu/Debian: sudo apt-get install -y fontconfig fonts-liberation fonts-noto-cjk
     CentOS/RHEL: sudo yum install -y fontconfig liberation-fonts google-noto-cjk-fonts
     
-    Playwright browser install: playwright install --with-deps chromium
+    Browser resolution order: explicit override, Playwright pinned browser,
+    Puppeteer pinned cache, then a system Chrome/Edge/Chromium installation.
 """
 
 import asyncio
@@ -48,6 +49,10 @@ from pixelle_video.models.media_placement import (
     resolve_media_placement,
 )
 from pixelle_video.models.template_parameters import is_reserved_template_param
+from pixelle_video.services.browser_executable import (
+    browser_launch_args,
+    resolve_browser_executable,
+)
 from pixelle_video.services.frame_render_readiness import FrameRenderReadiness
 from pixelle_video.utils.os_util import get_temp_path
 from pixelle_video.utils.template_util import parse_template_size
@@ -713,19 +718,23 @@ class HTMLFrameGenerator:
             from playwright.async_api import async_playwright
 
             playwright = await async_playwright().start()
-            browser = await playwright.chromium.launch(
-                args=[
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu',
-                    '--disable-extensions',
-                ]
-            )
+            try:
+                executable = resolve_browser_executable(playwright.chromium)
+                browser = await playwright.chromium.launch(
+                    executable_path=str(executable.path),
+                    args=browser_launch_args(),
+                )
+            except Exception:
+                await playwright.stop()
+                raise
             cls._set_browser_state(
                 current_loop,
                 _BrowserState(browser=browser, playwright=playwright),
             )
-            logger.debug("Initialized Playwright Chromium browser")
+            logger.debug(
+                "Initialized Playwright Chromium browser from "
+                f"{executable.source}: {executable.path}"
+            )
             return browser
 
     @classmethod

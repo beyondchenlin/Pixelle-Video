@@ -363,7 +363,6 @@ def test_render_style_config_updates_text_layer_style_from_editor_controls(monke
     assert layer["style"] == {
         "text_content": "Independent text",
         "font_family": "SimHei",
-        "font_file": "fonts/simhei.ttf",
         "font_size": 54,
         "primary_color": "#112233",
         "stroke_color": "#445566",

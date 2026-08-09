@@ -246,9 +246,11 @@ sudo apt install ffmpeg
 
 安装完成后，在终端中运行 `ffmpeg -version` 验证安装成功。
 
-##### 准备 Chrome（用于 HyperFrames 渲染）
+##### 准备 Chrome（用于视频渲染与 HTML 帧预览）
 
-项目使用 Puppeteer 驱动 Chrome 进行视频帧渲染。渲染器按以下顺序选择浏览器：
+项目使用 Puppeteer 驱动 Chrome 进行视频帧渲染，并使用 Playwright 生成 HTML 帧和文字预览。两条链路都遵循“显式配置优先、依赖锁定版本其次、系统浏览器最后”的规则，不会把会自动升级的系统浏览器放在锁定版本之前。
+
+HyperFrames 渲染器按以下顺序选择浏览器：
 
 1. 环境变量 `PRODUCER_HEADLESS_SHELL_PATH` 指定的浏览器。
 2. Puppeteer 缓存中与当前依赖版本锁定的 Chrome。
@@ -276,6 +278,21 @@ cd ../..
 ```
 
 出现 `Could not find Chrome` 时，先检查浏览器路径和 `PRODUCER_HEADLESS_SHELL_PATH`，再执行下载命令。
+
+HTML 帧和文字预览按以下顺序选择浏览器：
+
+1. `PIXELLE_BROWSER_EXECUTABLE` 或兼容的浏览器路径环境变量。
+2. Playwright 当前版本锁定且已经安装的 Chromium。
+3. Puppeteer 缓存中的锁定版本。
+4. 系统 Chrome、Edge 或 Chromium。
+
+自定义浏览器路径时，推荐统一设置：
+
+```powershell
+$env:PIXELLE_BROWSER_EXECUTABLE='D:\Apps\Chrome\chrome.exe'
+```
+
+路径不存在时会直接报错，不会静默切换到另一个版本。浏览器沙箱默认保持启用；只有受控容器环境确实无法使用沙箱时，才允许临时设置 `PIXELLE_BROWSER_DISABLE_SANDBOX=1`。
 
 
 #### 第一步：下载项目

@@ -299,8 +299,17 @@ class HyperFramesCompiledPreviewFrameRenderer:
                 "Playwright is required for real text rendering preview frames."
             ) from exc
 
+        from pixelle_video.services.browser_executable import (
+            browser_launch_args,
+            resolve_browser_executable,
+        )
+
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch()
+            executable = resolve_browser_executable(playwright.chromium)
+            browser = await playwright.chromium.launch(
+                executable_path=str(executable.path),
+                args=browser_launch_args(),
+            )
             try:
                 page = await browser.new_page()
                 await page.set_viewport_size({"width": int(width), "height": int(height)})

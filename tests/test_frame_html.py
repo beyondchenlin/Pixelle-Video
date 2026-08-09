@@ -83,7 +83,9 @@ def test_html_frame_generator_isolates_browser_instances_per_runtime(monkeypatch
             self.closed = True
 
     class FakeChromium:
-        async def launch(self, args=None):
+        executable_path = sys.executable
+
+        async def launch(self, **_kwargs):
             browser = FakeBrowser(f"browser-{len(launches)}")
             launches.append(browser)
             return browser
