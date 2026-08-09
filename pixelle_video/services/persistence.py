@@ -16,8 +16,10 @@ Persistence Service
 Handles task metadata and storyboard persistence to filesystem.
 """
 
+import asyncio
 import json
 import os
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -44,6 +46,7 @@ from pixelle_video.render_backend import (
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
 )
 from pixelle_video.utils.json_safety import to_json_compatible
+from pixelle_video.utils.path_safety import resolve_task_dir
 from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
 
 
@@ -91,11 +94,13 @@ class PersistenceService:
 
         # Index file for fast listing
         self.index_file = self.output_dir / ".index.json"
+        self.index_lock_file = self.output_dir / ".index.lock"
+        self._index_lock = asyncio.Lock()
         self._ensure_index()
 
     def get_task_dir(self, task_id: str) -> Path:
         """Get task directory path"""
-        return self.output_dir / task_id
+        return resolve_task_dir(self.output_dir, task_id)
 
     def get_metadata_path(self, task_id: str) -> Path:
         """Get metadata.json path"""
@@ -309,36 +314,24 @@ class PersistenceService:
             List of metadata dicts, sorted by created_at descending
         """
         try:
-            tasks = []
+            if limit < 0 or offset < 0:
+                raise ValueError("limit and offset must be non-negative")
+            index = self._load_index()
+            summaries = list(index.get("tasks", []))
+            if status:
+                summaries = [item for item in summaries if item.get("status") == status]
+            summaries.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+            selected = summaries[offset : offset + limit]
 
-            # Scan all task directories
-            for task_dir in self.output_dir.iterdir():
-                if not task_dir.is_dir():
+            tasks: list[dict[str, Any]] = []
+            for summary in selected:
+                task_id = summary.get("task_id")
+                if not isinstance(task_id, str):
                     continue
-
-                metadata_path = task_dir / "metadata.json"
-                if not metadata_path.exists():
-                    continue
-
-                try:
-                    with open(metadata_path, "r", encoding="utf-8") as f:
-                        metadata = json.load(f)
-
-                    # Filter by status
-                    if status and metadata.get("status") != status:
-                        continue
-
+                metadata = await self.load_task_metadata(task_id)
+                if metadata is not None:
                     tasks.append(metadata)
-
-                except Exception as e:
-                    logger.warning(f"Failed to load metadata from {task_dir}: {e}")
-                    continue
-
-            # Sort by created_at descending
-            tasks.sort(key=lambda t: t.get("created_at", ""), reverse=True)
-
-            # Apply pagination
-            return tasks[offset:offset + limit]
+            return tasks
 
         except Exception as e:
             logger.error(f"Failed to list tasks: {e}")
@@ -679,23 +672,21 @@ class PersistenceService:
         """Load index from file"""
         try:
             with open(self.index_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+                index = json.load(f)
+            if not isinstance(index, dict) or not isinstance(index.get("tasks"), list):
+                raise ValueError("task index must contain a tasks list")
+            return index
         except Exception as e:
             logger.error(f"Failed to load index: {e}")
-            return {"version": "1.0", "tasks": []}
+            return self._scan_index_snapshot()
 
     def _save_index(self, index_data: Dict[str, Any]):
         """Save index to file"""
-        try:
-            index_data["last_updated"] = datetime.now().isoformat()
-            self._write_json_atomic(self.index_file, index_data)
-        except Exception as e:
-            logger.error(f"Failed to save index: {e}")
+        index_data["last_updated"] = datetime.now().isoformat()
+        self._write_json_atomic(self.index_file, index_data)
 
     async def _update_index_for_task(self, task_id: str, metadata: Dict[str, Any]):
         """Update index entry for a specific task"""
-        index = self._load_index()
-
         # Try to get title from multiple sources
         title = metadata.get("input", {}).get("title")
         if not title or title == "":
@@ -725,63 +716,108 @@ class PersistenceService:
             "video_path": metadata.get("result", {}).get("video_path"),
         }
 
-        # Update or append
-        tasks = index.get("tasks", [])
-        existing_idx = next((i for i, t in enumerate(tasks) if t["task_id"] == task_id), None)
+        async with self._index_lock:
+            await asyncio.to_thread(self._replace_index_entry, task_id, index_entry)
 
-        if existing_idx is not None:
-            tasks[existing_idx] = index_entry
-        else:
-            tasks.append(index_entry)
+    def _replace_index_entry(self, task_id: str, index_entry: Dict[str, Any]) -> None:
+        with self._exclusive_index_file_lock():
+            index = self._load_index()
+            tasks = list(index.get("tasks", []))
+            existing_idx = next(
+                (i for i, item in enumerate(tasks) if item.get("task_id") == task_id),
+                None,
+            )
+            if existing_idx is None:
+                tasks.append(index_entry)
+            else:
+                tasks[existing_idx] = index_entry
+            index["tasks"] = tasks
+            self._save_index(index)
 
-        index["tasks"] = tasks
-        self._save_index(index)
+    @contextmanager
+    def _exclusive_index_file_lock(self):
+        """Serialize index read-modify-write across processes."""
+
+        self.index_lock_file.touch(exist_ok=True)
+        with self.index_lock_file.open("r+b") as handle:
+            if self.index_lock_file.stat().st_size == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     async def rebuild_index(self):
         """Rebuild index by scanning all task directories"""
         logger.info("Rebuilding task index...")
-        index = {"version": "1.0", "tasks": []}
+        async with self._index_lock:
+            index = await asyncio.to_thread(self._rebuild_index_sync)
+        logger.info(f"Index rebuilt: {len(index['tasks'])} tasks")
 
-        # Scan all directories
+    def _rebuild_index_sync(self) -> Dict[str, Any]:
+        with self._exclusive_index_file_lock():
+            index = self._scan_index_snapshot()
+            self._save_index(index)
+        return index
+
+    def _scan_index_snapshot(self) -> Dict[str, Any]:
+        """Recover task summaries from canonical metadata without mutating the index."""
+
+        index: Dict[str, Any] = {"version": "1.0", "tasks": []}
         for task_dir in self.output_dir.iterdir():
             if not task_dir.is_dir() or task_dir.name.startswith("."):
                 continue
-
-            task_id = task_dir.name
-            metadata = await self.load_task_metadata(task_id)
-
-            if metadata:
-                # Try to get title from multiple sources
-                title = metadata.get("input", {}).get("title")
-                if not title or title == "":
-                    # Try to get title from storyboard if input title is empty
-                    storyboard = await self.load_storyboard(task_id)
-                    if storyboard and storyboard.title:
-                        title = storyboard.title
-                    else:
-                        # Fall back to using input text preview
-                        input_text = metadata.get("input", {}).get("text", "")
-                        if input_text:
-                            # Use first 30 characters of input text as title
-                            title = input_text[:30] + ("..." if len(input_text) > 30 else "")
-                        else:
-                            title = "Untitled"
-
-                # Add to index
-                index["tasks"].append({
-                    "task_id": task_id,
+            metadata_path = task_dir / "metadata.json"
+            if not metadata_path.is_file():
+                continue
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                logger.warning(f"Failed to load metadata from {task_dir}: {error}")
+                continue
+            input_data = metadata.get("input", {})
+            result_data = metadata.get("result", {})
+            if not isinstance(input_data, dict):
+                input_data = {}
+            if not isinstance(result_data, dict):
+                result_data = {}
+            title = input_data.get("title")
+            if not title:
+                input_text = str(input_data.get("text", ""))
+                title = (
+                    input_text[:30] + ("..." if len(input_text) > 30 else "")
+                    if input_text
+                    else "Untitled"
+                )
+            index["tasks"].append(
+                {
+                    "task_id": task_dir.name,
                     "created_at": metadata.get("created_at"),
                     "completed_at": metadata.get("completed_at"),
                     "status": metadata.get("status", "unknown"),
                     "title": title,
-                    "duration": metadata.get("result", {}).get("duration", 0),
-                    "n_frames": metadata.get("result", {}).get("n_frames", 0),
-                    "file_size": metadata.get("result", {}).get("file_size", 0),
-                    "video_path": metadata.get("result", {}).get("video_path"),
-                })
-
-        self._save_index(index)
-        logger.info(f"Index rebuilt: {len(index['tasks'])} tasks")
+                    "duration": result_data.get("duration", 0),
+                    "n_frames": result_data.get("n_frames", 0),
+                    "file_size": result_data.get("file_size", 0),
+                    "video_path": result_data.get("video_path"),
+                }
+            )
+        return index
 
     # ========================================================================
     # Paginated Listing
@@ -899,13 +935,20 @@ class PersistenceService:
                 logger.info(f"Deleted task directory: {task_dir}")
 
             # Update index
-            index = self._load_index()
-            tasks = index.get("tasks", [])
-            tasks = [t for t in tasks if t["task_id"] != task_id]
-            index["tasks"] = tasks
-            self._save_index(index)
+            async with self._index_lock:
+                await asyncio.to_thread(self._remove_index_entry, task_id)
 
             return True
         except Exception as e:
             logger.error(f"Failed to delete task {task_id}: {e}")
             return False
+
+    def _remove_index_entry(self, task_id: str) -> None:
+        with self._exclusive_index_file_lock():
+            index = self._load_index()
+            index["tasks"] = [
+                item
+                for item in index.get("tasks", [])
+                if item.get("task_id") != task_id
+            ]
+            self._save_index(index)
