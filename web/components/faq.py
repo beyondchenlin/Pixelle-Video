@@ -15,13 +15,21 @@ FAQ component for displaying frequently asked questions
 """
 
 import re
+from html import unescape
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 import streamlit as st
 from loguru import logger
 
 from web.i18n import get_language, tr
+
+_FAQ_IMAGE_TAG_PATTERN = re.compile(r"<img\s+[^>]*>", re.IGNORECASE)
+_HTML_ATTRIBUTE_PATTERN = re.compile(
+    r"(?P<name>src|alt)\s*=\s*(?P<quote>['\"])(?P<value>.*?)(?P=quote)",
+    re.IGNORECASE,
+)
 
 
 def load_faq_content(language: str) -> Optional[str]:
@@ -102,6 +110,25 @@ def parse_faq_sections(content: str) -> list[tuple[str, str]]:
     return sections
 
 
+def prepare_faq_answer(answer: str) -> str:
+    """Convert allowlisted FAQ image tags to safe Markdown images."""
+
+    def replace_image(match: re.Match[str]) -> str:
+        attributes = {
+            attribute.group("name").casefold(): unescape(attribute.group("value"))
+            for attribute in _HTML_ATTRIBUTE_PATTERN.finditer(match.group(0))
+        }
+        source = attributes.get("src", "")
+        parsed = urlsplit(source)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return ""
+        alt = attributes.get("alt", "FAQ image").replace("[", "").replace("]", "")
+        safe_source = source.replace("(", "%28").replace(")", "%29")
+        return f"![{alt}]({safe_source})"
+
+    return _FAQ_IMAGE_TAG_PATTERN.sub(replace_image, answer)
+
+
 def render_faq_sidebar():
     """
     Render FAQ in the sidebar
@@ -120,15 +147,23 @@ def render_faq_sidebar():
         faq_content = load_faq_content(current_language)
         
         if faq_content:
-            # Display FAQ in an expander, expanded by default
-            with st.expander(tr('faq.expand_to_view', fallback='FAQ'), expanded=True):
+            # A visual expander does not create an execution boundary in Streamlit.
+            # Select one answer explicitly so hidden answers and remote images do not load.
+            with st.expander(tr('faq.expand_to_view', fallback='FAQ'), expanded=False):
                 # Parse FAQ into sections
                 sections = parse_faq_sections(faq_content)
-                
-                # Display each question in its own collapsible expander
-                for question, answer in sections:
-                    with st.expander(question, expanded=False):
-                        st.markdown(answer, unsafe_allow_html=True)
+                answers = dict(sections)
+                if st.session_state.get("faq_selected_question") not in {None, *answers}:
+                    st.session_state.pop("faq_selected_question", None)
+                selected_question = st.selectbox(
+                    tr("faq.select_question"),
+                    options=[None, *answers],
+                    index=0,
+                    format_func=lambda value: value or tr("faq.select_placeholder"),
+                    key="faq_selected_question",
+                )
+                if selected_question:
+                    st.markdown(prepare_faq_answer(answers[selected_question]))
             
             # Add a link to GitHub issues for more help
             st.markdown(

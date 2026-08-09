@@ -4,7 +4,14 @@ from urllib.parse import unquote, urlsplit
 
 import pytest
 
-from web.utils.output_media_urls import build_output_media_urls
+from web.utils.output_media_urls import OutputMediaUrls, build_output_media_urls
+
+
+def test_output_media_urls_preserves_legacy_positional_constructor():
+    urls = OutputMediaUrls("stream", "download", "output/task/final.mp4")
+
+    assert urls.storage_path == "output/task/final.mp4"
+    assert urls.cover_url is None
 
 
 def test_build_output_media_urls_uses_streaming_api_for_file_under_output(tmp_path):
@@ -26,6 +33,9 @@ def test_build_output_media_urls_uses_streaming_api_for_file_under_output(tmp_pa
     )
     assert unquote(urlsplit(urls.download_url).path) == (
         "/api/files/download/output/任务 一/final #1.mp4"
+    )
+    assert unquote(urlsplit(urls.cover_url).path) == (
+        "/api/files/cover/output/任务 一/final #1.mp4"
     )
 
 

@@ -15,15 +15,19 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from datetime import datetime
+from functools import lru_cache
 from html import escape
+from pathlib import Path
 from typing import Any, Callable
 
 import streamlit as st
 from loguru import logger
 
 from pixelle_video.platform_context import CONFIGURED_API_BASE_URL
+from pixelle_video.utils.os_util import get_output_path
 from web.i18n import tr
 from web.utils.async_helpers import run_async
 from web.utils.output_media_urls import build_output_media_urls
@@ -34,6 +38,17 @@ RECENT_VIDEO_GRID_KEY = "recent_video_grid"
 RECENT_HISTORY_PAGE_SIZE = 12
 RECENT_HISTORY_MAX_PAGES = 4
 RECENT_VIDEO_LIMIT = 9
+
+
+@lru_cache(maxsize=8)
+def _read_recent_index_snapshot(
+    index_path: str,
+    modified_ns: int,
+    size_bytes: int,
+) -> Any:
+    """Cache immutable index snapshots across browser sessions until the file changes."""
+    del modified_ns, size_bytes
+    return json.loads(Path(index_path).read_text(encoding="utf-8"))
 
 
 def _coerce_text(value: Any, fallback: str) -> str:
@@ -62,6 +77,7 @@ def normalize_recent_video_item(
         "task_id": item.get("task_id"),
         "title": title,
         "video_path": str(video_path),
+        "cover_path": item.get("cover_path"),
         "duration": float(item.get("duration") or 0.0),
         "n_frames": int(item.get("n_frames") or 0),
         "created_at": item.get("created_at") or item.get("completed_at") or "",
@@ -131,6 +147,63 @@ def fetch_recent_history_video_items(
     return items
 
 
+def fetch_recent_history_video_items_from_index(
+    *,
+    output_root: str | Path | None = None,
+    file_exists: Callable[[str], bool] = os.path.exists,
+    limit: int = RECENT_VIDEO_LIMIT,
+) -> list[dict[str, Any]]:
+    """Read the rebuildable history index without initializing generation services."""
+    root = Path(output_root or get_output_path()).resolve()
+    index_path = root / ".index.json"
+    try:
+        stat = index_path.stat()
+        payload = _read_recent_index_snapshot(
+            str(index_path),
+            stat.st_mtime_ns,
+            stat.st_size,
+        )
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
+        logger.warning(f"Unable to read lightweight recent-video index: {type(exc).__name__}")
+        return []
+    tasks = payload.get("tasks") if isinstance(payload, dict) else None
+    if not isinstance(tasks, list):
+        return []
+
+    completed_tasks = [
+        task
+        for task in tasks
+        if isinstance(task, dict) and task.get("status") == "completed"
+    ]
+    completed_tasks.sort(
+        key=lambda task: str(task.get("completed_at") or task.get("created_at") or ""),
+        reverse=True,
+    )
+    items: list[dict[str, Any]] = []
+    for task in completed_tasks:
+        video_path = Path(str(task.get("video_path") or ""))
+        if not video_path.is_absolute():
+            parts = video_path.parts
+            if parts and parts[0].casefold() == "output":
+                video_path = Path(*parts[1:])
+            video_path = root / video_path
+        try:
+            resolved_video = video_path.resolve(strict=True)
+        except (FileNotFoundError, OSError, RuntimeError):
+            continue
+        if not resolved_video.is_file() or not resolved_video.is_relative_to(root):
+            continue
+        normalized = normalize_recent_video_item(
+            {**task, "video_path": str(resolved_video)},
+            file_exists=file_exists,
+        )
+        if normalized is not None:
+            items.append(normalized)
+            if len(items) >= limit:
+                break
+    return items
+
+
 def clear_recent_generated_video(session_state: dict[str, Any]) -> None:
     """Remove stale current-generation gallery state before a new valid run."""
     session_state.pop(RECENT_GENERATED_VIDEO_KEY, None)
@@ -170,6 +243,7 @@ def store_recent_generated_video(result: Any, session_state: dict[str, Any]) -> 
         "task_id": getattr(config, "task_id", None),
         "title": _coerce_text(getattr(storyboard, "title", None), tr("recent_videos.untitled")),
         "video_path": str(getattr(result, "video_path")),
+        "cover_path": getattr(result, "cover_path", None),
         "duration": float(getattr(result, "duration", 0.0) or 0.0),
         "n_frames": len(getattr(storyboard, "frames", []) or []),
         "created_at": created_at_value,
@@ -214,9 +288,27 @@ def build_recent_video_gallery_css(
     .st-key-{grid_key} div[data-testid="stMarkdownContainer"]:has(.recent-video-info) {{
         margin-bottom: 0 !important;
     }}
+    .recent-video-cover-link {{
+        display: block;
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        background: linear-gradient(135deg, rgba(110, 64, 201, 0.12), rgba(32, 171, 255, 0.10));
+        border-radius: 8px;
+    }}
+    .recent-video-cover {{
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 160ms ease, filter 160ms ease;
+    }}
+    .recent-video-cover-link:hover .recent-video-cover {{
+        transform: scale(1.025);
+        filter: brightness(0.94);
+    }}
     .recent-video-placeholder {{
         display: grid;
-        min-height: 4.5rem;
+        aspect-ratio: 16 / 9;
         place-items: center;
         color: rgba(49, 51, 63, 0.72);
         background: linear-gradient(135deg, rgba(110, 64, 201, 0.12), rgba(32, 171, 255, 0.10));
@@ -283,13 +375,17 @@ def format_recent_video_datetime(value: Any) -> str:
         return str(value)
 
 
-def render_recent_video_gallery(pixelle_video: Any, *, key_suffix: str = "") -> None:
+def render_recent_video_gallery(pixelle_video: Any | None, *, key_suffix: str = "") -> None:
     """Render the compact recent-video gallery inside the Home output card."""
     gallery_key = f"{RECENT_VIDEO_GALLERY_KEY}{key_suffix}"
     grid_key = f"{RECENT_VIDEO_GRID_KEY}{key_suffix}"
     st.markdown(build_recent_video_gallery_css(gallery_key, grid_key), unsafe_allow_html=True)
     current = get_current_recent_video_item(st.session_state)
-    history_items = fetch_recent_history_video_items(pixelle_video)
+    history_items = (
+        fetch_recent_history_video_items(pixelle_video)
+        if pixelle_video is not None
+        else fetch_recent_history_video_items_from_index()
+    )
     items = merge_recent_video_items(current, history_items)
 
     with st.container(key=gallery_key):
@@ -329,11 +425,27 @@ def render_recent_video_card(
         download_name=f"{download_stem[:120]}.mp4",
     )
     with st.container(border=True):
-        st.markdown(
-            '<div class="recent-video-placeholder" aria-hidden="true">🎬</div>',
-            unsafe_allow_html=True,
-        )
         title = escape(raw_title)
+        cover_url_value = getattr(media_urls, "cover_url", None) if media_urls is not None else None
+        if media_urls is not None and cover_url_value:
+            stream_url = escape(media_urls.stream_url, quote=True)
+            cover_url = escape(cover_url_value, quote=True)
+            st.markdown(
+                (
+                    f'<a class="recent-video-cover-link" href="{stream_url}" '
+                    'target="_blank" rel="noopener noreferrer" '
+                    f'aria-label="{escape(raw_title, quote=True)}">'
+                    f'<img class="recent-video-cover" src="{cover_url}" alt="{escape(raw_title, quote=True)}" '
+                    'loading="lazy" decoding="async" />'
+                    '</a>'
+                ),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="recent-video-placeholder" aria-hidden="true">🎬</div>',
+                unsafe_allow_html=True,
+            )
         meta = " · ".join(
             part
             for part in [

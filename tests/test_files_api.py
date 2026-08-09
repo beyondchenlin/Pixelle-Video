@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from api.file_access import sanitize_upload_filename
 from api.routers import files as files_router_module
@@ -125,6 +126,35 @@ def _files_client() -> TestClient:
     app = FastAPI()
     app.include_router(files_router)
     return TestClient(app)
+
+
+def test_video_cover_endpoint_creates_and_reuses_small_preview(monkeypatch, tmp_path):
+    video = tmp_path / "output" / "task-1" / "final.mp4"
+    frame = video.parent / "frames" / "01_image.png"
+    frame.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+    Image.new("RGB", (720, 1280), color="navy").save(frame)
+    monkeypatch.chdir(tmp_path)
+
+    first = _files_client().get("/files/cover/output/task-1/final.mp4")
+    second = _files_client().get("/files/cover/output/task-1/final.mp4")
+
+    assert first.status_code == 200
+    assert first.headers["content-type"] == "image/jpeg"
+    assert first.headers["cache-control"] == "private, max-age=3600"
+    assert first.content == second.content
+    assert len(first.content) < 100_000
+
+
+def test_video_cover_endpoint_rejects_non_output_file(monkeypatch, tmp_path):
+    resource = tmp_path / "resources" / "sample.mp4"
+    resource.parent.mkdir(parents=True)
+    resource.write_bytes(b"video")
+    monkeypatch.chdir(tmp_path)
+
+    response = _files_client().get("/files/cover/resources/sample.mp4")
+
+    assert response.status_code == 404
 
 
 def test_stream_file_supports_range_requests(monkeypatch, tmp_path):

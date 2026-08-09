@@ -30,6 +30,7 @@ from web.components.faq import render_faq_sidebar
 
 # Import components
 from web.components.header import render_header
+from web.components.recent_video_gallery import render_recent_video_gallery
 from web.components.settings import render_advanced_settings
 from web.i18n import tr
 
@@ -41,6 +42,7 @@ from web.state.session import get_pixelle_video, init_i18n, init_session_state
 from web.utils.streamlit_helpers import keyed_widget_default_kwargs
 
 HOME_PIPELINE_KEY = "home_active_pipeline"
+HOME_EDITOR_OPEN_KEY = "home_editor_open"
 
 # Page config
 st.set_page_config(
@@ -65,6 +67,17 @@ def main():
     
     # Render system configuration (LLM + ComfyUI)
     render_advanced_settings()
+
+    editor_open = st.toggle(
+        tr("home.editor.open"),
+        value=False,
+        key=HOME_EDITOR_OPEN_KEY,
+        help=tr("home.editor.open_help"),
+    )
+    if not editor_open:
+        st.caption(tr("home.dashboard.caption"))
+        render_recent_video_gallery(None, key_suffix="_dashboard")
+        return
     
     # ========================================================================
     # Pipeline Selection & Delegation
