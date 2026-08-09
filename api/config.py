@@ -14,8 +14,9 @@
 
 import os
 from typing import Literal, Optional
+from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pixelle_video.platform_defaults import DEFAULT_API_PORT, parse_api_port
 
@@ -33,7 +34,9 @@ class APIConfig(BaseModel):
     
     # CORS settings
     cors_enabled: bool = True
-    cors_origins: list[str] = ["*"]
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:8501", "http://127.0.0.1:8501"]
+    )
     
     # Task settings
     max_concurrent_tasks: int = 5
@@ -83,6 +86,8 @@ class APIConfig(BaseModel):
             port=parse_api_port(os.getenv("PIXELLE_API_PORT")),
             reload=_env_bool("PIXELLE_API_RELOAD", default=False),
             runtime_profile=_env_str("PIXELLE_RUNTIME_PROFILE", default="dev"),
+            cors_enabled=_env_bool("PIXELLE_CORS_ENABLED", default=True),
+            cors_origins=_cors_origins_from_env(),
             task_backend=_env_str("PIXELLE_TASK_BACKEND", default="memory"),
             postgres_dsn=os.getenv("PIXELLE_POSTGRES_DSN"),
             redis_url=os.getenv("PIXELLE_REDIS_URL"),
@@ -162,6 +167,20 @@ class APIConfig(BaseModel):
             )
         return self
 
+    @field_validator("cors_origins")
+    @classmethod
+    def validate_cors_origins(cls, values: list[str]) -> list[str]:
+        if not values:
+            raise ValueError("cors_origins must contain at least one explicit origin")
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            origin = _normalize_cors_origin(value)
+            if origin not in seen:
+                normalized.append(origin)
+                seen.add(origin)
+        return normalized
+
     @model_validator(mode="after")
     def validate_reference_image_upload_settings(self) -> "APIConfig":
         if self.reference_image_max_upload_size_mb < 1:
@@ -221,6 +240,40 @@ def _env_str(name: str, *, default: str) -> str:
     if value is None or value.strip() == "":
         return default
     return value
+
+
+def _cors_origins_from_env() -> list[str]:
+    configured = os.getenv("PIXELLE_CORS_ORIGINS")
+    if configured is not None and configured.strip():
+        return [item.strip() for item in configured.split(",") if item.strip()]
+    web_port = parse_api_port(
+        os.getenv("PIXELLE_WEB_PORT"),
+        default=8501,
+        setting_name="PIXELLE_WEB_PORT",
+    )
+    return [f"http://localhost:{web_port}", f"http://127.0.0.1:{web_port}"]
+
+
+def _normalize_cors_origin(value: object) -> str:
+    text = str(value).strip()
+    if text == "*":
+        raise ValueError(
+            "wildcard CORS origins are forbidden; configure explicit trusted Web origins"
+        )
+    try:
+        parsed = urlsplit(text)
+        parsed_port = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"invalid CORS origin: {text}") from exc
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise ValueError(f"CORS origin must be an absolute HTTP(S) origin: {text}")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("CORS origin must not contain credentials")
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise ValueError("CORS origin must not contain a path, query, or fragment")
+    if parsed_port is not None and not 1 <= parsed_port <= 65_535:
+        raise ValueError("CORS origin contains an invalid port")
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc, "", "", ""))
 
 
 def _is_blank(value: Optional[str]) -> bool:

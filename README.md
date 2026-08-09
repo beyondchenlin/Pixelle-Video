@@ -522,6 +522,14 @@ $env:PIXELLE_WEB_PORT='8510'
 
 监督器会根据 `PIXELLE_API_PORT` 自动生成一致的 `PIXELLE_API_BASE_URL`，不需要手工设置。两个端口只对当前 PowerShell 窗口和从它启动的子进程生效。目标端口已经被占用时，启动器会明确失败，不会连接到来源不明的旧进程。
 
+接口跨域来源会根据 `PIXELLE_WEB_PORT` 自动限制为当前本机网页地址，不再允许任意网站调用本机接口。网页部署在独立域名时，必须显式列出可信来源，多个来源以英文逗号分隔：
+
+```powershell
+$env:PIXELLE_CORS_ORIGINS='https://web.example.com,https://admin.example.com'
+```
+
+通配符 `*`、带凭据的地址以及包含路径、查询参数或片段的来源都会在启动时被拒绝。
+
 ##### 8. 检查运行状态
 
 检查共享 ComfyUI 是否正在监听，以及该进程是否由 Pixelle 管理：

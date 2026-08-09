@@ -518,6 +518,14 @@ Then use:
 
 The supervisor derives a matching `PIXELLE_API_BASE_URL` from `PIXELLE_API_PORT`; do not set it separately. Both port overrides affect only the current PowerShell session and its children. If either target port is occupied, startup fails explicitly instead of attaching to an unknown stale process.
 
+API cross-origin access is derived from `PIXELLE_WEB_PORT` and restricted to the current local Web addresses. Arbitrary websites can no longer call the local API. When the Web application is hosted on separate domains, list every trusted origin explicitly as a comma-separated value:
+
+```powershell
+$env:PIXELLE_CORS_ORIGINS='https://web.example.com,https://admin.example.com'
+```
+
+The API rejects wildcard origins, origins containing credentials, and values containing a path, query, or fragment.
+
 ##### 8. Check status
 
 Check whether the shared ComfyUI listener exists and whether Pixelle manages it:
