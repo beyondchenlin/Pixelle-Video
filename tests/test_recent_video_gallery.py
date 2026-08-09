@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -114,6 +115,88 @@ def test_fetch_recent_history_video_items_scans_pages_until_limit(tmp_path):
     assert [item["task_id"] for item in items] == ["valid-0", "valid-1", "valid-2", "valid-3"]
 
 
+def test_lightweight_recent_index_loader_sorts_filters_and_contains_paths(tmp_path):
+    output_root = tmp_path / "output"
+    output_root.mkdir()
+    old_video = output_root / "old" / "final.mp4"
+    new_video = output_root / "new" / "final.mp4"
+    old_video.parent.mkdir()
+    new_video.parent.mkdir()
+    old_video.write_bytes(b"old")
+    new_video.write_bytes(b"new")
+    outside = tmp_path / "outside.mp4"
+    outside.write_bytes(b"secret")
+    index = {
+        "tasks": [
+            {
+                "task_id": "old",
+                "status": "completed",
+                "completed_at": "2026-01-01T00:00:00",
+                "video_path": "output/old/final.mp4",
+            },
+            {
+                "task_id": "outside",
+                "status": "completed",
+                "completed_at": "2026-12-01T00:00:00",
+                "video_path": str(outside),
+            },
+            {
+                "task_id": "failed",
+                "status": "failed",
+                "completed_at": "2027-01-01T00:00:00",
+                "video_path": str(new_video),
+            },
+            {
+                "task_id": "new",
+                "status": "completed",
+                "completed_at": "2026-06-01T00:00:00",
+                "video_path": str(new_video),
+            },
+        ]
+    }
+    (output_root / ".index.json").write_text(json.dumps(index), encoding="utf-8")
+
+    items = gallery.fetch_recent_history_video_items_from_index(output_root=output_root)
+
+    assert [item["task_id"] for item in items] == ["new", "old"]
+
+
+def test_lightweight_recent_index_loader_fails_closed_for_corrupt_index(tmp_path):
+    output_root = tmp_path / "output"
+    output_root.mkdir()
+    (output_root / ".index.json").write_text("not-json", encoding="utf-8")
+
+    assert gallery.fetch_recent_history_video_items_from_index(output_root=output_root) == []
+
+
+def test_lightweight_recent_index_cache_invalidates_when_index_changes(tmp_path):
+    output_root = tmp_path / "output"
+    video = output_root / "task" / "final.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+    index_path = output_root / ".index.json"
+    index_path.write_text(json.dumps({"tasks": []}), encoding="utf-8")
+    assert gallery.fetch_recent_history_video_items_from_index(output_root=output_root) == []
+
+    index_path.write_text(
+        json.dumps(
+            {
+                "tasks": [
+                    {
+                        "task_id": "task",
+                        "status": "completed",
+                        "video_path": str(video),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    items = gallery.fetch_recent_history_video_items_from_index(output_root=output_root)
+    assert [item["task_id"] for item in items] == ["task"]
+
+
 def test_store_and_clear_recent_generated_video(tmp_path):
     video = tmp_path / "final.mp4"
     video.write_bytes(b"video")
@@ -172,7 +255,8 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert "padding: 0.5rem !important" in css
     assert ".recent-video-placeholder" in css
     assert "linear-gradient" in css
-    assert "min-height: 4.5rem" in css
+    assert "aspect-ratio: 16 / 9" in css
+    assert "object-fit: cover" in css
     assert ".recent-video-section-title" in css
     assert "margin: 0 0 0.55rem" in css
     assert ":has(.recent-video-info)" in css
@@ -238,6 +322,51 @@ def test_render_recent_video_gallery_applies_refresh_key_suffix(monkeypatch):
     assert f".st-key-{gallery.RECENT_VIDEO_GALLERY_KEY}_refresh_2" in captured["css"][0]
 
 
+def test_render_recent_video_gallery_uses_lightweight_index_without_core(monkeypatch):
+    captured = {"items": []}
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        session_state = {}
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(gallery, "st", _FakeStreamlit())
+    monkeypatch.setattr(gallery, "get_current_recent_video_item", lambda _state: None)
+    monkeypatch.setattr(
+        gallery,
+        "fetch_recent_history_video_items_from_index",
+        lambda: [{"task_id": "task-1", "video_path": "final.mp4"}],
+    )
+    monkeypatch.setattr(
+        gallery,
+        "fetch_recent_history_video_items",
+        lambda _core: (_ for _ in ()).throw(AssertionError("generation core history was used")),
+    )
+    monkeypatch.setattr(
+        gallery,
+        "render_recent_video_card",
+        lambda item, **_kwargs: captured["items"].append(item),
+    )
+
+    gallery.render_recent_video_gallery(None)
+
+    assert captured["items"][0]["task_id"] == "task-1"
+
+
 def test_render_recent_video_card_links_to_file_service_without_loading_media(monkeypatch):
     captured = {"links": [], "markdown": [], "buttons": []}
 
@@ -274,7 +403,8 @@ def test_render_recent_video_card_links_to_file_service_without_loading_media(mo
         "build_output_media_urls",
         lambda *_args, **_kwargs: SimpleNamespace(
             stream_url="http://127.0.0.1:6789/api/files/stream/output/task/final.mp4",
-            download_url="http://127.0.0.1:6789/api/files/download/output/task/final.mp4"
+            download_url="http://127.0.0.1:6789/api/files/download/output/task/final.mp4",
+            cover_url="http://127.0.0.1:6789/api/files/cover/output/task/final.mp4",
         ),
     )
 
@@ -291,4 +421,6 @@ def test_render_recent_video_card_links_to_file_service_without_loading_media(mo
     assert len(captured["links"]) == 2
     assert captured["links"][0][1].endswith("/output/task/final.mp4")
     assert captured["links"][1][1].endswith("/output/task/final.mp4")
-    assert any("recent-video-placeholder" in body for body in captured["markdown"])
+    assert any("recent-video-cover" in body for body in captured["markdown"])
+    assert any("loading=\"lazy\"" in body for body in captured["markdown"])
+    assert all("<video" not in body for body in captured["markdown"])

@@ -767,6 +767,7 @@ class PersistenceService:
             "n_frames": result_data.get("n_frames", 0),
             "file_size": result_data.get("file_size", 0),
             "video_path": result_data.get("video_path"),
+            "cover_path": result_data.get("cover_path"),
         }
 
         async with self._index_lock:
@@ -890,6 +891,7 @@ class PersistenceService:
                     "n_frames": result_data.get("n_frames", 0),
                     "file_size": result_data.get("file_size", 0),
                     "video_path": result_data.get("video_path"),
+                    "cover_path": result_data.get("cover_path"),
                 }
             )
         return index

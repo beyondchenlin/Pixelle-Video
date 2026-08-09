@@ -133,6 +133,7 @@ from pixelle_video.services.text_rendering_orchestrator import TextRenderingOrch
 from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
+from pixelle_video.services.video_cover import ensure_video_cover
 from pixelle_video.services.visual_story_batch_orchestrator import VisualStoryBatchOrchestrator
 from pixelle_video.services.visual_story_engine import VisualStoryEngineService
 from pixelle_video.services.visual_story_prompt_context import visual_story_context_from_plan
@@ -4812,8 +4813,6 @@ class StandardPipeline(LinearVideoPipeline):
 
     async def finalize(self, ctx: PipelineContext) -> VideoGenerationResult:
         """Step 8: Create result object and persist metadata."""
-        self._report_progress(ctx.progress_callback, ProgressEventType.COMPLETED, 1.0)
-
         video_path_obj = Path(ctx.final_video_path)
         file_size = video_path_obj.stat().st_size
 
@@ -4824,6 +4823,16 @@ class StandardPipeline(LinearVideoPipeline):
             file_size=file_size
         )
 
+        cover_path = ensure_video_cover(
+            ctx.final_video_path,
+            frame_paths=(
+                frame.composed_image_path or frame.image_path
+                for frame in ctx.storyboard.frames
+            ),
+        )
+        if cover_path is not None:
+            result.cover_path = str(cover_path)
+
         ctx.result = result
 
         logger.info(f"✅ Generated video: {ctx.final_video_path}")
@@ -4833,6 +4842,7 @@ class StandardPipeline(LinearVideoPipeline):
 
         # Persist metadata
         await self._persist_task_data(ctx)
+        self._report_progress(ctx.progress_callback, ProgressEventType.COMPLETED, 1.0)
 
         return result
 
@@ -4863,6 +4873,7 @@ class StandardPipeline(LinearVideoPipeline):
             render_execution_plan = self._render_execution_plan_for_metadata(ctx)
             result_metadata = {
                 "video_path": result.video_path,
+                "cover_path": getattr(result, "cover_path", None),
                 "duration": result.duration,
                 "file_size": result.file_size,
                 "n_frames": len(storyboard.frames),

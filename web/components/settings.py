@@ -27,12 +27,24 @@ from web.utils.streamlit_helpers import safe_rerun
 
 
 def render_advanced_settings():
-    """Render system configuration (required) with 2-column layout"""
-    # Check if system is configured
+    """Avoid constructing the configured settings form until explicitly opened."""
     is_configured = config_manager.validate()
-    
-    # Expand if not configured, collapse if configured
-    with st.expander(tr("settings.title"), expanded=not is_configured):
+    if is_configured:
+        is_open = st.toggle(
+            tr("settings.title"),
+            value=False,
+            key="advanced_settings_open",
+            help=tr("settings.open_help"),
+        )
+        if not is_open:
+            st.caption(tr("settings.configured_summary"))
+            return
+    _render_advanced_settings_form()
+
+
+def _render_advanced_settings_form():
+    """Render the complete editable settings form."""
+    with st.container(border=True):
         # 2-column layout: LLM | ComfyUI
         llm_col, comfyui_col = st.columns(2)
         

@@ -16,6 +16,7 @@ File service endpoints
 Provides access to generated files (videos, images, audio) and resource files.
 """
 
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -29,6 +30,7 @@ from api.file_access import (
     resolve_allowed_file_path,
     sanitize_upload_filename,
 )
+from pixelle_video.services.video_cover import ensure_video_cover
 
 router = APIRouter(prefix="/files", tags=["Files"])
 
@@ -87,6 +89,34 @@ async def download_file(file_path: str, filename: str | None = None):
         raise
     except Exception:
         logger.exception("File download failed")
+        raise HTTPException(status_code=500, detail="File service failed") from None
+
+
+@router.get("/cover/{file_path:path}")
+async def get_video_cover(file_path: str):
+    """Return a cached, bounded preview cover for a generated video."""
+    try:
+        video_path = resolve_allowed_file_path(file_path)
+        cover_path = await asyncio.to_thread(
+            ensure_video_cover,
+            video_path,
+            output_root=Path.cwd() / "output",
+        )
+        if cover_path is None:
+            raise HTTPException(status_code=404, detail="Video cover is unavailable")
+        response = FileResponse(
+            path=str(cover_path),
+            media_type="image/jpeg",
+            filename=cover_path.name,
+            content_disposition_type="inline",
+        )
+        response.headers["Cache-Control"] = "private, max-age=3600"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Video cover access failed")
         raise HTTPException(status_code=500, detail="File service failed") from None
 
 

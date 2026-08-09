@@ -37,6 +37,7 @@ from pixelle_video.config import config_manager
 from pixelle_video.config.prompt_prefix_library import (
     build_prompt_prefix_workflow_preview_record,
     filter_prompt_prefix_items,
+    get_active_image_prompt_prefix_item,
     get_effective_image_prompt_prefix,
     get_prompt_prefix_category_label,
     get_prompt_prefix_workflow_preview_asset_path,
@@ -184,6 +185,23 @@ def resolve_template_path(*args, **kwargs):
 
 
 STORYBOARD_SHOT_PRESET_AUTO_VALUE = storyboard_planning_controls.STORYBOARD_SHOT_PRESET_AUTO_VALUE
+PROMPT_PREFIX_LIBRARY_OPEN_KEY = "prompt_prefix_library_open"
+PROMPT_PREFIX_GALLERY_PAGE_SIZE = 8
+
+
+def paginate_prompt_prefix_items(
+    items: Sequence[dict[str, Any]],
+    page_number: int,
+    *,
+    page_size: int = PROMPT_PREFIX_GALLERY_PAGE_SIZE,
+) -> list[dict[str, Any]]:
+    """Return one bounded, one-indexed gallery page."""
+    if page_size < 1:
+        raise ValueError("page_size must be positive")
+    page_count = max(1, (len(items) + page_size - 1) // page_size)
+    safe_page = min(max(int(page_number), 1), page_count)
+    start = (safe_page - 1) * page_size
+    return list(items[start : start + page_size])
 
 
 def _default_template_param_value(param_name: str, config: dict[str, Any]) -> Any:
@@ -2406,6 +2424,30 @@ def _render_image_prompt_prefix_library(
         st.caption(st.session_state["prompt_prefix_thumbnail_status"])
     st.caption(tr("style.prefix_library.compare_count", count=len(selected_preview_ids)))
 
+    gallery_page_count = max(
+        1,
+        (len(filtered_items) + PROMPT_PREFIX_GALLERY_PAGE_SIZE - 1)
+        // PROMPT_PREFIX_GALLERY_PAGE_SIZE,
+    )
+    if gallery_page_count > 1:
+        stored_page = st.session_state.get("prompt_prefix_gallery_page")
+        if stored_page not in range(1, gallery_page_count + 1):
+            st.session_state.pop("prompt_prefix_gallery_page", None)
+        gallery_page = st.selectbox(
+            tr("style.prefix_library.page"),
+            options=list(range(1, gallery_page_count + 1)),
+            format_func=lambda value: tr(
+                "style.prefix_library.page_label",
+                current=value,
+                total=gallery_page_count,
+            ),
+            key="prompt_prefix_gallery_page",
+        )
+    else:
+        st.session_state.pop("prompt_prefix_gallery_page", None)
+        gallery_page = 1
+    gallery_items = paginate_prompt_prefix_items(filtered_items, gallery_page)
+
     gallery_col = st.container(key="prompt_prefix_library_root")
     lower_panel_col = st.container()
     action_toolbar_col = st.container()
@@ -2415,7 +2457,7 @@ def _render_image_prompt_prefix_library(
         else:
             num_cols = 4
             gallery_columns = st.columns(num_cols)
-            for idx, item in enumerate(filtered_items):
+            for idx, item in enumerate(gallery_items):
                 style_label = get_prompt_prefix_category_label(item["style_category_id"], "style", language)
                 scene_label = get_prompt_prefix_category_label(item["scene_category_id"], "scene", language)
                 cover_state = resolve_prompt_prefix_gallery_cover(item, workflow_key)
@@ -2858,6 +2900,51 @@ def render_reference_image_controls() -> dict[str, Any]:
             "reference_image_workflow_injection_mode": workflow_injection_mode,
             "reference_image_profile_merge_mode": profile_merge_mode,
         }
+
+
+def _render_image_prompt_prefix_library_on_demand(
+    pixelle_video,
+    workflow_key: str,
+    media_width: int,
+    media_height: int,
+    prompt_language: str = CHINESE_PROMPT_LANGUAGE,
+    workflow_display_map: dict[str, str] | None = None,
+) -> str:
+    """Render only the active style summary until the user opens the library."""
+    image_config = config_manager.config.comfyui.image
+    effective_prefix = get_effective_image_prompt_prefix(image_config)
+    st.session_state["prompt_prefix_effective_value"] = effective_prefix
+    active_item = get_active_image_prompt_prefix_item(image_config)
+
+    st.markdown(f"**{tr('style.prompt_prefix')}**")
+    if active_item is not None:
+        st.caption(
+            tr(
+                "style.prefix_library.active_summary",
+                name=active_item.get("name") or tr("style.prefix_library.active_empty"),
+            )
+        )
+    else:
+        st.caption(tr("style.prefix_library.active_empty"))
+
+    is_open = st.toggle(
+        tr("style.prefix_library.open"),
+        value=False,
+        key=PROMPT_PREFIX_LIBRARY_OPEN_KEY,
+        help=tr("style.prefix_library.open_help"),
+    )
+    if not is_open:
+        return effective_prefix
+
+    return _call_with_streamlit_fragment(
+        _render_image_prompt_prefix_library,
+        pixelle_video=pixelle_video,
+        workflow_key=workflow_key,
+        media_width=media_width,
+        media_height=media_height,
+        prompt_language=prompt_language,
+        workflow_display_map=workflow_display_map,
+    )
 
 
 def render_style_config(
@@ -3663,8 +3750,7 @@ def render_style_config(
                                 st.error(tr("style.preview_failed", error=str(e)))
                                 logger.exception(e)
             else:
-                _call_with_streamlit_fragment(
-                    _render_image_prompt_prefix_library,
+                _render_image_prompt_prefix_library_on_demand(
                     pixelle_video=pixelle_video,
                     workflow_key=workflow_key,
                     media_width=int(media_width),

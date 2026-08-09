@@ -31,7 +31,6 @@ from pixelle_video.models.size_contract import (
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
 from pixelle_video.models.template_display import TemplateDisplaySettings
 from pixelle_video.models.template_text_policy import (
-    VALID_TEMPLATE_TEXT_POLICIES,
     normalize_template_text_policy,
 )
 from pixelle_video.models.video_generation_contract import StoryboardControlsContract
@@ -317,6 +316,7 @@ class VideoGenerationResult:
     duration: float                            # Total duration
     file_size: int                             # File size (bytes)
     created_at: datetime = field(default_factory=datetime.now)
+    cover_path: Optional[str] = None            # Cached homepage preview cover
 
 
 def _first_non_none(*values: Any) -> Any:

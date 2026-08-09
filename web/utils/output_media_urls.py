@@ -13,6 +13,7 @@ class OutputMediaUrls:
     stream_url: str
     download_url: str
     storage_path: str
+    cover_url: str | None = None
 
 
 def build_output_media_urls(
@@ -56,6 +57,7 @@ def build_output_media_urls(
     return OutputMediaUrls(
         stream_url=f"{base_url}/files/stream/{encoded_path}",
         download_url=download_url,
+        cover_url=f"{base_url}/files/cover/{encoded_path}",
         storage_path=storage_path,
     )
 
