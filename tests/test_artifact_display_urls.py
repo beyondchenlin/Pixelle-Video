@@ -7,7 +7,7 @@ def test_artifact_display_url_keeps_absolute_http_url():
     assert (
         artifact_url_for_streamlit(
             "https://cdn.pixelle.test/artifacts/frame.png",
-            api_base_url="http://localhost:8888/api",
+            api_base_url="http://localhost:9123/api",
         )
         == "https://cdn.pixelle.test/artifacts/frame.png"
     )
@@ -19,9 +19,9 @@ def test_artifact_display_url_resolves_controlled_relative_url_against_api_origi
     assert (
         artifact_url_for_streamlit(
             "/api/files/artifacts/workspace_1/frame.png",
-            api_base_url="http://localhost:8888/api",
+            api_base_url="http://localhost:9123/api",
         )
-        == "http://localhost:8888/api/files/artifacts/workspace_1/frame.png"
+        == "http://localhost:9123/api/files/artifacts/workspace_1/frame.png"
     )
 
 
@@ -31,7 +31,7 @@ def test_artifact_display_url_rejects_local_paths():
     with pytest.raises(ValueError, match="artifact access URL"):
         artifact_url_for_streamlit(
             r"D:\output\frame.png",
-            api_base_url="http://localhost:8888/api",
+            api_base_url="http://localhost:9123/api",
         )
 
 

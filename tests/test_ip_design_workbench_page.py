@@ -120,7 +120,8 @@ def test_formal_ip_design_ui_sources_do_not_import_transport_helpers():
         "web.utils.asset_bible_api",
         "httpx",
         "DEFAULT_API_BASE_URL",
-        "localhost:8888",
+        "localhost:",
+        "127.0.0.1:",
     )
     source_paths = [
         project_root / "web" / "pages" / "3_IP_Design_Workbench.py",

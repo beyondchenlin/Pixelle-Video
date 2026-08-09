@@ -22,10 +22,11 @@ import streamlit as st
 from loguru import logger
 
 from pixelle_video.platform_context import (
-    DEFAULT_API_BASE_URL,
+    CONFIGURED_API_BASE_URL,
     DEFAULT_PROJECT_ID,
     DEFAULT_WORKSPACE_ID,
 )
+from pixelle_video.platform_defaults import is_legacy_local_api_base_url
 from web.i18n import get_language, set_language
 from web.state.async_runtime import (
     DEFAULT_SESSION_KEY,
@@ -88,8 +89,10 @@ def init_session_state():
         st.session_state.workspace_id = DEFAULT_WORKSPACE_ID
     if "project_id" not in st.session_state:
         st.session_state.project_id = DEFAULT_PROJECT_ID
-    if "api_base_url" not in st.session_state:
-        st.session_state.api_base_url = DEFAULT_API_BASE_URL
+    if "api_base_url" not in st.session_state or is_legacy_local_api_base_url(
+        st.session_state.api_base_url
+    ):
+        st.session_state.api_base_url = CONFIGURED_API_BASE_URL
 
 
 def init_i18n():

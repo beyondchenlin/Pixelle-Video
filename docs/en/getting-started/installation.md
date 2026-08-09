@@ -93,7 +93,7 @@ start_web.bat
 ./start_web.sh
 
 # Or start the Pixelle API manually (terminal 1)
-uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
+uv run uvicorn api.app:app --host 127.0.0.1 --port 6789
 
 # Then start the Web UI manually (terminal 2)
 uv run streamlit run web/app.py
@@ -102,10 +102,10 @@ uv run streamlit run web/app.py
 streamlit run web/app.py
 ```
 
-Your browser should automatically open `http://localhost:8501` and display the Pixelle-Video web interface. The Pixelle API runs on `http://localhost:8001` by default, with health check at `http://localhost:8001/health` and Swagger docs at `http://localhost:8001/docs`.
+Your browser should automatically open `http://localhost:8501` and display the Pixelle-Video web interface. The Pixelle API runs on `http://localhost:6789` by default, with health check at `http://localhost:6789/health` and Swagger docs at `http://localhost:6789/docs`.
 
 !!! note "The API must be running"
-    `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:8001/api`.
+    `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:6789/api`.
 
 !!! success "Installation Successful!"
     If you can see the web interface, the installation was successful! Next, check out the [Configuration Guide](configuration.md) to set up your services.

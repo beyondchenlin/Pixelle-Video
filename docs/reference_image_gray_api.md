@@ -19,7 +19,7 @@ export PIXELLE_REFERENCE_IMAGE_API_ENABLED=true
 ```bash
 curl -X POST \
   -F "file=@reference.png" \
-  http://localhost:8888/api/reference-images/uploads
+  http://localhost:6789/api/reference-images/uploads
 ```
 
 3. Use the returned `upload_id` or `artifact_id` in video generation:

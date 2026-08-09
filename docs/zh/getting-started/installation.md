@@ -93,7 +93,7 @@ start_web.bat
 ./start_web.sh
 
 # 或手动启动 Pixelle API（终端 1）
-uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
+uv run uvicorn api.app:app --host 127.0.0.1 --port 6789
 
 # 再手动启动 Web 界面（终端 2）
 uv run streamlit run web/app.py
@@ -102,10 +102,10 @@ uv run streamlit run web/app.py
 streamlit run web/app.py
 ```
 
-浏览器应该会自动打开 `http://localhost:8501`，显示 Pixelle-Video 的 Web 界面。Pixelle API 默认运行在 `http://localhost:8001`，健康检查地址为 `http://localhost:8001/health`，Swagger 文档地址为 `http://localhost:8001/docs`。
+浏览器应该会自动打开 `http://localhost:8501`，显示 Pixelle-Video 的 Web 界面。Pixelle API 默认运行在 `http://localhost:6789`，健康检查地址为 `http://localhost:6789/health`，Swagger 文档地址为 `http://localhost:6789/docs`。
 
 !!! note "API 必须运行"
-    `uv run streamlit run web/app.py` 只会启动 Web 界面，不会自动启动 Pixelle API。Stage1/Stage2 的工作台、分镜候选图和状态查询等功能需要 `http://localhost:8001/api` 可用。
+    `uv run streamlit run web/app.py` 只会启动 Web 界面，不会自动启动 Pixelle API。Stage1/Stage2 的工作台、分镜候选图和状态查询等功能需要 `http://localhost:6789/api` 可用。
 
 !!! success "安装成功！"
     如果能看到 Web 界面，说明安装成功了！接下来请查看 [配置说明](configuration.md) 来设置服务。

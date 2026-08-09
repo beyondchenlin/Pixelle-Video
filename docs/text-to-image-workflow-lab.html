@@ -1459,7 +1459,7 @@
       <div class="api-strip">
         <div class="field-inline">
           <label for="apiBase">API</label>
-          <input id="apiBase" value="http://127.0.0.1:8899" spellcheck="false">
+          <input id="apiBase" value="http://127.0.0.1:6789" spellcheck="false">
         </div>
         <button class="small-btn" id="healthBtn" type="button">检测连接</button>
         <div class="status-pill" id="apiStatus">
@@ -1576,7 +1576,7 @@
           </div>
 
           <p class="hint">
-            当前机器的 8888 端口可能被其他服务占用；如果 Pixelle API 用了新端口，直接在顶部 API 输入框调整。
+            Pixelle API 默认使用 6789 端口；如果启动时覆盖了端口，直接在顶部 API 输入框调整。
           </p>
         </div>
       </section>
@@ -1762,9 +1762,53 @@
     const pipelineEl = $("#pipeline");
     const interactionBoardEl = $("#interactionBoard");
     const toastEl = $("#toast");
+    const apiBaseInputEl = $("#apiBase");
+    const DEFAULT_API_BASE = apiBaseInputEl.defaultValue;
+    const API_BASE_STORAGE_KEY = "pixelle.workflowLab.apiBase";
 
     function normalizeBase(value) {
-      return String(value || "http://127.0.0.1:8899").trim().replace(/\/+$/, "");
+      const candidate = String(value ?? "").trim() || DEFAULT_API_BASE;
+      let parsed;
+      try {
+        parsed = new URL(candidate);
+      } catch (_error) {
+        throw new Error("API 地址必须是完整的 HTTP 或 HTTPS 地址");
+      }
+      if (!new Set(["http:", "https:"]).has(parsed.protocol)) {
+        throw new Error("API 地址只允许使用 HTTP 或 HTTPS 协议");
+      }
+      if (parsed.username || parsed.password) {
+        throw new Error("API 地址不能包含账号或密码");
+      }
+      if (parsed.search || parsed.hash) {
+        throw new Error("API 地址不能包含查询参数或片段");
+      }
+      return parsed.href.replace(/\/+$/, "");
+    }
+
+    function readSavedApiBase() {
+      try {
+        return localStorage.getItem(API_BASE_STORAGE_KEY) || "";
+      } catch (_error) {
+        return "";
+      }
+    }
+
+    function saveApiBase(value) {
+      try {
+        localStorage.setItem(API_BASE_STORAGE_KEY, value);
+        return true;
+      } catch (_error) {
+        return false;
+      }
+    }
+
+    function clearSavedApiBase() {
+      try {
+        localStorage.removeItem(API_BASE_STORAGE_KEY);
+      } catch (_error) {
+        // The page still works when browser privacy settings disable local storage.
+      }
     }
 
     function nowTime() {
@@ -1994,7 +2038,7 @@
         const refs = collectTraceRefs(state.response);
         empty.textContent = refs.length
           ? "这个节点返回了 trace_id，但原始 payload 还没有拉取成功。请看“日志”标签中的错误信息。"
-          : "还没有抓到本次 LLM 原始提交/返回。请确认：1. 页面已刷新到最新版本；2. 顶部 API 是 http://127.0.0.1:8899；3. 已关闭演示模式并点过开始生成。";
+          : `还没有抓到本次 LLM 原始提交/返回。请确认：1. 页面已刷新到最新版本；2. 顶部 API 是 ${DEFAULT_API_BASE}；3. 已关闭演示模式并点过开始生成。`;
         container.appendChild(empty);
         return;
       }
@@ -3232,14 +3276,39 @@
         .catch((error) => toast(error.message || "复制失败"));
     });
     $("#apiBase").addEventListener("change", () => {
-      localStorage.setItem("pixelle.workflowLab.apiBase", normalizeBase($("#apiBase").value));
+      try {
+        const normalized = normalizeBase($("#apiBase").value);
+        $("#apiBase").value = normalized;
+        if (!saveApiBase(normalized)) {
+          toast("浏览器禁止保存本地配置，本次地址仍然有效");
+        }
+      } catch (error) {
+        $("#apiBase").value = DEFAULT_API_BASE;
+        clearSavedApiBase();
+        toast(error.message || "API 地址无效，已恢复默认地址");
+      }
     });
 
-    const savedApiBase = localStorage.getItem("pixelle.workflowLab.apiBase");
-    if (savedApiBase && savedApiBase !== "http://127.0.0.1:8888") {
-      $("#apiBase").value = savedApiBase;
-    } else if (savedApiBase === "http://127.0.0.1:8888") {
-      localStorage.removeItem("pixelle.workflowLab.apiBase");
+    const savedApiBase = readSavedApiBase();
+    const obsoleteApiBases = new Set([
+      "http://127.0.0.1:8001",
+      "http://127.0.0.1:8888",
+      "http://127.0.0.1:8899",
+      "http://localhost:8001",
+      "http://localhost:8888",
+      "http://localhost:8899",
+    ]);
+    if (savedApiBase) {
+      try {
+        const normalizedSavedApiBase = normalizeBase(savedApiBase);
+        if (obsoleteApiBases.has(normalizedSavedApiBase)) {
+          clearSavedApiBase();
+        } else {
+          $("#apiBase").value = normalizedSavedApiBase;
+        }
+      } catch (_error) {
+        clearSavedApiBase();
+      }
     }
     resetState();
   </script>

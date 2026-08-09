@@ -15,7 +15,9 @@
 import os
 from typing import Literal, Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
+
+from pixelle_video.platform_defaults import DEFAULT_API_PORT, parse_api_port
 
 
 class APIConfig(BaseModel):
@@ -26,7 +28,7 @@ class APIConfig(BaseModel):
 
     # Server settings
     host: str = "0.0.0.0"
-    port: int = 8888
+    port: int = Field(default=DEFAULT_API_PORT, ge=1, le=65535)
     reload: bool = False
     
     # CORS settings
@@ -78,7 +80,7 @@ class APIConfig(BaseModel):
         """Build API config from PIXELLE_* environment variables."""
         return cls(
             host=_env_str("PIXELLE_API_HOST", default="0.0.0.0"),
-            port=_env_int("PIXELLE_API_PORT", default=8888),
+            port=parse_api_port(os.getenv("PIXELLE_API_PORT")),
             reload=_env_bool("PIXELLE_API_RELOAD", default=False),
             runtime_profile=_env_str("PIXELLE_RUNTIME_PROFILE", default="dev"),
             task_backend=_env_str("PIXELLE_TASK_BACKEND", default="memory"),
@@ -206,12 +208,12 @@ def _env_bool(name: str, *, default: bool) -> bool:
 
 def _env_int(name: str, *, default: int) -> int:
     value = os.getenv(name)
-    return default if value is None else int(value)
+    return default if value is None or value.strip() == "" else int(value)
 
 
 def _env_float(name: str, *, default: float) -> float:
     value = os.getenv(name)
-    return default if value is None else float(value)
+    return default if value is None or value.strip() == "" else float(value)
 
 
 def _env_str(name: str, *, default: str) -> str:

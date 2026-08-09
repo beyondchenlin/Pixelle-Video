@@ -297,7 +297,7 @@ If you need to start them manually, open two terminals:
 
 ```bash
 # Terminal 1: start the Pixelle API (FastAPI, used by the Web UI)
-uv run uvicorn api.app:app --host 127.0.0.1 --port 8888
+uv run uvicorn api.app:app --host 127.0.0.1 --port 6789
 ```
 
 ```bash
@@ -305,9 +305,9 @@ uv run uvicorn api.app:app --host 127.0.0.1 --port 8888
 uv run streamlit run web/app.py
 ```
 
-Browser will automatically open http://localhost:8501. The API health check is http://localhost:8888/health, and Swagger docs are available at http://localhost:8888/docs.
+Browser will automatically open http://localhost:8501. The API health check is http://localhost:6789/health, and Swagger docs are available at http://localhost:6789/docs.
 
-> Note: `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:8888/api`.
+> Note: `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:6789/api`.
 
 #### Local Single-Instance ComfyUI Backend: Complete Guide
 
@@ -316,7 +316,7 @@ Browser will automatically open http://localhost:8501. The API health check is h
 The complete local generation path contains three services. Image and speech generation no longer use separate ComfyUI processes. Both route to the same Pixelle-managed `default` backend:
 
 ```text
-Web UI (8501) -> Pixelle API (8888) -> One ComfyUI (8000)
+Web UI (8501) -> Pixelle API (6789) -> One ComfyUI (8000)
                                            ├─ Image workflows
                                            └─ TTS workflows
 ```
@@ -324,7 +324,7 @@ Web UI (8501) -> Pixelle API (8888) -> One ComfyUI (8000)
 | Service | Default address | Purpose | Started by `start_web.bat` |
 | ---- | ---- | ---- | ---- |
 | Web UI | `http://localhost:8501` | User interface | Yes |
-| Pixelle API | `http://localhost:8888` | Task orchestration, status queries, and workflow submission | Yes |
+| Pixelle API | `http://localhost:6789` | Task orchestration, status queries, and workflow submission | Yes |
 | Shared ComfyUI | `http://127.0.0.1:8000` | Runs local image and TTS workflows | No; the first local workflow can start it on demand |
 
 > `start_web.bat` starts only the Pixelle API and Web UI. It does not launch ComfyUI immediately. With managed mode enabled, Pixelle checks and starts ComfyUI before the first local image or TTS workflow.
@@ -428,8 +428,8 @@ After the backend is ready, start Pixelle:
 Default addresses:
 
 - Web UI: `http://localhost:8501`
-- Pixelle API health check: `http://localhost:8888/health`
-- API documentation: `http://localhost:8888/docs`
+- Pixelle API health check: `http://localhost:6789/health`
+- API documentation: `http://localhost:6789/docs`
 - ComfyUI: `http://127.0.0.1:8000`
 
 ##### 5. Simplified startup: let the first task start the backend
@@ -470,13 +470,15 @@ Disabling restart keeps models in GPU memory and speeds up follow-up requests, b
 
 ##### 7. When the API port is occupied
 
-The Pixelle API uses `8888` by default. If another program owns that port, override it with `8890` before startup:
+The Pixelle API uses `6789` by default. If another program owns that port, override it with `8890` before startup:
 
 ```powershell
 $env:PIXELLE_API_PORT='8890'
 $env:PIXELLE_API_BASE_URL='http://localhost:8890/api'
 .\start_web.bat
 ```
+
+The launcher never switches ports silently. It first verifies whether the service on `6789` is a healthy Pixelle API: a matching service is safely reused, a foreign service causes an explicit failure, and an unused port starts a new process. The Web UI starts only after the health check passes. The launcher cleans up only the API process it created and never terminates a reused process.
 
 Then use:
 
@@ -504,7 +506,7 @@ The output should contain `127.0.0.1:8000` and `managed=True`. Direct health che
 
 ```powershell
 Invoke-RestMethod 'http://127.0.0.1:8000/system_stats'
-Invoke-RestMethod 'http://localhost:8888/health'
+Invoke-RestMethod 'http://localhost:6789/health'
 ```
 
 If the API uses `8890`, change the second command to port `8890`.

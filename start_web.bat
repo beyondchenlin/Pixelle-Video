@@ -17,9 +17,6 @@ if not exist "%PIXELLE_VIDEO_RUNTIME_ROOT%" mkdir "%PIXELLE_VIDEO_RUNTIME_ROOT%"
 if not exist "%TMP%" mkdir "%TMP%"
 if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%"
 if not exist "%RUFF_CACHE_DIR%" mkdir "%RUFF_CACHE_DIR%"
-if "%PIXELLE_API_PORT%"=="" set "PIXELLE_API_PORT=8888"
-if "%PIXELLE_API_BASE_URL%"=="" set "PIXELLE_API_BASE_URL=http://localhost:%PIXELLE_API_PORT%/api"
-
 if "%PRODUCER_HEADLESS_SHELL_PATH%"=="" if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "PRODUCER_HEADLESS_SHELL_PATH=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
 if "%PRODUCER_HEADLESS_SHELL_PATH%"=="" if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "PRODUCER_HEADLESS_SHELL_PATH=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
 if "%PRODUCER_HEADLESS_SHELL_PATH%"=="" if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" set "PRODUCER_HEADLESS_SHELL_PATH=%LocalAppData%\Google\Chrome\Application\chrome.exe"
@@ -28,46 +25,20 @@ if "%PRODUCER_HEADLESS_SHELL_PATH%"=="" if exist "%ProgramFiles(x86)%\Microsoft\
 
 if not "%PRODUCER_HEADLESS_SHELL_PATH%"=="" echo Using browser: %PRODUCER_HEADLESS_SHELL_PATH%
 
-echo Starting Pixelle-Video API...
+echo Starting Pixelle-Video services...
 echo.
 
-start "Pixelle-Video API" /min uv run uvicorn api.app:app --host 127.0.0.1 --port %PIXELLE_API_PORT%
-timeout /t 2 /nobreak >nul
+uv run python -m scripts.launch_web
+set "PIXELLE_LAUNCH_EXIT_CODE=%ERRORLEVEL%"
 
-echo Starting Pixelle-Video Web UI...
-echo.
-
-uv run streamlit run web/app.py
-
-if errorlevel 1 (
+if "%PIXELLE_LAUNCH_EXIT_CODE%"=="130" exit /b 0
+if not "%PIXELLE_LAUNCH_EXIT_CODE%"=="0" (
     echo.
     echo ========================================
     echo   [ERROR] Failed to Start
     echo ========================================
     echo.
-    echo It appears you downloaded the SOURCE CODE directly.
-    echo.
-    echo ========================================
-    echo   For Regular Users:
-    echo ========================================
-    echo Please download the ONE-CLICK PACKAGE from:
-    echo https://github.com/AIDC-AI/Pixelle-Video/releases
-    echo.
-    echo The one-click package includes:
-    echo   - Pre-configured Python environment
-    echo   - All required dependencies
-    echo   - FFmpeg tools
-    echo   - Ready to use, no setup needed
-    echo.
-    echo ========================================
-    echo   For Developers:
-    echo ========================================
-    echo If you intend to develop or modify the code:
-    echo   1. Install uv: https://docs.astral.sh/uv/
-    echo   2. Run: uv sync
-    echo   3. Then run this script again
-    echo.
-    echo ========================================
+    echo Review the launch error above. For a source checkout, run "uv sync" first.
     echo.
     pause
 )

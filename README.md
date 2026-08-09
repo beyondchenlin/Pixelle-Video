@@ -301,7 +301,7 @@ start_web.bat
 
 ```bash
 # 终端 1：启动 Pixelle API（FastAPI，供 Web 界面调用）
-uv run uvicorn api.app:app --host 127.0.0.1 --port 8888
+uv run uvicorn api.app:app --host 127.0.0.1 --port 6789
 ```
 
 ```bash
@@ -309,9 +309,9 @@ uv run uvicorn api.app:app --host 127.0.0.1 --port 8888
 uv run streamlit run web/app.py
 ```
 
-浏览器会自动打开 http://localhost:8501。API 健康检查地址为 http://localhost:8888/health，Swagger 文档地址为 http://localhost:8888/docs。
+浏览器会自动打开 http://localhost:8501。API 健康检查地址为 http://localhost:6789/health，Swagger 文档地址为 http://localhost:6789/docs。
 
-> 注意：`uv run streamlit run web/app.py` 只启动 Web 界面，不会自动启动 Pixelle API。Stage1/Stage2 的工作台、分镜候选图、状态查询等功能需要 `http://localhost:8888/api` 可用。
+> 注意：`uv run streamlit run web/app.py` 只启动 Web 界面，不会自动启动 Pixelle API。Stage1/Stage2 的工作台、分镜候选图、状态查询等功能需要 `http://localhost:6789/api` 可用。
 
 #### 本地单实例 ComfyUI 后端：完整使用说明
 
@@ -320,7 +320,7 @@ uv run streamlit run web/app.py
 完整的本地生成链路由三个服务组成。图片生成和语音生成不再使用两个 ComfyUI 进程，而是路由到同一个受 Pixelle 托管的 `default` 后端：
 
 ```text
-Web UI（8501） -> Pixelle API（8888） -> 单个 ComfyUI（8000）
+Web UI（8501） -> Pixelle API（6789） -> 单个 ComfyUI（8000）
                                               ├─ 图片工作流
                                               └─ TTS 语音工作流
 ```
@@ -328,7 +328,7 @@ Web UI（8501） -> Pixelle API（8888） -> 单个 ComfyUI（8000）
 | 服务 | 默认地址 | 用途 | 是否由 `start_web.bat` 启动 |
 | ---- | ---- | ---- | ---- |
 | Web UI | `http://localhost:8501` | 用户操作界面 | 是 |
-| Pixelle API | `http://localhost:8888` | 任务编排、状态查询和工作流提交 | 是 |
+| Pixelle API | `http://localhost:6789` | 任务编排、状态查询和工作流提交 | 是 |
 | 共享 ComfyUI | `http://127.0.0.1:8000` | 执行本地图片与 TTS 工作流 | 否；首个本地工作流可按需自动拉起 |
 
 > `start_web.bat` 只启动 Pixelle API 和 Web UI。它不会在启动时立刻运行 ComfyUI。启用托管模式后，Pixelle 会在第一个本地图片或 TTS 工作流执行前检查并按需启动 ComfyUI。
@@ -432,8 +432,8 @@ scripts\comfyui\start_backend.bat
 默认访问地址：
 
 - Web UI：`http://localhost:8501`
-- Pixelle API 健康检查：`http://localhost:8888/health`
-- API 文档：`http://localhost:8888/docs`
+- Pixelle API 健康检查：`http://localhost:6789/health`
+- API 文档：`http://localhost:6789/docs`
 - ComfyUI：`http://127.0.0.1:8000`
 
 ##### 5. 简化启动方式：让首个任务自动拉起后端
@@ -474,13 +474,15 @@ restart_after_batch: false
 
 ##### 7. API 端口被占用时
 
-Pixelle API 默认使用 `8888`。如果该端口已被其他程序占用，可以在启动前覆盖为 `8890`：
+Pixelle API 默认使用 `6789`。如果该端口已被其他程序占用，可以在启动前覆盖为 `8890`：
 
 ```powershell
 $env:PIXELLE_API_PORT='8890'
 $env:PIXELLE_API_BASE_URL='http://localhost:8890/api'
 .\start_web.bat
 ```
+
+启动器不会偷偷换端口。它会先核验 `6789` 上是否为健康的 Pixelle API：是则安全复用；是其他项目则直接停止并明确报错；无人占用才启动新进程，并在健康检查通过后启动 Web UI。启动器只清理自己创建的 API 进程，不会终止复用的已有进程。
 
 此时使用：
 
@@ -508,7 +510,7 @@ scripts\comfyui\check_backend.bat
 
 ```powershell
 Invoke-RestMethod 'http://127.0.0.1:8000/system_stats'
-Invoke-RestMethod 'http://localhost:8888/health'
+Invoke-RestMethod 'http://localhost:6789/health'
 ```
 
 如果 API 改为 `8890`，第二条命令中的端口也要改成 `8890`。

@@ -4,7 +4,7 @@ import os
 from collections.abc import MutableMapping
 from typing import Any
 
-from pixelle_video.platform_context import DEFAULT_API_BASE_URL, resolve_api_base_url
+from pixelle_video.platform_context import CONFIGURED_API_BASE_URL, resolve_api_base_url
 from web.ip_workbench.http_client import HttpStoryboardIPWorkbenchClient
 from web.ip_workbench.inprocess_client import InProcessStoryboardIPWorkbenchClient
 from web.state.workbench_client import resolve_workbench_client_mode
@@ -22,7 +22,7 @@ def resolve_storyboard_ip_workbench_client(
     if mode == "http":
         api_base_url = resolve_api_base_url(
             session_state,
-            default=os.getenv("PIXELLE_API_BASE_URL") or DEFAULT_API_BASE_URL,
+            default=os.getenv("PIXELLE_API_BASE_URL") or CONFIGURED_API_BASE_URL,
         )
         return _cached_client(
             session_state,

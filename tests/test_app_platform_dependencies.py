@@ -11,7 +11,20 @@ from api.config import APIConfig
 def test_api_config_defaults_use_non_comfyui_local_port():
     config = APIConfig()
 
-    assert config.port == 8888
+    assert config.port == 6789
+
+
+def test_api_config_blank_port_env_uses_default(monkeypatch):
+    monkeypatch.setenv("PIXELLE_API_PORT", "  ")
+
+    assert APIConfig.from_env().port == 6789
+
+
+def test_api_config_invalid_port_env_fails_with_actionable_error(monkeypatch):
+    monkeypatch.setenv("PIXELLE_API_PORT", "70000")
+
+    with pytest.raises(ValueError, match="PIXELLE_API_PORT"):
+        APIConfig.from_env()
 
 
 def test_platform_context_ignores_blank_api_base_url_env(monkeypatch):
@@ -29,6 +42,13 @@ def test_platform_context_ignores_blank_api_base_url_env(monkeypatch):
         monkeypatch.delenv("PIXELLE_API_BASE_URL", raising=False)
         monkeypatch.delenv("PIXELLE_API_PORT", raising=False)
         importlib.reload(platform_context)
+
+
+def test_platform_context_rejects_non_http_api_base_url():
+    from pixelle_video.platform_context import resolve_api_base_url
+
+    with pytest.raises(ValueError, match="api_base_url"):
+        resolve_api_base_url({"api_base_url": "file:///tmp/pixelle"})
 
 
 def test_dev_platform_dependencies_mount_workbench_services_and_repositories(tmp_path):

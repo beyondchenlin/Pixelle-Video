@@ -24,11 +24,13 @@ start_web.bat
 ./start_web.sh
 ```
 
+The launcher identifies the service on the configured local port and waits for a healthy local Pixelle API. It reuses a matching instance, stops with an explicit error when a foreign project owns the port, and never switches to an unknown port silently. On exit, it cleans up only the API process it started. When a remote API URL is configured explicitly, the launcher does not start an unused local API.
+
 If you need to start them manually, open two terminals:
 
 ```bash
 # Terminal 1: start the Pixelle API (FastAPI, used by the Web UI)
-uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
+uv run uvicorn api.app:app --host 127.0.0.1 --port 6789
 ```
 
 ```bash
@@ -36,10 +38,10 @@ uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
 uv run streamlit run web/app.py
 ```
 
-Your browser will automatically open `http://localhost:8501`. The API health check is `http://localhost:8001/health`, and Swagger docs are available at `http://localhost:8001/docs`.
+Your browser will automatically open `http://localhost:8501`. The API health check is `http://localhost:6789/health`, and Swagger docs are available at `http://localhost:6789/docs`.
 
 !!! note "The API must be running"
-    `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:8001/api`.
+    `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:6789/api`.
 
 ---
 
