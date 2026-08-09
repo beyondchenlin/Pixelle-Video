@@ -31,16 +31,8 @@ if not exist "%PIXELLE_VIDEO_RUNTIME_ROOT%" mkdir "%PIXELLE_VIDEO_RUNTIME_ROOT%"
 if not exist "%TMP%" mkdir "%TMP%"
 if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%"
 if not exist "%RUFF_CACHE_DIR%" mkdir "%RUFF_CACHE_DIR%"
-if "%PIXELLE_API_PORT%"=="" set "PIXELLE_API_PORT=6789"
-if "%PIXELLE_API_BASE_URL%"=="" set "PIXELLE_API_BASE_URL=http://localhost:%PIXELLE_API_PORT%/api"
-
-:: Start API server first. Streamlit calls this service for Stage1/Stage2 workbench data.
-echo [Starting] Launching Pixelle-Video API on http://localhost:%PIXELLE_API_PORT%
-start "Pixelle-Video API" /min "%PYTHON_HOME%\python.exe" -m uvicorn api.app:app --host 127.0.0.1 --port %PIXELLE_API_PORT%
-timeout /t 2 /nobreak >nul
-
-:: Start Web UI
-echo [Starting] Launching Pixelle-Video Web UI on http://localhost:8501
+:: Validate configuration, supervise the API, then start the Web UI.
+echo [Starting] Launching Pixelle-Video services
 echo Browser will open automatically.
 echo.
 echo Note: Configure API keys and settings in the Web UI.
@@ -48,13 +40,13 @@ echo Press Ctrl+C to stop the server
 echo ========================================
 echo.
 
-"%PYTHON_HOME%\python.exe" -m streamlit run web\app.py
+"%PYTHON_HOME%\python.exe" -m scripts.launch_web
+set "PIXELLE_LAUNCH_EXIT_CODE=!ERRORLEVEL!"
 
-if errorlevel 1 (
+if "!PIXELLE_LAUNCH_EXIT_CODE!"=="130" exit /b 0
+if not "!PIXELLE_LAUNCH_EXIT_CODE!"=="0" (
     echo.
-    echo [ERROR] Failed to start. Please check:
-    echo   1. Python is properly installed
-    echo   2. Dependencies are installed
+    echo [ERROR] Failed to start. Review the launch error above.
     echo.
     pause
 )

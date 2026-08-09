@@ -24,6 +24,8 @@ start_web.bat
 ./start_web.sh
 ```
 
+The launcher identifies the service on the configured local port and waits for a healthy local Pixelle API. It reuses a matching instance, stops with an explicit error when a foreign project owns the port, and never switches to an unknown port silently. On exit, it cleans up only the API process it started. When a remote API URL is configured explicitly, the launcher does not start an unused local API.
+
 If you need to start them manually, open two terminals:
 
 ```bash

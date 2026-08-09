@@ -482,6 +482,8 @@ $env:PIXELLE_API_BASE_URL='http://localhost:8890/api'
 .\start_web.bat
 ```
 
+启动器不会偷偷换端口。它会先核验 `6789` 上是否为健康的 Pixelle API：是则安全复用；是其他项目则直接停止并明确报错；无人占用才启动新进程，并在健康检查通过后启动 Web UI。启动器只清理自己创建的 API 进程，不会终止复用的已有进程。
+
 此时使用：
 
 - Web UI：`http://localhost:8501`

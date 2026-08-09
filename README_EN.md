@@ -478,6 +478,8 @@ $env:PIXELLE_API_BASE_URL='http://localhost:8890/api'
 .\start_web.bat
 ```
 
+The launcher never switches ports silently. It first verifies whether the service on `6789` is a healthy Pixelle API: a matching service is safely reused, a foreign service causes an explicit failure, and an unused port starts a new process. The Web UI starts only after the health check passes. The launcher cleans up only the API process it created and never terminates a reused process.
+
 Then use:
 
 - Web UI: `http://localhost:8501`

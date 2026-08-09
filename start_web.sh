@@ -15,9 +15,6 @@ export UV_CACHE_DIR="$PIXELLE_VIDEO_RUNTIME_ROOT/uv-cache"
 export RUFF_CACHE_DIR="$PIXELLE_VIDEO_RUNTIME_ROOT/ruff-cache"
 
 mkdir -p "$PIXELLE_VIDEO_RUNTIME_ROOT" "$TMP" "$UV_CACHE_DIR" "$RUFF_CACHE_DIR"
-: "${PIXELLE_API_PORT:=6789}"
-: "${PIXELLE_API_BASE_URL:=http://localhost:${PIXELLE_API_PORT}/api}"
-export PIXELLE_API_PORT PIXELLE_API_BASE_URL
 
 if [[ -z "${PRODUCER_HEADLESS_SHELL_PATH:-}" ]]; then
     for browser_name in google-chrome google-chrome-stable chromium chromium-browser microsoft-edge msedge; do
@@ -44,13 +41,7 @@ if [[ -n "${PRODUCER_HEADLESS_SHELL_PATH:-}" ]]; then
     echo "Using browser: $PRODUCER_HEADLESS_SHELL_PATH"
 fi
 
-echo "Starting Pixelle-Video API..."
+echo "Starting Pixelle-Video services..."
 echo ""
 
-uv run uvicorn api.app:app --host 127.0.0.1 --port "$PIXELLE_API_PORT" &
-sleep 2
-
-echo "Starting Pixelle-Video Web UI..."
-echo ""
-
-uv run streamlit run web/app.py
+exec uv run python -m scripts.launch_web

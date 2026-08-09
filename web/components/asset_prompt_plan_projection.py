@@ -5,7 +5,7 @@ from typing import Any, Callable
 import httpx
 import streamlit as st
 
-from pixelle_video.platform_context import DEFAULT_API_BASE_URL
+from pixelle_video.platform_context import CONFIGURED_API_BASE_URL
 from web.components.asset_bible_draft_setup import render_asset_bible_draft_setup
 from web.components.stage2_projection_state import (
     build_projection_context_source,
@@ -20,7 +20,7 @@ from web.utils.asset_bible_api import (
     list_scene_casts,
     preview_prompt_plan_projection,
 )
-from web.utils.streamlit_helpers import list_of_dicts, find_item
+from web.utils.streamlit_helpers import find_item, list_of_dicts
 
 Translate = Callable[..., str]
 
@@ -66,7 +66,7 @@ def render_asset_prompt_plan_projection_preview(
         ui,
         "API Base URL",
         key="api_base_url",
-        value=DEFAULT_API_BASE_URL,
+        value=CONFIGURED_API_BASE_URL,
     )
     left, right = ui.columns(2)
     with left:

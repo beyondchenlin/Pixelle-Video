@@ -89,17 +89,41 @@ def test_root_readmes_document_fixed_local_backend_ports() -> None:
             assert token not in text
 
 
+def test_web_launchers_delegate_health_and_process_lifecycle_to_supervisor() -> None:
+    launchers = (
+        REPO_ROOT / "start_web.bat",
+        REPO_ROOT / "start_web.sh",
+        REPO_ROOT / "packaging" / "windows" / "templates" / "start.bat",
+    )
+
+    for launcher in launchers:
+        text = launcher.read_text(encoding="utf-8")
+        assert "-m scripts.launch_web" in text
+        assert "uvicorn api.app:app" not in text
+        assert "streamlit run web/app.py" not in text
+        assert "timeout /t 2" not in text.lower()
+        assert "sleep 2" not in text.lower()
+        if launcher.suffix == ".bat":
+            assert '=="130"' in text
+
+
 def test_workflow_lab_uses_current_api_port_and_migrates_legacy_defaults() -> None:
     workflow_lab = REPO_ROOT / "docs" / "text-to-image-workflow-lab.html"
     text = workflow_lab.read_text(encoding="utf-8")
 
     assert '<input id="apiBase" value="http://127.0.0.1:6789"' in text
-    assert 'String(value || "http://127.0.0.1:6789")' in text
-    assert "顶部 API 是 http://127.0.0.1:6789" in text
+    assert text.count("http://127.0.0.1:6789") == 1
+    assert "const DEFAULT_API_BASE = apiBaseInputEl.defaultValue" in text
+    assert 'String(value ?? "").trim() || DEFAULT_API_BASE' in text
+    assert 'new Set(["http:", "https:"])' in text
+    assert "parsed.username || parsed.password" in text
+    assert text.count('"http://127.0.0.1:8001"') == 1
     assert text.count('"http://127.0.0.1:8888"') == 1
     assert text.count('"http://127.0.0.1:8899"') == 1
-    assert "obsoleteApiBases.has(savedApiBase)" in text
-    assert '} else if (savedApiBase) {' in text
+    assert text.count('"http://localhost:8001"') == 1
+    assert text.count('"http://localhost:8888"') == 1
+    assert text.count('"http://localhost:8899"') == 1
+    assert "obsoleteApiBases.has(normalizedSavedApiBase)" in text
 
 
 def test_obsolete_omnivoice_qwen_asr_compat_script_is_removed() -> None:

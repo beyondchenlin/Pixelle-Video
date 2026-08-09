@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from typing import Any
 
-DEFAULT_API_PORT = 6789
-DEFAULT_API_BASE_URL = (
-    os.getenv("PIXELLE_API_BASE_URL")
-    or f"http://localhost:{os.getenv('PIXELLE_API_PORT', str(DEFAULT_API_PORT))}/api"
-).rstrip("/")
+from pixelle_video.platform_defaults import (
+    DEFAULT_API_PORT,
+    configured_api_base_url,
+    normalize_api_base_url,
+)
+
+CONFIGURED_API_BASE_URL = configured_api_base_url()
+# Compatibility alias for integrations that imported the historical name.
+DEFAULT_API_BASE_URL = CONFIGURED_API_BASE_URL
 DEFAULT_PROJECT_ID = "project_1"
 DEFAULT_WORKSPACE_ID = "workspace_1"
 
@@ -48,9 +51,10 @@ def resolve_project_id(
 def resolve_api_base_url(
     source: Mapping[str, Any] | None = None,
     *,
-    default: str = DEFAULT_API_BASE_URL,
+    default: str = CONFIGURED_API_BASE_URL,
 ) -> str:
-    return first_text((source or {}).get("api_base_url"), default).rstrip("/")
+    value = first_text((source or {}).get("api_base_url"), default)
+    return normalize_api_base_url(value, setting_name="api_base_url")
 
 
 def resolve_business_context(
@@ -69,6 +73,7 @@ def resolve_business_context(
 __all__ = [
     "DEFAULT_API_BASE_URL",
     "DEFAULT_API_PORT",
+    "CONFIGURED_API_BASE_URL",
     "DEFAULT_PROJECT_ID",
     "DEFAULT_WORKSPACE_ID",
     "first_explicit_text",
