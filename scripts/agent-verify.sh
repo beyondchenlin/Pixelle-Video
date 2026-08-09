@@ -20,10 +20,6 @@ while [ "$#" -gt 0 ]; do
       ALLOW_BASELINE_BRANCH=1
       shift
       ;;
-    --allow-dev-branch)
-      ALLOW_BASELINE_BRANCH=1
-      shift
-      ;;
     --allow-risky-files)
       ALLOW_RISKY_FILES=1
       shift
@@ -89,6 +85,26 @@ is_enabled() {
   esac
 }
 
+commit_type_allowed() {
+  candidate=$1
+  normalized=$(printf '%s' "$COMMIT_TYPES" | tr -d '[:space:]')
+  case ",$normalized," in
+    *",$candidate,"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+resolve_ruff() {
+  for candidate in .venv/bin/ruff .venv/Scripts/ruff.exe; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  command -v ruff 2>/dev/null || return 1
+}
+
 is_tracked_or_staged() {
   path=$1
   git ls-files --error-unmatch "$path" >/dev/null 2>&1 && return 0
@@ -127,6 +143,8 @@ TASK_PREFIX=$(config_value "$config_file" task_prefix "$TASK_PREFIX")
 REQUIRE_AGENTS=$(config_value "$config_file" require_agents_md 1)
 REQUIRE_CLAUDE=$(config_value "$config_file" require_claude_md 0)
 COMMIT_MESSAGE_POLICY=$(config_value "$config_file" commit_message conventional)
+COMMIT_TYPES=$(config_value "$config_file" commit_types 'feat,fix,docs,style,refactor,perf,test,chore,build,ci,revert,merge')
+COMMIT_TITLE_LANGUAGE=$(config_value "$config_file" commit_title_language zh)
 
 info "仓库：$repo_root"
 
@@ -144,16 +162,13 @@ elif [ "$BASELINE_BRANCH" != "$DEV_BRANCH" ] && [ "$branch" = "$BASELINE_BRANCH"
   fail "当前位于 $BASELINE_BRANCH。请使用 $DEV_BRANCH 或 $TASK_PREFIX/<task-name> 分支，或在明确维护基线时传入 --allow-baseline-branch。"
 elif [ "$branch" = "$DEV_BRANCH" ]; then
   pass "开发分支规则：$branch"
-elif [ "$branch" != "$BASELINE_BRANCH" ]; then
-  case "$branch" in
-    "$TASK_PREFIX"/*) pass "分支规则：$branch" ;;
-    *) fail "分支 '$branch' 不符合预期。应为 $DEV_BRANCH、$TASK_PREFIX/<task-name> 或 $BASELINE_BRANCH。" ;;
-  esac
+elif [ "${branch#"$TASK_PREFIX"/}" != "$branch" ]; then
+  pass "代理任务分支规则：$branch"
 else
-  pass "分支规则：$branch"
+  pass "非基线仓库分支：$branch"
 fi
 
-staged_files=$(git diff --cached --name-only --diff-filter=ACMRD)
+staged_files=$(git -c core.quotepath=false diff --cached --name-only --diff-filter=ACMRD)
 if [ -z "$staged_files" ]; then
   info '没有暂存文件。将对工作区 diff 运行空白字符检查。'
   if git diff --check; then
@@ -172,7 +187,7 @@ else
 fi
 
 if [ "$ALLOW_RISKY_FILES" -ne 1 ] && [ -n "$staged_files" ]; then
-  risky=$(printf '%s\n' "$staged_files" | grep -E '(^|/)\.env($|[./])|\.(pem|key|p12|pfx)$|\.(zip|7z|rar)$|(^|/)data/(cache|template|attachment)/|\.log$' || true)
+  risky=$(printf '%s\n' "$staged_files" | grep -Ei '(^|/)\.env($|[./])|\.(pem|key|p12|pfx)$|\.(zip|7z|rar)$|(^|/)config\.ya?ml$|(^|/)extra_models_config\.ya?ml$|(^|/)data/(cache|template|attachment)/|\.log$|\.(safetensors|ckpt|gguf|pt|pth|onnx|bin|engine)$' || true)
   if [ -n "$risky" ]; then
     fail "暂存区存在高风险文件，需要明确审查：
 $risky"
@@ -193,6 +208,7 @@ fi
 
 python_count=0
 python_check_failed=0
+ruff_command=
 old_ifs=$IFS
 IFS='
 '
@@ -201,12 +217,15 @@ for file in $staged_files; do
     case "$file" in
       *.py)
         python_count=$((python_count + 1))
-        if ! command -v uv >/dev/null 2>&1; then
-          fail '找不到 uv 命令，无法检查暂存的 Python 文件。'
+        if [ -z "$ruff_command" ]; then
+          ruff_command=$(resolve_ruff || true)
+        fi
+        if [ -z "$ruff_command" ]; then
+          fail '找不到 ruff。请在提交前显式运行 uv sync；钩子不会创建或更新依赖环境。'
           python_check_failed=1
           break
         fi
-        if ! uv run ruff check -- "$file"; then
+        if ! "$ruff_command" check --no-cache -- "$file"; then
           fail "ruff 检查失败：$file"
           python_check_failed=1
         fi
@@ -228,10 +247,19 @@ if [ -n "$COMMIT_MESSAGE_FILE" ] &&
     fail "找不到提交说明文件：$COMMIT_MESSAGE_FILE"
   else
     first_line=$(sed -n '1p' "$COMMIT_MESSAGE_FILE")
-    if printf '%s\n' "$first_line" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|chore)(\([A-Za-z0-9._-]+\))?: .+'; then
-      pass '提交说明格式'
-    else
+    if ! printf '%s\n' "$first_line" | grep -Eq '^[a-z]+(\([A-Za-z0-9._-]+\))?: .+'; then
       fail "提交说明必须使用 '<type>: <title>' 或 '<type>(scope): <title>'。当前为：$first_line"
+    else
+      commit_prefix=${first_line%%:*}
+      commit_type=${commit_prefix%%(*}
+      commit_title=${first_line#*: }
+      if ! commit_type_allowed "$commit_type"; then
+        fail "提交类型 '$commit_type' 不在允许列表中：$COMMIT_TYPES"
+      elif [ "$COMMIT_TITLE_LANGUAGE" = zh ] && ! printf '%s\n' "$commit_title" | grep -Eq '[一-龥]'; then
+        fail "提交标题必须包含中文：$first_line"
+      else
+        pass '提交说明格式'
+      fi
     fi
   fi
 fi

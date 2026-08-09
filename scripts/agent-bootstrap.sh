@@ -43,7 +43,7 @@ fi
 printf '[OK] Git hooks path configured: .githooks\n'
 
 if [ "$SKIP_VERIFY" -eq 0 ]; then
-  sh scripts/agent-verify.sh
+  sh scripts/agent-verify.sh --allow-baseline-branch
 fi
 
 printf '[OK] Agent bootstrap completed\n'

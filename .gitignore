@@ -43,8 +43,19 @@ Thumbs.db
 # Config files with sensitive data
 config.yaml
 config.yaml.bak
+extra_models_config.yaml
 *.yaml.bak
 .env
+
+# Local AI model artifacts
+*.safetensors
+*.ckpt
+*.gguf
+*.pt
+*.pth
+*.onnx
+*.bin
+*.engine
 
 # Logs
 *.log

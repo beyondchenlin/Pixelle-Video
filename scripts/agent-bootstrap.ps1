@@ -70,7 +70,7 @@ if ($hooksPath -ne '.githooks') {
 Pass 'Git hooks path configured: .githooks'
 
 if (-not $SkipVerify) {
-    & $agentVerify -AllowDevBranch
+    & $agentVerify -AllowBaselineBranch
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

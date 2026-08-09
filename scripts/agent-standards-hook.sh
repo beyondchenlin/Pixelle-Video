@@ -58,6 +58,17 @@ config_file=$repo_root/.oceans/agent-standards.conf
 require_agents=$(config_value "$config_file" require_agents_md 1)
 require_claude=$(config_value "$config_file" require_claude_md 0)
 commit_message_policy=$(config_value "$config_file" commit_message conventional)
+commit_types=$(config_value "$config_file" commit_types 'feat,fix,docs,style,refactor,perf,test,chore,build,ci,revert,merge')
+commit_title_language=$(config_value "$config_file" commit_title_language zh)
+
+commit_type_allowed() {
+  candidate=$1
+  normalized=$(printf '%s' "$commit_types" | tr -d '[:space:]')
+  case ",$normalized," in
+    *",$candidate,"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 is_tracked_or_staged() {
   path=$1
@@ -91,10 +102,20 @@ check_commit_message() {
   fi
 
   first_line=$(sed -n '1p' "$message_file")
-  if printf '%s\n' "$first_line" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|chore)(\([A-Za-z0-9._-]+\))?: .+'; then
-    pass '提交说明格式'
-  else
+  if ! printf '%s\n' "$first_line" | grep -Eq '^[a-z]+(\([A-Za-z0-9._-]+\))?: .+'; then
     fail "提交说明必须使用 '<type>: <title>' 或 '<type>(scope): <title>'。当前为：$first_line"
+    return
+  fi
+
+  commit_prefix=${first_line%%:*}
+  commit_type=${commit_prefix%%(*}
+  commit_title=${first_line#*: }
+  if ! commit_type_allowed "$commit_type"; then
+    fail "提交类型 '$commit_type' 不在允许列表中：$commit_types"
+  elif [ "$commit_title_language" = zh ] && ! printf '%s\n' "$commit_title" | grep -Eq '[一-龥]'; then
+    fail "提交标题必须包含中文：$first_line"
+  else
+    pass '提交说明格式'
   fi
 }
 

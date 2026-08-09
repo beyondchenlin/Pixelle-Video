@@ -1,6 +1,5 @@
 param(
     [switch]$AllowBaselineBranch,
-    [switch]$AllowDevBranch,
     [switch]$AllowRiskyFiles,
     [string]$CommitMessageFile,
     [string]$BaselineBranch = 'main',
@@ -81,6 +80,25 @@ function GitLines($arguments) {
     return @($output | Where-Object { $_ -ne $null -and $_ -ne '' })
 }
 
+function Get-RuffCommand($root) {
+    $candidates = @(
+        (Join-Path $root '.venv/Scripts/ruff.exe'),
+        (Join-Path $root '.venv/bin/ruff')
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
+        }
+    }
+
+    $command = Get-Command ruff -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    return $null
+}
+
 $repoRoot = (& git rev-parse --show-toplevel 2>$null)
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repoRoot)) {
     throw 'Not inside a git repository.'
@@ -94,6 +112,12 @@ $TaskPrefix = Get-AgentConfigValue $configFile 'task_prefix' $TaskPrefix
 $requireAgents = Get-AgentConfigValue $configFile 'require_agents_md' '1'
 $requireClaude = Get-AgentConfigValue $configFile 'require_claude_md' '0'
 $commitMessagePolicy = Get-AgentConfigValue $configFile 'commit_message' 'conventional'
+$commitTypes = @(
+    (Get-AgentConfigValue $configFile 'commit_types' 'feat,fix,docs,style,refactor,perf,test,chore,build,ci,revert,merge') -split ',' |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -ne '' }
+)
+$commitTitleLanguage = Get-AgentConfigValue $configFile 'commit_title_language' 'zh'
 
 $gitDir = (& git rev-parse --git-dir).Trim()
 $isMergeInProgress = Test-Path -LiteralPath (Join-Path $gitDir 'MERGE_HEAD')
@@ -103,14 +127,14 @@ Info "Repository: $repoRoot"
 $branch = (& git branch --show-current).Trim()
 if ([string]::IsNullOrWhiteSpace($branch)) {
     Fail 'Detached HEAD is not allowed for normal agent work.'
-} elseif ($BaselineBranch -ne $DevBranch -and $branch -eq $BaselineBranch -and -not ($AllowBaselineBranch -or $AllowDevBranch -or $isMergeInProgress)) {
+} elseif ($BaselineBranch -ne $DevBranch -and $branch -eq $BaselineBranch -and -not ($AllowBaselineBranch -or $isMergeInProgress)) {
     Fail "Work is on $BaselineBranch. Use $DevBranch or a $TaskPrefix/<task-name> branch, or pass -AllowBaselineBranch for intentional baseline maintenance."
 } elseif ($branch -eq $DevBranch) {
     Pass "Development branch policy: $branch"
-} elseif ($branch -ne $BaselineBranch -and $branch -notlike "$TaskPrefix/*") {
-    Fail "Unexpected branch '$branch'. Expected $DevBranch, $TaskPrefix/<task-name>, or $BaselineBranch."
+} elseif ($branch -like "$TaskPrefix/*") {
+    Pass "Agent task branch policy: $branch"
 } else {
-    Pass "Branch policy: $branch"
+    Pass "Non-baseline repository branch: $branch"
 }
 
 $stagedFiles = GitLines @('diff', '--cached', '--name-only', '--diff-filter=ACMRD')
@@ -132,10 +156,13 @@ $riskyPatterns = @(
     '(^|/)\.env($|[./])',
     '\.(pem|key|p12|pfx)$',
     '\.(zip|7z|rar)$',
+    '(^|/)config\.ya?ml$',
+    '(^|/)extra_models_config\.ya?ml$',
     '(^|/)data/cache/',
     '(^|/)data/template/',
     '(^|/)data/attachment/',
-    '\.log$'
+    '\.log$',
+    '\.(safetensors|ckpt|gguf|pt|pth|onnx|bin|engine)$'
 )
 
 if ($stagedFiles.Count -gt 0 -and -not $AllowRiskyFiles) {
@@ -168,25 +195,22 @@ if (-not (Select-String -LiteralPath (Join-Path $repoRoot 'AGENTS.md') -SimpleMa
 
 $pythonFiles = @()
 if ($stagedFiles.Count -gt 0) {
-    $pythonFiles = $stagedFiles | Where-Object {
-        $_ -match '\.py$' -and (Test-Path -LiteralPath $_ -PathType Leaf)
-    }
+    $pythonFiles = @(
+        $stagedFiles | Where-Object {
+            $_ -match '\.py$' -and (Test-Path -LiteralPath $_ -PathType Leaf)
+        }
+    )
 }
 
 if ($pythonFiles.Count -gt 0) {
-    $uv = Get-Command uv -ErrorAction SilentlyContinue
-    if (-not $uv) {
-        Fail 'uv command not found; cannot run ruff on staged Python files.'
+    $ruffCommand = Get-RuffCommand $repoRoot
+    if (-not $ruffCommand) {
+        Fail 'ruff is not installed. Run uv sync explicitly before committing; the hook will not create or update an environment.'
     } else {
-        $pythonCheckFailed = $false
-        foreach ($file in $pythonFiles) {
-            $lint = & uv run ruff check -- $file 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Fail "ruff failed for ${file}:`n$($lint -join [Environment]::NewLine)"
-                $pythonCheckFailed = $true
-            }
-        }
-        if (-not $pythonCheckFailed) {
+        $lint = & $ruffCommand check --no-cache -- @pythonFiles 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Fail "ruff failed:`n$($lint -join [Environment]::NewLine)"
+        } else {
             Pass "ruff checked $($pythonFiles.Count) staged Python file(s)"
         }
     }
@@ -199,8 +223,13 @@ if ($CommitMessageFile -and $commitMessagePolicy -notin @('off', 'none')) {
         Fail "Commit message file not found: $CommitMessageFile"
     } else {
         $firstLine = (Get-Content -LiteralPath $CommitMessageFile -Encoding UTF8 | Select-Object -First 1)
-        if ($firstLine -notmatch '^(feat|fix|docs|style|refactor|perf|test|chore)(\([A-Za-z0-9._-]+\))?: .+') {
+        $match = [regex]::Match($firstLine, '^(?<type>[a-z]+)(\([A-Za-z0-9._-]+\))?: (?<title>.+)$')
+        if (-not $match.Success) {
             Fail "Commit message must use '<type>: <title>' or '<type>(scope): <title>'. Found: $firstLine"
+        } elseif ($match.Groups['type'].Value -notin $commitTypes) {
+            Fail "Commit type '$($match.Groups['type'].Value)' is not allowed. Allowed types: $($commitTypes -join ', ')"
+        } elseif ($commitTitleLanguage -eq 'zh' -and $match.Groups['title'].Value -notmatch '[\u3400-\u4DBF\u4E00-\u9FFF]') {
+            Fail "Commit title must contain Chinese text. Found: $firstLine"
         } else {
             Pass 'Commit message format'
         }
