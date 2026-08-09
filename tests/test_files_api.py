@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from api.file_access import sanitize_upload_filename
+from api.routers import files as files_router_module
 from api.routers.files import get_file
 from api.routers.files import router as files_router
 
@@ -82,6 +83,23 @@ async def test_get_file_returns_400_for_directory_path(monkeypatch, tmp_path):
         await get_file("task-1")
 
     assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_get_file_hides_internal_exception_details(monkeypatch):
+    secret = r"D:\private\customer-secret.txt"
+
+    def fail_resolution(_file_path):
+        raise RuntimeError(f"failed to open {secret}")
+
+    monkeypatch.setattr(files_router_module, "resolve_allowed_file_path", fail_resolution)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_file("final.mp4")
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "File service failed"
+    assert secret not in exc_info.value.detail
 
 
 @pytest.mark.asyncio
@@ -210,6 +228,38 @@ def test_download_file_uses_attachment_disposition(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.content == b"video"
+    assert response.headers["content-disposition"] == 'attachment; filename="final.mp4"'
+
+
+def test_download_file_uses_safe_preferred_filename(monkeypatch, tmp_path):
+    video = tmp_path / "output" / "task-1" / "final.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+    monkeypatch.chdir(tmp_path)
+
+    response = _files_client().get(
+        "/files/download/task-1/final.mp4",
+        params={"filename": "Customer Story.mov"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == (
+        "attachment; filename*=utf-8''Customer%20Story.mp4"
+    )
+
+
+def test_download_file_falls_back_for_unsafe_preferred_filename(monkeypatch, tmp_path):
+    video = tmp_path / "output" / "task-1" / "final.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+    monkeypatch.chdir(tmp_path)
+
+    response = _files_client().get(
+        "/files/download/task-1/final.mp4",
+        params={"filename": "../secret.txt"},
+    )
+
+    assert response.status_code == 200
     assert response.headers["content-disposition"] == 'attachment; filename="final.mp4"'
 
 

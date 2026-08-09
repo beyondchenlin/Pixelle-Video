@@ -37,31 +37,86 @@ def test_landscape_template_gallery_preview_assets_exist():
         assert preview_asset.exists(), f"missing template gallery preview: {preview_asset}"
 
 
-def test_template_gallery_tab_label_uses_orientation_without_base_size():
-    orientation_labels = {
-        "portrait": "竖屏",
-        "landscape": "横屏",
-        "square": "方形",
+def test_template_picker_entries_filter_orientation_convention_and_duplicates():
+    def template(name: str, orientation: str, path: str):
+        return SimpleNamespace(
+            template_path=path,
+            display_info=SimpleNamespace(
+                name=name,
+                orientation=orientation,
+                width=1080,
+                height=1920,
+            ),
+        )
+
+    first = template("image_default", "portrait", "templates/portrait.html")
+    duplicate = template("image_duplicate", "portrait", "templates/portrait.html")
+    wrong_orientation = template("image_landscape", "landscape", "templates/landscape.html")
+    wrong_convention = template("legacy_template", "portrait", "templates/legacy.html")
+
+    entries = style_config._compatible_template_picker_entries(
+        {
+            "first": [first, wrong_orientation],
+            "second": [duplicate, wrong_convention],
+        },
+        orientation="portrait",
+    )
+
+    assert entries == [first]
+    assert style_config._template_picker_label(first) == "image_default · 1080×1920"
+
+
+def test_template_picker_preserves_custom_layered_template_label():
+    assert (
+        style_config._template_picker_option_label(
+            "data/templates/customer/custom_scene.html",
+            {},
+        )
+        == "custom_scene"
+    )
+
+
+def test_template_picker_callback_updates_selection_and_clears_layered_identity(monkeypatch):
+    session_state = {
+        "template_picker": "templates/portrait/image_default.html",
+        "selected_template": "data/templates/customer/custom_scene.html",
+        "layered_template_selected_spec_identity": {
+            "template_id": "user:custom",
+            "template_name": "Custom",
+            "template_type": "image",
+        },
     }
+    monkeypatch.setattr(
+        style_config,
+        "st",
+        SimpleNamespace(session_state=session_state),
+    )
 
-    labels = [
-        style_config._build_template_gallery_tab_label(
-            SimpleNamespace(orientation="portrait", width=1080, height=1920),
-            orientation_labels,
-        ),
-        style_config._build_template_gallery_tab_label(
-            SimpleNamespace(orientation="landscape", width=1920, height=1080),
-            orientation_labels,
-        ),
-        style_config._build_template_gallery_tab_label(
-            SimpleNamespace(orientation="square", width=1080, height=1080),
-            orientation_labels,
-        ),
-    ]
+    style_config._apply_template_picker_selection("template_picker")
 
-    assert labels == ["竖屏", "横屏", "方形"]
-    assert all("1080" not in label for label in labels)
-    assert all("1920" not in label for label in labels)
+    assert session_state["selected_template"] == "templates/portrait/image_default.html"
+    assert "layered_template_selected_spec_identity" not in session_state
+
+
+def test_template_picker_preview_does_not_read_assets_before_user_action(monkeypatch):
+    fake_st = SimpleNamespace(button=lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(style_config, "st", fake_st)
+
+    def unexpected_preview_lookup(*_args, **_kwargs):
+        raise AssertionError("preview lookup must be user initiated")
+
+    monkeypatch.setattr(
+        style_config,
+        "get_template_preview_path",
+        unexpected_preview_lookup,
+    )
+
+    style_config._render_template_picker_preview_on_demand(
+        "templates/portrait/image_default.html",
+        "image_default",
+        current_lang="zh_CN",
+        picker_key="template_picker",
+    )
 
 
 def test_render_generation_size_controls_returns_independent_image_size(monkeypatch):

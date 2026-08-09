@@ -16,6 +16,8 @@ File service endpoints
 Provides access to generated files (videos, images, audio) and resource files.
 """
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
@@ -25,6 +27,7 @@ from api.file_access import (
     media_type_for,
     parse_range_header,
     resolve_allowed_file_path,
+    sanitize_upload_filename,
 )
 
 router = APIRouter(prefix="/files", tags=["Files"])
@@ -51,28 +54,40 @@ async def stream_file(file_path: str, request: Request):
         return response
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"File stream error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("File stream failed")
+        raise HTTPException(status_code=500, detail="File service failed") from None
 
 
 @router.get("/download/{file_path:path}")
-async def download_file(file_path: str):
+async def download_file(file_path: str, filename: str | None = None):
     """
     Download file by path as an attachment.
     """
     try:
         abs_path = resolve_allowed_file_path(file_path)
+        download_name = abs_path.name
+        if filename and len(filename) <= 180 and not any(
+            separator in filename for separator in ("/", "\\")
+        ):
+            try:
+                safe_name = sanitize_upload_filename(filename)
+            except HTTPException:
+                pass
+            else:
+                requested_stem = Path(safe_name).stem[:120].strip()
+                if requested_stem:
+                    download_name = f"{requested_stem}{abs_path.suffix}"
         return FileResponse(
             path=str(abs_path),
             media_type=media_type_for(abs_path),
-            filename=abs_path.name,
+            filename=download_name,
         )
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"File download error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("File download failed")
+        raise HTTPException(status_code=500, detail="File service failed") from None
 
 
 @router.get("/{file_path:path}")
@@ -111,6 +126,6 @@ async def get_file(file_path: str):
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"File access error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("File access failed")
+        raise HTTPException(status_code=500, detail="File service failed") from None

@@ -23,8 +23,10 @@ from typing import Any, Callable
 import streamlit as st
 from loguru import logger
 
+from pixelle_video.platform_context import CONFIGURED_API_BASE_URL
 from web.i18n import tr
 from web.utils.async_helpers import run_async
+from web.utils.output_media_urls import build_output_media_urls
 
 RECENT_GENERATED_VIDEO_KEY = "recent_generated_video"
 RECENT_VIDEO_GALLERY_KEY = "recent_video_gallery"
@@ -212,16 +214,14 @@ def build_recent_video_gallery_css(
     .st-key-{grid_key} div[data-testid="stMarkdownContainer"]:has(.recent-video-info) {{
         margin-bottom: 0 !important;
     }}
-    .st-key-{gallery_key} video[data-testid="stVideo"] {{
-        width: 100% !important;
-        max-width: 100% !important;
-        height: auto !important;
-        max-height: none !important;
-        margin: 0 !important;
-        display: block;
-        object-fit: initial !important;
-        background: transparent;
+    .recent-video-placeholder {{
+        display: grid;
+        min-height: 4.5rem;
+        place-items: center;
+        color: rgba(49, 51, 63, 0.72);
+        background: linear-gradient(135deg, rgba(110, 64, 201, 0.12), rgba(32, 171, 255, 0.10));
         border-radius: 8px;
+        font-size: 1.45rem;
     }}
     .recent-video-info {{
         display: grid;
@@ -259,7 +259,8 @@ def build_recent_video_gallery_css(
         width: auto !important;
         min-width: 0 !important;
     }}
-    .st-key-{gallery_key} .stColumn button {{
+    .st-key-{gallery_key} .stColumn button,
+    .st-key-{gallery_key} .stColumn a {{
         width: 2.15rem !important;
         min-height: 1.45rem;
         padding: 0;
@@ -302,15 +303,37 @@ def render_recent_video_gallery(pixelle_video: Any, *, key_suffix: str = "") -> 
 
         with st.container(key=grid_key):
             for item in items:
-                render_recent_video_card(item, key_suffix=key_suffix)
+                render_recent_video_card(
+                    item,
+                    api_base_url=st.session_state.get(
+                        "api_base_url",
+                        CONFIGURED_API_BASE_URL,
+                    ),
+                    key_suffix=key_suffix,
+                )
 
 
-def render_recent_video_card(item: dict[str, Any], *, key_suffix: str = "") -> None:
+def render_recent_video_card(
+    item: dict[str, Any],
+    *,
+    api_base_url: str = CONFIGURED_API_BASE_URL,
+    key_suffix: str = "",
+) -> None:
     """Render one recent video card."""
     item_key = f"{_stable_key(item.get('task_id') or item.get('video_path'))}{key_suffix}"
+    raw_title = str(item.get("title") or tr("recent_videos.untitled"))
+    download_stem = raw_title[:-4] if raw_title.casefold().endswith(".mp4") else raw_title
+    media_urls = build_output_media_urls(
+        item["video_path"],
+        api_base_url=api_base_url,
+        download_name=f"{download_stem[:120]}.mp4",
+    )
     with st.container(border=True):
-        st.video(item["video_path"], autoplay=False, loop=False, muted=False)
-        title = escape(str(item.get("title") or tr("recent_videos.untitled")))
+        st.markdown(
+            '<div class="recent-video-placeholder" aria-hidden="true">🎬</div>',
+            unsafe_allow_html=True,
+        )
+        title = escape(raw_title)
         meta = " · ".join(
             part
             for part in [
@@ -330,9 +353,26 @@ def render_recent_video_card(item: dict[str, Any], *, key_suffix: str = "") -> N
             unsafe_allow_html=True,
         )
 
-        action_columns = st.columns(2, gap="small")
+        action_columns = st.columns(3, gap="small")
         task_id = item.get("task_id")
         with action_columns[0]:
+            if media_urls is not None:
+                st.link_button(
+                    "▶️",
+                    media_urls.stream_url,
+                    help=tr("history.task_card.play"),
+                    width="stretch",
+                )
+            else:
+                st.button(
+                    "▶️",
+                    key=f"recent_play_disabled_{item_key}",
+                    help=tr("history.task_card.play"),
+                    disabled=True,
+                    width="stretch",
+                )
+
+        with action_columns[1]:
             if task_id and st.button(
                 "👁️",
                 key=f"recent_view_{item_key}",
@@ -344,14 +384,19 @@ def render_recent_video_card(item: dict[str, Any], *, key_suffix: str = "") -> N
             elif not task_id:
                 st.button("👁️", key=f"recent_view_disabled_{item_key}", disabled=True, width="stretch")
 
-        with action_columns[1]:
-            with open(item["video_path"], "rb") as video_file:
-                st.download_button(
+        with action_columns[2]:
+            if media_urls is not None:
+                st.link_button(
                     "⬇️",
-                    data=video_file,
-                    file_name=f"{item.get('title') or tr('recent_videos.untitled')}.mp4",
-                    mime="video/mp4",
-                    key=f"recent_download_{item_key}",
+                    media_urls.download_url,
                     help=tr("history.task_card.download"),
+                    width="stretch",
+                )
+            else:
+                st.button(
+                    "⬇️",
+                    key=f"recent_download_disabled_{item_key}",
+                    help=tr("history.task_card.download"),
+                    disabled=True,
                     width="stretch",
                 )

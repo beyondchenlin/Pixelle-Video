@@ -65,10 +65,8 @@ from pixelle_video.prompt_language import (
 from pixelle_video.prompts.prompt_prefix_generation import (
     render_prompt_prefix_generation_prompt,
 )
-from pixelle_video.services import frame_html as _frame_html
-from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
-from pixelle_video.utils import template_util as _template_util
 from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
+from pixelle_video.services import frame_html as _frame_html
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.prompt_trace_artifacts import (
     build_media_prompt_trace_context,
@@ -77,6 +75,8 @@ from pixelle_video.services.prompt_trace_artifacts import (
 )
 from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
+from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
+from pixelle_video.utils import template_util as _template_util
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.os_util import get_runtime_path
 from pixelle_video.utils.prompt_prefix_generation import (
@@ -503,9 +503,48 @@ def _render_media_placement_controls() -> MediaPlacement:
     return placement
 
 
-def _build_template_gallery_tab_label(display_info, orientation_labels: dict[str, str]) -> str:
-    orientation = getattr(display_info, "orientation", "")
-    return orientation_labels.get(orientation, orientation)
+def _compatible_template_picker_entries(
+    grouped_templates: dict[str, Sequence[Any]],
+    *,
+    orientation: str,
+) -> list[Any]:
+    """Return unique, convention-compliant templates for one canvas orientation."""
+    entries: list[Any] = []
+    seen_paths: set[str] = set()
+    for templates in grouped_templates.values():
+        for template in templates:
+            display_info = template.display_info
+            template_path = str(template.template_path)
+            if display_info.orientation != orientation:
+                continue
+            if not display_info.name.startswith(("static_", "image_", "video_")):
+                continue
+            if template_path in seen_paths:
+                continue
+            seen_paths.add(template_path)
+            entries.append(template)
+    return entries
+
+
+def _template_picker_label(template: Any) -> str:
+    display_info = template.display_info
+    return f"{display_info.name} · {display_info.width}×{display_info.height}"
+
+
+def _template_picker_option_label(path: str, entries_by_path: dict[str, Any]) -> str:
+    template = entries_by_path.get(path)
+    if template is None:
+        return Path(path).stem
+    return _template_picker_label(template)
+
+
+def _apply_template_picker_selection(picker_key: str) -> None:
+    """Synchronize a user selection before Streamlit reruns the page."""
+    selected_path = st.session_state.get(picker_key)
+    if not selected_path:
+        return
+    st.session_state["selected_template"] = selected_path
+    clear_layered_template_spec_identity(st.session_state)
 
 
 def _selected_size_snapshot_still_active(
@@ -731,6 +770,27 @@ def _render_template_gallery_preview(preview_path: str, template_name: str):
         st.image(preview_path, width="stretch")
     except Exception as exc:
         logger.warning(f"Template preview render failed for {preview_path}: {exc}")
+        _render_template_gallery_preview_placeholder(template_name)
+
+
+def _render_template_picker_preview_on_demand(
+    template_path: str,
+    template_name: str,
+    *,
+    current_lang: str,
+    picker_key: str,
+) -> None:
+    """Load a template preview only after an explicit user action."""
+    if not st.button(
+        tr("template.preview_title"),
+        key=f"{picker_key}_load_preview",
+        width="stretch",
+    ):
+        return
+    preview_path = get_template_preview_path(template_path, current_lang)
+    if preview_path and os.path.exists(preview_path):
+        _render_template_gallery_preview(preview_path, template_name)
+    else:
         _render_template_gallery_preview_placeholder(template_name)
 
 
@@ -3154,103 +3214,90 @@ def render_style_config(
                 clear_layered_template_spec_identity(st.session_state)
                 safe_rerun()
 
-        # Collect size groups and prepare tabs
-        size_groups = []
-        size_labels = []
-        
-        for size, templates in grouped_templates.items():
-            if not templates:
-                continue
-            
-            # Filter templates to only include those with proper naming convention
-            # Only show templates starting with static_, image_, or video_
-            valid_templates = []
-            for template in templates:
-                template_name = template.display_info.name
-                if template_name.startswith(('static_', 'image_', 'video_')):
-                    valid_templates.append(template)
-            
-            # Skip if no valid templates after filtering
-            if not valid_templates:
-                continue
-            
-            # Separate templates into two groups: with preview and without preview
-            templates_with_preview = []
-            templates_without_preview = []
-            
-            for template in valid_templates:
-                preview_path = get_template_preview_path(template.template_path, current_lang)
-                if preview_path and os.path.exists(preview_path):
-                    templates_with_preview.append(template)
-                else:
-                    templates_without_preview.append(template)
-            
-            # Skip this group if no templates at all
-            if not templates_with_preview and not templates_without_preview:
-                continue
-            
-            # Combine: templates with preview first, then without preview
-            all_templates = templates_with_preview + templates_without_preview
-            
-            tab_label = _build_template_gallery_tab_label(
-                all_templates[0].display_info,
-                ORIENTATION_I18N,
-            )
-            size_labels.append(tab_label)
-            size_groups.append(all_templates)
-        
-        # Create tabs for each size group (wrapped in expander)
+        template_entries = _compatible_template_picker_entries(
+            grouped_templates,
+            orientation=size_contract.video_orientation,
+        )
+        selected_template_name = None
+        frame_template = st.session_state.get("selected_template")
+
+        # A single selector and preview keep the collapsed section payload bounded.
         with render_middle_column_detail_section(tr("template.gallery_view")):
-            if size_groups:
-                tabs = st.tabs(size_labels)
-                
-                for tab, all_templates in zip(tabs, size_groups):
-                    with tab:
-                        # Create grid layout (5 columns)
-                        num_cols = 5
-                        cols = st.columns(num_cols)
-                        
-                        for idx, template in enumerate(all_templates):
-                            col_idx = idx % num_cols
-                            with cols[col_idx]:
-                                # Get preview image path
-                                preview_path = get_template_preview_path(template.template_path, current_lang)
-                                
-                                # Display preview image or placeholder
-                                if preview_path and os.path.exists(preview_path):
-                                    _render_template_gallery_preview(preview_path, template.display_info.name)
-                                else:
-                                    _render_template_gallery_preview_placeholder(template.display_info.name)
-                                
-                                # Select button (unified label)
-                                is_selected = (st.session_state['selected_template'] == template.template_path)
-                                button_label = f"{tr('template.selected')}" if is_selected else tr('template.select_button')
-                                button_type = "primary" if is_selected else "secondary"
-                                
-                                if st.button(
-                                    button_label,
-                                    key=f"template_{template.template_path}",
-                                    width="stretch",
-                                    type=button_type,
-                                ):
-                                    st.session_state['selected_template'] = template.template_path
-                                    clear_layered_template_spec_identity(st.session_state)
-                                    st.rerun()
+            if template_entries:
+                entry_by_path = {
+                    str(template.template_path): template
+                    for template in template_entries
+                }
+                template_paths = list(entry_by_path)
+                if frame_template not in entry_by_path:
+                    if selected_template_identity_active and frame_template:
+                        frame_template = str(frame_template)
+                        template_paths.insert(0, frame_template)
+                    else:
+                        frame_template = template_paths[0]
+                        st.session_state["selected_template"] = frame_template
+
+                picker_key = (
+                    "template_gallery_choice_"
+                    f"{selected_template_type}_{size_contract.video_orientation}"
+                )
+                if st.session_state.get(picker_key) not in {None, *template_paths}:
+                    st.session_state.pop(picker_key, None)
+                if (
+                    selected_template_identity_active
+                    and st.session_state.get(picker_key) != frame_template
+                ):
+                    st.session_state[picker_key] = frame_template
+                selected_index = template_paths.index(str(frame_template))
+                selected_path = st.selectbox(
+                    tr("template.selected_template"),
+                    options=template_paths,
+                    format_func=lambda path: _template_picker_option_label(
+                        path,
+                        entry_by_path,
+                    ),
+                    key=picker_key,
+                    label_visibility="collapsed",
+                    on_change=_apply_template_picker_selection,
+                    args=(picker_key,),
+                    **keyed_widget_default_kwargs(
+                        st.session_state,
+                        picker_key,
+                        index=selected_index,
+                    ),
+                )
+                selected_template = entry_by_path.get(selected_path)
+                if selected_path != st.session_state.get("selected_template"):
+                    st.session_state["selected_template"] = selected_path
+                    clear_layered_template_spec_identity(st.session_state)
+                frame_template = selected_path
+                selected_template_name = (
+                    selected_template.display_info.name
+                    if selected_template is not None
+                    else Path(selected_path).stem
+                )
+
+                _render_template_picker_preview_on_demand(
+                    frame_template,
+                    selected_template_name,
+                    current_lang=current_lang,
+                    picker_key=picker_key,
+                )
             else:
                 st.warning(tr("template.no_templates_with_preview"))
-            
-            # Display selected template name (inside expander, below tabs)
-            frame_template = st.session_state.get('selected_template')
-            
-            # Find the selected template's display name
-            selected_template_name = None
-            if frame_template:
-                for size, templates in grouped_templates.items():
-                    for template in templates:
-                        if template.template_path == frame_template:
-                            selected_template_name = template.display_info.name
-                            break
-                    if selected_template_name:
+
+            if selected_template_name is None and frame_template:
+                for templates in grouped_templates.values():
+                    selected_template = next(
+                        (
+                            template
+                            for template in templates
+                            if template.template_path == frame_template
+                        ),
+                        None,
+                    )
+                    if selected_template is not None:
+                        selected_template_name = selected_template.display_info.name
                         break
             
         if selected_template_name:

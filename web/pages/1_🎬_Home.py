@@ -31,12 +31,16 @@ from web.components.faq import render_faq_sidebar
 # Import components
 from web.components.header import render_header
 from web.components.settings import render_advanced_settings
+from web.i18n import tr
 
-# Import pipeline registry
-from web.pipelines import get_all_pipeline_uis
+# Import lightweight selector metadata. Implementations are loaded on selection.
+from web.pipelines import get_pipeline_selection_entries, get_pipeline_ui
 
 # Import state management
 from web.state.session import get_pixelle_video, init_i18n, init_session_state
+from web.utils.streamlit_helpers import keyed_widget_default_kwargs
+
+HOME_PIPELINE_KEY = "home_active_pipeline"
 
 # Page config
 st.set_page_config(
@@ -59,9 +63,6 @@ def main():
     # Render FAQ in sidebar
     render_faq_sidebar()
     
-    # Initialize Pixelle-Video
-    pixelle_video = get_pixelle_video()
-    
     # Render system configuration (LLM + ComfyUI)
     render_advanced_settings()
     
@@ -69,23 +70,40 @@ def main():
     # Pipeline Selection & Delegation
     # ========================================================================
     
-    # Get all registered pipelines
-    pipelines = get_all_pipeline_uis()
-    
-    # Use Tabs for pipeline selection
-    # Note: st.tabs returns a list of containers, one for each tab
-    tab_labels = [f"{p.icon} {p.display_name}" for p in pipelines]
-    tabs = st.tabs(tab_labels)
-    
-    # Render each pipeline in its corresponding tab
-    for i, pipeline in enumerate(pipelines):
-        with tabs[i]:
-            # Show description if available
-            if pipeline.description:
-                st.caption(pipeline.description)
-            
-            # Delegate rendering
-            pipeline.render(pixelle_video)
+    selection_entries = get_pipeline_selection_entries()
+    pipeline_names = [entry.name for entry in selection_entries]
+    current_name = st.session_state.get(HOME_PIPELINE_KEY)
+    if current_name not in pipeline_names:
+        current_name = pipeline_names[0]
+        st.session_state.pop(HOME_PIPELINE_KEY, None)
+
+    entry_by_name = {entry.name: entry for entry in selection_entries}
+    selected_name = st.segmented_control(
+        tr("pipeline.select"),
+        options=pipeline_names,
+        format_func=lambda name: (
+            f"{entry_by_name[name].icon} {entry_by_name[name].display_name}"
+        ),
+        key=HOME_PIPELINE_KEY,
+        label_visibility="collapsed",
+        width="stretch",
+        **keyed_widget_default_kwargs(
+            st.session_state,
+            HOME_PIPELINE_KEY,
+            default=current_name,
+        ),
+    )
+    selected_name = selected_name or current_name
+    selected_entry = entry_by_name[selected_name]
+    if selected_entry.description:
+        st.caption(selected_entry.description)
+
+    # The visible shell and selector render before heavyweight runtime creation.
+    pixelle_video = get_pixelle_video()
+    pipeline = get_pipeline_ui(selected_name)
+    if pipeline is None:  # pragma: no cover - entries resolve to registered pipelines
+        raise RuntimeError(f"Selected pipeline {selected_name!r} is unavailable")
+    pipeline.render(pixelle_video)
 
 
 if __name__ == "__main__":

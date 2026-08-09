@@ -1118,7 +1118,6 @@ def test_style_config_source_keeps_expected_ui_glyphs_and_separators():
     assert 'f"· {get_prompt_prefix_category_label(active_item[\'style_category_id\'], \'style\', language)} "' in source
     assert 'f"· {get_prompt_prefix_category_label(active_item[\'scene_category_id\'], \'scene\', language)}"' in source
     assert 'st.caption(f"📁 {audio_path}")' in source
-    assert "_build_template_gallery_tab_label(" in source
     assert 'tab_label = f"{orientation} {width}' not in source
     assert 'st.info(f"📋 {tr(\'template.selected_template\')}: **{selected_template_name}**")' in source
     assert 'st.markdown("📝 " + tr("template.custom_parameters"))' in source
@@ -2187,9 +2186,10 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 
     assert result["media_workflow"] == "selfhost/image_z_image_turbo_gguf.json"
+    assert result["frame_template"] == "1080x1920/image_default.html"
     assert ("section.image", False) in fake_st.expanders
     assert fake_st.nested_expanders == []
-    assert any("orientation.portrait" in labels for labels in fake_st.tab_label_sets)
+    assert all("orientation.portrait" not in labels for labels in fake_st.tab_label_sets)
     assert ["caption_style.tab", "title_style.tab"] in fake_st.tab_label_sets
     assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
     expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)

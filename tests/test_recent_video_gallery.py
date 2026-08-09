@@ -170,12 +170,9 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert "gap: 0.65rem" in css
     assert f'.st-key-{gallery.RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"]' in css
     assert "padding: 0.5rem !important" in css
-    assert 'video[data-testid="stVideo"]' in css
-    assert "width: 100% !important" in css
-    assert "height: auto !important" in css
-    assert "max-height: none !important" in css
-    assert "margin: 0 !important" in css
-    assert "object-fit: initial" in css
+    assert ".recent-video-placeholder" in css
+    assert "linear-gradient" in css
+    assert "min-height: 4.5rem" in css
     assert ".recent-video-section-title" in css
     assert "margin: 0 0 0.55rem" in css
     assert ":has(.recent-video-info)" in css
@@ -228,7 +225,9 @@ def test_render_recent_video_gallery_applies_refresh_key_suffix(monkeypatch):
     monkeypatch.setattr(
         gallery,
         "render_recent_video_card",
-        lambda _item, *, key_suffix="": captured["card_suffixes"].append(key_suffix),
+        lambda _item, *, api_base_url, key_suffix="": captured["card_suffixes"].append(
+            key_suffix
+        ),
     )
 
     gallery.render_recent_video_gallery(object(), key_suffix="_refresh_2")
@@ -237,3 +236,59 @@ def test_render_recent_video_gallery_applies_refresh_key_suffix(monkeypatch):
     assert gallery.RECENT_VIDEO_GRID_KEY + "_refresh_2" in captured["containers"]
     assert captured["card_suffixes"] == ["_refresh_2"]
     assert f".st-key-{gallery.RECENT_VIDEO_GALLERY_KEY}_refresh_2" in captured["css"][0]
+
+
+def test_render_recent_video_card_links_to_file_service_without_loading_media(monkeypatch):
+    captured = {"links": [], "markdown": [], "buttons": []}
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        session_state = {}
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def columns(self, count, **_kwargs):
+            return [_FakeContext() for _ in range(count)]
+
+        def markdown(self, body, **_kwargs):
+            captured["markdown"].append(body)
+
+        def button(self, label, **kwargs):
+            captured["buttons"].append((label, kwargs))
+            return False
+
+        def link_button(self, label, url, **kwargs):
+            captured["links"].append((label, url, kwargs))
+
+    monkeypatch.setattr(gallery, "st", _FakeStreamlit())
+    monkeypatch.setattr(gallery, "tr", lambda key: key)
+    monkeypatch.setattr(
+        gallery,
+        "build_output_media_urls",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            stream_url="http://127.0.0.1:6789/api/files/stream/output/task/final.mp4",
+            download_url="http://127.0.0.1:6789/api/files/download/output/task/final.mp4"
+        ),
+    )
+
+    gallery.render_recent_video_card(
+        {
+            "task_id": "task-1",
+            "title": "Safe video",
+            "video_path": "output/task/final.mp4",
+            "duration": 1.0,
+            "n_frames": 1,
+        }
+    )
+
+    assert len(captured["links"]) == 2
+    assert captured["links"][0][1].endswith("/output/task/final.mp4")
+    assert captured["links"][1][1].endswith("/output/task/final.mp4")
+    assert any("recent-video-placeholder" in body for body in captured["markdown"])
