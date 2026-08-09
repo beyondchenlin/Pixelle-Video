@@ -1,10 +1,9 @@
-import httpx
-
 from web.components import style_config
+from web.utils import preview_media as preview_media_module
 from web.utils.preview_media import PreviewMediaData, load_preview_media
 
-PNG_BYTES = b"fake-png-bytes"
-VIDEO_BYTES = b"fake-video-bytes"
+PNG_BYTES = b"\x89PNG\r\n\x1a\npreview"
+VIDEO_BYTES = b"\x00\x00\x00\x18ftypisompreview"
 
 
 def test_load_preview_media_reads_local_image_file(tmp_path):
@@ -20,14 +19,14 @@ def test_load_preview_media_reads_local_image_file(tmp_path):
 def test_load_preview_media_downloads_http_video_and_detects_format(monkeypatch):
     preview_url = "http://127.0.0.1:8000/view?filename=test.mp4&type=output"
 
-    def fake_get(url, *, follow_redirects, timeout):
-        assert url == preview_url
-        assert follow_redirects is True
-        assert timeout == 10.0
-        request = httpx.Request("GET", url)
-        return httpx.Response(200, request=request, content=VIDEO_BYTES)
+    async def fake_materialize(source, target, **kwargs):
+        assert source == preview_url
+        assert kwargs["media_type"] == "video"
+        assert kwargs["request_timeout_seconds"] == 10.0
+        target.write_bytes(VIDEO_BYTES)
+        return target
 
-    monkeypatch.setattr(httpx, "get", fake_get)
+    monkeypatch.setattr(preview_media_module, "materialize_media_source", fake_materialize)
 
     preview_media = load_preview_media(preview_url, "video")
 

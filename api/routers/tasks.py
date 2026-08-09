@@ -116,10 +116,22 @@ async def cancel_task(task_id: str):
     Returns success status.
     """
     try:
+        task = await task_manager.get_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        if task.status not in {TaskStatus.PENDING, TaskStatus.RUNNING}:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Task {task_id} is already {task.status.value}",
+            )
+
         success = await task_manager.cancel_task(task_id)
 
         if not success:
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+            raise HTTPException(
+                status_code=409,
+                detail=f"Task {task_id} changed state before cancellation",
+            )
 
         return {
             "success": True,

@@ -35,6 +35,23 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+ACTIVE_TASK_STATUSES = frozenset({TaskStatus.PENDING, TaskStatus.RUNNING})
+TERMINAL_TASK_STATUSES = frozenset(
+    {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
+)
+TASK_STATUS_TRANSITION_SOURCES: dict[TaskStatus, frozenset[TaskStatus]] = {
+    TaskStatus.PENDING: frozenset({TaskStatus.PENDING}),
+    TaskStatus.RUNNING: frozenset({TaskStatus.PENDING, TaskStatus.RUNNING}),
+    TaskStatus.COMPLETED: frozenset({TaskStatus.RUNNING, TaskStatus.COMPLETED}),
+    TaskStatus.FAILED: frozenset(
+        {TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.FAILED}
+    ),
+    TaskStatus.CANCELLED: frozenset(
+        {TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.CANCELLED}
+    ),
+}
+
+
 class ArtifactStatus(str, Enum):
     """Persisted generation artifact status"""
     NONE = "none"

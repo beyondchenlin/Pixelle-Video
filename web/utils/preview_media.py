@@ -3,12 +3,20 @@ Helpers for loading preview media in the Streamlit UI.
 """
 
 import mimetypes
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qs, urlparse
 
-import httpx
+from pixelle_video.config import config_manager
+from pixelle_video.services.remote_media import (
+    configured_workflow_output_origins,
+    configured_workflow_output_roots,
+    materialize_media_source,
+)
+from pixelle_video.utils.os_util import get_root_path, get_temp_path
+from web.utils.async_helpers import run_async
 
 
 @dataclass(frozen=True)
@@ -27,12 +35,30 @@ def load_preview_media(
     """
     Load preview media bytes from either a local file path or an HTTP(S) URL.
     """
-    if preview_media_path.startswith(("http://", "https://")):
-        response = httpx.get(preview_media_path, follow_redirects=True, timeout=timeout)
-        response.raise_for_status()
-        content = response.content
-    else:
-        content = Path(preview_media_path).read_bytes()
+    preview_root = Path(get_temp_path("preview_media"))
+    preview_root.mkdir(parents=True, exist_ok=True)
+    suffix = ".png" if media_type == "image" else ".mp4"
+    config_holder = type(
+        "PreviewConfig",
+        (),
+        {"config": config_manager.config.to_dict()},
+    )()
+    with tempfile.TemporaryDirectory(dir=preview_root) as temp_dir:
+        target = Path(temp_dir) / f"preview{suffix}"
+        materialized = run_async(
+            materialize_media_source(
+                preview_media_path,
+                target,
+                media_type=media_type,
+                trusted_private_origins=configured_workflow_output_origins(config_holder),
+                trusted_local_roots=(
+                    Path(get_root_path()).resolve(),
+                    *configured_workflow_output_roots(),
+                ),
+                request_timeout_seconds=timeout,
+            )
+        )
+        content = materialized.read_bytes()
 
     return PreviewMediaData(
         data=content,

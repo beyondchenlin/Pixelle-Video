@@ -27,8 +27,22 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
-from api.tasks.models import ArtifactStatus, Task, TaskProgress, TaskStatus, TaskType, utc_now
-from api.tasks.store import LostTaskLeaseError, TaskAlreadyExistsError, TaskNotFoundError
+from api.tasks.models import (
+    TASK_STATUS_TRANSITION_SOURCES,
+    TERMINAL_TASK_STATUSES,
+    ArtifactStatus,
+    Task,
+    TaskProgress,
+    TaskStatus,
+    TaskType,
+    utc_now,
+)
+from api.tasks.store import (
+    InvalidTaskTransitionError,
+    LostTaskLeaseError,
+    TaskAlreadyExistsError,
+    TaskNotFoundError,
+)
 from api.tasks.worker_registry import WorkerHeartbeat
 
 metadata = MetaData()
@@ -70,7 +84,11 @@ worker_heartbeats = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
-Index("idx_generation_tasks_status_created_at", generation_tasks.c.status, generation_tasks.c.created_at)
+Index(
+    "idx_generation_tasks_status_created_at",
+    generation_tasks.c.status,
+    generation_tasks.c.created_at,
+)
 Index(
     "idx_generation_tasks_fingerprint_status",
     generation_tasks.c.generation_fingerprint,
@@ -207,12 +225,19 @@ class PostgresTaskStore:
             values["result"] = result
         if artifact_status is not None:
             values["artifact_status"] = artifact_status.value
+        if status in TERMINAL_TASK_STATUSES:
+            values["lease_token"] = None
+            values["completed_at"] = func.coalesce(
+                generation_tasks.c.completed_at,
+                completed_at or utc_now(),
+            )
 
         await self._execute_update(
             task_id=task_id,
             values=values,
             expected_owner_id=expected_owner_id,
             expected_lease_token=expected_lease_token,
+            allowed_current_statuses=TASK_STATUS_TRANSITION_SOURCES[status],
         )
 
     async def update_progress(
@@ -228,6 +253,7 @@ class PostgresTaskStore:
             values={"progress": progress.model_dump(), "updated_at": utc_now()},
             expected_owner_id=expected_owner_id,
             expected_lease_token=expected_lease_token,
+            allowed_current_statuses=frozenset({TaskStatus.RUNNING}),
         )
 
     async def claim_next_pending(
@@ -248,7 +274,9 @@ class PostgresTaskStore:
                 )
                 if task_types:
                     candidate = candidate.where(
-                        generation_tasks.c.task_type.in_([task_type.value for task_type in task_types])
+                        generation_tasks.c.task_type.in_(
+                            [task_type.value for task_type in task_types]
+                        )
                     )
 
                 result = await session.execute(candidate)
@@ -319,7 +347,9 @@ class PostgresTaskStore:
                 if expected_owner_id is not None:
                     statement = statement.where(generation_tasks.c.owner_id == expected_owner_id)
                 if expected_lease_token is not None:
-                    statement = statement.where(generation_tasks.c.lease_token == expected_lease_token)
+                    statement = statement.where(
+                        generation_tasks.c.lease_token == expected_lease_token
+                    )
 
                 result = await session.execute(statement)
                 row = result.mappings().first()
@@ -352,18 +382,44 @@ class PostgresTaskStore:
             return result.scalar_one()
 
     async def cancel_task(self, task_id: str) -> bool:
+        return await self.cancel_task_if_owned(task_id)
+
+    async def cancel_task_if_owned(
+        self,
+        task_id: str,
+        *,
+        expected_owner_id: str | None = None,
+        expected_lease_token: str | None = None,
+        require_lease_match: bool = False,
+    ) -> bool:
         async with self.session_factory() as session:
-            result = await session.execute(
+            statement = (
                 update(generation_tasks)
                 .where(generation_tasks.c.task_id == task_id)
-                .where(generation_tasks.c.status.in_([TaskStatus.PENDING.value, TaskStatus.RUNNING.value]))
+                .where(
+                    generation_tasks.c.status.in_(
+                        [TaskStatus.PENDING.value, TaskStatus.RUNNING.value]
+                    )
+                )
                 .values(
                     status=TaskStatus.CANCELLED.value,
+                    owner_id=None,
                     lease_token=None,
                     completed_at=utc_now(),
                     updated_at=utc_now(),
                 )
             )
+            if require_lease_match:
+                statement = statement.where(
+                    generation_tasks.c.owner_id.is_(None)
+                    if expected_owner_id is None
+                    else generation_tasks.c.owner_id == expected_owner_id
+                ).where(
+                    generation_tasks.c.lease_token.is_(None)
+                    if expected_lease_token is None
+                    else generation_tasks.c.lease_token == expected_lease_token
+                )
+            result = await session.execute(statement)
             await session.commit()
             return bool(result.rowcount)
 
@@ -374,6 +430,7 @@ class PostgresTaskStore:
         values: dict[str, Any],
         expected_owner_id: str | None,
         expected_lease_token: str | None,
+        allowed_current_statuses: frozenset[TaskStatus] | None = None,
     ) -> None:
         async with self.session_factory() as session:
             statement = update(generation_tasks).where(generation_tasks.c.task_id == task_id)
@@ -381,14 +438,39 @@ class PostgresTaskStore:
                 statement = statement.where(generation_tasks.c.owner_id == expected_owner_id)
             if expected_lease_token is not None:
                 statement = statement.where(generation_tasks.c.lease_token == expected_lease_token)
+            if allowed_current_statuses is not None:
+                statement = statement.where(
+                    generation_tasks.c.status.in_(
+                        [status.value for status in allowed_current_statuses]
+                    )
+                )
 
             result = await session.execute(statement.values(**values))
             await session.commit()
 
             if result.rowcount:
                 return
-            if expected_owner_id is not None or expected_lease_token is not None:
+            current_result = await session.execute(
+                select(
+                    generation_tasks.c.owner_id,
+                    generation_tasks.c.lease_token,
+                    generation_tasks.c.status,
+                ).where(generation_tasks.c.task_id == task_id)
+            )
+            current = current_result.mappings().first()
+            if current is None:
+                raise TaskNotFoundError(task_id)
+            if (expected_owner_id is not None and current["owner_id"] != expected_owner_id) or (
+                expected_lease_token is not None and current["lease_token"] != expected_lease_token
+            ):
                 raise LostTaskLeaseError(task_id)
+            if (
+                allowed_current_statuses is not None
+                and TaskStatus(current["status"]) not in allowed_current_statuses
+            ):
+                raise InvalidTaskTransitionError(
+                    f"task {task_id} cannot change while {current['status']}"
+                )
             raise TaskNotFoundError(task_id)
 
     @staticmethod

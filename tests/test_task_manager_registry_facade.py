@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -195,3 +196,31 @@ async def test_manager_status_filtered_pages_keep_store_copy_canonical_for_dupli
 
     assert tasks == []
     assert await manager.count_tasks(status=TaskStatus.COMPLETED) == 0
+
+
+@pytest.mark.asyncio
+async def test_manager_does_not_cancel_future_or_overwrite_terminal_store_task():
+    manager = build_manager()
+    await manager.store.create_task(
+        Task(
+            task_id="terminal-task",
+            task_type=TaskType.VIDEO_GENERATION,
+            status=TaskStatus.COMPLETED,
+        )
+    )
+    manager._tasks["terminal-task"] = Task(
+        task_id="terminal-task",
+        task_type=TaskType.VIDEO_GENERATION,
+        status=TaskStatus.RUNNING,
+    )
+    pending_future = asyncio.get_running_loop().create_future()
+    manager._task_futures["terminal-task"] = pending_future
+
+    cancelled = await manager.cancel_task("terminal-task")
+
+    assert cancelled is False
+    assert pending_future.cancelled() is False
+    assert manager._tasks["terminal-task"].status == TaskStatus.RUNNING
+    persisted = await manager.store.get_task("terminal-task")
+    assert persisted.status == TaskStatus.COMPLETED
+    pending_future.cancel()

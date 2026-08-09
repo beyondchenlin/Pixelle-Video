@@ -6,7 +6,11 @@ from api.tasks.artifacts import MissingArtifactStore
 from api.tasks.lease import InMemoryGenerationLease
 from api.tasks.models import ArtifactStatus, Task, TaskProgress, TaskStatus, TaskType
 from api.tasks.registry import GenerationRegistry
-from api.tasks.store import InMemoryTaskStore, LostTaskLeaseError
+from api.tasks.store import (
+    InMemoryTaskStore,
+    InvalidTaskTransitionError,
+    LostTaskLeaseError,
+)
 
 
 @pytest.mark.asyncio
@@ -196,6 +200,78 @@ async def test_memory_store_does_not_cancel_terminal_task():
     assert await store.cancel_task("task-1") is False
     task = await store.get_task("task-1")
     assert task.status == TaskStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_memory_store_terminal_transition_clears_lease_and_cannot_resurrect():
+    store = InMemoryTaskStore()
+    await store.create_task(
+        Task(
+            task_id="task-1",
+            task_type=TaskType.VIDEO_GENERATION,
+            status=TaskStatus.RUNNING,
+            owner_id="worker-1",
+            lease_token="token-1",
+        )
+    )
+
+    await store.update_status(
+        task_id="task-1",
+        status=TaskStatus.COMPLETED,
+        expected_owner_id="worker-1",
+        expected_lease_token="token-1",
+        result={"storage_key": "task-1/final.mp4"},
+    )
+
+    completed = await store.get_task("task-1")
+    assert completed.lease_token is None
+    assert completed.completed_at is not None
+    with pytest.raises(InvalidTaskTransitionError, match="cannot transition"):
+        await store.update_status(task_id="task-1", status=TaskStatus.RUNNING)
+
+
+@pytest.mark.asyncio
+async def test_memory_store_rejects_progress_after_terminal_state():
+    store = InMemoryTaskStore()
+    await store.create_task(
+        Task(
+            task_id="task-1",
+            task_type=TaskType.VIDEO_GENERATION,
+            status=TaskStatus.COMPLETED,
+        )
+    )
+
+    with pytest.raises(InvalidTaskTransitionError, match="progress cannot change"):
+        await store.update_progress(
+            task_id="task-1",
+            progress=TaskProgress(current=1, total=1, percentage=100),
+        )
+
+
+@pytest.mark.asyncio
+async def test_memory_store_compare_and_swap_cancel_rejects_changed_owner():
+    store = InMemoryTaskStore()
+    await store.create_task(
+        Task(
+            task_id="task-1",
+            task_type=TaskType.VIDEO_GENERATION,
+            status=TaskStatus.RUNNING,
+            owner_id="worker-new",
+            lease_token="token-new",
+        )
+    )
+
+    cancelled = await store.cancel_task_if_owned(
+        "task-1",
+        expected_owner_id="worker-old",
+        expected_lease_token="token-old",
+        require_lease_match=True,
+    )
+
+    assert cancelled is False
+    task = await store.get_task("task-1")
+    assert task.status == TaskStatus.RUNNING
+    assert task.owner_id == "worker-new"
 
 
 @pytest.mark.asyncio

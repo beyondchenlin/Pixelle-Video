@@ -8,9 +8,12 @@ import uuid
 from datetime import timedelta
 from typing import Callable
 
+from loguru import logger
+
 from api.tasks.artifacts import ArtifactStore
 from api.tasks.lease import GenerationLease, LostLeaseError
 from api.tasks.models import (
+    ACTIVE_TASK_STATUSES,
     ArtifactStatus,
     ClaimedTask,
     ReserveOutcome,
@@ -21,8 +24,6 @@ from api.tasks.models import (
     utc_now,
 )
 from api.tasks.store import LostTaskLeaseError, TaskAlreadyExistsError, TaskStore
-
-ACTIVE_TASK_STATUSES = {TaskStatus.PENDING, TaskStatus.RUNNING}
 
 
 class GenerationRegistry:
@@ -194,7 +195,7 @@ class GenerationRegistry:
             result=result,
             artifact_status=ArtifactStatus.PERSISTED,
         )
-        await self.lease.release_task_lease(task_id, owner_id, lease_token)
+        await self._release_terminal_lease(task_id, owner_id, lease_token)
 
     async def mark_failed(
         self,
@@ -213,7 +214,7 @@ class GenerationRegistry:
             completed_at=utc_now(),
             error=error,
         )
-        await self.lease.release_task_lease(task_id, owner_id, lease_token)
+        await self._release_terminal_lease(task_id, owner_id, lease_token)
 
     async def heartbeat(self, *, task_id: str, owner_id: str, lease_token: str) -> None:
         task = await self.store.get_task(task_id)
@@ -242,14 +243,48 @@ class GenerationRegistry:
         )
 
     async def cancel(self, task_id: str) -> bool:
-        task = await self.store.get_task(task_id)
-        if task is None:
-            return False
+        for _attempt in range(5):
+            task = await self.store.get_task(task_id)
+            if task is None or task.status not in ACTIVE_TASK_STATUSES:
+                return False
 
-        cancelled = await self.store.cancel_task(task_id)
-        if cancelled and task.owner_id and task.lease_token:
-            await self.lease.release_task_lease(task_id, task.owner_id, task.lease_token)
-        return cancelled
+            cancel_if_owned = getattr(self.store, "cancel_task_if_owned", None)
+            if callable(cancel_if_owned):
+                cancelled = await cancel_if_owned(
+                    task_id,
+                    expected_owner_id=task.owner_id,
+                    expected_lease_token=task.lease_token,
+                    require_lease_match=True,
+                )
+            else:
+                cancelled = await self.store.cancel_task(task_id)
+            if not cancelled:
+                continue
+            if callable(cancel_if_owned) and task.owner_id and task.lease_token:
+                await self._release_terminal_lease(
+                    task_id,
+                    task.owner_id,
+                    task.lease_token,
+                )
+            return True
+        return False
+
+    async def _release_terminal_lease(
+        self,
+        task_id: str,
+        owner_id: str,
+        lease_token: str,
+    ) -> None:
+        """Best-effort cleanup after canonical terminal state is committed."""
+
+        try:
+            await self.lease.release_task_lease(task_id, owner_id, lease_token)
+        except Exception as error:
+            logger.warning(
+                "Task {} reached terminal state but lease cleanup failed: {}",
+                task_id,
+                type(error).__name__,
+            )
 
     async def get_task(self, task_id: str) -> Task | None:
         return await self.store.get_task(task_id)
@@ -292,8 +327,7 @@ class GenerationRegistry:
 
         await self.store.update_status(
             task_id=candidate.task_id,
-            status=TaskStatus.FAILED,
-            completed_at=utc_now(),
+            status=TaskStatus.COMPLETED,
             error="artifact missing",
             artifact_status=ArtifactStatus.MISSING,
         )

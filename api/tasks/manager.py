@@ -278,22 +278,28 @@ class TaskManager:
 
     async def cancel_task(self, task_id: str) -> bool:
         """Cancel a running or pending task."""
-        future = self._task_futures.get(task_id)
-        if future and not future.done():
-            future.cancel()
-
-        store_cancelled = await self.registry.cancel(task_id)
+        store_task = await self.store.get_task(task_id)
+        store_cancelled = await self.registry.cancel(task_id) if store_task else False
         legacy_cancelled = False
 
         task = self._tasks.get(task_id)
-        if task:
+        if (
+            task is not None
+            and task.status in ACTIVE_TASK_STATUSES
+            and (store_task is None or store_cancelled)
+        ):
             task.status = TaskStatus.CANCELLED
             task.completed_at = utc_now()
             task.updated_at = utc_now()
             legacy_cancelled = True
             logger.info(f"Cancelled task {task_id}")
 
-        return store_cancelled or legacy_cancelled
+        cancelled = store_cancelled or legacy_cancelled
+        if cancelled:
+            future = self._task_futures.get(task_id)
+            if future and not future.done():
+                future.cancel()
+        return cancelled
 
     async def _execute_legacy_task(
         self,

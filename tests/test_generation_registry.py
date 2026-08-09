@@ -72,7 +72,7 @@ async def test_registry_reuses_completed_only_when_artifact_exists():
 
 
 @pytest.mark.asyncio
-async def test_registry_marks_completed_missing_artifact_failed_before_regenerating():
+async def test_registry_marks_completed_artifact_missing_without_rewriting_terminal_history():
     artifact_store = MissingArtifactStore(existing_keys=set())
     ids = iter(["task-old", "task-new"])
     registry = GenerationRegistry(
@@ -104,9 +104,9 @@ async def test_registry_marks_completed_missing_artifact_failed_before_regenerat
 
     assert new.created is True
     assert new.task.task_id == "task-new"
-    failed_old = await registry.get_task("task-old")
-    assert failed_old.status == TaskStatus.FAILED
-    assert failed_old.artifact_status == ArtifactStatus.MISSING
+    completed_old = await registry.get_task("task-old")
+    assert completed_old.status == TaskStatus.COMPLETED
+    assert completed_old.artifact_status == ArtifactStatus.MISSING
 
 
 @pytest.mark.asyncio
@@ -166,6 +166,43 @@ async def test_registry_rejects_completion_after_redis_lease_is_lost():
 
     task = await registry.get_task("task-1")
     assert task.status == TaskStatus.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_terminal_state_survives_lease_cleanup_failure():
+    class FailingReleaseLease(InMemoryGenerationLease):
+        async def release_task_lease(
+            self,
+            task_id: str,
+            owner_id: str,
+            lease_token: str,
+        ) -> None:
+            raise ConnectionError("lease backend unavailable")
+
+    lease = FailingReleaseLease()
+    registry = GenerationRegistry(
+        store=InMemoryTaskStore(),
+        lease=lease,
+        artifact_store=MissingArtifactStore(),
+        task_id_factory=lambda: "task-1",
+    )
+    await registry.reserve_or_reuse(
+        fingerprint="fp-1",
+        task_type=TaskType.VIDEO_GENERATION,
+        request_params={},
+        reuse_completed_within_seconds=86400,
+    )
+    claim = await registry.claim_next_pending(worker_id="worker-1")
+
+    await registry.mark_completed(
+        task_id="task-1",
+        result={"storage_key": "task-1/final.mp4"},
+        owner_id=claim.lease.owner_id,
+        lease_token=claim.lease.lease_token,
+    )
+
+    task = await registry.get_task("task-1")
+    assert task.status == TaskStatus.COMPLETED
 
 
 @pytest.mark.asyncio
@@ -337,3 +374,36 @@ async def test_registry_waits_for_task_created_by_competing_submit_lock():
     assert outcome.created is False
     assert outcome.reused_reason == "active"
     assert outcome.task.task_id == "task-from-other-submit"
+
+
+@pytest.mark.asyncio
+async def test_registry_keeps_legacy_task_store_cancel_signature_compatible():
+    class LegacyCancelStore:
+        def __init__(self) -> None:
+            self.task = Task(
+                task_id="legacy-task",
+                task_type=TaskType.VIDEO_GENERATION,
+                status=TaskStatus.RUNNING,
+                owner_id="worker-1",
+                lease_token="token-1",
+            )
+
+        async def get_task(self, task_id: str):
+            return self.task.model_copy(deep=True) if task_id == self.task.task_id else None
+
+        async def cancel_task(self, task_id: str) -> bool:
+            if task_id != self.task.task_id:
+                return False
+            self.task.status = TaskStatus.CANCELLED
+            self.task.lease_token = None
+            return True
+
+    store = LegacyCancelStore()
+    registry = GenerationRegistry(
+        store=store,
+        lease=InMemoryGenerationLease(),
+        artifact_store=MissingArtifactStore(),
+    )
+
+    assert await registry.cancel("legacy-task") is True
+    assert store.task.status == TaskStatus.CANCELLED

@@ -16,9 +16,12 @@ Persistence Service
 Handles task metadata and storyboard persistence to filesystem.
 """
 
+import asyncio
 import json
+import math
 import os
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -44,6 +47,7 @@ from pixelle_video.render_backend import (
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
 )
 from pixelle_video.utils.json_safety import to_json_compatible
+from pixelle_video.utils.path_safety import resolve_task_dir, validate_task_id
 from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
 
 
@@ -87,15 +91,18 @@ class PersistenceService:
             output_dir: Base output directory (default: "output")
         """
         self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Index file for fast listing
         self.index_file = self.output_dir / ".index.json"
+        self.index_lock_file = self.output_dir / ".index.lock"
+        self.index_dirty_file = self.output_dir / ".index.dirty"
+        self._index_lock = asyncio.Lock()
         self._ensure_index()
 
     def get_task_dir(self, task_id: str) -> Path:
         """Get task directory path"""
-        return self.output_dir / task_id
+        return resolve_task_dir(self.output_dir, task_id)
 
     def get_metadata_path(self, task_id: str) -> Path:
         """Get metadata.json path"""
@@ -121,11 +128,7 @@ class PersistenceService:
     # Metadata Operations
     # ========================================================================
 
-    async def save_task_metadata(
-        self,
-        task_id: str,
-        metadata: Dict[str, Any]
-    ):
+    async def save_task_metadata(self, task_id: str, metadata: Dict[str, Any]):
         """
         Save task metadata to filesystem
 
@@ -148,21 +151,36 @@ class PersistenceService:
 
             metadata_path = self.get_metadata_path(task_id)
 
-            # Ensure task_id is set
-            metadata["task_id"] = task_id
+            # Treat caller-owned metadata as immutable input. Persistence should not
+            # leak normalization side effects back into running pipeline state.
+            metadata_payload = dict(metadata)
+            metadata_payload["task_id"] = task_id
 
             # Convert datetime objects to ISO format strings
-            if "created_at" in metadata and isinstance(metadata["created_at"], datetime):
-                metadata["created_at"] = metadata["created_at"].isoformat()
-            if "completed_at" in metadata and isinstance(metadata["completed_at"], datetime):
-                metadata["completed_at"] = metadata["completed_at"].isoformat()
+            if "created_at" in metadata_payload and isinstance(
+                metadata_payload["created_at"], datetime
+            ):
+                metadata_payload["created_at"] = metadata_payload["created_at"].isoformat()
+            if "completed_at" in metadata_payload and isinstance(
+                metadata_payload["completed_at"], datetime
+            ):
+                metadata_payload["completed_at"] = metadata_payload["completed_at"].isoformat()
 
-            self._write_json_atomic(metadata_path, metadata)
+            self._write_json_atomic(metadata_path, metadata_payload)
 
             logger.debug(f"Saved task metadata: {task_id}")
 
-            # Update index
-            await self._update_index_for_task(task_id, metadata)
+            # Metadata is canonical; the index is a rebuildable cache. A cache write
+            # failure must never turn a successfully persisted generation into a
+            # failed task.
+            try:
+                await self._update_index_for_task(task_id, metadata_payload)
+            except Exception as index_error:
+                self._mark_index_dirty()
+                logger.exception(
+                    f"Task metadata was saved but its index entry is stale for "
+                    f"{task_id}: {index_error}"
+                )
 
         except Exception as e:
             logger.error(f"Failed to save task metadata {task_id}: {e}")
@@ -193,12 +211,7 @@ class PersistenceService:
             logger.error(f"Failed to load task metadata {task_id}: {e}")
             return None
 
-    async def update_task_status(
-        self,
-        task_id: str,
-        status: str,
-        error: Optional[str] = None
-    ):
+    async def update_task_status(self, task_id: str, status: str, error: Optional[str] = None):
         """
         Update task status in metadata
 
@@ -230,11 +243,7 @@ class PersistenceService:
     # Storyboard Operations
     # ========================================================================
 
-    async def save_storyboard(
-        self,
-        task_id: str,
-        storyboard: Storyboard
-    ):
+    async def save_storyboard(self, task_id: str, storyboard: Storyboard):
         """
         Save storyboard to filesystem
 
@@ -292,10 +301,7 @@ class PersistenceService:
     # ========================================================================
 
     async def list_tasks(
-        self,
-        status: Optional[str] = None,
-        limit: int = 50,
-        offset: int = 0
+        self, status: Optional[str] = None, limit: int = 50, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """
         List tasks with optional filtering
@@ -308,37 +314,36 @@ class PersistenceService:
         Returns:
             List of metadata dicts, sorted by created_at descending
         """
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or isinstance(offset, bool)
+            or not isinstance(offset, int)
+            or limit < 0
+            or offset < 0
+        ):
+            raise ValueError("limit and offset must be non-negative integers")
         try:
-            tasks = []
+            await self._repair_index_if_dirty()
+            index = self._load_index()
+            summaries = list(index.get("tasks", []))
+            if status:
+                summaries = [item for item in summaries if item.get("status") == status]
+            summaries.sort(
+                key=lambda item: self._index_datetime_sort_value(item.get("created_at")) or 0.0,
+                reverse=True,
+            )
+            selected = summaries[offset : offset + limit]
 
-            # Scan all task directories
-            for task_dir in self.output_dir.iterdir():
-                if not task_dir.is_dir():
+            tasks: list[dict[str, Any]] = []
+            for summary in selected:
+                task_id = summary.get("task_id")
+                if not isinstance(task_id, str):
                     continue
-
-                metadata_path = task_dir / "metadata.json"
-                if not metadata_path.exists():
-                    continue
-
-                try:
-                    with open(metadata_path, "r", encoding="utf-8") as f:
-                        metadata = json.load(f)
-
-                    # Filter by status
-                    if status and metadata.get("status") != status:
-                        continue
-
+                metadata = await self.load_task_metadata(task_id)
+                if metadata is not None:
                     tasks.append(metadata)
-
-                except Exception as e:
-                    logger.warning(f"Failed to load metadata from {task_dir}: {e}")
-                    continue
-
-            # Sort by created_at descending
-            tasks.sort(key=lambda t: t.get("created_at", ""), reverse=True)
-
-            # Apply pagination
-            return tasks[offset:offset + limit]
+            return tasks
 
         except Exception as e:
             logger.error(f"Failed to list tasks: {e}")
@@ -358,7 +363,9 @@ class PersistenceService:
             "title": storyboard.title,
             "config": self._config_to_dict(storyboard.config),
             "frames": [self._frame_to_dict(frame) for frame in storyboard.frames],
-            "content_metadata": self._content_metadata_to_dict(storyboard.content_metadata) if storyboard.content_metadata else None,
+            "content_metadata": self._content_metadata_to_dict(storyboard.content_metadata)
+            if storyboard.content_metadata
+            else None,
             "final_video_path": storyboard.final_video_path,
             "total_duration": storyboard.total_duration,
             "planning_snapshot": to_json_compatible(
@@ -366,7 +373,9 @@ class PersistenceService:
                 field_name="storyboard.planning_snapshot",
             ),
             "created_at": storyboard.created_at.isoformat() if storyboard.created_at else None,
-            "completed_at": storyboard.completed_at.isoformat() if storyboard.completed_at else None,
+            "completed_at": storyboard.completed_at.isoformat()
+            if storyboard.completed_at
+            else None,
         }
 
     def _dict_to_storyboard(self, data: Dict[str, Any]) -> Storyboard:
@@ -375,12 +384,18 @@ class PersistenceService:
             title=data["title"],
             config=self._dict_to_config(data["config"]),
             frames=[self._dict_to_frame(frame_data) for frame_data in data["frames"]],
-            content_metadata=self._dict_to_content_metadata(data["content_metadata"]) if data.get("content_metadata") else None,
+            content_metadata=self._dict_to_content_metadata(data["content_metadata"])
+            if data.get("content_metadata")
+            else None,
             final_video_path=data.get("final_video_path"),
             total_duration=data.get("total_duration", 0.0),
             planning_snapshot=data.get("planning_snapshot"),
-            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
-            completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
+            created_at=datetime.fromisoformat(data["created_at"])
+            if data.get("created_at")
+            else None,
+            completed_at=datetime.fromisoformat(data["completed_at"])
+            if data.get("completed_at")
+            else None,
         )
 
     def _config_to_dict(self, config: StoryboardConfig) -> Dict[str, Any]:
@@ -505,11 +520,17 @@ class PersistenceService:
             element_animation_candidate_limit=data.get("element_animation_candidate_limit", 3),
             element_animation_prompt=data.get("element_animation_prompt"),
             element_animation_intensity=data.get("element_animation_intensity", "medium"),
-            element_animation_workflow=data.get("element_animation_workflow", "image_sam31_segment.json"),
+            element_animation_workflow=data.get(
+                "element_animation_workflow", "image_sam31_segment.json"
+            ),
             canvas_width=data.get("canvas_width"),
             canvas_height=data.get("canvas_height"),
-            media_width=data.get("media_width", data.get("image_width", 1024)),  # Backward compatibility
-            media_height=data.get("media_height", data.get("image_height", 1024)),  # Backward compatibility
+            media_width=data.get(
+                "media_width", data.get("image_width", 1024)
+            ),  # Backward compatibility
+            media_height=data.get(
+                "media_height", data.get("image_height", 1024)
+            ),  # Backward compatibility
             video_orientation=data.get("video_orientation", DEFAULT_VIDEO_ORIENTATION),
             video_resolution_preset=data.get(
                 "video_resolution_preset",
@@ -522,7 +543,9 @@ class PersistenceService:
             ),
             sync_media_size_to_canvas=data.get("sync_media_size_to_canvas", False),
             media_placement=data.get("media_placement"),
-            media_workflow=data.get("media_workflow", data.get("image_workflow")),  # Backward compatibility
+            media_workflow=data.get(
+                "media_workflow", data.get("image_workflow")
+            ),  # Backward compatibility
             media_negative_prompt=data.get("media_negative_prompt"),
             frame_template=data.get("frame_template", DEFAULT_IMAGE_TEMPLATE),
             template_params=data.get("template_params"),
@@ -538,9 +561,13 @@ class PersistenceService:
             shot_preset_id=data.get("shot_preset_id", data.get("effective_final_shot_preset")),
             storyboard_prompt_language=data.get("storyboard_prompt_language"),
             content_mode=data.get("content_mode", data.get("resolved_content_mode")),
-            consistency_strength=data.get("consistency_strength", data.get("selected_consistency_strength")),
+            consistency_strength=data.get(
+                "consistency_strength", data.get("selected_consistency_strength")
+            ),
             role_strategy=data.get("role_strategy", data.get("resolved_role_strategy")),
-            role_locking_strength=data.get("role_locking_strength", data.get("selected_role_locking_strength")),
+            role_locking_strength=data.get(
+                "role_locking_strength", data.get("selected_role_locking_strength")
+            ),
             shot_strategy=data.get("shot_strategy", data.get("selected_shot_strategy")),
         )
 
@@ -607,7 +634,9 @@ class PersistenceService:
                 if data.get("workbench_state")
                 else None
             ),
-            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
+            created_at=datetime.fromisoformat(data["created_at"])
+            if data.get("created_at")
+            else None,
         )
 
     def _content_metadata_to_dict(self, metadata: ContentMetadata) -> Dict[str, Any]:
@@ -640,8 +669,9 @@ class PersistenceService:
 
     def _ensure_index(self):
         """Ensure index file exists, create if not"""
-        if not self.index_file.exists():
-            self._save_index({"version": "1.0", "tasks": []})
+        with self._exclusive_index_file_lock():
+            if not self.index_file.exists():
+                self._save_index(self._scan_index_snapshot())
 
     def _write_json_atomic(self, path: Path, payload: Any) -> None:
         """Write JSON only after serialization succeeds, then atomically replace."""
@@ -679,25 +709,39 @@ class PersistenceService:
         """Load index from file"""
         try:
             with open(self.index_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+                index = json.load(f)
+            if not isinstance(index, dict) or not isinstance(index.get("tasks"), list):
+                raise ValueError("task index must contain a tasks list")
+            if any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("task_id"), str)
+                or not item["task_id"]
+                for item in index["tasks"]
+            ):
+                raise ValueError("task index contains an invalid task entry")
+            return index
         except Exception as e:
             logger.error(f"Failed to load index: {e}")
-            return {"version": "1.0", "tasks": []}
+            self._mark_index_dirty()
+            return self._scan_index_snapshot()
 
     def _save_index(self, index_data: Dict[str, Any]):
         """Save index to file"""
-        try:
-            index_data["last_updated"] = datetime.now().isoformat()
-            self._write_json_atomic(self.index_file, index_data)
-        except Exception as e:
-            logger.error(f"Failed to save index: {e}")
+        index_payload = dict(index_data)
+        index_payload["last_updated"] = datetime.now().isoformat()
+        self._write_json_atomic(self.index_file, index_payload)
 
     async def _update_index_for_task(self, task_id: str, metadata: Dict[str, Any]):
         """Update index entry for a specific task"""
-        index = self._load_index()
+        input_data = metadata.get("input")
+        result_data = metadata.get("result")
+        if not isinstance(input_data, dict):
+            input_data = {}
+        if not isinstance(result_data, dict):
+            result_data = {}
 
         # Try to get title from multiple sources
-        title = metadata.get("input", {}).get("title")
+        title = input_data.get("title")
         if not title or title == "":
             # Try to get title from storyboard if input title is empty
             storyboard = await self.load_storyboard(task_id)
@@ -705,7 +749,7 @@ class PersistenceService:
                 title = storyboard.title
             else:
                 # Fall back to using input text preview
-                input_text = metadata.get("input", {}).get("text", "")
+                input_text = str(input_data.get("text", ""))
                 if input_text:
                     # Use first 30 characters of input text as title
                     title = input_text[:30] + ("..." if len(input_text) > 30 else "")
@@ -719,69 +763,136 @@ class PersistenceService:
             "completed_at": metadata.get("completed_at"),
             "status": metadata.get("status", "unknown"),
             "title": title,
-            "duration": metadata.get("result", {}).get("duration", 0),
-            "n_frames": metadata.get("result", {}).get("n_frames", 0),
-            "file_size": metadata.get("result", {}).get("file_size", 0),
-            "video_path": metadata.get("result", {}).get("video_path"),
+            "duration": result_data.get("duration", 0),
+            "n_frames": result_data.get("n_frames", 0),
+            "file_size": result_data.get("file_size", 0),
+            "video_path": result_data.get("video_path"),
         }
 
-        # Update or append
-        tasks = index.get("tasks", [])
-        existing_idx = next((i for i, t in enumerate(tasks) if t["task_id"] == task_id), None)
+        async with self._index_lock:
+            await asyncio.to_thread(self._replace_index_entry, task_id, index_entry)
 
-        if existing_idx is not None:
-            tasks[existing_idx] = index_entry
-        else:
-            tasks.append(index_entry)
+    def _replace_index_entry(self, task_id: str, index_entry: Dict[str, Any]) -> None:
+        with self._exclusive_index_file_lock():
+            index = self._load_index()
+            tasks = list(index.get("tasks", []))
+            existing_idx = next(
+                (i for i, item in enumerate(tasks) if item.get("task_id") == task_id),
+                None,
+            )
+            if existing_idx is None:
+                tasks.append(index_entry)
+            else:
+                tasks[existing_idx] = index_entry
+            index["tasks"] = tasks
+            self._save_index(index)
 
-        index["tasks"] = tasks
-        self._save_index(index)
+    @contextmanager
+    def _exclusive_index_file_lock(self):
+        """Serialize index read-modify-write across processes."""
+
+        self.index_lock_file.touch(exist_ok=True)
+        with self.index_lock_file.open("r+b") as handle:
+            if self.index_lock_file.stat().st_size == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     async def rebuild_index(self):
         """Rebuild index by scanning all task directories"""
         logger.info("Rebuilding task index...")
-        index = {"version": "1.0", "tasks": []}
+        async with self._index_lock:
+            index = await asyncio.to_thread(self._rebuild_index_sync)
+        logger.info(f"Index rebuilt: {len(index['tasks'])} tasks")
 
-        # Scan all directories
+    def _rebuild_index_sync(self) -> Dict[str, Any]:
+        with self._exclusive_index_file_lock():
+            index = self._scan_index_snapshot()
+            self._save_index(index)
+            self.index_dirty_file.unlink(missing_ok=True)
+        return index
+
+    def _mark_index_dirty(self) -> None:
+        try:
+            self.index_dirty_file.touch(exist_ok=True)
+        except OSError as error:
+            logger.error(f"Failed to mark task index dirty: {error}")
+
+    async def _repair_index_if_dirty(self) -> None:
+        if not self.index_dirty_file.exists():
+            return
+        async with self._index_lock:
+            if self.index_dirty_file.exists():
+                await asyncio.to_thread(self._rebuild_index_sync)
+
+    def _scan_index_snapshot(self) -> Dict[str, Any]:
+        """Recover task summaries from canonical metadata without mutating the index."""
+
+        index: Dict[str, Any] = {"version": "1.0", "tasks": []}
         for task_dir in self.output_dir.iterdir():
             if not task_dir.is_dir() or task_dir.name.startswith("."):
                 continue
-
-            task_id = task_dir.name
-            metadata = await self.load_task_metadata(task_id)
-
-            if metadata:
-                # Try to get title from multiple sources
-                title = metadata.get("input", {}).get("title")
-                if not title or title == "":
-                    # Try to get title from storyboard if input title is empty
-                    storyboard = await self.load_storyboard(task_id)
-                    if storyboard and storyboard.title:
-                        title = storyboard.title
-                    else:
-                        # Fall back to using input text preview
-                        input_text = metadata.get("input", {}).get("text", "")
-                        if input_text:
-                            # Use first 30 characters of input text as title
-                            title = input_text[:30] + ("..." if len(input_text) > 30 else "")
-                        else:
-                            title = "Untitled"
-
-                # Add to index
-                index["tasks"].append({
-                    "task_id": task_id,
+            try:
+                validate_task_id(task_dir.name)
+            except (TypeError, ValueError):
+                logger.warning(f"Skipping task directory with unsafe name: {task_dir.name}")
+                continue
+            metadata_path = task_dir / "metadata.json"
+            if not metadata_path.is_file():
+                continue
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                logger.warning(f"Failed to load metadata from {task_dir}: {error}")
+                continue
+            if not isinstance(metadata, dict):
+                logger.warning(f"Skipping non-object metadata from {task_dir}")
+                continue
+            input_data = metadata.get("input", {})
+            result_data = metadata.get("result", {})
+            if not isinstance(input_data, dict):
+                input_data = {}
+            if not isinstance(result_data, dict):
+                result_data = {}
+            title = input_data.get("title")
+            if not title:
+                input_text = str(input_data.get("text", ""))
+                title = (
+                    input_text[:30] + ("..." if len(input_text) > 30 else "")
+                    if input_text
+                    else "Untitled"
+                )
+            index["tasks"].append(
+                {
+                    "task_id": task_dir.name,
                     "created_at": metadata.get("created_at"),
                     "completed_at": metadata.get("completed_at"),
                     "status": metadata.get("status", "unknown"),
                     "title": title,
-                    "duration": metadata.get("result", {}).get("duration", 0),
-                    "n_frames": metadata.get("result", {}).get("n_frames", 0),
-                    "file_size": metadata.get("result", {}).get("file_size", 0),
-                    "video_path": metadata.get("result", {}).get("video_path"),
-                })
-
-        self._save_index(index)
-        logger.info(f"Index rebuilt: {len(index['tasks'])} tasks")
+                    "duration": result_data.get("duration", 0),
+                    "n_frames": result_data.get("n_frames", 0),
+                    "file_size": result_data.get("file_size", 0),
+                    "video_path": result_data.get("video_path"),
+                }
+            )
+        return index
 
     # ========================================================================
     # Paginated Listing
@@ -793,7 +904,7 @@ class PersistenceService:
         page_size: int = 20,
         status: Optional[str] = None,
         sort_by: str = "created_at",
-        sort_order: str = "desc"
+        sort_order: str = "desc",
     ) -> Dict[str, Any]:
         """
         List tasks with pagination
@@ -814,22 +925,58 @@ class PersistenceService:
                 "total_pages": 5         # Total pages
             }
         """
+        if isinstance(page, bool) or not isinstance(page, int) or page < 1:
+            raise ValueError("page must be a positive integer")
+        if (
+            isinstance(page_size, bool)
+            or not isinstance(page_size, int)
+            or not 1 <= page_size <= 1000
+        ):
+            raise ValueError("page_size must be between 1 and 1000")
+        allowed_sort_fields = {
+            "created_at",
+            "completed_at",
+            "title",
+            "duration",
+            "n_frames",
+        }
+        if sort_by not in allowed_sort_fields:
+            raise ValueError(f"unsupported task sort field: {sort_by}")
+        if sort_order not in {"asc", "desc"}:
+            raise ValueError("sort_order must be 'asc' or 'desc'")
+
+        await self._repair_index_if_dirty()
         index = self._load_index()
-        tasks = index.get("tasks", [])
+        tasks = list(index.get("tasks", []))
 
         # Filter by status
         if status:
             tasks = [t for t in tasks if t.get("status") == status]
 
         # Sort
-        reverse = (sort_order == "desc")
+        reverse = sort_order == "desc"
         if sort_by in ["created_at", "completed_at"]:
-            tasks.sort(
-                key=lambda t: datetime.fromisoformat(t.get(sort_by, "1970-01-01T00:00:00")),
-                reverse=reverse
+            dated_tasks = [
+                (self._index_datetime_sort_value(task.get(sort_by)), task) for task in tasks
+            ]
+            valid_tasks = [item for item in dated_tasks if item[0] is not None]
+            invalid_tasks = [item[1] for item in dated_tasks if item[0] is None]
+            valid_tasks.sort(
+                key=lambda item: item[0] or 0.0,
+                reverse=reverse,
             )
+            tasks = [item[1] for item in valid_tasks] + invalid_tasks
         elif sort_by in ["title", "duration", "n_frames"]:
-            tasks.sort(key=lambda t: t.get(sort_by, ""), reverse=reverse)
+            if sort_by == "title":
+                tasks.sort(
+                    key=lambda task: str(task.get(sort_by) or "").casefold(),
+                    reverse=reverse,
+                )
+            else:
+                tasks.sort(
+                    key=lambda task: self._index_numeric_value(task.get(sort_by)),
+                    reverse=reverse,
+                )
 
         # Paginate
         total = len(tasks)
@@ -863,6 +1010,7 @@ class PersistenceService:
                 "total_size": 1024000000,  # bytes
             }
         """
+        await self._repair_index_if_dirty()
         index = self._load_index()
         tasks = index.get("tasks", [])
 
@@ -870,8 +1018,8 @@ class PersistenceService:
             "total_tasks": len(tasks),
             "completed": len([t for t in tasks if t.get("status") == "completed"]),
             "failed": len([t for t in tasks if t.get("status") == "failed"]),
-            "total_duration": sum(t.get("duration", 0) for t in tasks),
-            "total_size": sum(t.get("file_size", 0) for t in tasks),
+            "total_duration": sum(self._index_numeric_value(t.get("duration")) for t in tasks),
+            "total_size": sum(self._index_numeric_value(t.get("file_size")) for t in tasks),
         }
 
         return stats
@@ -898,14 +1046,50 @@ class PersistenceService:
                 shutil.rmtree(task_dir)
                 logger.info(f"Deleted task directory: {task_dir}")
 
-            # Update index
-            index = self._load_index()
-            tasks = index.get("tasks", [])
-            tasks = [t for t in tasks if t["task_id"] != task_id]
-            index["tasks"] = tasks
-            self._save_index(index)
+            # Index removal is a cache update; canonical deletion already succeeded.
+            try:
+                async with self._index_lock:
+                    await asyncio.to_thread(self._remove_index_entry, task_id)
+            except Exception as index_error:
+                self._mark_index_dirty()
+                logger.exception(
+                    f"Task was deleted but its index entry is stale for {task_id}: {index_error}"
+                )
 
             return True
         except Exception as e:
             logger.error(f"Failed to delete task {task_id}: {e}")
             return False
+
+    @staticmethod
+    def _index_datetime_sort_value(value: Any) -> float | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        try:
+            return parsed.timestamp()
+        except (OverflowError, OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _index_numeric_value(value: Any) -> float:
+        if isinstance(value, bool):
+            return 0.0
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        return parsed if math.isfinite(parsed) and parsed >= 0 else 0.0
+
+    def _remove_index_entry(self, task_id: str) -> None:
+        with self._exclusive_index_file_lock():
+            index = self._load_index()
+            index["tasks"] = [
+                item for item in index.get("tasks", []) if item.get("task_id") != task_id
+            ]
+            self._save_index(index)

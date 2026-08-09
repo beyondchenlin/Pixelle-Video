@@ -28,14 +28,18 @@ from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent, ProgressEventType
 from pixelle_video.utils.os_util import get_temp_path
 from web.components.bgm_config import render_bgm_section
-from web.state.storyboard_capture import capture_snapshot_from_result
 from web.components.content_input import render_version_info
 from web.components.output_preview import render_scaled_video_preview
 from web.components.selfhost_workflow_notice import render_selfhost_workflow_notice
 from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
+from web.state.storyboard_capture import capture_snapshot_from_result
 from web.utils.async_helpers import run_async
 from web.utils.progress_i18n import format_progress_event_message
+from web.utils.upload_store import (
+    MIXED_MEDIA_UPLOAD_POLICY,
+    store_uploaded_files_with_feedback,
+)
 
 
 class AssetBasedPipelineUI(PipelineUI):
@@ -43,21 +47,22 @@ class AssetBasedPipelineUI(PipelineUI):
     UI for the Asset-Based Video Generation Pipeline.
     Generates videos from user-provided assets (images/videos).
     """
+
     name = "custom_media"
     icon = "🎨"
-    
+
     @property
     def display_name(self):
         return tr("pipeline.custom_media.name")
-    
+
     @property
     def description(self):
         return tr("pipeline.custom_media.description")
-    
+
     def render(self, pixelle_video: Any):
         # Three-column layout
         left_col, middle_col, right_col = st.columns([1, 1, 1])
-        
+
         # ====================================================================
         # Left Column: Asset Upload & Video Info
         # ====================================================================
@@ -65,63 +70,58 @@ class AssetBasedPipelineUI(PipelineUI):
             asset_params = self._render_asset_input()
             bgm_params = render_bgm_section(key_prefix="asset_")
             render_version_info()
-        
+
         # ====================================================================
         # Middle Column: Video Configuration
         # ====================================================================
         with middle_col:
             config_params = self._render_video_config(pixelle_video)
-        
+
         # ====================================================================
         # Right Column: Output Preview
         # ====================================================================
         with right_col:
             # Combine all parameters
-            video_params = {
-                "pipeline": self.name,
-                **asset_params,
-                **bgm_params,
-                **config_params
-            }
-            
+            video_params = {"pipeline": self.name, **asset_params, **bgm_params, **config_params}
+
             self._render_output_preview(pixelle_video, video_params)
-    
+
     def _render_asset_input(self) -> dict:
         """Render asset upload section"""
         with st.container(border=True):
             st.markdown(f"**{tr('asset_based.section.assets')}**")
-            
+
             with st.expander(tr("help.feature_description"), expanded=False):
                 st.markdown(f"**{tr('help.what')}**")
                 st.markdown(tr("asset_based.assets.what"))
                 st.markdown(f"**{tr('help.how')}**")
                 st.markdown(tr("asset_based.assets.how"))
-            
+
             # File uploader for multiple files
             uploaded_files = st.file_uploader(
                 tr("asset_based.assets.upload"),
                 type=["jpg", "jpeg", "png", "gif", "webp", "mp4", "mov", "avi", "mkv", "webm"],
                 accept_multiple_files=True,
                 help=tr("asset_based.assets.upload_help"),
-                key="asset_files"
+                key="asset_files",
             )
-            
+
             # Save uploaded files to temp directory with unique session ID
             asset_paths = []
             if uploaded_files:
-                import uuid
-                session_id = str(uuid.uuid4()).replace('-', '')[:12]
-                temp_dir = Path(get_temp_path(f"assets_{session_id}"))
+                temp_dir = Path(get_temp_path("uploads", "asset_based"))
                 temp_dir.mkdir(parents=True, exist_ok=True)
-                
-                for uploaded_file in uploaded_files:
-                    file_path = temp_dir / uploaded_file.name
-                    with open(file_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    asset_paths.append(str(file_path.absolute()))
-                
-                st.success(tr("asset_based.assets.count", count=len(asset_paths)))
-                
+
+                asset_paths = store_uploaded_files_with_feedback(
+                    uploaded_files,
+                    temp_dir,
+                    policy=MIXED_MEDIA_UPLOAD_POLICY,
+                    report_error=st.error,
+                )
+
+                if asset_paths:
+                    st.success(tr("asset_based.assets.count", count=len(asset_paths)))
+
                 # Preview uploaded assets
                 with st.expander(tr("asset_based.assets.preview"), expanded=True):
                     # Show in a grid (3 columns)
@@ -137,38 +137,38 @@ class AssetBasedPipelineUI(PipelineUI):
                                 st.caption(file.name)
             else:
                 st.info(tr("asset_based.assets.empty_hint"))
-        
+
         # Video title & intent
         with st.container(border=True):
             st.markdown(f"**{tr('asset_based.section.video_info')}**")
-            
+
             video_title = st.text_input(
                 tr("asset_based.video_title"),
                 placeholder=tr("asset_based.video_title_placeholder"),
                 help=tr("asset_based.video_title_help"),
-                key="asset_video_title"
+                key="asset_video_title",
             )
-            
+
             intent = st.text_area(
                 tr("asset_based.intent"),
                 placeholder=tr("asset_based.intent_placeholder"),
                 help=tr("asset_based.intent_help"),
                 height=100,
-                key="asset_intent"
+                key="asset_intent",
             )
-        
+
         return {
             "assets": asset_paths,
             "video_title": video_title,
-            "intent": intent if intent else None
+            "intent": intent if intent else None,
         }
-    
+
     def _render_video_config(self, pixelle_video: Any) -> dict:
         """Render video configuration section"""
         # Duration configuration
         with st.container(border=True):
             st.markdown(f"**{tr('video.title')}**")
-            
+
             # Duration slider
             duration = st.slider(
                 tr("asset_based.duration"),
@@ -177,33 +177,33 @@ class AssetBasedPipelineUI(PipelineUI):
                 value=30,
                 step=5,
                 help=tr("asset_based.duration_help"),
-                key="asset_duration"
+                key="asset_duration",
             )
             st.caption(tr("asset_based.duration_label", seconds=duration))
-        
+
         # Workflow source selection
         with st.container(border=True):
             st.markdown(f"**{tr('asset_based.section.source')}**")
-            
+
             with st.expander(tr("help.feature_description"), expanded=False):
                 st.markdown(f"**{tr('help.what')}**")
                 st.markdown(tr("asset_based.source.what"))
                 st.markdown(f"**{tr('help.how')}**")
                 st.markdown(tr("asset_based.source.how"))
-            
+
             source_options = {
                 "runninghub": tr("asset_based.source.runninghub"),
-                "selfhost": tr("asset_based.source.selfhost")
+                "selfhost": tr("asset_based.source.selfhost"),
             }
-            
+
             # Check if RunningHub API key is configured
             comfyui_config = config_manager.get_comfyui_config()
             has_runninghub = bool(comfyui_config.get("runninghub_api_key"))
             has_selfhost = bool(comfyui_config.get("comfyui_url"))
-            
+
             # Default to runninghub always
             default_source_index = 0
-            
+
             source = st.radio(
                 tr("asset_based.source.select"),
                 options=list(source_options.keys()),
@@ -211,9 +211,9 @@ class AssetBasedPipelineUI(PipelineUI):
                 index=default_source_index,
                 horizontal=True,
                 key="asset_source",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
             )
-            
+
             # Show hint based on selection
             if source == "runninghub":
                 if not has_runninghub:
@@ -226,48 +226,48 @@ class AssetBasedPipelineUI(PipelineUI):
                 else:
                     st.info(tr("asset_based.source.selfhost_hint"))
                     render_selfhost_workflow_notice("selfhost/analyse_image.json")
-        
+
         # TTS configuration
         with st.container(border=True):
             st.markdown(f"**{tr('section.tts')}**")
-            
+
             # Import voice configuration
             from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
-            
+
             # Get saved voice from config
             comfyui_config = config_manager.get_comfyui_config()
             tts_config = comfyui_config.get("tts", {})
             local_config = tts_config.get("local", {})
             saved_voice = local_config.get("voice", "zh-CN-YunjianNeural")
             saved_speed = local_config.get("speed", 1.2)
-            
+
             # Build voice options with i18n
             voice_options = []
             voice_ids = []
             default_voice_index = 0
-            
+
             for idx, voice_config in enumerate(EDGE_TTS_VOICES):
                 voice_id = voice_config["id"]
                 display_name = get_voice_display_name(voice_id, tr, get_language())
                 voice_options.append(display_name)
                 voice_ids.append(voice_id)
-                
+
                 if voice_id == saved_voice:
                     default_voice_index = idx
-            
+
             # Two-column layout
             voice_col, speed_col = st.columns([1, 1])
-            
+
             with voice_col:
                 selected_voice_display = st.selectbox(
                     tr("tts.voice_selector"),
                     voice_options,
                     index=default_voice_index,
-                    key="asset_tts_voice"
+                    key="asset_tts_voice",
                 )
                 selected_voice_index = voice_options.index(selected_voice_display)
                 voice_id = voice_ids[selected_voice_index]
-            
+
             with speed_col:
                 tts_speed = st.slider(
                     tr("tts.speed"),
@@ -276,26 +276,26 @@ class AssetBasedPipelineUI(PipelineUI):
                     value=saved_speed,
                     step=0.1,
                     format="%.1fx",
-                    key="asset_tts_speed"
+                    key="asset_tts_speed",
                 )
                 st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
-        
+
         return {
             "duration": duration,
             "source": source,
             "voice_id": voice_id,
-            "tts_speed": tts_speed
+            "tts_speed": tts_speed,
         }
-    
+
     def _render_output_preview(self, pixelle_video: Any, video_params: dict):
         """Render output preview section"""
         with st.container(border=True):
             st.markdown(f"**{tr('section.video_generation')}**")
-            
+
             # Check configuration
             if not config_manager.validate():
                 st.warning(tr("settings.not_configured"))
-            
+
             # Check if assets are provided
             assets = video_params.get("assets", [])
             if not assets:
@@ -305,46 +305,51 @@ class AssetBasedPipelineUI(PipelineUI):
                     type="primary",
                     width="stretch",
                     disabled=True,
-                    key="asset_generate_disabled"
+                    key="asset_generate_disabled",
                 )
                 return
-            
+
             # Show asset summary
             st.info(tr("asset_based.output.ready", count=len(assets)))
-            
+
             # Generate button
             if st.button(tr("btn.generate"), type="primary", width="stretch", key="asset_generate"):
                 # Validate
                 if not config_manager.validate():
                     st.error(tr("settings.not_configured"))
                     st.stop()
-                
+
                 # Show progress
                 progress_bar = st.progress(0)
                 status_text = st.empty()
-                
+
                 start_time = time.time()
-                
+
                 try:
                     # Import pipeline
                     from pixelle_video.pipelines.asset_based import AssetBasedPipeline
-                    
+
                     # Create pipeline
                     pipeline = AssetBasedPipeline(pixelle_video)
-                    
+
                     # Progress callback
                     def update_progress(event: ProgressEvent):
                         if event.event_type == "analyzing_assets":
                             if event.extra_info == "start":
-                                message = tr("asset_based.progress.analyzing_start", total=event.frame_total)
+                                message = tr(
+                                    "asset_based.progress.analyzing_start", total=event.frame_total
+                                )
                             else:
-                                message = tr("asset_based.progress.analyzing_complete", count=event.frame_total)
+                                message = tr(
+                                    "asset_based.progress.analyzing_complete",
+                                    count=event.frame_total,
+                                )
                         elif event.event_type == "analyzing_asset":
                             message = tr(
                                 "asset_based.progress.analyzing_asset",
                                 current=event.frame_current,
                                 total=event.frame_total,
-                                name=event.extra_info or ""
+                                name=event.extra_info or "",
                             )
                         elif event.event_type == "generating_script":
                             if event.extra_info == "complete":
@@ -365,25 +370,27 @@ class AssetBasedPipelineUI(PipelineUI):
                             message = tr("progress.completed")
                         else:
                             message = format_progress_event_message(event)
-                        
+
                         status_text.text(message)
                         progress_bar.progress(min(int(event.progress * 100), 99))
-                    
+
                     # Execute pipeline with progress callback
-                    ctx = run_async(pipeline(
-                        assets=video_params["assets"],
-                        video_title=video_params.get("video_title", ""),
-                        intent=video_params.get("intent"),
-                        duration=video_params.get("duration", 30),
-                        source=video_params.get("source", "runninghub"),
-                        bgm_path=video_params.get("bgm_path"),
-                        bgm_volume=video_params.get("bgm_volume", 0.2),
-                        bgm_mode=video_params.get("bgm_mode", "loop"),
-                        voice_id=video_params.get("voice_id", "zh-CN-YunjianNeural"),
-                        tts_speed=video_params.get("tts_speed", 1.2),
-                        progress_callback=update_progress
-                    ))
-                    
+                    ctx = run_async(
+                        pipeline(
+                            assets=video_params["assets"],
+                            video_title=video_params.get("video_title", ""),
+                            intent=video_params.get("intent"),
+                            duration=video_params.get("duration", 30),
+                            source=video_params.get("source", "runninghub"),
+                            bgm_path=video_params.get("bgm_path"),
+                            bgm_volume=video_params.get("bgm_volume", 0.2),
+                            bgm_mode=video_params.get("bgm_mode", "loop"),
+                            voice_id=video_params.get("voice_id", "zh-CN-YunjianNeural"),
+                            tts_speed=video_params.get("tts_speed", 1.2),
+                            progress_callback=update_progress,
+                        )
+                    )
+
                     capture_snapshot_from_result(ctx, st.session_state)
 
                     total_time = time.time() - start_time
@@ -393,40 +400,42 @@ class AssetBasedPipelineUI(PipelineUI):
 
                     # Display result
                     st.success(tr("status.video_generated", path=ctx.final_video_path))
-                    
+
                     st.markdown("---")
-                    
+
                     # Video info
                     if os.path.exists(ctx.final_video_path):
                         file_size_mb = os.path.getsize(ctx.final_video_path) / (1024 * 1024)
                         n_scenes = len(ctx.storyboard.frames) if ctx.storyboard else 0
-                        
+
                         info_text = (
                             f"⏱️ {tr('info.generation_time')} {total_time:.1f}s   "
                             f"📦 {file_size_mb:.2f}MB   "
                             f"🎬 {n_scenes}{tr('info.scenes_unit')}"
                         )
                         st.caption(info_text)
-                        
+
                         st.markdown("---")
-                        
+
                         # Video preview
                         render_scaled_video_preview(ctx.final_video_path)
-                        
+
                         # Download button
                         with open(ctx.final_video_path, "rb") as video_file:
                             video_bytes = video_file.read()
                             video_filename = os.path.basename(ctx.final_video_path)
                             st.download_button(
-                                label="⬇️ 下载视频" if get_language() == "zh_CN" else "⬇️ Download Video",
+                                label="⬇️ 下载视频"
+                                if get_language() == "zh_CN"
+                                else "⬇️ Download Video",
                                 data=video_bytes,
                                 file_name=video_filename,
                                 mime="video/mp4",
-                                width="stretch"
+                                width="stretch",
                             )
                     else:
                         st.error(tr("status.video_not_found", path=ctx.final_video_path))
-                
+
                 except Exception as e:
                     status_text.text("")
                     progress_bar.empty()

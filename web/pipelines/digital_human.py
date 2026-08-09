@@ -3,7 +3,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import httpx
 import streamlit as st
 from loguru import logger
 
@@ -13,7 +12,7 @@ from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_
 from pixelle_video.services.prompt_trace_artifacts import (
     write_single_media_prompt_trace_context,
 )
-from pixelle_video.utils.os_util import create_task_output_dir, get_temp_path
+from pixelle_video.utils.os_util import get_temp_path
 from web.components.content_input import render_version_info
 from web.components.digital_tts_config import render_style_config
 from web.components.output_preview import render_scaled_video_preview
@@ -21,6 +20,11 @@ from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
 from web.state.storyboard_capture import capture_snapshot_from_task_dir
 from web.utils.async_helpers import run_async
+from web.utils.generation_history import WebGenerationRun
+from web.utils.upload_store import (
+    IMAGE_UPLOAD_POLICY,
+    store_uploaded_files_with_feedback,
+)
 
 
 def build_tts_generation_kwargs(
@@ -71,13 +75,14 @@ class DigitalHumanPipelineUI(PipelineUI):
     UI for the Digital_Human Video Generation Pipeline.
     Generates videos from user-provided assets (images&videos&audio).
     """
+
     name = "digital_human"
     icon = "🤖"
-    
+
     @property
     def display_name(self):
         return tr("pipeline.digital_human.name")
-    
+
     @property
     def description(self):
         return tr("pipeline.digital_human.description")
@@ -85,7 +90,7 @@ class DigitalHumanPipelineUI(PipelineUI):
     def render(self, pixelle_video: Any):
         # Three-column layout
         left_col, middle_col, right_col = st.columns([1, 1, 1])
-        
+
         # ====================================================================
         # Left Column: Asset Upload
         # ====================================================================
@@ -94,7 +99,7 @@ class DigitalHumanPipelineUI(PipelineUI):
             style_params = render_style_config(pixelle_video)
             # bgm_params = render_bgm_section(key_prefix="asset_")
             render_version_info()
-        
+
         # ====================================================================
         # Middle Column: Video Configuration
         # ====================================================================
@@ -102,7 +107,7 @@ class DigitalHumanPipelineUI(PipelineUI):
             # Style configuration ()
             workflow_path = self.workflow_path_config()
             mode_params = self.render_digital_human_mode(asset_params["character_assets"])
-        
+
         # ====================================================================
         # Right Column: Output Preview
         # ====================================================================
@@ -112,47 +117,47 @@ class DigitalHumanPipelineUI(PipelineUI):
                 **mode_params,
                 **asset_params,
                 **style_params,
-                "workflow_path": workflow_path
+                "workflow_path": workflow_path,
             }
-            
+
             self._render_output_preview(pixelle_video, video_params)
 
     def render_digital_human_input(self) -> dict:
         """Render digital human character image upload section"""
         with st.container(border=True):
             st.markdown(f"**{tr('digital_human.section.character_assets')}**")
-            
+
             with st.expander(tr("help.feature_description"), expanded=False):
                 st.markdown(f"**{tr('help.what')}**")
                 st.markdown(tr("digital_human.assets.character_what"))
                 st.markdown(f"**{tr('help.how')}**")
                 st.markdown(tr("digital_human.assets.how"))
-            
+
             # File uploader for multiple files
             uploaded_files = st.file_uploader(
                 tr("digital_human.assets.upload"),
                 type=["jpg", "jpeg", "png", "webp"],
                 accept_multiple_files=True,
                 help=tr("digital_human.assets.upload_help"),
-                key="character_files"
+                key="character_files",
             )
-            
+
             # Save uploaded files to temp directory with unique session ID
             character_asset_paths = []
             if uploaded_files:
-                import uuid
-                session_id = str(uuid.uuid4()).replace('-', '')[:12]
-                temp_dir = Path(get_temp_path(f"assets_{session_id}"))
+                temp_dir = Path(get_temp_path("uploads", "digital_human", "character"))
                 temp_dir.mkdir(parents=True, exist_ok=True)
-                
-                for uploaded_file in uploaded_files:
-                    file_path = temp_dir / uploaded_file.name
-                    with open(file_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    character_asset_paths.append(str(file_path.absolute()))
-                
-                st.success(tr("digital_human.assets.character_sucess"))
-                
+
+                character_asset_paths = store_uploaded_files_with_feedback(
+                    uploaded_files,
+                    temp_dir,
+                    policy=IMAGE_UPLOAD_POLICY,
+                    report_error=st.error,
+                )
+
+                if character_asset_paths:
+                    st.success(tr("digital_human.assets.character_sucess"))
+
                 # Preview uploaded assets
                 with st.expander(tr("digital_human.assets.preview"), expanded=True):
                     # Show in a grid (3 columns)
@@ -172,26 +177,26 @@ class DigitalHumanPipelineUI(PipelineUI):
         # Workflow source selection
         with st.container(border=True):
             st.markdown(f"**{tr('asset_based.section.source')}**")
-            
+
             with st.expander(tr("help.feature_description"), expanded=False):
                 st.markdown(f"**{tr('help.what')}**")
                 st.markdown(tr("asset_based.source.what"))
                 st.markdown(f"**{tr('help.how')}**")
                 st.markdown(tr("asset_based.source.how"))
-            
+
             source_options = {
                 "runninghub": tr("asset_based.source.runninghub"),
-                "selfhost": tr("asset_based.source.selfhost")
+                "selfhost": tr("asset_based.source.selfhost"),
             }
-            
+
             # Check if RunningHub API key is configured
             comfyui_config = config_manager.get_comfyui_config()
             has_runninghub = bool(comfyui_config.get("runninghub_api_key"))
             has_selfhost = bool(comfyui_config.get("comfyui_url"))
-            
+
             # Default to runninghub always
             default_source_index = 0
-            
+
             source = st.radio(
                 tr("asset_based.source.select"),
                 options=list(source_options.keys()),
@@ -199,16 +204,16 @@ class DigitalHumanPipelineUI(PipelineUI):
                 index=default_source_index,
                 horizontal=True,
                 key="digital_human_workflow_source",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
             )
-            
+
             # Initialize workflow_config with default value based on source selection
             # This ensures the variable is always defined even if the backend is not configured
             if source == "runninghub":
                 workflow_config = {
                     "first_workflow_path": "workflows/runninghub/digital_image.json",
                     "second_workflow_path": "workflows/runninghub/digital_combination.json",
-                    "third_workflow_path": "workflows/runninghub/digital_customize.json"
+                    "third_workflow_path": "workflows/runninghub/digital_customize.json",
                 }
                 if not has_runninghub:
                     st.warning(tr("asset_based.source.runninghub_not_configured"))
@@ -218,7 +223,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                 workflow_config = {
                     "first_workflow_path": "workflows/selfhost/digital_image.json",
                     "second_workflow_path": "workflows/selfhost/digital_combination.json",
-                    "third_workflow_path": "workflows/selfhost/digital_customize.json"
+                    "third_workflow_path": "workflows/selfhost/digital_customize.json",
                 }
                 if not has_selfhost:
                     st.warning(tr("asset_based.source.selfhost_not_configured"))
@@ -229,27 +234,33 @@ class DigitalHumanPipelineUI(PipelineUI):
     def render_digital_human_mode(self, character_asset_paths: list) -> dict:
         with st.container(border=True):
             st.markdown(f"**{tr('digital_human.section.select_mode')}**")
-            
+
             with st.expander(tr("help.feature_description"), expanded=False):
                 st.markdown(f"**{tr('help.what')}**")
                 st.markdown(tr("digital_human.assets.mode_what"))
                 st.markdown(f"**{tr('help.how')}**")
                 st.markdown(tr("digital_human.assets.select_how"))
-            
+
             mode = st.radio(
                 "Processing Mode",
                 ["digital", "customize"],
                 horizontal=True,
                 format_func=lambda x: tr(f"mode.{x}"),
                 label_visibility="collapsed",
-                key="mode_selection"
-                )
-            
+                key="mode_selection",
+            )
+
             # Text input (unified for both modes)
-            text_placeholder = tr("digital_human.input.topic_placeholder") if mode == "digital" else tr("digital_human.input.content_placeholder")
+            text_placeholder = (
+                tr("digital_human.input.topic_placeholder")
+                if mode == "digital"
+                else tr("digital_human.input.content_placeholder")
+            )
             text_height = 120 if mode == "digital" else 200
-            text_help = tr("input.text_help_digital") if mode == "digital" else tr("input.text_help_fixed")
-            
+            text_help = (
+                tr("input.text_help_digital") if mode == "digital" else tr("input.text_help_fixed")
+            )
+
             if mode == "digital":
                 # File uploader for multiple files
                 uploaded_files = st.file_uploader(
@@ -257,25 +268,25 @@ class DigitalHumanPipelineUI(PipelineUI):
                     type=["jpg", "jpeg", "png", "webp"],
                     accept_multiple_files=True,
                     help=tr("digital_human.assets.upload_help"),
-                    key="digital_files"
+                    key="digital_files",
                 )
-                
+
                 # Save uploaded files to temp directory with unique session ID
                 goods_asset_paths = []
                 if uploaded_files:
-                    import uuid
-                    session_id = str(uuid.uuid4()).replace('-', '')[:12]
-                    temp_dir = Path(get_temp_path(f"assets_{session_id}"))
+                    temp_dir = Path(get_temp_path("uploads", "digital_human", "goods"))
                     temp_dir.mkdir(parents=True, exist_ok=True)
-                
-                    for uploaded_file in uploaded_files:
-                        file_path = temp_dir / uploaded_file.name
-                        with open(file_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                        goods_asset_paths.append(str(file_path.absolute()))
-                
-                    st.success(tr("digital_human.assets.goods_sucess"))
-                
+
+                    goods_asset_paths = store_uploaded_files_with_feedback(
+                        uploaded_files,
+                        temp_dir,
+                        policy=IMAGE_UPLOAD_POLICY,
+                        report_error=st.error,
+                    )
+
+                    if goods_asset_paths:
+                        st.success(tr("digital_human.assets.goods_sucess"))
+
                     # Preview uploaded assets
                     with st.expander(tr("digital_human.assets.preview"), expanded=True):
                         # Show in a grid (3 columns)
@@ -294,14 +305,14 @@ class DigitalHumanPipelineUI(PipelineUI):
                     placeholder=text_placeholder,
                     height=text_height,
                     help=text_help,
-                    key="digital_box"
-                    )
+                    key="digital_box",
+                )
 
                 goods_title = st.text_input(
                     tr("digital_human.goods_title"),
                     placeholder=tr("digital_human.goods_title_placeholder"),
                     help=tr("digital_human.goods_title_help"),
-                    key="goods_title"
+                    key="goods_title",
                 )
 
                 return {
@@ -309,8 +320,8 @@ class DigitalHumanPipelineUI(PipelineUI):
                     "goods_title": goods_title,
                     "goods_assets": goods_asset_paths,
                     "goods_text": goods_text,
-                    "mode": mode
-                    }
+                    "mode": mode,
+                }
 
             else:
                 goods_text = st.text_area(
@@ -318,31 +329,31 @@ class DigitalHumanPipelineUI(PipelineUI):
                     placeholder=text_placeholder,
                     height=text_height,
                     help=text_help,
-                    key="customize_box"
+                    key="customize_box",
                 )
 
                 return {
                     "character_assets": character_asset_paths,
                     "goods_text": goods_text,
-                    "mode": mode
-                    }
-                    
+                    "mode": mode,
+                }
+
     def _render_output_preview(self, pixelle_video: Any, video_params: dict):
         """Render output preview section"""
         with st.container(border=True):
             st.markdown(f"**{tr('section.video_generation')}**")
-            
+
             # Check configuration
             if not config_manager.validate():
                 st.warning(tr("settings.not_configured"))
-            
+
             # Get input data
             character_assets = video_params.get("character_assets", [])
             goods_assets = video_params.get("goods_assets", [])
             goods_title = video_params.get("goods_title", "")
             goods_text = video_params.get("goods_text", "")
             mode = video_params.get("mode")
-            
+
             # Validation
             if not character_assets:
                 st.info(tr("digital_human.assets.character_warning"))
@@ -351,7 +362,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                     type="primary",
                     width="stretch",
                     disabled=True,
-                    key="digital_human_generate_disabled"
+                    key="digital_human_generate_disabled",
                 )
                 return
 
@@ -362,7 +373,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                     type="primary",
                     width="stretch",
                     disabled=True,
-                    key="digital_human_goods_vaiidation"
+                    key="digital_human_goods_vaiidation",
                 )
                 return
 
@@ -373,13 +384,13 @@ class DigitalHumanPipelineUI(PipelineUI):
                     type="primary",
                     width="stretch",
                     disabled=True,
-                    key="digital_human_digital_disable"
+                    key="digital_human_digital_disable",
                 )
                 return
-            
+
             if mode == "digital" and (goods_text or goods_title):
                 st.warning(tr("digital_human.assets.digital_mode_warning"))
-            
+
             if mode == "customize" and not goods_text:
                 st.info(tr("digital_human.assets.customize_mode"))
                 st.button(
@@ -387,34 +398,37 @@ class DigitalHumanPipelineUI(PipelineUI):
                     type="primary",
                     width="stretch",
                     disabled=True,
-                    key="digital_human_customize_disable"
+                    key="digital_human_customize_disable",
                 )
                 return
-            
+
             # Generate button
-            if st.button(tr("btn.generate"), type="primary", width="stretch", key="digital_human_generate"):
+            if st.button(
+                tr("btn.generate"), type="primary", width="stretch", key="digital_human_generate"
+            ):
                 # Validate
                 if not config_manager.validate():
                     st.error(tr("settings.not_configured"))
                     st.stop()
-                
+
                 # Show progress
                 progress_bar = st.progress(0)
                 status_text = st.empty()
-                
+
                 start_time = time.time()
-                
+
                 try:
                     # Define async generation function
-                    async def generate_digital_human_video():
-                        task_dir, task_id = create_task_output_dir()
+                    async def _generate_digital_human_video(generation: WebGenerationRun):
+                        task_dir = str(generation.task_dir)
+                        task_id = generation.task_id
                         workflow_path = video_params["workflow_path"]
 
                         if mode == "customize":
                             status_text.text(tr("progress.step_audio"))
                             progress_bar.progress(25)
-                            generated_image_path = character_assets[0]   
-                            generated_text = goods_text                 
+                            generated_image_path = character_assets[0]
+                            generated_text = goods_text
 
                             # TTS
                             audio_path = os.path.join(task_dir, "narration.mp3")
@@ -431,13 +445,17 @@ class DigitalHumanPipelineUI(PipelineUI):
                             # Directly call the second workflow
                             second_workflow_path = Path(workflow_path.get("second_workflow_path"))
                             if not second_workflow_path.exists():
-                                raise Exception(f"The second step workflow file does not exist:{second_workflow_path}")
-                            second_workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
-                                second_workflow_path
+                                raise Exception(
+                                    f"The second step workflow file does not exist:{second_workflow_path}"
+                                )
+                            second_workflow_identity = (
+                                pixelle_video.resolve_comfykit_workflow_file_identity(
+                                    second_workflow_path
+                                )
                             )
                             second_workflow_params = {
                                 "videoimage": generated_image_path,
-                                "audio": audio_path
+                                "audio": audio_path,
                             }
                             second_prompt = _render_direct_media_prompt(
                                 "digital_human_generated_image_video_synthesis"
@@ -465,47 +483,52 @@ class DigitalHumanPipelineUI(PipelineUI):
                             )
                             # Video Link Extraction
                             generated_video_url = None
-                            if hasattr(second_result, 'videos') and second_result.videos:
+                            if hasattr(second_result, "videos") and second_result.videos:
                                 generated_video_url = second_result.videos[0]
-                            elif hasattr(second_result, 'outputs') and second_result.outputs:
+                            elif hasattr(second_result, "outputs") and second_result.outputs:
                                 for node_id, node_output in second_result.outputs.items():
-                                    if isinstance(node_output, dict) and 'videos' in node_output:
-                                        videos = node_output['videos']
+                                    if isinstance(node_output, dict) and "videos" in node_output:
+                                        videos = node_output["videos"]
                                         if videos and len(videos) > 0:
                                             generated_video_url = videos[0]
                                             break
                             if not generated_video_url:
-                                raise Exception("The second step of the workflow did not return a video. Please check the workflow configuration.")
-                                        
-                            final_video_path = os.path.join(task_dir, "final.mp4")
-                            timeout = httpx.Timeout(300.0)
-                            async with httpx.AsyncClient(timeout=timeout) as client:
-                                response = await client.get(generated_video_url)
-                                response.raise_for_status()
-                                with open(final_video_path, 'wb') as f:
-                                    f.write(response.content)
-                            progress_bar.progress(100)
-                            status_text.text(tr("status.success"))
-                            return final_video_path
-                        
+                                raise Exception(
+                                    "The second step of the workflow did not return a video. Please check the workflow configuration."
+                                )
+
+                            return generated_video_url
+
                         else:
-                            #Initialization and parameter preparation
-                            task_dir, task_id = create_task_output_dir()
+                            # Initialization and parameter preparation
+                            task_dir = str(generation.task_dir)
+                            task_id = generation.task_id
                             logger.info(f"[Initialization] Task Directory: {task_dir}")
 
                             first_workflow_path = Path(workflow_path.get("first_workflow_path"))
                             third_workflow_path = Path(workflow_path.get("third_workflow_path"))
                             second_workflow_path = Path(workflow_path.get("second_workflow_path"))
-                            assert first_workflow_path.exists(), "The first_workflow file does not exist."
-                            assert third_workflow_path.exists(), "The third_workflow file does not exist."
-                            assert second_workflow_path.exists(), "The  second_workflow file does not exist."
+                            assert first_workflow_path.exists(), (
+                                "The first_workflow file does not exist."
+                            )
+                            assert third_workflow_path.exists(), (
+                                "The third_workflow file does not exist."
+                            )
+                            assert second_workflow_path.exists(), (
+                                "The  second_workflow file does not exist."
+                            )
 
                             if goods_text and goods_text.strip():
                                 workflow_path = third_workflow_path
-                                workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
-                                    workflow_path
+                                workflow_identity = (
+                                    pixelle_video.resolve_comfykit_workflow_file_identity(
+                                        workflow_path
+                                    )
                                 )
-                                workflow_params = {"firstimage": character_assets[0], "secondimage": goods_assets[0]}
+                                workflow_params = {
+                                    "firstimage": character_assets[0],
+                                    "secondimage": goods_assets[0],
+                                }
                                 generated_text = goods_text
 
                                 status_text.text(tr("progress.step_image"))
@@ -534,7 +557,9 @@ class DigitalHumanPipelineUI(PipelineUI):
                                     media_type="image",
                                 )
                                 if combine_image.status != "completed":
-                                    raise Exception(f"workflow execution failed: {combine_image.msg}")
+                                    raise Exception(
+                                        f"workflow execution failed: {combine_image.msg}"
+                                    )
                                 generated_image_url = getattr(combine_image, "images", [None])[0]
                                 status_text.text(tr("progress.step_audio"))
                                 audio_path = os.path.join(task_dir, "narration.mp3")
@@ -549,13 +574,17 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 status_text.text(tr("progress.concatenating"))
 
                                 if not second_workflow_path.exists():
-                                    raise Exception(f"The second step workflow file does not exist:{second_workflow_path}")
-                                second_workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
-                                    second_workflow_path
+                                    raise Exception(
+                                        f"The second step workflow file does not exist:{second_workflow_path}"
+                                    )
+                                second_workflow_identity = (
+                                    pixelle_video.resolve_comfykit_workflow_file_identity(
+                                        second_workflow_path
+                                    )
                                 )
                                 second_workflow_params = {
                                     "videoimage": generated_image_url,
-                                    "audio": audio_path
+                                    "audio": audio_path,
                                 }
                                 second_prompt = _render_direct_media_prompt(
                                     "digital_human_goods_video_synthesis"
@@ -583,36 +612,38 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 )
                                 # Video Link Extraction
                                 generated_video_url = None
-                                if hasattr(second_result, 'videos') and second_result.videos:
+                                if hasattr(second_result, "videos") and second_result.videos:
                                     generated_video_url = second_result.videos[0]
-                                elif hasattr(second_result, 'outputs') and second_result.outputs:
+                                elif hasattr(second_result, "outputs") and second_result.outputs:
                                     for node_id, node_output in second_result.outputs.items():
-                                        if isinstance(node_output, dict) and 'videos' in node_output:
-                                            videos = node_output['videos']
+                                        if (
+                                            isinstance(node_output, dict)
+                                            and "videos" in node_output
+                                        ):
+                                            videos = node_output["videos"]
                                             if videos and len(videos) > 0:
                                                 generated_video_url = videos[0]
                                                 break
                                 if not generated_video_url:
-                                    raise Exception("The second step of the workflow did not return a video. Please check the workflow configuration.")
-                                            
-                                final_video_path = os.path.join(task_dir, "final.mp4")
-                                timeout = httpx.Timeout(300.0)
-                                async with httpx.AsyncClient(timeout=timeout) as client:
-                                    response = await client.get(generated_video_url)
-                                    response.raise_for_status()
-                                    with open(final_video_path, 'wb') as f:
-                                        f.write(response.content)
-                                progress_bar.progress(100)
-                                status_text.text(tr("status.success"))
-                                return final_video_path
-                                
+                                    raise Exception(
+                                        "The second step of the workflow did not return a video. Please check the workflow configuration."
+                                    )
+
+                                return generated_video_url
+
                             else:
                                 workflow_path = first_workflow_path
-                                workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
-                                    workflow_path
+                                workflow_identity = (
+                                    pixelle_video.resolve_comfykit_workflow_file_identity(
+                                        workflow_path
+                                    )
                                 )
-                                workflow_params = {"firstimage": character_assets[0], "secondimage": goods_assets[0], "goodstype": goods_title}
-                                
+                                workflow_params = {
+                                    "firstimage": character_assets[0],
+                                    "secondimage": goods_assets[0],
+                                    "goodstype": goods_title,
+                                }
+
                                 status_text.text(tr("progress.step_image"))
                                 synthesis_prompt = _render_direct_media_prompt(
                                     "digital_human_goods_type_synthesis",
@@ -634,17 +665,21 @@ class DigitalHumanPipelineUI(PipelineUI):
                                     },
                                     workflow_params=workflow_params,
                                 )
-                                synthesis_result = await pixelle_video.execute_comfykit_workflow_file(
-                                    workflow_path,
-                                    workflow_params,
-                                    media_prompt_trace_context=synthesis_prompt_trace_context,
-                                    media_type="image",
+                                synthesis_result = (
+                                    await pixelle_video.execute_comfykit_workflow_file(
+                                        workflow_path,
+                                        workflow_params,
+                                        media_prompt_trace_context=synthesis_prompt_trace_context,
+                                        media_type="image",
+                                    )
                                 )
                                 if synthesis_result.status != "completed":
-                                    raise Exception(f"workflow execution failed: {synthesis_result.msg}")
+                                    raise Exception(
+                                        f"workflow execution failed: {synthesis_result.msg}"
+                                    )
                                 generated_image_url = getattr(synthesis_result, "images", [None])[0]
                                 generated_text = getattr(synthesis_result, "texts", [None])[0]
-                                
+
                                 status_text.text(tr("progress.step_audio"))
                                 audio_path = os.path.join(task_dir, "narration.mp3")
                                 tts_kwargs = build_tts_generation_kwargs(
@@ -658,13 +693,17 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 status_text.text(tr("progress.concatenating"))
 
                                 if not second_workflow_path.exists():
-                                    raise Exception(f"The second step workflow file does not exist:{second_workflow_path}")
-                                second_workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
-                                    second_workflow_path
+                                    raise Exception(
+                                        f"The second step workflow file does not exist:{second_workflow_path}"
+                                    )
+                                second_workflow_identity = (
+                                    pixelle_video.resolve_comfykit_workflow_file_identity(
+                                        second_workflow_path
+                                    )
                                 )
                                 second_workflow_params = {
                                     "videoimage": generated_image_url,
-                                    "audio": audio_path
+                                    "audio": audio_path,
                                 }
                                 second_prompt = _render_direct_media_prompt(
                                     "digital_human_generated_product_video_synthesis"
@@ -692,71 +731,82 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 )
                                 # Video Link Extraction
                                 generated_video_url = None
-                                if hasattr(second_result, 'videos') and second_result.videos:
+                                if hasattr(second_result, "videos") and second_result.videos:
                                     generated_video_url = second_result.videos[0]
-                                elif hasattr(second_result, 'outputs') and second_result.outputs:
+                                elif hasattr(second_result, "outputs") and second_result.outputs:
                                     for node_id, node_output in second_result.outputs.items():
-                                        if isinstance(node_output, dict) and 'videos' in node_output:
-                                            videos = node_output['videos']
+                                        if (
+                                            isinstance(node_output, dict)
+                                            and "videos" in node_output
+                                        ):
+                                            videos = node_output["videos"]
                                             if videos and len(videos) > 0:
                                                 generated_video_url = videos[0]
                                                 break
                                 if not generated_video_url:
-                                    raise Exception("The second step of the workflow did not return a video. Please check the workflow configuration.")
-                                            
-                                final_video_path = os.path.join(task_dir, "final.mp4")
-                                timeout = httpx.Timeout(300.0)
-                                async with httpx.AsyncClient(timeout=timeout) as client:
-                                    response = await client.get(generated_video_url)
-                                    response.raise_for_status()
-                                    with open(final_video_path, 'wb') as f:
-                                        f.write(response.content)
-                                progress_bar.progress(100)
-                                status_text.text(tr("status.success"))
-                                return final_video_path
-                                
+                                    raise Exception(
+                                        "The second step of the workflow did not return a video. Please check the workflow configuration."
+                                    )
+
+                                return generated_video_url
+
+                    async def generate_digital_human_video():
+                        generation = await WebGenerationRun.start(
+                            core=pixelle_video,
+                            pipeline="digital_human",
+                            input_params=video_params,
+                        )
+                        final_video_path = await generation.execute(_generate_digital_human_video)
+                        progress_bar.progress(100)
+                        status_text.text(tr("status.success"))
+                        return final_video_path
+
                     # Execute async generation
                     final_video_path = run_async(generate_digital_human_video())
-                    capture_snapshot_from_task_dir(os.path.dirname(final_video_path), st.session_state)
+                    capture_snapshot_from_task_dir(
+                        os.path.dirname(final_video_path), st.session_state
+                    )
 
                     total_time = time.time() - start_time
                     progress_bar.progress(100)
                     status_text.text(tr("status.success"))
-                    
+
                     # Display result
                     st.success(tr("status.video_generated", path=final_video_path))
-                    
+
                     st.markdown("---")
-                    
+
                     # Video info
                     if os.path.exists(final_video_path):
                         file_size_mb = os.path.getsize(final_video_path) / (1024 * 1024)
-                        
+
                         info_text = (
                             f"⏱️ {tr('info.generation_time')} {total_time:.1f}s   "
                             f"📦 {file_size_mb:.2f}MB"
                         )
                         st.caption(info_text)
-                        
+
                         st.markdown("---")
-                        
+
                         # Video preview
                         render_scaled_video_preview(final_video_path)
-                        
+
                         # Download button
                         with open(final_video_path, "rb") as video_file:
                             video_bytes = video_file.read()
                             video_filename = os.path.basename(final_video_path)
                             st.download_button(
-                                label="⬇️ 下载视频" if get_language() == "zh_CN" else "⬇️ Download Video",
+                                label="⬇️ 下载视频"
+                                if get_language() == "zh_CN"
+                                else "⬇️ Download Video",
                                 data=video_bytes,
                                 file_name=video_filename,
                                 mime="video/mp4",
-                                width="stretch"
+                                width="stretch",
                             )
                     else:
                         st.error(tr("status.video_not_found", path=final_video_path))
-                
+
                 except Exception as e:
                     status_text.text("")
                     progress_bar.empty()

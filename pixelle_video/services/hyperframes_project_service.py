@@ -31,6 +31,7 @@ from pixelle_video.services.caption_cue_builder import build_caption_cues_from_s
 from pixelle_video.services.hyperframes_asset_materializer import HyperFramesAssetMaterializer
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 from pixelle_video.utils.os_util import get_output_path
+from pixelle_video.utils.path_safety import resolve_task_dir
 
 
 @dataclass(frozen=True)
@@ -161,7 +162,7 @@ class HyperFramesProjectService:
         self.compiler = compiler or HyperFramesCompiler()
 
     def get_task_dir(self, task_id: str) -> Path:
-        return self.output_dir / task_id
+        return resolve_task_dir(self.output_dir, task_id)
 
     def get_project_dir(self, task_id: str) -> Path:
         return self.get_task_dir(task_id) / "hyperframes"
