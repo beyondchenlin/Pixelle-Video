@@ -242,6 +242,37 @@ sudo apt install ffmpeg
 
 After installation, run `ffmpeg -version` in the terminal to verify successful installation.
 
+##### Prepare Chrome for HyperFrames rendering
+
+Pixelle uses Puppeteer to drive Chrome for video frame rendering. The renderer selects a browser in this order:
+
+1. A browser explicitly set through `PRODUCER_HEADLESS_SHELL_PATH`.
+2. System Chrome, Edge, or Chromium in common Windows, macOS, or Linux installation paths.
+3. A dedicated browser downloaded into the Puppeteer cache.
+
+If Chrome, Edge, or Chromium is already installed, no additional download is required. On Windows, check the common Chrome path first:
+
+```powershell
+Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+```
+
+When this returns `True`, Pixelle discovers the browser automatically and passes its path only to the render subprocess. If the browser is installed in a custom location, set it explicitly before launching Pixelle:
+
+```powershell
+$env:PRODUCER_HEADLESS_SHELL_PATH='D:\Apps\Chrome\chrome.exe'
+.\start_web.bat
+```
+
+Only when no compatible system browser exists, install the version pinned by Puppeteer:
+
+```bash
+cd tools/hyperframes_bridge
+npx puppeteer browsers install chrome
+cd ../..
+```
+
+For `Could not find Chrome`, verify the browser path and `PRODUCER_HEADLESS_SHELL_PATH` before downloading another browser.
+
 
 #### Step 1: Clone Project
 

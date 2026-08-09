@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import pixelle_video.service as service_module
+import pixelle_video.services.hyperframes_renderer as hyperframes_renderer_module
 from pixelle_video.service import PixelleVideoCore
 from pixelle_video.services.alignment_service import AlignmentService
 from pixelle_video.services.audio_edit_service import AudioEditService
@@ -61,12 +62,22 @@ def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_p
     expected_output = project_dir / "renders" / "task-6.mp4"
     captured: dict[str, object] = {}
 
-    def fake_run(command, capture_output, text, check, cwd, encoding=None, errors=None):
+    fake_chrome = tmp_path / "chrome.exe"
+    fake_chrome.write_bytes(b"test-browser")
+    monkeypatch.delenv("PRODUCER_HEADLESS_SHELL_PATH", raising=False)
+    monkeypatch.setattr(
+        hyperframes_renderer_module,
+        "_system_browser_candidates",
+        lambda: (fake_chrome,),
+    )
+
+    def fake_run(command, capture_output, text, check, cwd, env, encoding=None, errors=None):
         captured["command"] = command
         captured["capture_output"] = capture_output
         captured["text"] = text
         captured["check"] = check
         captured["cwd"] = cwd
+        captured["env"] = env
         captured["encoding"] = encoding
         captured["errors"] = errors
         return subprocess.CompletedProcess(
@@ -96,6 +107,7 @@ def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_p
         str(expected_output),
     ]
     assert captured["cwd"] == str(project_dir)
+    assert captured["env"]["PRODUCER_HEADLESS_SHELL_PATH"] == str(fake_chrome)
     assert captured["encoding"] == "utf-8"
     assert captured["errors"] == "replace"
     assert (project_dir / "index.html").read_text(encoding="utf-8") == "<!doctype html><title>template</title>"
@@ -119,7 +131,7 @@ def test_render_preserves_compiled_project_entrypoint_when_present(monkeypatch, 
     bridge_script = tmp_path / "render.mjs"
     bridge_script.write_text("// bridge placeholder", encoding="utf-8")
 
-    def fake_run(command, capture_output, text, check, cwd, encoding=None, errors=None):
+    def fake_run(command, capture_output, text, check, cwd, env, encoding=None, errors=None):
         return subprocess.CompletedProcess(
             args=command,
             returncode=0,
@@ -159,7 +171,7 @@ def test_render_allows_compiled_project_without_manifest_when_output_path_is_exp
     bridge_script.write_text("// bridge placeholder", encoding="utf-8")
     explicit_output = project_dir / "renders" / "task-compiled.mp4"
 
-    def fake_run(command, capture_output, text, check, cwd, encoding=None, errors=None):
+    def fake_run(command, capture_output, text, check, cwd, env, encoding=None, errors=None):
         return subprocess.CompletedProcess(
             args=command,
             returncode=0,
@@ -193,7 +205,7 @@ def test_render_rejects_video_without_audio_stream(monkeypatch, tmp_path):
     bridge_script = tmp_path / "render.mjs"
     bridge_script.write_text("// bridge placeholder", encoding="utf-8")
 
-    def fake_run(command, capture_output, text, check, cwd, encoding=None, errors=None):
+    def fake_run(command, capture_output, text, check, cwd, env, encoding=None, errors=None):
         return subprocess.CompletedProcess(
             args=command,
             returncode=0,

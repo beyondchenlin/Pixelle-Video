@@ -5,13 +5,73 @@ HyperFrames renderer bridge helpers.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
 _SAFE_MANIFEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+_HYPERFRAMES_BROWSER_ENV = "PRODUCER_HEADLESS_SHELL_PATH"
+
+
+def _system_browser_candidates() -> tuple[Path, ...]:
+    candidates: list[Path] = []
+
+    if os.name == "nt":
+        for environment_name in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            base_path = os.environ.get(environment_name)
+            if not base_path:
+                continue
+            base = Path(base_path)
+            candidates.extend(
+                (
+                    base / "Google" / "Chrome" / "Application" / "chrome.exe",
+                    base / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+                )
+            )
+    elif sys.platform == "darwin":
+        candidates.extend(
+            (
+                Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+                Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+                Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+            )
+        )
+
+    for executable_name in (
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "microsoft-edge",
+        "msedge",
+    ):
+        executable_path = shutil.which(executable_name)
+        if executable_path:
+            candidates.append(Path(executable_path))
+
+    return tuple(candidates)
+
+
+def _resolve_browser_executable(environment: dict[str, str]) -> str | None:
+    explicitly_configured = environment.get(_HYPERFRAMES_BROWSER_ENV, "").strip()
+    if explicitly_configured:
+        return explicitly_configured
+
+    seen: set[str] = set()
+    for candidate in _system_browser_candidates():
+        normalized = str(candidate.resolve(strict=False))
+        normalized_key = normalized.casefold()
+        if normalized_key in seen:
+            continue
+        seen.add(normalized_key)
+        if candidate.is_file():
+            return normalized
+
+    return None
 
 
 def _validate_manifest_identifier(field_name: str, value: Any) -> str:
@@ -88,6 +148,11 @@ class HyperFramesRenderer:
         )
         resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        render_environment = os.environ.copy()
+        browser_executable = _resolve_browser_executable(render_environment)
+        if browser_executable:
+            render_environment[_HYPERFRAMES_BROWSER_ENV] = browser_executable
+
         completed = subprocess.run(
             [
                 self.node_executable,
@@ -103,6 +168,7 @@ class HyperFramesRenderer:
             errors="replace",
             check=False,
             cwd=str(project_path),
+            env=render_environment,
         )
 
         if completed.returncode != 0:

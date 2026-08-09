@@ -246,9 +246,28 @@ sudo apt install ffmpeg
 
 安装完成后，在终端中运行 `ffmpeg -version` 验证安装成功。
 
-##### 安装 Puppeteer Chrome（用于 HyperFrames 渲染）
+##### 准备 Chrome（用于 HyperFrames 渲染）
 
-项目使用 Puppeteer 进行视频帧渲染，需要安装 Chrome 浏览器：
+项目使用 Puppeteer 驱动 Chrome 进行视频帧渲染。渲染器按以下顺序选择浏览器：
+
+1. 环境变量 `PRODUCER_HEADLESS_SHELL_PATH` 指定的浏览器。
+2. Windows、macOS 或 Linux 常见安装位置中的系统 Chrome、Edge 或 Chromium。
+3. Puppeteer 缓存中下载的专用浏览器。
+
+系统已经安装 Chrome、Edge 或 Chromium 时，不需要重复下载。Windows 可以先检查常用的 Chrome 路径：
+
+```powershell
+Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+```
+
+返回 `True` 后，Pixelle 会自动发现并仅把该路径传给渲染子进程。如果浏览器安装在自定义位置，在启动 Pixelle 前显式指定：
+
+```powershell
+$env:PRODUCER_HEADLESS_SHELL_PATH='D:\Apps\Chrome\chrome.exe'
+.\start_web.bat
+```
+
+本机没有兼容浏览器时，再安装 Puppeteer 锁定的专用版本：
 
 ```bash
 cd tools/hyperframes_bridge
@@ -256,7 +275,7 @@ npx puppeteer browsers install chrome
 cd ../..
 ```
 
-> 注意：如果跳过此步骤，在渲染视频时会报错 `Could not find Chrome`。
+出现 `Could not find Chrome` 时，先检查浏览器路径和 `PRODUCER_HEADLESS_SHELL_PATH`，再执行下载命令。
 
 
 #### 第一步：下载项目
