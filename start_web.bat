@@ -20,6 +20,14 @@ if not exist "%RUFF_CACHE_DIR%" mkdir "%RUFF_CACHE_DIR%"
 if "%PIXELLE_API_PORT%"=="" set "PIXELLE_API_PORT=8888"
 if "%PIXELLE_API_BASE_URL%"=="" set "PIXELLE_API_BASE_URL=http://localhost:%PIXELLE_API_PORT%/api"
 
+if "%PRODUCER_HEADLESS_SHELL_PATH%"=="" if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "PRODUCER_HEADLESS_SHELL_PATH=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+if "%PRODUCER_HEADLESS_SHELL_PATH%"=="" if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "PRODUCER_HEADLESS_SHELL_PATH=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+if "%PRODUCER_HEADLESS_SHELL_PATH%"=="" if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" set "PRODUCER_HEADLESS_SHELL_PATH=%LocalAppData%\Google\Chrome\Application\chrome.exe"
+if "%PRODUCER_HEADLESS_SHELL_PATH%"=="" if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" set "PRODUCER_HEADLESS_SHELL_PATH=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
+if "%PRODUCER_HEADLESS_SHELL_PATH%"=="" if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" set "PRODUCER_HEADLESS_SHELL_PATH=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
+
+if not "%PRODUCER_HEADLESS_SHELL_PATH%"=="" echo Using browser: %PRODUCER_HEADLESS_SHELL_PATH%
+
 echo Starting Pixelle-Video API...
 echo.
 

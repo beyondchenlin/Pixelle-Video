@@ -105,6 +105,8 @@ def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_p
         str(project_dir),
         "--output-path",
         str(expected_output),
+        "--chrome-path",
+        str(fake_chrome),
     ]
     assert captured["cwd"] == str(project_dir)
     assert captured["env"]["PRODUCER_HEADLESS_SHELL_PATH"] == str(fake_chrome)

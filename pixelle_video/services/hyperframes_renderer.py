@@ -153,15 +153,19 @@ class HyperFramesRenderer:
         if browser_executable:
             render_environment[_HYPERFRAMES_BROWSER_ENV] = browser_executable
 
+        command = [
+            self.node_executable,
+            str(self.bridge_script),
+            "--project-dir",
+            str(project_path),
+            "--output-path",
+            str(resolved_output_path),
+        ]
+        if browser_executable:
+            command.extend(("--chrome-path", browser_executable))
+
         completed = subprocess.run(
-            [
-                self.node_executable,
-                str(self.bridge_script),
-                "--project-dir",
-                str(project_path),
-                "--output-path",
-                str(resolved_output_path),
-            ],
+            command,
             capture_output=True,
             text=True,
             encoding="utf-8",

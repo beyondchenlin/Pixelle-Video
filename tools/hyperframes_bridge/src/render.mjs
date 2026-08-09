@@ -3,7 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-import { createRenderJob, executeRenderJob } from "@hyperframes/producer";
+import { createRenderJob, executeRenderJob, resolveConfig } from "@hyperframes/producer";
 
 const SAFE_MANIFEST_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
@@ -37,6 +37,9 @@ export function parseArgs(argv) {
         break;
       case "--output-path":
         options.outputPath = requireValue(token, argv[++index]);
+        break;
+      case "--chrome-path":
+        options.chromePath = requireValue(token, argv[++index]);
         break;
       case "--fps":
         options.fps = parseInteger(token, argv[++index]);
@@ -103,6 +106,13 @@ function buildJobConfig(options, manifest) {
     useGpu: options.useGpu ?? false,
     hdr: options.hdr ?? false,
   };
+
+  if (options.chromePath) {
+    jobConfig.producerConfig = {
+      ...resolveConfig(),
+      chromePath: options.chromePath,
+    };
+  }
 
   if (options.crf !== undefined) {
     jobConfig.crf = options.crf;
