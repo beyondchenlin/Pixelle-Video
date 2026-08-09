@@ -159,7 +159,7 @@ def redact_multimodal_messages_for_trace(messages: list[Mapping[str, Any]]) -> l
 def sanitize_multimodal_trace_error(message: object) -> str:
     """Return a trace-safe provider error string for multimodal calls."""
 
-    text = str(message or "")
+    text = str(message or "").strip() or type(message).__name__
     text = _INLINE_DATA_IMAGE_RE.sub("<redacted:data-url>", text)
     text = _LOOSE_DATA_IMAGE_RE.sub("<redacted:data-url>", text)
     text = _LOOSE_BASE64_PAYLOAD_RE.sub("<redacted:base64-payload>", text)

@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from httpx import Timeout
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.llm_response import LLMProviderRequestError
@@ -204,6 +204,42 @@ async def test_llm_service_uses_native_structured_output_for_supported_openai_mo
     assert raw_store.payloads[0]["payload"]["response_format"]["name"] == "MovieReview"
     assert raw_store.payloads[0]["payload"]["response_format"]["schema"]["properties"]["title"]["type"] == "string"
     assert trace_repository.appended[0]["trace"]["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_llm_service_revalidates_native_parsed_payload_against_requested_model(
+    monkeypatch,
+):
+    native_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    parsed={"title": "Incomplete"},
+                    content=None,
+                    refusal=None,
+                )
+            )
+        ]
+    )
+    fake_client, _, _ = _build_fake_client(
+        base_url="https://api.openai.com/v1/",
+        parse_response=native_response,
+    )
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_kwargs, _, trace_repository = _trace_dependencies("native_invalid")
+
+    with pytest.raises(ValidationError):
+        await service(
+            prompt="Review Inception",
+            model="gpt-4o-mini",
+            response_type=MovieReview,
+            **trace_kwargs,
+        )
+
+    trace = trace_repository.appended[0]["trace"]
+    assert trace["status"] == "validation_error"
+    assert trace["validation_errors"][0]["field"] == "rating"
 
 
 @pytest.mark.asyncio

@@ -7,9 +7,12 @@ from pathlib import Path
 
 from pixelle_video.utils.logging_util import _resolve_logging_config
 from pixelle_video.utils.os_util import (
+    clear_resource_cache,
     configure_runtime_environment,
     get_pixelle_video_root_path,
     get_temp_path,
+    list_resource_dirs,
+    list_resource_files,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -141,3 +144,23 @@ def test_legacy_logs_config_resolves_to_runtime_logs(monkeypatch, tmp_path):
     resolved = _resolve_logging_config({"log_dir": "logs"})
 
     assert Path(resolved["log_dir"]) == tmp_path / "_runtime" / "logs"
+
+
+def test_resource_scan_cache_is_scoped_to_resolved_project_root(monkeypatch, tmp_path):
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_source = first_root / "workflows" / "first_source"
+    second_source = second_root / "workflows" / "second_source"
+    first_source.mkdir(parents=True)
+    second_source.mkdir(parents=True)
+    (first_source / "first.json").write_text("{}", encoding="utf-8")
+    (second_source / "second.json").write_text("{}", encoding="utf-8")
+    clear_resource_cache()
+
+    monkeypatch.setenv("PIXELLE_VIDEO_ROOT", str(first_root))
+    assert list_resource_dirs("workflows") == ["first_source"]
+    assert list_resource_files("workflows", "first_source") == ["first.json"]
+
+    monkeypatch.setenv("PIXELLE_VIDEO_ROOT", str(second_root))
+    assert list_resource_dirs("workflows") == ["second_source"]
+    assert list_resource_files("workflows", "second_source") == ["second.json"]

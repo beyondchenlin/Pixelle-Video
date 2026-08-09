@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -316,3 +317,56 @@ def test_direct_media_request_requires_complete_dimensions(tmp_path):
     assert descriptor.normalize_parameters({"quality": "high"})["quality"] == "high"
     with pytest.raises(ValueError, match="positive integer"):
         _request(tmp_path, width=0)
+
+
+def test_descriptor_loader_does_not_expose_invalid_secret_inputs(tmp_path):
+    descriptor = _descriptor().model_dump(mode="json")
+    descriptor["declared_params"] = {"api_key": {"type": "string"}}
+    descriptor["defaults"] = {"api_key": "must-not-leak"}
+    descriptor_path = tmp_path / "unsafe.json"
+    descriptor_path.write_text(json.dumps(descriptor), encoding="utf-8")
+
+    with pytest.raises(DirectMediaConfigurationError) as captured:
+        load_direct_media_descriptor(descriptor_path)
+
+    assert "must-not-leak" not in str(captured.value)
+    assert str(captured.value) == "direct media descriptor validation failed: unsafe.json"
+
+
+@pytest.mark.asyncio
+async def test_openai_image_adapter_rejects_invalid_requests_before_network_resolution(
+    monkeypatch,
+    tmp_path,
+):
+    async def fail_settings(_config):
+        raise AssertionError("invalid requests must fail before transport resolution")
+
+    monkeypatch.setattr(
+        "pixelle_video.services.direct_media._openai_image_client_settings",
+        fail_settings,
+    )
+    registry = DirectMediaProviderRegistry()
+
+    with pytest.raises(DirectMediaConfigurationError, match="provided together"):
+        await registry.generate(
+            descriptor=_descriptor(),
+            request=_request(tmp_path / "dimensions", height=None),
+            config=_config(),
+        )
+    with pytest.raises(DirectMediaConfigurationError, match="transparent"):
+        await registry.generate(
+            descriptor=_descriptor(),
+            request=_request(
+                tmp_path / "format",
+                parameters={"background": "transparent", "output_format": "jpeg"},
+            ),
+            config=_config(),
+        )
+    with pytest.raises(DirectMediaConfigurationError, match="disabled"):
+        await registry.generate(
+            descriptor=_descriptor(),
+            request=_request(tmp_path / "disabled"),
+            config=DirectMediaConfig(),
+        )
+
+    await registry.aclose()

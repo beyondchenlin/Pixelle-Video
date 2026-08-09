@@ -17,6 +17,7 @@ Supports both image and video generation workflows.
 Automatically detects output type based on ExecuteResult.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -428,6 +429,7 @@ class MediaService(ComfyBaseService):
                     workflow_info = self._parse_workflow_file(file_path, source_name)
                     if source_name == DIRECT_MEDIA_SOURCE:
                         descriptor = load_direct_media_descriptor(file_path)
+                        descriptor_payload = descriptor.model_dump(mode="json")
                         workflow_info.update(
                             {
                                 "adapter": descriptor.adapter,
@@ -435,7 +437,7 @@ class MediaService(ComfyBaseService):
                                 "media_type": descriptor.media_type,
                                 "model": descriptor.model,
                                 "display_name": descriptor.display_name,
-                                "declared_params": descriptor.declared_params,
+                                "declared_params": descriptor_payload["declared_params"],
                             }
                         )
                     if source_name == RUNNINGHUB_SOURCE:
@@ -475,6 +477,9 @@ class MediaService(ComfyBaseService):
             "_",
             str(trace_context.get("frame_id") or "frame"),
         ).strip("._") or "frame"
+        if len(frame_id) > 80:
+            frame_digest = hashlib.sha256(frame_id.encode("utf-8")).hexdigest()[:12]
+            frame_id = f"{frame_id[:64].rstrip('._-')}-{frame_digest}"
         output_dir = (task_root / "provider_media" / frame_id).resolve()
         output_dir.relative_to(task_root.resolve())
         return output_dir

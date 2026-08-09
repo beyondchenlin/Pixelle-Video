@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from loguru import logger
 from PIL import Image, UnidentifiedImageError
+from pydantic import ValidationError
 
 from pixelle_video.config.schema import DirectMediaConfig, OpenAIImageProviderConfig
 from pixelle_video.models.direct_media import (
@@ -57,7 +58,12 @@ def load_direct_media_descriptor(path: str | Path) -> DirectMediaDescriptor:
         raise DirectMediaConfigurationError(
             f"direct media descriptor could not be read: {descriptor_path.name}"
         ) from exc
-    return DirectMediaDescriptor.model_validate(payload)
+    try:
+        return DirectMediaDescriptor.model_validate(payload)
+    except ValidationError:
+        raise DirectMediaConfigurationError(
+            f"direct media descriptor validation failed: {descriptor_path.name}"
+        ) from None
 
 
 class DirectMediaAdapter(Protocol):
@@ -207,7 +213,6 @@ class OpenAIImageAdapter:
                 "OpenAI image provider descriptor does not support negative_prompt"
             )
 
-        settings = await _openai_image_client_settings(provider_config)
         api_parameters = dict(request.parameters)
         output_format = str(api_parameters.pop("output_format", "png"))
         if (
@@ -218,6 +223,7 @@ class OpenAIImageAdapter:
                 "transparent image backgrounds require png or webp output"
             )
         size = _openai_image_size(request.width, request.height)
+        settings = await _openai_image_client_settings(provider_config)
         request_kwargs: dict[str, Any] = {
             "prompt": request.prompt,
             "model": descriptor.model,

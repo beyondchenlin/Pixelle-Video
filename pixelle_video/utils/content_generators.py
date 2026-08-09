@@ -22,6 +22,7 @@ import unicodedata
 from time import perf_counter
 from typing import Any, Callable, List, Literal, Mapping, Optional, Sequence
 
+import regex as unicode_regex
 from loguru import logger
 
 from pixelle_video.config import config_manager
@@ -564,7 +565,7 @@ _TITLE_QUOTE_PAIRS = (
     ("「", "」"),
     ("『", "』"),
 )
-_ZERO_WIDTH_JOINER = "\u200d"
+_TITLE_GRAPHEME_RE = unicode_regex.compile(r"\X")
 
 
 def _validate_title_request(*, content: Any, strategy: Any, max_length: Any) -> str:
@@ -624,43 +625,7 @@ def _truncate_title(title: str, max_length: int) -> str:
 
 
 def _grapheme_clusters_for_title(text: str) -> tuple[str, ...]:
-    clusters: list[str] = []
-    current = ""
-    for char in text:
-        if not current:
-            current = char
-            continue
-        if (
-            current.endswith(_ZERO_WIDTH_JOINER)
-            or char == _ZERO_WIDTH_JOINER
-            or _is_title_grapheme_extension(char)
-            or (
-                len(current) == 1
-                and _is_regional_indicator(current)
-                and _is_regional_indicator(char)
-            )
-        ):
-            current += char
-            continue
-        clusters.append(current)
-        current = char
-    if current:
-        clusters.append(current)
-    return tuple(clusters)
-
-
-def _is_title_grapheme_extension(char: str) -> bool:
-    codepoint = ord(char)
-    return (
-        unicodedata.combining(char) != 0
-        or unicodedata.category(char) in {"Mn", "Mc", "Me"}
-        or 0xFE00 <= codepoint <= 0xFE0F
-        or 0x1F3FB <= codepoint <= 0x1F3FF
-    )
-
-
-def _is_regional_indicator(char: str) -> bool:
-    return 0x1F1E6 <= ord(char) <= 0x1F1FF
+    return tuple(_TITLE_GRAPHEME_RE.findall(text))
 
 
 def _deterministic_title_fallback(content: str, max_length: int) -> str:
@@ -823,7 +788,11 @@ async def generate_title(
         elapsed,
         " with deterministic fallback" if fallback_reason else "",
     )
-    logger.debug(f"Generated title: '{title}' (length: {len(title)})")
+    logger.debug(
+        "Generated title: codepoints={} graphemes={}",
+        len(title),
+        len(_grapheme_clusters_for_title(title)),
+    )
     return title
 
 

@@ -422,7 +422,17 @@ def _trace_safe_copy(value: Any, *, key: Any = None) -> Any:
             "secret_key",
             "token",
         }
-        or normalized_key.endswith(("_api_key", "_secret", "_token", "_password"))
+        or normalized_key.endswith(
+            (
+                "_access_key",
+                "_api_key",
+                "_credential",
+                "_password",
+                "_secret",
+                "_secret_key",
+                "_token",
+            )
+        )
     ):
         return "[REDACTED]"
     if isinstance(value, BaseModel):

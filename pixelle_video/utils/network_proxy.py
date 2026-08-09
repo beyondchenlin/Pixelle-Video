@@ -173,7 +173,9 @@ def _matches_no_proxy(host: str, port: int | None) -> bool:
         rule_host, rule_port = _split_no_proxy_rule(rule)
         if rule_port is not None and port != rule_port:
             continue
-        normalized_rule = rule_host.lstrip(".").rstrip(".")
+        normalized_rule = rule_host.removeprefix("*.").lstrip(".").rstrip(".")
+        if not normalized_rule:
+            continue
         if normalized_host == normalized_rule or normalized_host.endswith(
             f".{normalized_rule}"
         ):

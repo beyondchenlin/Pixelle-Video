@@ -496,7 +496,6 @@ def get_resource_path(resource_type: Literal["bgm", "templates", "workflows"], *
     )
 
 
-@functools.lru_cache(maxsize=32)
 def list_resource_files(
     resource_type: Literal["bgm", "templates", "workflows"],
     subdir: str = ""
@@ -528,12 +527,34 @@ def list_resource_files(
         # Returns: ["custom.html", "image_default.html", "image_modern.html"]
         # (merged from templates/1080x1920/ and data/templates/1080x1920/)
     """
-    files = {}  # Use dict to track source priority: {filename: path}
-    
-    # Build directory paths
-    default_dir = Path(get_root_path(resource_type, subdir)) if subdir else Path(get_root_path(resource_type))
-    # Build custom path directly to avoid get_data_path() -> os.makedirs() side effect
-    custom_dir = Path(get_root_path("data", resource_type, subdir)) if subdir else Path(get_root_path("data", resource_type))
+    default_dir = (
+        Path(get_root_path(resource_type, subdir))
+        if subdir
+        else Path(get_root_path(resource_type))
+    )
+    custom_dir = (
+        Path(get_root_path("data", resource_type, subdir))
+        if subdir
+        else Path(get_root_path("data", resource_type))
+    )
+    return list(
+        _list_resource_files_for_paths(
+            str(default_dir.resolve()),
+            str(custom_dir.resolve()),
+        )
+    )
+
+
+@functools.lru_cache(maxsize=64)
+def _list_resource_files_for_paths(
+    default_path: str,
+    custom_path: str,
+) -> tuple[str, ...]:
+    """Cache resource files by resolved roots so hot root changes stay isolated."""
+
+    files = {}
+    default_dir = Path(default_path)
+    custom_dir = Path(custom_path)
     
     # Scan default directory first (lower priority)
     if default_dir.exists() and default_dir.is_dir():
@@ -547,10 +568,9 @@ def list_resource_files(
             if item.is_file():
                 files[item.name] = str(item)  # Overwrite if exists
     
-    return sorted(files.keys())
+    return tuple(sorted(files))
 
 
-@functools.lru_cache(maxsize=16)
 def list_resource_dirs(
     resource_type: Literal["bgm", "templates", "workflows"]
 ) -> list[str]:
@@ -575,12 +595,26 @@ def list_resource_dirs(
         >>> list_resource_dirs("workflows")
         # Returns: ["runninghub", "selfhost"]
     """
-    dirs = set()
-    
-    # Build directory paths
     default_dir = Path(get_root_path(resource_type))
-    # Build custom path directly to avoid get_data_path() -> os.makedirs() side effect
     custom_dir = Path(get_root_path("data", resource_type))
+    return list(
+        _list_resource_dirs_for_paths(
+            str(default_dir.resolve()),
+            str(custom_dir.resolve()),
+        )
+    )
+
+
+@functools.lru_cache(maxsize=32)
+def _list_resource_dirs_for_paths(
+    default_path: str,
+    custom_path: str,
+) -> tuple[str, ...]:
+    """Cache resource directories by resolved roots instead of process-global names."""
+
+    dirs = set()
+    default_dir = Path(default_path)
+    custom_dir = Path(custom_path)
     
     # Scan default directory
     if default_dir.exists() and default_dir.is_dir():
@@ -594,13 +628,13 @@ def list_resource_dirs(
             if item.is_dir():
                 dirs.add(item.name)
     
-    return sorted(dirs)
+    return tuple(sorted(dirs))
 
 
 def clear_resource_cache():
     """Clear all cached resource scan results so the next call rescans from disk."""
-    list_resource_files.cache_clear()
-    list_resource_dirs.cache_clear()
+    _list_resource_files_for_paths.cache_clear()
+    _list_resource_dirs_for_paths.cache_clear()
 
 
 def resource_exists(resource_type: Literal["bgm", "templates", "workflows"], *paths: str) -> bool:

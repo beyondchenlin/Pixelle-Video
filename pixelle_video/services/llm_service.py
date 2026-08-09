@@ -625,6 +625,27 @@ class LLMService:
         message = normalized.message
         parsed = getattr(message, "parsed", None)
         if parsed is not None:
+            try:
+                validated_parsed = (
+                    parsed
+                    if isinstance(parsed, response_type)
+                    else response_type.model_validate(parsed)
+                )
+            except Exception as exc:
+                await self._record_llm_trace(
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                    provider=str(client.base_url or ""),
+                    model=model,
+                    request_payload=request_payload,
+                    response_payload=response_payload,
+                    status=_trace_status_for_structured_exception(exc),
+                    elapsed_ms=elapsed_ms,
+                    token_usage=token_usage,
+                    parse_error=_trace_parse_error_message(exc),
+                    validation_errors=_validation_error_details(exc),
+                )
+                raise
             await self._record_llm_trace(
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
@@ -636,11 +657,13 @@ class LLMService:
                 elapsed_ms=elapsed_ms,
                 token_usage=token_usage,
             )
-            return parsed
+            return validated_parsed
 
         refusal = getattr(message, "refusal", None)
         if refusal:
-            error_message = f"Structured output request refused by model: {refusal}"
+            error_message = _sanitize_error_message(
+                f"Structured output request refused by model: {refusal}"
+            )
             await self._record_llm_trace(
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
@@ -1318,7 +1341,15 @@ def _normalized_sensitive_key(value: Any) -> str:
 def _is_sensitive_trace_key(value: Any) -> bool:
     normalized = _normalized_sensitive_key(value)
     return normalized in _SENSITIVE_TRACE_KEYS or normalized.endswith(
-        ("_api_key", "_access_key", "_secret_key", "_password")
+        (
+            "_access_key",
+            "_api_key",
+            "_credential",
+            "_password",
+            "_secret",
+            "_secret_key",
+            "_token",
+        )
     )
 
 

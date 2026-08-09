@@ -205,7 +205,10 @@ async def test_vision_llm_service_reuses_client_and_redacts_sensitive_extras(mon
     recorder = _FakeRecorder()
     extra_headers = {
         "Authorization": "Bearer wire-secret",
-        "nested": {"api_key": "nested-secret"},
+        "nested": {
+            "api_key": "nested-secret",
+            "client_secret": "oauth-secret",
+        },
     }
     for _ in range(2):
         await service.chat(
@@ -221,6 +224,7 @@ async def test_vision_llm_service_reuses_client_and_redacts_sensitive_extras(mon
     traced_extras = recorder.records[0]["request_payload"]["extra_parameters"]
     assert traced_extras["extra_headers"]["Authorization"] == "[REDACTED]"
     assert traced_extras["extra_headers"]["nested"]["api_key"] == "[REDACTED]"
+    assert traced_extras["extra_headers"]["nested"]["client_secret"] == "[REDACTED]"
 
     await service.aclose()
     assert client.close_calls == 1

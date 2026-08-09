@@ -387,6 +387,7 @@ async def test_llm_service_redacts_sensitive_extra_parameters_from_trace_only(mo
         extra_headers={
             "Authorization": "Bearer provider-secret",
             "X-API-Key": "provider-key",
+            "nested": {"client_secret": "oauth-secret"},
         },
         trace_context=LLMTraceContext(
             workspace_id="workspace_1",
@@ -400,10 +401,12 @@ async def test_llm_service_redacts_sensitive_extra_parameters_from_trace_only(mo
     assert create_recorder.calls[0]["extra_headers"] == {
         "Authorization": "Bearer provider-secret",
         "X-API-Key": "provider-key",
+        "nested": {"client_secret": "oauth-secret"},
     }
     assert raw_store.payloads[0]["payload"]["extra_parameters"]["extra_headers"] == {
         "Authorization": "[REDACTED]",
         "X-API-Key": "[REDACTED]",
+        "nested": {"client_secret": "[REDACTED]"},
     }
 
 

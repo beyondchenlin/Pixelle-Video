@@ -109,6 +109,7 @@ def test_auto_proxy_uses_validated_explicit_proxy_without_exposing_credentials(m
     ("no_proxy", "base_url"),
     [
         (".example.com", "https://api.example.com/v1"),
+        ("*.example.com", "https://api.example.com/v1"),
         ("api.example.com:8443", "https://api.example.com:8443/v1"),
         ("*", "https://api.anywhere.test/v1"),
         ("[::1]:443", "https://[::1]/v1"),

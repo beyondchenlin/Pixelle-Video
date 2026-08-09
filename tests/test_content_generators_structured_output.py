@@ -58,6 +58,7 @@ async def test_generate_title_auto_respects_custom_limit_and_dynamic_budget():
         ("👩‍💻学习日记", 1, "👩‍💻"),
         ("🇨🇳🇺🇸新闻", 2, "🇨🇳🇺🇸"),
         ("Cafe\u0301 journal", 4, "Café"),
+        ("क्षज्ञान", 1, "क्ष"),
     ],
 )
 async def test_generate_title_direct_truncates_user_perceived_characters(
