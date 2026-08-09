@@ -130,6 +130,7 @@ comfyui:
       managed: true
       restart_after_batch: true
       data_root: E:/ComfyUIData/pixelle
+      shared_base_path: E:/ComfyUIData
       runtime_dir: _runtime/comfyui
       logs_dir: logs/comfyui
       database_url: sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db

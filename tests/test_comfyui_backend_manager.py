@@ -7,13 +7,14 @@ from pixelle_video.config.schema import ComfyUIBackendProfile
 from pixelle_video.services.comfyui_backend_manager import ManagedComfyUIBackend
 
 
-def test_managed_backend_auto_mode_only_manages_local_pixelle_port():
+def test_managed_backend_auto_mode_only_manages_local_pixelle_port(monkeypatch):
     backend = ManagedComfyUIBackend(
         repo_root=Path.cwd(),
         comfyui_url="http://127.0.0.1:8000",
         management_mode="auto",
     )
 
+    monkeypatch.setattr(backend, "_management_runtime_available", lambda: True)
     assert backend.can_manage() is True
 
 
@@ -27,14 +28,14 @@ def test_managed_backend_auto_mode_does_not_manage_default_desktop_port():
     assert backend.can_manage() is False
 
 
-def test_managed_backend_required_mode_forces_management():
+def test_managed_backend_required_mode_does_not_take_over_remote_host():
     backend = ManagedComfyUIBackend(
         repo_root=Path.cwd(),
         comfyui_url="http://192.168.1.10:9000",
         management_mode="required",
     )
 
-    assert backend.can_manage() is True
+    assert backend.can_manage() is False
 
 
 def test_managed_backend_disabled_mode_never_manages():
@@ -87,7 +88,7 @@ async def test_required_restart_reports_profile_managed_false(tmp_path):
         await backend.restart(reason="test-required-mode")
 
 
-def test_managed_backend_auto_mode_manages_local_profile_ports(tmp_path):
+def test_managed_backend_auto_mode_manages_local_profile_ports(tmp_path, monkeypatch):
     for profile_name, port in (("image", 8001), ("tts", 8002)):
         profile = ComfyUIBackendProfile(
             url=f"http://127.0.0.1:{port}",
@@ -103,7 +104,19 @@ def test_managed_backend_auto_mode_manages_local_profile_ports(tmp_path):
             management_mode="auto",
         )
 
+        monkeypatch.setattr(backend, "_management_runtime_available", lambda: True)
         assert backend.can_manage() is True
+
+
+def test_managed_backend_auto_mode_skips_unsupported_management_runtime(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+    )
+    monkeypatch.setattr(backend, "_management_runtime_available", lambda: False)
+
+    assert backend.can_manage() is False
 
 
 def test_managed_backend_uses_profile_runtime_arguments(tmp_path):
@@ -127,6 +140,8 @@ def test_managed_backend_uses_profile_runtime_arguments(tmp_path):
     assert "image" in args
     assert "-DataRoot" in args
     assert str(tmp_path / "image-data") in args
+    assert "-SharedBasePath" in args
+    assert str(tmp_path) in args
     assert "-RuntimeDir" in args
     assert str(tmp_path / "runtime" / "image") in args
     assert "-LogsDir" in args
@@ -170,6 +185,25 @@ def test_managed_backend_passes_optional_profile_script_arguments(tmp_path):
     assert str(frontend_root) in args
     assert "-ExtraModelsConfig" in args
     assert str(extra_models_config) in args
+
+
+def test_managed_backend_normalizes_localhost_for_powershell_listener(tmp_path):
+    profile = ComfyUIBackendProfile(
+        url="http://localhost:8020",
+        data_root=str(tmp_path / "data"),
+        runtime_dir=str(tmp_path / "runtime"),
+        logs_dir=str(tmp_path / "logs"),
+    )
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile_name="default",
+        profile=profile,
+        management_mode="required",
+    )
+
+    args = backend._script_args()
+
+    assert args[args.index("-HostAddress") + 1] == "127.0.0.1"
 
 
 @pytest.mark.asyncio

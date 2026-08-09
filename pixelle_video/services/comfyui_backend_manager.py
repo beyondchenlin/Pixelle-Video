@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -55,8 +56,8 @@ class ManagedComfyUIBackend:
             return False
         if self.management_mode == "disabled":
             return False
-        if self.management_mode == "required":
-            return True
+        if not self._management_runtime_available():
+            return False
         parsed = urlparse(self.comfyui_url)
         host = (parsed.hostname or "").lower()
         port = self._resolved_port()
@@ -70,6 +71,9 @@ class ManagedComfyUIBackend:
             and self.profile.logs_dir
             and port != 8188
         )
+
+    def _management_runtime_available(self) -> bool:
+        return os.name == "nt" and shutil.which("powershell") is not None
 
     async def restart(self, *, reason: str) -> bool:
         if not self.can_manage():
@@ -125,6 +129,9 @@ class ManagedComfyUIBackend:
     async def stop(self, *, reason: str) -> ComfyUIBackendCommandResult:
         return await self._run_script("stop_backend.ps1", "stop", reason=reason)
 
+    async def check(self, *, reason: str) -> ComfyUIBackendCommandResult:
+        return await self._run_script("check_backend.ps1", "check", reason=reason)
+
     async def _run_script(
         self,
         script_name: str,
@@ -137,8 +144,14 @@ class ManagedComfyUIBackend:
         if not script_path.exists():
             raise RuntimeError(f"ComfyUI backend script does not exist: {script_path}")
 
+        powershell_executable = shutil.which("powershell")
+        if powershell_executable is None:
+            raise RuntimeError(
+                "Pixelle-managed ComfyUI lifecycle requires Windows PowerShell. "
+                "Set backend_management_mode=disabled when ComfyUI is managed externally."
+            )
         command = [
-            "powershell",
+            powershell_executable,
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
@@ -247,11 +260,16 @@ class ManagedComfyUIBackend:
         parsed = urlparse(self.comfyui_url)
         args: list[str] = ["-ProfileName", self.profile_name]
         if parsed.hostname:
-            args.extend(["-HostAddress", parsed.hostname])
+            host_address = "127.0.0.1" if parsed.hostname.lower() == "localhost" else parsed.hostname
+            args.extend(["-HostAddress", host_address])
         port = self._resolved_port()
         if port:
             args.extend(["-Port", str(port)])
         self._append_profile_arg(args, "-DataRoot", self.profile.data_root)
+        shared_base_path = self.profile.shared_base_path
+        if not shared_base_path and self.profile.data_root:
+            shared_base_path = str(Path(self.profile.data_root).parent)
+        self._append_profile_arg(args, "-SharedBasePath", shared_base_path)
         self._append_profile_arg(args, "-RuntimeDir", self.profile.runtime_dir)
         self._append_profile_arg(args, "-LogsDir", self.profile.logs_dir)
         self._append_profile_arg(args, "-DatabaseUrl", self.profile.database_url)

@@ -17,6 +17,7 @@ Single source of truth for all configuration defaults and validation.
 """
 import re
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 from loguru import logger
@@ -496,6 +497,10 @@ class ComfyUIBackendProfile(BaseModel):
         ),
     )
     data_root: Optional[str] = Field(default=None, description="ComfyUI data root for this profile")
+    shared_base_path: Optional[str] = Field(
+        default=None,
+        description="Shared ComfyUI base directory containing models and custom nodes",
+    )
     runtime_dir: Optional[str] = Field(default=None, description="Runtime directory for this profile")
     logs_dir: Optional[str] = Field(default=None, description="Log directory for this profile")
     database_url: Optional[str] = Field(default=None, description="ComfyUI database URL for this profile")
@@ -544,6 +549,10 @@ def _normalize_backend_profile(
         if current_value is None or (isinstance(current_value, str) and not current_value):
             payload[field_name] = default_value
     payload["data_root"] = payload["data_root"].replace("\\", "/").rstrip("/")
+    if not payload.get("shared_base_path"):
+        payload["shared_base_path"] = str(Path(payload["data_root"]).parent).replace("\\", "/")
+    else:
+        payload["shared_base_path"] = payload["shared_base_path"].replace("\\", "/").rstrip("/")
     if not payload.get("database_url"):
         payload["database_url"] = f"sqlite:///{payload['data_root']}/user/comfyui.db"
 

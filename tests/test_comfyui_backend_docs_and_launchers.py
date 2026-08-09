@@ -41,8 +41,8 @@ def test_windows_batch_launchers_run_matching_powershell_scripts() -> None:
         assert "pause" in text.lower()
 
 
-def test_obsolete_dual_backend_batch_launchers_are_removed() -> None:
-    obsolete_launchers = (
+def test_legacy_dual_backend_launchers_forward_to_shared_backend() -> None:
+    compatibility_launchers = (
         "start_image_backend.bat",
         "start_tts_backend.bat",
         "stop_image_backend.bat",
@@ -51,8 +51,17 @@ def test_obsolete_dual_backend_batch_launchers_are_removed() -> None:
         "check_tts_backend.bat",
     )
 
-    for filename in obsolete_launchers:
-        assert not (SCRIPT_DIR / filename).exists()
+    for filename in compatibility_launchers:
+        launcher = SCRIPT_DIR / filename
+        assert launcher.exists()
+        text = launcher.read_text(encoding="ascii")
+        assert "Deprecated launcher" in text
+        if filename.startswith("start_"):
+            assert "start_backend.bat" in text
+        elif filename.startswith("check_"):
+            assert "check_backend.bat" in text
+        else:
+            assert "stop_backend.bat" in text
 
 
 def test_root_readmes_document_fixed_local_backend_ports() -> None:

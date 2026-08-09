@@ -529,10 +529,73 @@ def test_start_backend_dry_run_uses_headless_safe_args(tmp_path: Path) -> None:
     assert "--port" in argv
     assert argv[argv.index("--port") + 1] == "65500"
     assert "--extra-model-paths-config" in argv
-    assert "--front-end-root" in argv
-    assert argv[argv.index("--front-end-root") + 1] == str(
-        comfyui_root / "web_custom_versions" / "desktop_app"
+    assert "--front-end-root" not in argv
+    assert "--enable-cors-header" not in argv
+
+
+def test_data_root_environment_does_not_override_shared_base_path(tmp_path: Path) -> None:
+    data_root = tmp_path / "isolated" / "pixelle"
+    shared_root = tmp_path / "shared"
+    environment = os.environ.copy()
+    environment["PIXELLE_COMFYUI_DATA_ROOT"] = str(data_root)
+    environment["PIXELLE_COMFYUI_SHARED_BASE_PATH"] = str(shared_root)
+    command = [
+        POWERSHELL,
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        (
+            ". (Join-Path $PWD 'scripts/comfyui/backend_common.ps1'); "
+            "$config = Resolve-PixelleComfyUIBackendConfig; "
+            "$config | ConvertTo-Json -Compress"
+        ),
+    ]
+
+    result = subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
     )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["DataRoot"] == str(data_root)
+    assert payload["SharedBasePath"] == str(shared_root)
+    assert payload["PythonExe"] == str(shared_root / ".venv" / "Scripts" / "python.exe")
+
+
+def test_localhost_is_normalized_to_numeric_loopback(tmp_path: Path) -> None:
+    comfyui_root, data_root, _ = make_fake_comfyui(tmp_path)
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-HostAddress",
+        "localhost",
+        "-Port",
+        "65499",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["host"] == "127.0.0.1"
+    argv = payload["arguments"]
+    assert argv[argv.index("--listen") + 1] == "127.0.0.1"
     assert "--database-url" in argv
     database_path = str(data_root / "user" / "comfyui.db").replace("\\", "/")
     expected_database_url = f"sqlite:///{database_path}"

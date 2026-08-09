@@ -3,6 +3,7 @@ param(
     [string]$PythonExe = '',
     [string]$ComfyUIRoot = '',
     [string]$DataRoot = '',
+    [string]$SharedBasePath = '',
     [string]$ExtraModelsConfig = '',
     [string]$FrontEndRoot = '',
     [string]$DatabaseUrl = '',
@@ -24,6 +25,7 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -PythonExe $PythonExe `
     -ComfyUIRoot $ComfyUIRoot `
     -DataRoot $DataRoot `
+    -SharedBasePath $SharedBasePath `
     -ExtraModelsConfig $ExtraModelsConfig `
     -FrontEndRoot $FrontEndRoot `
     -DatabaseUrl $DatabaseUrl `

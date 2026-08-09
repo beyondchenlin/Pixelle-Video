@@ -1,7 +1,11 @@
 @echo off
 setlocal
 pushd "%~dp0..\.."
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0check_backend.ps1" %*
+if "%~1"=="" (
+  uv run python -m scripts.comfyui.backend_cli check
+) else (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0check_backend.ps1" %*
+)
 set "EXIT_CODE=%ERRORLEVEL%"
 popd
 echo.

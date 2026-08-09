@@ -12,6 +12,7 @@ def test_empty_backends_create_default_profile_from_comfyui_url():
 
     assert default.url == "http://127.0.0.1:8000"
     assert default.data_root.replace("\\", "/").endswith("/pixelle-default")
+    assert default.shared_base_path == "E:/ComfyUIData"
     assert default.runtime_dir.replace("\\", "/").endswith("_runtime/comfyui/default")
     assert default.logs_dir.replace("\\", "/").endswith("logs/comfyui/default")
     assert default.database_url.replace("\\", "/").endswith(
@@ -90,6 +91,24 @@ def test_backend_profile_database_url_defaults_to_profile_data_root():
     assert config.comfyui.backends["image"].database_url == (
         "sqlite:///D:/PixelleComfy/image/user/comfyui.db"
     )
+    assert config.comfyui.backends["image"].shared_base_path == "D:/PixelleComfy"
+
+
+def test_backend_profile_preserves_explicit_shared_base_path():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "backends": {
+                    "default": {
+                        "data_root": "D:/PixelleData/runtime",
+                        "shared_base_path": "F:/SharedComfy",
+                    }
+                }
+            }
+        }
+    )
+
+    assert config.comfyui.backends["default"].shared_base_path == "F:/SharedComfy"
 
 
 def test_backend_profile_database_url_uses_normalized_data_root():

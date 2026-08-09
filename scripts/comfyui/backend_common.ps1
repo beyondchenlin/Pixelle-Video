@@ -54,6 +54,7 @@ function Resolve-PixelleComfyUIBackendConfig {
         [string]$PythonExe,
         [string]$ComfyUIRoot,
         [string]$DataRoot,
+        [string]$SharedBasePath,
         [string]$ExtraModelsConfig,
         [string]$FrontEndRoot,
         [string]$DatabaseUrl,
@@ -65,26 +66,37 @@ function Resolve-PixelleComfyUIBackendConfig {
 
     $repoRoot = Get-PixelleRepoRoot
     $resolvedDataRoot = Resolve-BackendValue $DataRoot 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData\pixelle'
-    $sharedBasePath = Resolve-BackendValue '' 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData'
+    $defaultSharedBasePath = Split-Path -Parent $resolvedDataRoot
+    if (-not $defaultSharedBasePath) {
+        $defaultSharedBasePath = $resolvedDataRoot
+    }
+    $resolvedSharedBasePath = Resolve-BackendValue $SharedBasePath 'PIXELLE_COMFYUI_SHARED_BASE_PATH' $defaultSharedBasePath
     $resolvedComfyUIRoot = Resolve-BackendValue $ComfyUIRoot 'PIXELLE_COMFYUI_ROOT' 'E:\comfyui\resources\ComfyUI'
-    $defaultFrontEndRoot = Join-Path $resolvedComfyUIRoot 'web_custom_versions\desktop_app'
     $defaultDatabaseUrl = ConvertTo-SqliteUrl (Join-Path $resolvedDataRoot 'user\comfyui.db')
     $resolvedProfileName = Resolve-BackendValue $ProfileName 'PIXELLE_COMFYUI_PROFILE' 'default'
+    $resolvedHostAddress = Resolve-BackendValue $HostAddress 'PIXELLE_COMFYUI_HOST' '127.0.0.1'
+    if ($resolvedHostAddress -ieq 'localhost') {
+        $resolvedHostAddress = '127.0.0.1'
+    }
+    $resolvedPort = Resolve-BackendInt $Port 'PIXELLE_COMFYUI_PORT' 8000
+    if ($resolvedPort -lt 1 -or $resolvedPort -gt 65535) {
+        throw "ComfyUI port must be between 1 and 65535: $resolvedPort"
+    }
 
     return [ordered]@{
         ProfileName = $resolvedProfileName
         RepoRoot = $repoRoot
-        PythonExe = Resolve-BackendValue $PythonExe 'PIXELLE_COMFYUI_PYTHON' (Join-Path $sharedBasePath '.venv\Scripts\python.exe')
+        PythonExe = Resolve-BackendValue $PythonExe 'PIXELLE_COMFYUI_PYTHON' (Join-Path $resolvedSharedBasePath '.venv\Scripts\python.exe')
         ComfyUIRoot = $resolvedComfyUIRoot
         DataRoot = $resolvedDataRoot
-        SharedBasePath = $sharedBasePath
-        ExtraModelsConfig = Resolve-BackendValue $ExtraModelsConfig 'PIXELLE_COMFYUI_EXTRA_MODELS_CONFIG' (Join-Path $env:APPDATA 'ComfyUI\extra_models_config.yaml')
-        FrontEndRoot = Resolve-BackendValue $FrontEndRoot 'PIXELLE_COMFYUI_FRONTEND_ROOT' $defaultFrontEndRoot
+        SharedBasePath = $resolvedSharedBasePath
+        ExtraModelsConfig = Resolve-BackendValue $ExtraModelsConfig 'PIXELLE_COMFYUI_EXTRA_MODELS_CONFIG' ''
+        FrontEndRoot = Resolve-BackendValue $FrontEndRoot 'PIXELLE_COMFYUI_FRONTEND_ROOT' ''
         DatabaseUrl = Resolve-BackendValue $DatabaseUrl 'PIXELLE_COMFYUI_DATABASE_URL' $defaultDatabaseUrl
         RuntimeDir = Resolve-BackendValue $RuntimeDir 'PIXELLE_COMFYUI_RUNTIME_DIR' (Join-Path $repoRoot '_runtime\comfyui')
         LogsDir = Resolve-BackendValue $LogsDir 'PIXELLE_COMFYUI_LOGS_DIR' (Join-Path $repoRoot 'logs\comfyui')
-        HostAddress = Resolve-BackendValue $HostAddress 'PIXELLE_COMFYUI_HOST' '127.0.0.1'
-        Port = Resolve-BackendInt $Port 'PIXELLE_COMFYUI_PORT' 8000
+        HostAddress = $resolvedHostAddress
+        Port = $resolvedPort
     }
 }
 
@@ -149,6 +161,7 @@ function Add-BackendProfilePayloadFields {
     $Payload['host'] = $Config.HostAddress
     $Payload['port'] = $Config.Port
     $Payload['data_root'] = $Config.DataRoot
+    $Payload['shared_base_path'] = $Config.SharedBasePath
     $Payload['runtime_dir'] = $Config.RuntimeDir
     $Payload['logs_dir'] = $Config.LogsDir
     $Payload['database_url'] = $Config.DatabaseUrl
@@ -216,8 +229,6 @@ function Get-BackendArguments {
     [void]$arguments.Add($Config.HostAddress)
     [void]$arguments.Add('--port')
     [void]$arguments.Add([string]$Config.Port)
-    [void]$arguments.Add('--enable-cors-header')
-    [void]$arguments.Add('*')
     [void]$arguments.Add('--normalvram')
 
     return [string[]]$arguments.ToArray()
