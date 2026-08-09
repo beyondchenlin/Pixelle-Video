@@ -73,27 +73,15 @@ class WindowsPackageBuilder:
         self.build_dir = self.output_dir / self.package_name
         
     def _read_version(self) -> str:
-        """Read version from pyproject.toml"""
-        pyproject_path = self.project_root / 'pyproject.toml'
-        try:
-            import tomllib
-        except ImportError:
-            # Python < 3.11 fallback
-            try:
-                import tomli as tomllib
-            except ImportError:
-                # Simple regex fallback
-                import re
-                with open(pyproject_path, 'r') as f:
-                    content = f.read()
-                    match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
-                    if match:
-                        return match.group(1)
-                return "0.1.0"
-        
-        with open(pyproject_path, 'rb') as f:
-            pyproject = tomllib.load(f)
-            return pyproject.get('project', {}).get('version', '0.1.0')
+        """Read the package's single version source without importing runtime services."""
+
+        import runpy
+
+        version_path = self.project_root / "pixelle_video" / "_version.py"
+        version = runpy.run_path(str(version_path)).get("__version__")
+        if not isinstance(version, str) or not version.strip():
+            raise RuntimeError(f"Invalid project version source: {version_path}")
+        return version.strip()
     
     def log(self, message: str, level: str = "INFO"):
         """Print colored log message"""

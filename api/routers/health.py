@@ -17,13 +17,15 @@ Health check and system info endpoints
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from pixelle_video import __version__
+
 router = APIRouter(tags=["Health"])
 
 
 class HealthResponse(BaseModel):
     """Health check response"""
     status: str = "healthy"
-    version: str = "0.1.0"
+    version: str = __version__
     service: str = "Pixelle-Video API"
 
 

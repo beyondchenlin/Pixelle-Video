@@ -22,10 +22,10 @@ from pixelle_video.utils.os_util import configure_runtime_environment
 
 configure_runtime_environment()
 
+from pixelle_video._version import __version__
 from pixelle_video.config import config_manager
 
-__version__ = "0.1.0"
-__all__ = ["PixelleVideoCore", "pixelle_video", "config_manager"]
+__all__ = ["PixelleVideoCore", "pixelle_video", "config_manager", "__version__"]
 
 
 def __getattr__(name: str):

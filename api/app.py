@@ -84,6 +84,7 @@ from api.schemas.responses import install_exception_handlers
 from api.tasks.factory import build_api_task_runtime
 from api.video.executor_factory import register_video_generation_executor
 from api.workbench.executor_factory import register_storyboard_workbench_executors
+from pixelle_video import __version__
 
 
 @asynccontextmanager
@@ -162,7 +163,7 @@ app = FastAPI(
     3. Generate video: `POST /api/video/generate/sync` or `/async`
     4. Track task progress: `GET /api/tasks/{task_id}`
     """,
-    version="0.1.0",
+    version=__version__,
     docs_url=api_config.docs_url,
     redoc_url=api_config.redoc_url,
     openapi_url=api_config.openapi_url,
@@ -211,7 +212,7 @@ async def root():
     """Root endpoint with API information"""
     return {
         "service": "Pixelle-Video API",
-        "version": "0.1.0",
+        "version": __version__,
         "docs": api_config.docs_url,
         "health": "/health",
         "api": {

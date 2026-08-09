@@ -1,6 +1,6 @@
 [project]
 name = "pixelle-video"
-version = "0.1.15"
+dynamic = ["version"]
 description = "AI-powered video creation platform - Part of Pixelle ecosystem"
 authors = [
     {name = "Pixelle.AI"}
@@ -52,6 +52,9 @@ pvideo = "pixelle_video.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "pixelle_video/_version.py"
 
 [tool.ruff]
 line-length = 100

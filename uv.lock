@@ -2975,7 +2975,6 @@ wheels = [
 
 [[package]]
 name = "pixelle-video"
-version = "0.1.15"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -3045,7 +3044,7 @@ requires-dist = [
     { name = "streamlit", specifier = ">=1.40.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
-provides-extras = ["dev", "audio-edit"]
+provides-extras = ["audio-edit", "dev"]
 
 [[package]]
 name = "platformdirs"

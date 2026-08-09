@@ -14,11 +14,7 @@
 Async helper functions for web UI
 """
 
-import tomllib
-from pathlib import Path
-
-from loguru import logger
-
+from pixelle_video import __version__
 from web.state.async_runtime import get_async_runtime
 
 
@@ -28,17 +24,6 @@ def run_async(coro):
 
 
 def get_project_version():
-    """Get project version from pyproject.toml"""
-    try:
-        # Get project root (web parent directory)
-        web_dir = Path(__file__).resolve().parent.parent
-        project_root = web_dir.parent
-        pyproject_path = project_root / "pyproject.toml"
-        
-        if pyproject_path.exists():
-            with open(pyproject_path, "rb") as f:
-                pyproject_data = tomllib.load(f)
-                return pyproject_data.get("project", {}).get("version", "Unknown")
-    except Exception as e:
-        logger.warning(f"Failed to read version from pyproject.toml: {e}")
-    return "Unknown"
+    """Return the runtime version from the package's single version source."""
+
+    return __version__
