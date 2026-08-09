@@ -3,7 +3,15 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from pixelle_video.models.llm_interaction_trace import LLMTraceContext
+from pixelle_video.models.llm_interaction_trace import (
+    LLMTraceContext,
+    LLMTraceRecordingError,
+)
+from pixelle_video.models.llm_response import (
+    LLMEmptyResponseError,
+    LLMProviderRequestError,
+    LLMResponseShapeError,
+)
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_service import LLMService
 
@@ -76,17 +84,24 @@ class ParseRecorder:
         return self.response
 
 
-def _fake_client(*, base_url, content="", usage=None, create_exception=None):
+def _fake_client(
+    *,
+    base_url,
+    content="",
+    usage=None,
+    create_exception=None,
+    choices=None,
+):
     response = (
         create_exception
         if create_exception is not None
         else SimpleNamespace(
             usage=usage,
-            choices=[
-                SimpleNamespace(
-                    message=SimpleNamespace(content=content)
-                )
-            ],
+            choices=(
+                [SimpleNamespace(message=SimpleNamespace(content=content))]
+                if choices is None
+                else choices
+            ),
         )
     )
     create_recorder = CreateRecorder(response)
@@ -193,7 +208,41 @@ async def test_llm_service_records_successful_text_calls_at_gateway(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_llm_service_continues_when_trace_recorder_fails_after_provider_success(monkeypatch):
+async def test_llm_service_records_and_sanitizes_client_initialization_failure(monkeypatch):
+    service = LLMService({})
+
+    async def fail_settings(**kwargs):
+        raise RuntimeError(
+            "api_key=provider-secret https://user:password@provider.example/v1"
+        )
+
+    monkeypatch.setattr(service, "_client_settings", fail_settings)
+    recorder, raw_store, trace_repository = _recorder("trace_client_init_error")
+
+    with pytest.raises(LLMProviderRequestError) as captured:
+        await service(
+            prompt="hello",
+            model="deepseek-chat",
+            base_url="https://provider.example/v1",
+            trace_context=LLMTraceContext(
+                workspace_id="workspace_1",
+                task_id="task_123",
+                operation="script_generation",
+            ),
+            trace_recorder=recorder,
+        )
+
+    assert "provider-secret" not in str(captured.value)
+    assert "user:password" not in str(captured.value)
+    stored_trace = trace_repository.appended[0]["trace"]
+    assert stored_trace["status"] == "error"
+    assert "provider-secret" not in stored_trace["error_message"]
+    assert "user:password" not in stored_trace["error_message"]
+    assert len(raw_store.payloads) == 1
+
+
+@pytest.mark.asyncio
+async def test_llm_service_fails_closed_when_mandatory_trace_persistence_fails(monkeypatch):
     fake_client, create_recorder = _fake_client(
         base_url="https://api.deepseek.com/v1",
         content="plain answer",
@@ -206,19 +255,19 @@ async def test_llm_service_continues_when_trace_recorder_fails_after_provider_su
         trace_id_factory=lambda: "trace_store_failure",
     )
 
-    result = await service(
-        prompt="Explain atomic habits",
-        model="deepseek-chat",
-        trace_context=LLMTraceContext(
-            workspace_id="workspace_1",
-            task_id="task_123",
-            operation="script_generation",
-            stage="stage1a",
-        ),
-        trace_recorder=trace_recorder,
-    )
+    with pytest.raises(LLMTraceRecordingError, match="mandatory LLM interaction trace"):
+        await service(
+            prompt="Explain atomic habits",
+            model="deepseek-chat",
+            trace_context=LLMTraceContext(
+                workspace_id="workspace_1",
+                task_id="task_123",
+                operation="script_generation",
+                stage="stage1a",
+            ),
+            trace_recorder=trace_recorder,
+        )
 
-    assert result == "plain answer"
     assert len(create_recorder.calls) == 1
 
 
@@ -240,6 +289,154 @@ async def test_llm_service_rejects_untraced_generation_calls_before_provider_req
         await service(prompt="Explain atomic habits", model="deepseek-chat")
 
     assert provider_requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("choices", "content", "error_type", "reason"),
+    [
+        ([], "unused", LLMEmptyResponseError, "choices_empty"),
+        (None, None, LLMEmptyResponseError, "content_missing"),
+        (None, "   \n", LLMEmptyResponseError, "content_blank"),
+        (
+            [SimpleNamespace(message=SimpleNamespace(content=[{"type": "text"}]))],
+            "unused",
+            LLMResponseShapeError,
+            "content_type_invalid",
+        ),
+    ],
+)
+async def test_llm_service_rejects_invalid_text_response_contracts_and_records_trace(
+    monkeypatch,
+    choices,
+    content,
+    error_type,
+    reason,
+):
+    fake_client, _ = _fake_client(
+        base_url="https://api.deepseek.com/v1",
+        content=content,
+        choices=choices,
+    )
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    recorder, raw_store, trace_repository = _recorder(f"trace_{reason}")
+
+    with pytest.raises(error_type) as exc_info:
+        await service(
+            prompt="Explain atomic habits",
+            model="deepseek-chat",
+            trace_context=LLMTraceContext(
+                workspace_id="workspace_1",
+                task_id="task_123",
+                operation="script_generation",
+                stage="stage1a",
+            ),
+            trace_recorder=recorder,
+        )
+
+        assert exc_info.value.reason == reason
+        assert len(raw_store.payloads) == 2
+        stored_trace = trace_repository.appended[0]["trace"]
+        assert stored_trace["status"] == "error"
+        assert stored_trace["error_message"]
+        assert stored_trace["response_payload_key"] == raw_store.payloads[1]["storage_key"]
+
+
+@pytest.mark.asyncio
+async def test_llm_service_rejects_empty_dict_response_instead_of_fabricating_success(monkeypatch):
+    fake_client, _ = _fake_client(
+        base_url="https://api.deepseek.com/v1",
+        content=None,
+    )
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    recorder, _, trace_repository = _recorder("trace_empty_dict")
+
+    with pytest.raises(LLMEmptyResponseError) as exc_info:
+        await service(
+            prompt="Return an object",
+            model="deepseek-chat",
+            response_type=dict,
+            trace_context=LLMTraceContext(
+                workspace_id="workspace_1",
+                task_id="task_123",
+                operation="object_generation",
+                stage="stage1a",
+            ),
+            trace_recorder=recorder,
+        )
+
+    assert exc_info.value.reason == "content_missing"
+    assert trace_repository.appended[0]["trace"]["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_llm_service_redacts_sensitive_extra_parameters_from_trace_only(monkeypatch):
+    fake_client, create_recorder = _fake_client(
+        base_url="https://api.deepseek.com/v1",
+        content="plain answer",
+    )
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    recorder, raw_store, _ = _recorder("trace_redacted_headers")
+
+    await service(
+        prompt="Explain atomic habits",
+        model="deepseek-chat",
+        extra_headers={
+            "Authorization": "Bearer provider-secret",
+            "X-API-Key": "provider-key",
+        },
+        trace_context=LLMTraceContext(
+            workspace_id="workspace_1",
+            task_id="task_123",
+            operation="script_generation",
+            stage="stage1a",
+        ),
+        trace_recorder=recorder,
+    )
+
+    assert create_recorder.calls[0]["extra_headers"] == {
+        "Authorization": "Bearer provider-secret",
+        "X-API-Key": "provider-key",
+    }
+    assert raw_store.payloads[0]["payload"]["extra_parameters"]["extra_headers"] == {
+        "Authorization": "[REDACTED]",
+        "X-API-Key": "[REDACTED]",
+    }
+
+
+@pytest.mark.asyncio
+async def test_llm_service_sanitizes_provider_errors_before_trace_and_reraise(monkeypatch):
+    fake_client, _ = _fake_client(
+        base_url="https://api.deepseek.com/v1",
+        create_exception=RuntimeError(
+            "authorization=Bearer super-secret api_key=provider-secret"
+        ),
+    )
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    recorder, _, trace_repository = _recorder("trace_sanitized_error")
+
+    with pytest.raises(LLMProviderRequestError) as exc_info:
+        await service(
+            prompt="Explain atomic habits",
+            model="deepseek-chat",
+            trace_context=LLMTraceContext(
+                workspace_id="workspace_1",
+                task_id="task_123",
+                operation="script_generation",
+                stage="stage1a",
+            ),
+            trace_recorder=recorder,
+        )
+
+    assert "super-secret" not in str(exc_info.value)
+    assert "provider-secret" not in str(exc_info.value)
+    trace_error = trace_repository.appended[0]["trace"]["error_message"]
+    assert "super-secret" not in trace_error
+    assert "provider-secret" not in trace_error
 
 
 @pytest.mark.asyncio

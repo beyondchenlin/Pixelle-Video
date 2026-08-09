@@ -89,6 +89,23 @@ vision_llm:
   unavailable_policy: skip        # skip | fail
   force_supports_vision: null
 
+# ==================== Governed Direct Media Providers ====================
+# Direct providers stay behind the same prompt trace, reference-image policy,
+# and media-result artifact boundary as ComfyUI/RunningHub workflows.
+direct_media:
+  enabled: false
+  openai_image:
+    enabled: false
+    api_key: ""
+    base_url: "https://api.openai.com/v1"
+    connect_timeout_seconds: 10
+    read_timeout_seconds: 180
+    write_timeout_seconds: 30
+    pool_timeout_seconds: 10
+    max_retries: 1
+    max_output_size_mb: 25
+    max_output_pixels: 20000000
+
 # ==================== ComfyUI Configuration ====================
 comfyui:
   # Global ComfyUI settings

@@ -16,14 +16,16 @@ LLM (Large Language Model) Service - Direct OpenAI SDK implementation
 Supports structured output via response_type parameter (Pydantic model).
 """
 
+import hashlib
 import json
+import math
+import re
 from collections.abc import Mapping
 from time import perf_counter
 from types import SimpleNamespace
 from typing import Any, Optional, Type, TypeVar, Union
 from urllib.parse import urlparse
 
-from httpx import Timeout
 from loguru import logger
 from openai import AsyncOpenAI, BadRequestError
 from pydantic import BaseModel, ValidationError
@@ -36,20 +38,60 @@ from pixelle_video.models.llm_interaction_trace import (
     LLMTraceStatus,
     trace_context_with_prompt_template_overlay,
 )
+from pixelle_video.models.llm_response import (
+    LLMEmptyResponseError,
+    LLMProviderRequestError,
+    LLMResponseContractError,
+    normalize_chat_completion,
+)
 from pixelle_video.prompts.structured_output import (
     render_structured_json_object_prompt,
     render_structured_schema_output_prompt,
 )
 from pixelle_video.services.llm_capabilities import (
+    StructuredOutputCapabilities,
     estimate_input_tokens,
     is_json_object_response_format_unsupported_error,
     structured_output_capabilities,
 )
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
+from pixelle_video.services.openai_client_pool import (
+    AsyncOpenAIClientPool,
+    OpenAIClientSettings,
+    create_openai_client,
+)
 from pixelle_video.utils.json_parsing import parse_llm_json_response
-from pixelle_video.utils.network_proxy import apply_adaptive_proxy_env
+from pixelle_video.utils.network_proxy import resolve_provider_proxy_async
 
 T = TypeVar("T", bound=BaseModel)
+
+_REDACTED_VALUE = "[REDACTED]"
+_SENSITIVE_TRACE_KEYS = frozenset(
+    {
+        "access_key",
+        "access_token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "cookie",
+        "password",
+        "proxy_authorization",
+        "refresh_token",
+        "secret",
+        "secret_key",
+        "set_cookie",
+        "token",
+        "x_api_key",
+    }
+)
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|access[_-]?token|"
+    r"refresh[_-]?token|password|authorization|cookie)\b(\s*[:=]\s*)"
+    r"([^\s,;]+)"
+)
+_BEARER_TOKEN_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+\-/]+=*")
+_URL_USERINFO_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
+_MAX_SAFE_ERROR_CHARS = 1000
 
 
 class LLMService:
@@ -82,7 +124,7 @@ class LLMService:
         """
         # Note: We no longer cache config here to support hot reload
         # Config is read dynamically from config_manager in _get_config_value()
-        self._client: Optional[AsyncOpenAI] = None
+        self._client_pool = AsyncOpenAIClientPool(max_size=4)
     
     def _get_config_value(self, key: str, default=None):
         """
@@ -98,10 +140,12 @@ class LLMService:
         from pixelle_video.config import config_manager
         return getattr(config_manager.config.llm, key, default)
     
-    def _create_client(
+    async def _create_client(
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        *,
+        settings: OpenAIClientSettings | None = None,
     ) -> AsyncOpenAI:
         """
         Create OpenAI client
@@ -113,37 +157,40 @@ class LLMService:
         Returns:
             AsyncOpenAI client instance
         """
-        # Get API key (priority: parameter > config)
-        final_api_key = (
-            api_key
-            or self._get_config_value("api_key")
-            or "dummy-key"  # Ollama doesn't need real key
-        )
-        
-        # Get base URL (priority: parameter > config)
-        final_base_url = (
-            base_url
-            or self._get_config_value("base_url")
-        )
-        
-        # Create client
-        # Best practice: keep proxy behavior adaptive for local development.
-        # If a loopback proxy env var points to a closed port, disable it for
-        # this process so DashScope/OpenAI-compatible providers can be reached directly.
-        apply_adaptive_proxy_env(provider_base_url=final_base_url)
-        client_kwargs = {"api_key": final_api_key}
-        if final_base_url:
-            client_kwargs["base_url"] = final_base_url
+        resolved = settings
+        if resolved is None:
+            resolved = await self._client_settings(api_key=api_key, base_url=base_url)
+        return await create_openai_client(resolved)
 
-        client_kwargs["timeout"] = Timeout(
-            connect=float(self._get_config_value("connect_timeout_seconds", 10.0)),
-            read=float(self._get_config_value("read_timeout_seconds", 180.0)),
-            write=float(self._get_config_value("write_timeout_seconds", 30.0)),
-            pool=float(self._get_config_value("pool_timeout_seconds", 10.0)),
+    async def _client_settings(
+        self,
+        *,
+        api_key: str | None,
+        base_url: str | None,
+    ) -> OpenAIClientSettings:
+        final_api_key = api_key or self._get_config_value("api_key") or "dummy-key"
+        final_base_url = str(base_url or self._get_config_value("base_url") or "").strip()
+        proxy_target_url = final_base_url or "https://api.openai.com/v1"
+        return OpenAIClientSettings(
+            api_key=str(final_api_key),
+            base_url=final_base_url,
+            connect_timeout_seconds=float(
+                self._get_config_value("connect_timeout_seconds", 10.0)
+            ),
+            read_timeout_seconds=float(
+                self._get_config_value("read_timeout_seconds", 180.0)
+            ),
+            write_timeout_seconds=float(
+                self._get_config_value("write_timeout_seconds", 30.0)
+            ),
+            pool_timeout_seconds=float(
+                self._get_config_value("pool_timeout_seconds", 10.0)
+            ),
+            max_retries=int(self._get_config_value("max_retries", 1)),
+            proxy=await resolve_provider_proxy_async(
+                provider_base_url=proxy_target_url
+            ),
         )
-        client_kwargs["max_retries"] = int(self._get_config_value("max_retries", 1))
-
-        return AsyncOpenAI(**client_kwargs)
     
     async def __call__(
         self,
@@ -206,20 +253,92 @@ class LLMService:
         """
         if trace_context is None or trace_recorder is None:
             raise LLMTraceRequiredError(LLM_TRACE_REQUIRED_MESSAGE)
-
-        # Create client (new instance each time to support parameter overrides)
-        client = self._create_client(api_key=api_key, base_url=base_url)
-        
-        # Get model (priority: parameter > config)
+        _validate_llm_call_arguments(
+            prompt=prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_type=response_type,
+        )
         final_model = (
             model
             or self._get_config_value("model")
             or "gpt-3.5-turbo"  # Default fallback
         )
-        
-        logger.debug(f"LLM call: model={final_model}, base_url={client.base_url}, response_type={response_type}")
+        if not isinstance(final_model, str) or not final_model.strip():
+            raise ValueError("model must resolve to a non-empty string")
+        final_model = final_model.strip()
+        settings: OpenAIClientSettings | None = None
+        entered_pool_lease = False
+        try:
+            settings = await self._client_settings(api_key=api_key, base_url=base_url)
+            async with self._client_pool.acquire(
+                fingerprint=settings.fingerprint,
+                factory=lambda: self._create_client(settings=settings),
+            ) as client:
+                entered_pool_lease = True
+                return await self._call_with_client(
+                    client=client,
+                    prompt=prompt,
+                    model=final_model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_type=response_type,
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                    **kwargs,
+                )
+        except LLMTraceRecordingError:
+            raise
+        except Exception as exc:
+            if entered_pool_lease:
+                raise
+            safe_error = _sanitize_error_message(exc)
+            await self._record_llm_trace(
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                provider=(
+                    settings.base_url
+                    if settings is not None
+                    else str(base_url or self._get_config_value("base_url") or "")
+                ),
+                model=final_model,
+                request_payload=self._build_request_payload(
+                    model=final_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    extra_parameters=kwargs,
+                ),
+                response_payload=None,
+                status=LLMTraceStatus.ERROR,
+                error_message=safe_error,
+            )
+            raise LLMProviderRequestError(safe_error) from exc
 
-        # Pre-flight: reject oversized prompts before wasting an API call
+    async def _call_with_client(
+        self,
+        *,
+        client: AsyncOpenAI,
+        prompt: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        response_type: Optional[Type[T] | Type[dict]],
+        trace_context: LLMTraceContext,
+        trace_recorder: LLMInteractionRecorder,
+        **kwargs: Any,
+    ) -> Union[str, T, dict[str, Any]]:
+        final_model = model
+        logger.debug(
+            "LLM call: model={} provider={} response_type={}",
+            final_model,
+            _safe_provider_label(client.base_url),
+            response_type,
+        )
+
+        # Capabilities are resolved once with configuration overrides and then
+        # propagated to every output mode. Re-resolving them inside structured
+        # paths previously discarded operator-supplied token limits.
         final_base_url = str(client.base_url or "") if client.base_url else None
         capabilities = structured_output_capabilities(
             base_url=final_base_url,
@@ -227,14 +346,6 @@ class LLMService:
             max_input_tokens_override=self._get_config_value("max_input_tokens"),
             max_output_tokens_override=self._get_config_value("max_output_tokens"),
         )
-        est_tokens = estimate_input_tokens(prompt)
-        if est_tokens > capabilities.max_input_tokens:
-            raise ValueError(
-                f"Estimated input token count ({est_tokens}) exceeds model "
-                f"'{final_model}' maximum input tokens "
-                f"({capabilities.max_input_tokens}). "
-                "Reduce the input length or split into smaller batches."
-            )
         if max_tokens > capabilities.max_output_tokens:
             logger.warning(
                 f"Requested max_tokens ({max_tokens}) exceeds model "
@@ -255,6 +366,7 @@ class LLMService:
                         max_tokens=max_tokens,
                         trace_context=trace_context,
                         trace_recorder=trace_recorder,
+                        capabilities=capabilities,
                         **kwargs
                     )
                 # Structured output mode with Pydantic model
@@ -267,6 +379,7 @@ class LLMService:
                     max_tokens=max_tokens,
                     trace_context=trace_context,
                     trace_recorder=trace_recorder,
+                    capabilities=capabilities,
                     **kwargs
                 )
             else:
@@ -278,6 +391,15 @@ class LLMService:
                     max_tokens=max_tokens,
                     extra_parameters=kwargs,
                 )
+                await self._validate_request_budget(
+                    prompt_text=prompt,
+                    capabilities=capabilities,
+                    provider=str(client.base_url or ""),
+                    model=final_model,
+                    request_payload=request_payload,
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                )
                 started_at = perf_counter()
                 try:
                     response = await client.chat.completions.create(
@@ -288,6 +410,7 @@ class LLMService:
                         **kwargs
                     )
                 except Exception as exc:
+                    safe_error = _sanitize_error_message(exc)
                     await self._record_llm_trace(
                         trace_context=trace_context,
                         trace_recorder=trace_recorder,
@@ -297,16 +420,24 @@ class LLMService:
                         response_payload=None,
                         status=LLMTraceStatus.ERROR,
                         elapsed_ms=_elapsed_ms(started_at),
-                        error_message=str(exc),
+                        error_message=safe_error,
                     )
-                    raise
-                
-                result = response.choices[0].message.content
-                logger.debug(f"LLM response length: {len(result)} chars")
-                response_payload = self._build_response_payload(
-                    response=response,
-                    content=result,
+                    raise LLMProviderRequestError(safe_error) from exc
+
+                normalized, response_payload, elapsed_ms, token_usage = (
+                    await self._normalize_response_with_trace(
+                        response=response,
+                        require_text=True,
+                        provider=str(client.base_url or ""),
+                        model=final_model,
+                        request_payload=request_payload,
+                        trace_context=trace_context,
+                        trace_recorder=trace_recorder,
+                        started_at=started_at,
+                    )
                 )
+                result = normalized.require_text(model=final_model)
+                logger.debug(f"LLM response length: {len(result)} chars")
                 await self._record_llm_trace(
                     trace_context=trace_context,
                     trace_recorder=trace_recorder,
@@ -315,14 +446,27 @@ class LLMService:
                     request_payload=request_payload,
                     response_payload=response_payload,
                     status=LLMTraceStatus.SUCCESS,
-                    elapsed_ms=_elapsed_ms(started_at),
-                    token_usage=_extract_token_usage(response),
+                    elapsed_ms=elapsed_ms,
+                    token_usage=token_usage,
                 )
                 
                 return result
         except Exception as e:
-            logger.error(f"LLM call error (model={final_model}, base_url={client.base_url}): {e}")
+            logger.error(
+                "LLM call error: model={} provider={} error_type={} error={}",
+                final_model,
+                _safe_provider_label(client.base_url),
+                type(e).__name__,
+                _safe_exception_summary(e),
+            )
             raise
+
+    async def aclose(self) -> None:
+        """Close cached provider transports and reset the pool for later reuse."""
+
+        pool = self._client_pool
+        self._client_pool = AsyncOpenAIClientPool(max_size=4)
+        await pool.close()
     
     async def _call_with_structured_output(
         self,
@@ -334,6 +478,7 @@ class LLMService:
         max_tokens: int,
         trace_context: Optional[LLMTraceContext] = None,
         trace_recorder: Optional[LLMInteractionRecorder] = None,
+        capabilities: StructuredOutputCapabilities | None = None,
         **kwargs
     ) -> T:
         """
@@ -365,6 +510,7 @@ class LLMService:
                 max_tokens=max_tokens,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
+                capabilities=capabilities,
                 **kwargs
             )
 
@@ -377,6 +523,7 @@ class LLMService:
             max_tokens=max_tokens,
             trace_context=trace_context,
             trace_recorder=trace_recorder,
+            capabilities=capabilities,
             **kwargs
         )
 
@@ -408,6 +555,7 @@ class LLMService:
         max_tokens: int,
         trace_context: Optional[LLMTraceContext] = None,
         trace_recorder: Optional[LLMInteractionRecorder] = None,
+        capabilities: StructuredOutputCapabilities | None = None,
         **kwargs
     ) -> T:
         request_payload = self._build_request_payload(
@@ -417,6 +565,26 @@ class LLMService:
             max_tokens=max_tokens,
             response_format=self._structured_response_format_payload(response_type),
             extra_parameters=kwargs,
+        )
+        capabilities = capabilities or self._capabilities_for(client=client, model=model)
+        budget_text = "\n".join(
+            (
+                prompt,
+                json.dumps(
+                    request_payload.get("response_format") or {},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            )
+        )
+        await self._validate_request_budget(
+            prompt_text=budget_text,
+            capabilities=capabilities,
+            provider=str(client.base_url or ""),
+            model=model,
+            request_payload=request_payload,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
         )
         started_at = perf_counter()
         try:
@@ -429,6 +597,7 @@ class LLMService:
                 **kwargs
             )
         except Exception as exc:
+            safe_error = _sanitize_error_message(exc)
             await self._record_llm_trace(
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
@@ -438,16 +607,22 @@ class LLMService:
                 response_payload=None,
                 status=LLMTraceStatus.ERROR,
                 elapsed_ms=_elapsed_ms(started_at),
-                error_message=str(exc),
+                error_message=safe_error,
             )
-            raise
-        message = response.choices[0].message
-        response_payload = self._build_response_payload(
-            response=response,
-            content=getattr(message, "content", None) or "",
+            raise LLMProviderRequestError(safe_error) from exc
+        normalized, response_payload, elapsed_ms, token_usage = (
+            await self._normalize_response_with_trace(
+                response=response,
+                require_text=False,
+                provider=str(client.base_url or ""),
+                model=model,
+                request_payload=request_payload,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                started_at=started_at,
+            )
         )
-        elapsed_ms = _elapsed_ms(started_at)
-        token_usage = _extract_token_usage(response)
+        message = normalized.message
         parsed = getattr(message, "parsed", None)
         if parsed is not None:
             await self._record_llm_trace(
@@ -480,7 +655,7 @@ class LLMService:
             )
             raise ValueError(error_message)
 
-        content = getattr(message, "content", None) or ""
+        content = normalized.content or ""
         if content:
             try:
                 parsed_from_content = self._parse_response_as_model(content, response_type)
@@ -495,7 +670,7 @@ class LLMService:
                     status=_trace_status_for_structured_exception(exc),
                     elapsed_ms=elapsed_ms,
                     token_usage=token_usage,
-                    parse_error=str(exc),
+                    parse_error=_trace_parse_error_message(exc),
                     validation_errors=_validation_error_details(exc),
                 )
                 raise
@@ -513,7 +688,7 @@ class LLMService:
             return parsed_from_content
 
         error_message = (
-            f"Structured output response from model {model} did not include parsed content"
+            f"Structured output response from model {model!r} did not include parsed content"
         )
         await self._record_llm_trace(
             trace_context=trace_context,
@@ -527,7 +702,7 @@ class LLMService:
             token_usage=token_usage,
             error_message=error_message,
         )
-        raise ValueError(error_message)
+        raise LLMEmptyResponseError(error_message, reason="parsed_content_missing")
 
     async def _call_with_dict_output(
         self,
@@ -538,6 +713,7 @@ class LLMService:
         max_tokens: int,
         trace_context: Optional[LLMTraceContext] = None,
         trace_recorder: Optional[LLMInteractionRecorder] = None,
+        capabilities: StructuredOutputCapabilities | None = None,
         **kwargs
     ) -> dict[str, Any]:
         """
@@ -567,10 +743,7 @@ class LLMService:
         ) if trace_context is not None else None
         enhanced_prompt = rendered_prompt.text
 
-        capabilities = structured_output_capabilities(
-            base_url=str(client.base_url or ""),
-            model=model,
-        )
+        capabilities = capabilities or self._capabilities_for(client=client, model=model)
 
         request_kwargs: dict[str, Any] = {
             "model": model,
@@ -585,12 +758,23 @@ class LLMService:
         else:
             request_kwargs["max_tokens"] = max_tokens
 
-        request_payload = _json_safe_copy(request_kwargs)
+        request_payload = _trace_safe_copy(request_kwargs)
+
+        await self._validate_request_budget(
+            prompt_text=enhanced_prompt,
+            capabilities=capabilities,
+            provider=str(client.base_url or ""),
+            model=model,
+            request_payload=request_payload,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+        )
 
         started_at = perf_counter()
         try:
             response = await client.chat.completions.create(**request_kwargs)
         except Exception as exc:
+            safe_error = _sanitize_error_message(exc)
             await self._record_llm_trace(
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
@@ -600,18 +784,23 @@ class LLMService:
                 response_payload=None,
                 status=LLMTraceStatus.ERROR,
                 elapsed_ms=_elapsed_ms(started_at),
-                error_message=str(exc),
+                error_message=safe_error,
             )
-            raise
+            raise LLMProviderRequestError(safe_error) from exc
 
-        content = "{}"
-        if response.choices:
-            content = response.choices[0].message.content or "{}"
-        else:
-            logger.warning("LLM response has no choices; using empty dict fallback: model={}", model)
-
-        elapsed_ms = _elapsed_ms(started_at)
-        token_usage = _extract_token_usage(response)
+        normalized, response_payload, elapsed_ms, token_usage = (
+            await self._normalize_response_with_trace(
+                response=response,
+                require_text=True,
+                provider=str(client.base_url or ""),
+                model=model,
+                request_payload=request_payload,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                started_at=started_at,
+            )
+        )
+        content = normalized.require_text(model=model)
 
         try:
             parsed = parse_llm_json_response(
@@ -625,7 +814,8 @@ class LLMService:
                 logger.warning(
                     "LLM returned JSON array instead of object; "
                     "wrapping in dict directly: model={} base_url={}",
-                    model, client.base_url,
+                    model,
+                    _safe_provider_label(client.base_url),
                 )
                 parsed = {"data": parsed}
             else:
@@ -637,15 +827,14 @@ class LLMService:
                 provider=str(client.base_url or ""),
                 model=model,
                 request_payload=request_payload,
-                response_payload=self._build_response_payload(response=response, content=content),
+                response_payload=response_payload,
                 status=LLMTraceStatus.ERROR,
                 elapsed_ms=elapsed_ms,
                 token_usage=token_usage,
-                parse_error=str(exc),
+                parse_error=_trace_parse_error_message(exc),
             )
             raise
 
-        response_payload = self._build_response_payload(response=response, content=content)
         await self._record_llm_trace(
             trace_context=trace_context,
             trace_recorder=trace_recorder,
@@ -670,6 +859,7 @@ class LLMService:
         max_tokens: int,
         trace_context: Optional[LLMTraceContext] = None,
         trace_recorder: Optional[LLMInteractionRecorder] = None,
+        capabilities: StructuredOutputCapabilities | None = None,
         **kwargs
     ) -> T:
         rendered_prompt = self._render_structured_schema_prompt(
@@ -681,10 +871,7 @@ class LLMService:
             rendered_prompt=rendered_prompt,
         ) if trace_context is not None else None
         enhanced_prompt = rendered_prompt.text
-        capabilities = structured_output_capabilities(
-            base_url=str(client.base_url or ""),
-            model=model,
-        )
+        capabilities = capabilities or self._capabilities_for(client=client, model=model)
 
         request_kwargs = {
             "model": model,
@@ -699,6 +886,21 @@ class LLMService:
         if not capabilities.omit_max_tokens_with_json_object:
             json_mode_kwargs["max_tokens"] = max_tokens
 
+        initial_trace_request = (
+            json_mode_kwargs
+            if capabilities.supports_json_object_response_format
+            else {**request_kwargs, "max_tokens": max_tokens}
+        )
+        await self._validate_request_budget(
+            prompt_text=enhanced_prompt,
+            capabilities=capabilities,
+            provider=str(client.base_url or ""),
+            model=model,
+            request_payload=self._build_request_payload_from_kwargs(initial_trace_request),
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+        )
+
         started_at = perf_counter()
         if capabilities.supports_json_object_response_format:
             trace_request_kwargs = json_mode_kwargs
@@ -711,6 +913,7 @@ class LLMService:
                     and is_json_object_response_format_unsupported_error(exc)
                 )
                 if not should_retry_without_json_mode:
+                    safe_error = _sanitize_error_message(exc)
                     await self._record_llm_trace(
                         trace_context=trace_context,
                         trace_recorder=trace_recorder,
@@ -720,9 +923,10 @@ class LLMService:
                         response_payload=None,
                         status=LLMTraceStatus.ERROR,
                         elapsed_ms=_elapsed_ms(started_at),
-                        error_message=str(exc),
+                        error_message=safe_error,
                     )
-                    raise
+                    raise LLMProviderRequestError(safe_error) from exc
+                safe_error = _sanitize_error_message(exc)
                 await self._record_llm_trace(
                     trace_context=trace_context,
                     trace_recorder=trace_recorder,
@@ -732,17 +936,18 @@ class LLMService:
                     response_payload=None,
                     status=LLMTraceStatus.ERROR,
                     elapsed_ms=_elapsed_ms(started_at),
-                    error_message=str(exc),
+                    error_message=safe_error,
                 )
                 logger.warning(
                     "Provider rejected JSON mode for structured output; retrying with prompt-only schema: {}",
-                    exc,
+                    safe_error,
                 )
                 trace_request_kwargs = {**request_kwargs, "max_tokens": max_tokens}
                 started_at = perf_counter()
                 try:
                     response = await client.chat.completions.create(**trace_request_kwargs)
                 except Exception as retry_exc:
+                    safe_retry_error = _sanitize_error_message(retry_exc)
                     await self._record_llm_trace(
                         trace_context=trace_context,
                         trace_recorder=trace_recorder,
@@ -752,14 +957,15 @@ class LLMService:
                         response_payload=None,
                         status=LLMTraceStatus.ERROR,
                         elapsed_ms=_elapsed_ms(started_at),
-                        error_message=str(retry_exc),
+                        error_message=safe_retry_error,
                     )
-                    raise
+                    raise LLMProviderRequestError(safe_retry_error) from retry_exc
         else:
             trace_request_kwargs = {**request_kwargs, "max_tokens": max_tokens}
             try:
                 response = await client.chat.completions.create(**trace_request_kwargs)
             except Exception as exc:
+                safe_error = _sanitize_error_message(exc)
                 await self._record_llm_trace(
                     trace_context=trace_context,
                     trace_recorder=trace_recorder,
@@ -769,17 +975,26 @@ class LLMService:
                     response_payload=None,
                     status=LLMTraceStatus.ERROR,
                     elapsed_ms=_elapsed_ms(started_at),
-                    error_message=str(exc),
+                    error_message=safe_error,
                 )
-                raise
-        content = response.choices[0].message.content
-        elapsed_ms = _elapsed_ms(started_at)
-        token_usage = _extract_token_usage(response)
+                raise LLMProviderRequestError(safe_error) from exc
+        request_payload = self._build_request_payload_from_kwargs(trace_request_kwargs)
+        normalized, response_payload, elapsed_ms, token_usage = (
+            await self._normalize_response_with_trace(
+                response=response,
+                require_text=True,
+                provider=str(client.base_url or ""),
+                model=model,
+                request_payload=request_payload,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                started_at=started_at,
+            )
+        )
+        content = normalized.require_text(model=model)
 
         logger.debug(f"Structured output response length: {len(content)} chars")
 
-        request_payload = self._build_request_payload_from_kwargs(trace_request_kwargs)
-        response_payload = self._build_response_payload(response=response, content=content)
         try:
             parsed = self._parse_response_as_model(content, response_type)
         except Exception as exc:
@@ -793,7 +1008,7 @@ class LLMService:
                 status=_trace_status_for_structured_exception(exc),
                 elapsed_ms=elapsed_ms,
                 token_usage=token_usage,
-                parse_error=str(exc),
+                parse_error=_trace_parse_error_message(exc),
                 validation_errors=_validation_error_details(exc),
             )
             raise
@@ -809,26 +1024,102 @@ class LLMService:
             token_usage=token_usage,
         )
         return parsed
-    
-    def _render_structured_schema_prompt(self, *, prompt: str, response_type: Type[T]):
+
+    def _capabilities_for(
+        self,
+        *,
+        client: AsyncOpenAI,
+        model: str,
+    ) -> StructuredOutputCapabilities:
+        return structured_output_capabilities(
+            base_url=str(client.base_url or ""),
+            model=model,
+            max_input_tokens_override=self._get_config_value("max_input_tokens"),
+            max_output_tokens_override=self._get_config_value("max_output_tokens"),
+        )
+
+    async def _validate_request_budget(
+        self,
+        *,
+        prompt_text: str,
+        capabilities: StructuredOutputCapabilities,
+        provider: str,
+        model: str,
+        request_payload: Mapping[str, Any],
+        trace_context: LLMTraceContext,
+        trace_recorder: LLMInteractionRecorder,
+    ) -> None:
+        estimated_tokens = estimate_input_tokens(prompt_text)
+        if estimated_tokens <= capabilities.max_input_tokens:
+            return
+
+        error_message = (
+            f"Estimated input token count ({estimated_tokens}) exceeds model "
+            f"{model!r} maximum input tokens ({capabilities.max_input_tokens}). "
+            "Reduce the input length or split it into smaller batches."
+        )
+        await self._record_llm_trace(
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+            provider=provider,
+            model=model,
+            request_payload=request_payload,
+            response_payload=None,
+            status=LLMTraceStatus.ERROR,
+            elapsed_ms=0,
+            error_message=error_message,
+        )
+        raise ValueError(error_message)
+
+    async def _normalize_response_with_trace(
+        self,
+        *,
+        response: Any,
+        require_text: bool,
+        provider: str,
+        model: str,
+        request_payload: Mapping[str, Any],
+        trace_context: LLMTraceContext,
+        trace_recorder: LLMInteractionRecorder,
+        started_at: float,
+    ):
+        elapsed_ms = _elapsed_ms(started_at)
+        token_usage = _extract_token_usage(response)
+        response_payload = self._build_response_payload(
+            response=response,
+            content=_first_message_content(response),
+        )
         try:
-            schema = response_type.model_json_schema()
-            schema_str = json.dumps(schema, indent=2, ensure_ascii=False)
-            return render_structured_schema_output_prompt(
-                prompt=prompt,
-                response_type_name=response_type.__name__,
-                schema_json=schema_str,
+            normalized = normalize_chat_completion(response, model=model)
+            if require_text:
+                normalized.require_text(model=model)
+        except LLMResponseContractError as exc:
+            await self._record_llm_trace(
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                provider=provider,
+                model=model,
+                request_payload=request_payload,
+                response_payload=response_payload,
+                status=LLMTraceStatus.ERROR,
+                elapsed_ms=elapsed_ms,
+                token_usage=token_usage,
+                error_message=str(exc),
             )
-        except Exception as e:
-            logger.warning(f"Failed to generate JSON schema: {e}")
-            return render_structured_json_object_prompt(prompt)
+            raise
+        return normalized, response_payload, elapsed_ms, token_usage
+
+    def _render_structured_schema_prompt(self, *, prompt: str, response_type: Type[T]):
+        schema = response_type.model_json_schema()
+        schema_str = json.dumps(schema, indent=2, ensure_ascii=False)
+        return render_structured_schema_output_prompt(
+            prompt=prompt,
+            response_type_name=response_type.__name__,
+            schema_json=schema_str,
+        )
 
     def _structured_response_format_payload(self, response_type: Type[T]) -> dict[str, Any]:
-        try:
-            schema = response_type.model_json_schema()
-        except Exception as exc:
-            logger.warning(f"Failed to generate native structured output schema: {exc}")
-            schema = {}
+        schema = response_type.model_json_schema()
         return {
             "type": "pydantic_model",
             "name": response_type.__name__,
@@ -846,7 +1137,13 @@ class LLMService:
         Returns:
             Parsed model instance
         """
-        logger.debug(f"Parsing LLM response as {response_type.__name__}, content length: {len(content)} chars")
+        content_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        logger.debug(
+            "Parsing LLM response as {}, content_length={}, content_sha256={}",
+            response_type.__name__,
+            len(content),
+            content_digest,
+        )
         
         try:
             data = parse_llm_json_response(
@@ -856,33 +1153,40 @@ class LLMService:
             )
             return response_type.model_validate(data)
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error when parsing LLM response: {e}")
-            # 限制日志长度，避免大响应导致日志过大
-            max_log_len = 2000
-            if len(content) <= max_log_len:
-                logger.error(f"Raw response content: {content!r}")
-            else:
-                logger.error(f"Raw response content (first {max_log_len} chars): {content[:max_log_len]!r}")
-                logger.error(f"... (truncated, total length: {len(content)} chars)")
-            raise ValueError(f"Failed to parse LLM response as {response_type.__name__}: {content[:200]}...") from e
+            logger.error(
+                "JSON decode error for {}: content_length={} content_sha256={} error={}",
+                response_type.__name__,
+                len(content),
+                content_digest,
+                _sanitize_error_message(e),
+            )
+            raise ValueError(
+                f"Failed to parse LLM response as {response_type.__name__}; "
+                f"content_length={len(content)} content_sha256={content_digest}"
+            ) from e
         except ValidationError as e:
-            logger.error(f"Schema validation error when parsing LLM response as {response_type.__name__}: {e}")
-            max_log_len = 2000
-            if len(content) <= max_log_len:
-                logger.error(f"Raw response content: {content!r}")
-            else:
-                logger.error(f"Raw response content (first {max_log_len} chars): {content[:max_log_len]!r}")
-                logger.error(f"... (truncated, total length: {len(content)} chars)")
+            logger.error(
+                "Schema validation error for {}: content_length={} content_sha256={} error_count={}",
+                response_type.__name__,
+                len(content),
+                content_digest,
+                len(e.errors()),
+            )
             raise
         except Exception as e:
-            logger.error(f"Unexpected error when parsing LLM response: {type(e).__name__}: {e}")
-            max_log_len = 2000
-            if len(content) <= max_log_len:
-                logger.error(f"Raw response content: {content!r}")
-            else:
-                logger.error(f"Raw response content (first {max_log_len} chars): {content[:max_log_len]!r}")
-                logger.error(f"... (truncated, total length: {len(content)} chars)")
-            raise ValueError(f"Failed to parse LLM response as {response_type.__name__}: {content[:200]}...") from e
+            logger.error(
+                "Unexpected parse error for {}: content_length={} content_sha256={} "
+                "error_type={} error={}",
+                response_type.__name__,
+                len(content),
+                content_digest,
+                type(e).__name__,
+                _sanitize_error_message(e),
+            )
+            raise ValueError(
+                f"Failed to parse LLM response as {response_type.__name__}; "
+                f"content_length={len(content)} content_sha256={content_digest}"
+            ) from e
 
     def _build_request_payload(
         self,
@@ -903,13 +1207,13 @@ class LLMService:
         if response_format is not None:
             payload["response_format"] = response_format
         if extra_parameters:
-            payload["extra_parameters"] = _json_safe_copy(extra_parameters)
+            payload["extra_parameters"] = _trace_safe_copy(extra_parameters)
         return payload
 
     def _build_request_payload_from_kwargs(self, request_kwargs: Mapping[str, Any]) -> dict[str, Any]:
-        return _json_safe_copy(request_kwargs)
+        return _trace_safe_copy(request_kwargs)
 
-    def _build_response_payload(self, *, response: Any, content: str) -> dict[str, Any]:
+    def _build_response_payload(self, *, response: Any, content: Any) -> dict[str, Any]:
         return {
             "content": content,
             "response": _json_safe_copy(response),
@@ -936,7 +1240,7 @@ class LLMService:
         try:
             await trace_recorder.record_interaction(
                 context=trace_context,
-                provider=provider,
+                provider=_safe_provider_label(provider),
                 model=model,
                 request_payload=request_payload,
                 response_payload=response_payload,
@@ -948,14 +1252,13 @@ class LLMService:
                 validation_errors=validation_errors,
             )
         except Exception as exc:
-            # Observability must not become a single point of failure for generation.
-            # Broken local trace storage is quarantined by the repository layer;
-            # remaining recorder failures are logged and generation continues.
-            logger.warning(
-                "Failed to record LLM interaction trace; generation will continue: %s",
-                exc,
+            logger.error(
+                "Failed to record mandatory LLM interaction trace: error_type={}",
+                type(exc).__name__,
             )
-            return
+            raise LLMTraceRecordingError(
+                "mandatory LLM interaction trace could not be persisted"
+            ) from exc
     
     @property
     def active(self) -> str:
@@ -974,13 +1277,116 @@ class LLMService:
         """String representation"""
         model = self.active
         base_url = self._get_config_value("base_url", "default")
-        return f"<LLMService model={model!r} base_url={base_url!r}>"
+        return f"<LLMService model={model!r} provider={_safe_provider_label(base_url)!r}>"
+
+
+def _validate_llm_call_arguments(
+    *,
+    prompt: Any,
+    temperature: Any,
+    max_tokens: Any,
+    response_type: Any,
+) -> None:
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("prompt must be a non-empty string")
+    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+        raise ValueError("temperature must be a finite number between 0 and 2")
+    if not math.isfinite(float(temperature)) or not 0 <= float(temperature) <= 2:
+        raise ValueError("temperature must be a finite number between 0 and 2")
+    if type(max_tokens) is not int or max_tokens < 1:
+        raise ValueError("max_tokens must be a positive integer")
+    if response_type is None or response_type is dict:
+        return
+    if not isinstance(response_type, type) or not issubclass(response_type, BaseModel):
+        raise TypeError("response_type must be dict or a Pydantic BaseModel subclass")
+
+
+def _first_message_content(response: Any) -> Any:
+    choices = getattr(response, "choices", None)
+    if not isinstance(choices, (list, tuple)) or not choices:
+        return None
+    message = getattr(choices[0], "message", None)
+    if message is None:
+        return None
+    return getattr(message, "content", None)
+
+
+def _normalized_sensitive_key(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_")
+
+
+def _is_sensitive_trace_key(value: Any) -> bool:
+    normalized = _normalized_sensitive_key(value)
+    return normalized in _SENSITIVE_TRACE_KEYS or normalized.endswith(
+        ("_api_key", "_access_key", "_secret_key", "_password")
+    )
+
+
+def _trace_safe_copy(value: Any, *, key: Any = None) -> Any:
+    if key is not None and _is_sensitive_trace_key(key):
+        return _REDACTED_VALUE
+    if isinstance(value, BaseModel):
+        return _trace_safe_copy(value.model_dump(mode="json"))
+    if isinstance(value, SimpleNamespace):
+        return {
+            str(item_key): _trace_safe_copy(item, key=item_key)
+            for item_key, item in vars(value).items()
+        }
+    if isinstance(value, Mapping):
+        return {
+            str(item_key): _trace_safe_copy(item, key=item_key)
+            for item_key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_trace_safe_copy(item) for item in value]
+    return _json_safe_copy(value)
+
+
+def _sanitize_error_message(value: Any) -> str:
+    message = str(value or type(value).__name__).strip() or type(value).__name__
+    message = _BEARER_TOKEN_RE.sub("Bearer [REDACTED]", message)
+    message = _SENSITIVE_ASSIGNMENT_RE.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}{_REDACTED_VALUE}",
+        message,
+    )
+    message = _URL_USERINFO_RE.sub(r"\1[REDACTED]@", message)
+    if len(message) > _MAX_SAFE_ERROR_CHARS:
+        return message[: _MAX_SAFE_ERROR_CHARS - 3] + "..."
+    return message
+
+
+def _safe_exception_summary(exc: Exception) -> str:
+    if isinstance(exc, ValidationError):
+        return _trace_parse_error_message(exc)
+    return _sanitize_error_message(exc)
+
+
+def _safe_provider_label(base_url: Any) -> str:
+    try:
+        parsed = urlparse(str(base_url or ""))
+        if not parsed.hostname:
+            return "default"
+        port = f":{parsed.port}" if parsed.port is not None else ""
+        return f"{parsed.scheme or 'https'}://{parsed.hostname}{port}"
+    except (TypeError, ValueError):
+        return "invalid-provider-url"
 
 
 def _trace_status_for_structured_exception(exc: Exception) -> LLMTraceStatus:
     if isinstance(exc, ValidationError):
         return LLMTraceStatus.VALIDATION_ERROR
     return LLMTraceStatus.PARSE_ERROR
+
+
+def _trace_parse_error_message(exc: Exception) -> str:
+    if isinstance(exc, ValidationError):
+        details = _validation_error_details(exc)
+        fields = ", ".join(
+            f"{detail['field']}: {detail['message']}"
+            for detail in details
+        )
+        return f"{len(details)} schema validation error(s): {fields}"
+    return _sanitize_error_message(exc)
 
 
 def _validation_error_details(exc: Exception) -> tuple[Mapping[str, Any], ...]:

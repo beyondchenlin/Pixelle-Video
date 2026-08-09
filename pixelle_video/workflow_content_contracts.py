@@ -161,7 +161,7 @@ def resolve_workflow_candidate_path(candidate: str | Path | None) -> Path | None
     if source == "runninghub":
         descriptor_path = runninghub_descriptor_path("/".join(rest))
         return descriptor_path if descriptor_path.is_file() else None
-    if source == "selfhost":
+    if source in {"provider", "selfhost"}:
         try:
             resource_path = Path(get_resource_path("workflows", source, *rest))
         except FileNotFoundError:

@@ -47,18 +47,24 @@ from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, TtsSplitMod
 from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
 
 
-class LLMConfig(BaseModel):
+class ProviderTransportConfig(BaseModel):
+    """Shared transport limits for OpenAI-compatible providers."""
+
+    connect_timeout_seconds: float = Field(default=10.0, gt=0, description="Provider HTTP connect timeout")
+    read_timeout_seconds: float = Field(default=180.0, gt=0, description="Provider HTTP read timeout")
+    write_timeout_seconds: float = Field(default=30.0, gt=0, description="Provider HTTP write timeout")
+    pool_timeout_seconds: float = Field(default=10.0, gt=0, description="Provider HTTP connection-pool timeout")
+    max_retries: int = Field(default=1, ge=0, le=5, description="Provider HTTP retry count")
+
+
+class LLMConfig(ProviderTransportConfig):
     """LLM configuration"""
+
     api_key: str = Field(default="", description="LLM API Key")
     base_url: str = Field(default="", description="LLM API Base URL")
     model: str = Field(default="", description="LLM Model Name")
     max_input_tokens: Optional[int] = Field(default=None, description="Override model max input tokens (e.g. 30720 for qwen-max)")
     max_output_tokens: Optional[int] = Field(default=None, description="Override model max output tokens (e.g. 8192 for qwen-max)")
-    connect_timeout_seconds: float = Field(default=10.0, gt=0, description="LLM HTTP connect timeout")
-    read_timeout_seconds: float = Field(default=180.0, gt=0, description="LLM HTTP read timeout")
-    write_timeout_seconds: float = Field(default=30.0, gt=0, description="LLM HTTP write timeout")
-    pool_timeout_seconds: float = Field(default=10.0, gt=0, description="LLM HTTP connection-pool timeout")
-    max_retries: int = Field(default=1, ge=0, le=5, description="LLM HTTP retry count")
 
 
 class TTSLocalConfig(BaseModel):
@@ -898,7 +904,7 @@ class ReferenceImageConfig(BaseModel):
         return normalized
 
 
-class VisionLLMConfig(BaseModel):
+class VisionLLMConfig(ProviderTransportConfig):
     """Dedicated multimodal LLM configuration for reference-image analysis."""
 
     enabled: bool = Field(default=False)
@@ -911,6 +917,25 @@ class VisionLLMConfig(BaseModel):
     max_vision_edge_px: int = Field(default=1024, ge=1)
     unavailable_policy: Literal["skip", "fail"] = Field(default="skip")
     force_supports_vision: Optional[bool] = Field(default=None)
+
+
+class OpenAIImageProviderConfig(ProviderTransportConfig):
+    """Configuration for the governed OpenAI-compatible image adapter."""
+
+    enabled: bool = Field(default=False)
+    api_key: str = Field(default="")
+    base_url: str = Field(default="https://api.openai.com/v1")
+    max_output_size_mb: int = Field(default=25, ge=1, le=100)
+    max_output_pixels: int = Field(default=20_000_000, ge=1, le=100_000_000)
+
+
+class DirectMediaConfig(BaseModel):
+    """Direct media providers that run behind the MediaService governance boundary."""
+
+    enabled: bool = Field(default=False)
+    openai_image: OpenAIImageProviderConfig = Field(
+        default_factory=OpenAIImageProviderConfig
+    )
 
 
 class PixelleVideoConfig(BaseModel):
@@ -926,6 +951,7 @@ class PixelleVideoConfig(BaseModel):
     storyboard: StoryboardSubConfig = Field(default_factory=StoryboardSubConfig, description="Storyboard planning configuration")
     reference_image: ReferenceImageConfig = Field(default_factory=ReferenceImageConfig)
     vision_llm: VisionLLMConfig = Field(default_factory=VisionLLMConfig)
+    direct_media: DirectMediaConfig = Field(default_factory=DirectMediaConfig)
 
     @model_validator(mode="before")
     @classmethod

@@ -33,6 +33,13 @@ _LOOSE_BASE64_PAYLOAD_RE = re.compile(r"base64,\s*[A-Za-z0-9+/=\r\n]+", re.IGNOR
 _ABSOLUTE_PATH_HINT_RE = re.compile(
     r"([A-Za-z]:\\[^ \n\r\t'\"),}\]]+|/(?:Users|home|mnt|var|tmp|etc)/[^ \n\r\t'\"),}\]]+)"
 )
+_BEARER_TOKEN_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+\-/]+=*")
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|access[_-]?token|"
+    r"refresh[_-]?token|password|authorization|cookie)\b(\s*[:=]\s*)"
+    r"([^\s,;]+)"
+)
+_URL_USERINFO_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
 _MAX_TRACE_ERROR_MESSAGE_CHARS = 2000
 _KNOWN_VISION_MODEL_PREFIXES = (
     "gpt-4o",
@@ -157,6 +164,12 @@ def sanitize_multimodal_trace_error(message: object) -> str:
     text = _LOOSE_DATA_IMAGE_RE.sub("<redacted:data-url>", text)
     text = _LOOSE_BASE64_PAYLOAD_RE.sub("<redacted:base64-payload>", text)
     text = _ABSOLUTE_PATH_HINT_RE.sub("<redacted:absolute-path>", text)
+    text = _BEARER_TOKEN_RE.sub("Bearer [REDACTED]", text)
+    text = _SENSITIVE_ASSIGNMENT_RE.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]",
+        text,
+    )
+    text = _URL_USERINFO_RE.sub(r"\1[REDACTED]@", text)
     if len(text) > _MAX_TRACE_ERROR_MESSAGE_CHARS:
         text = text[:_MAX_TRACE_ERROR_MESSAGE_CHARS] + "...<truncated>"
     return text

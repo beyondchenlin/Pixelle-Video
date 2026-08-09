@@ -1709,6 +1709,22 @@ class PixelleVideoCore:
         Example:
             await pixelle_video.cleanup()
         """
+        if self.llm is not None:
+            try:
+                await self.llm.aclose()
+            except Exception as exc:
+                logger.error(
+                    "Failed to close LLM provider clients: error_type={}",
+                    type(exc).__name__,
+                )
+        if self.media is not None:
+            try:
+                await self.media.aclose()
+            except Exception as exc:
+                logger.error(
+                    "Failed to close direct media provider clients: error_type={}",
+                    type(exc).__name__,
+                )
         if self._comfykit_by_backend:
             logger.info("🧹 Closing ComfyKit session...")
             try:

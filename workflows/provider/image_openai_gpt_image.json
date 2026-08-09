@@ -1,0 +1,27 @@
+{
+  "source": "provider",
+  "adapter": "openai_image",
+  "provider_id": "openai_image",
+  "media_type": "image",
+  "model": "gpt-image-1",
+  "display_name": "OpenAI GPT Image",
+  "declared_params": {
+    "background": {
+      "type": "string",
+      "enum": ["transparent", "opaque", "auto"]
+    },
+    "output_format": {
+      "type": "string",
+      "enum": ["png", "jpeg", "webp"]
+    },
+    "quality": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "auto"]
+    }
+  },
+  "defaults": {
+    "background": "auto",
+    "output_format": "png",
+    "quality": "auto"
+  }
+}

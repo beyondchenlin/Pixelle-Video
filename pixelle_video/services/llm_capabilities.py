@@ -79,15 +79,6 @@ def _resolve_max_model_value(
 
 def _resolve_max_input_tokens(model: str | None) -> int:
     return _resolve_max_model_value(model, _MAX_INPUT_TOKENS_BY_MODEL, _DEFAULT_MAX_INPUT_TOKENS)
-    if not model:
-        return _DEFAULT_MAX_INPUT_TOKENS
-    normalized = model.strip().lower()
-    if normalized in _MAX_INPUT_TOKENS_BY_MODEL:
-        return _MAX_INPUT_TOKENS_BY_MODEL[normalized]
-    for prefix, limit in sorted(_MAX_INPUT_TOKENS_BY_MODEL.items(), key=lambda x: -len(x[0])):
-        if normalized.startswith(prefix):
-            return limit
-    return _DEFAULT_MAX_INPUT_TOKENS
 
 
 def structured_output_capabilities(

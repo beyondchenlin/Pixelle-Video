@@ -19,13 +19,19 @@ Automatically detects output type based on ExecuteResult.
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
 
+from pixelle_video.config.schema import DirectMediaConfig
 from pixelle_video.config.sections import config_section_get, config_section_to_dict
+from pixelle_video.models.direct_media import (
+    DIRECT_MEDIA_SOURCE,
+    DirectMediaRequest,
+)
 from pixelle_video.models.media import MediaResult
 from pixelle_video.models.reference_image_injection_summary import (
     ReferenceImageInjectionSummary,
@@ -36,6 +42,10 @@ from pixelle_video.runninghub_workflow_contracts import (
 )
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.services.comfyui_errors import looks_like_memory_exhaustion
+from pixelle_video.services.direct_media import (
+    DirectMediaProviderRegistry,
+    load_direct_media_descriptor,
+)
 from pixelle_video.services.prompt_trace_artifacts import (
     build_workflow_params_trace,
     require_media_prompt_trace_context,
@@ -177,6 +187,11 @@ def _is_already_formatted_media_error(message: str) -> bool:
 
 
 def _media_workflow_execution_input(workflow_info: Mapping[str, Any]) -> str:
+    if workflow_info.get("source") == DIRECT_MEDIA_SOURCE:
+        return (
+            f"{workflow_info.get('provider_id') or 'provider'}/"
+            f"{workflow_info.get('model') or workflow_info.get('key')}"
+        )
     if workflow_info.get("source") == "runninghub" and workflow_info.get("workflow_id"):
         return str(workflow_info["workflow_id"])
     return str(workflow_info["path"])
@@ -371,6 +386,7 @@ class MediaService(ComfyBaseService):
     def __init__(self, config: dict, core=None):
         super().__init__(config, service_name="image", core=core)  # Keep "image" for config compatibility
         self.app_config = config
+        self._direct_media_registry = DirectMediaProviderRegistry()
 
     def _scan_workflows(self):
         if self._workflows_cache is not None:
@@ -410,6 +426,18 @@ class MediaService(ComfyBaseService):
                     continue
                 try:
                     workflow_info = self._parse_workflow_file(file_path, source_name)
+                    if source_name == DIRECT_MEDIA_SOURCE:
+                        descriptor = load_direct_media_descriptor(file_path)
+                        workflow_info.update(
+                            {
+                                "adapter": descriptor.adapter,
+                                "provider_id": descriptor.provider_id,
+                                "media_type": descriptor.media_type,
+                                "model": descriptor.model,
+                                "display_name": descriptor.display_name,
+                                "declared_params": descriptor.declared_params,
+                            }
+                        )
                     if source_name == RUNNINGHUB_SOURCE:
                         if workflow_info.get("media_type") not in {"image", "video"}:
                             continue
@@ -427,6 +455,35 @@ class MediaService(ComfyBaseService):
 
         self._workflows_cache = sorted(workflows, key=lambda w: w["key"])
         return self._workflows_cache
+
+    def _direct_media_config(self) -> DirectMediaConfig:
+        core_config = getattr(getattr(self, "core", None), "config", None)
+        configured = config_section_to_dict(config_section_get(core_config, "direct_media"))
+        if configured is None:
+            configured = config_section_to_dict(
+                config_section_get(self.app_config, "direct_media")
+            )
+        return DirectMediaConfig.model_validate(configured or {})
+
+    @staticmethod
+    def _direct_media_output_dir(trace_context: Mapping[str, Any]) -> Path:
+        task_root = _task_root_from_media_prompt_trace_context(trace_context)
+        if task_root is None:
+            raise ValueError("direct media generation requires a task-scoped prompt trace")
+        frame_id = re.sub(
+            r"[^A-Za-z0-9._-]+",
+            "_",
+            str(trace_context.get("frame_id") or "frame"),
+        ).strip("._") or "frame"
+        output_dir = (task_root / "provider_media" / frame_id).resolve()
+        output_dir.relative_to(task_root.resolve())
+        return output_dir
+
+    async def aclose(self) -> None:
+        registry = self._direct_media_registry
+        await registry.aclose()
+        if self._direct_media_registry is registry:
+            self._direct_media_registry = DirectMediaProviderRegistry()
 
     def resolve_workflow_key(
         self,
@@ -605,10 +662,70 @@ class MediaService(ComfyBaseService):
                 workflow_info["key"],
                 media_type,
             )
-        logger.debug(f"Workflow parameters: {trace_safe_workflow_params}")
+        logger.debug(
+            "Workflow parameter keys: {}",
+            sorted(str(key) for key in trace_safe_workflow_params),
+        )
         result_artifact_written = False
 
         try:
+            if workflow_info["source"] == DIRECT_MEDIA_SOURCE:
+                descriptor = load_direct_media_descriptor(workflow_info["path"])
+                output_dir = self._direct_media_output_dir(trace_context)
+                direct_parameters = {
+                    key: value
+                    for key, value in workflow_params.items()
+                    if key not in {"prompt", "negative_prompt", "width", "height"}
+                }
+                direct_output = await self._direct_media_registry.generate(
+                    descriptor=descriptor,
+                    request=DirectMediaRequest(
+                        workflow_key=str(workflow_info["key"]),
+                        prompt=prompt,
+                        media_type=media_type,
+                        model=descriptor.model,
+                        output_dir=output_dir,
+                        width=width,
+                        height=height,
+                        negative_prompt=negative_prompt or "",
+                        parameters=direct_parameters,
+                    ),
+                    config=self._direct_media_config(),
+                )
+                try:
+                    direct_output.local_path.relative_to(output_dir)
+                except (OSError, ValueError) as exc:
+                    raise ValueError(
+                        "direct media provider output escaped its task-scoped output directory"
+                    ) from exc
+                task_root = _task_root_from_media_prompt_trace_context(trace_context)
+                direct_trace = direct_output.to_trace_dict(task_root=task_root)
+                media_result = MediaResult(
+                    media_type=direct_output.media_type,
+                    url=str(direct_output.local_path),
+                )
+                write_media_result_artifact(
+                    trace_context,
+                    status="completed",
+                    result={
+                        "source": DIRECT_MEDIA_SOURCE,
+                        "workflow": str(workflow_info["key"]),
+                        "provider_output": direct_trace,
+                        "media_result": {
+                            "media_type": media_result.media_type,
+                            "task_relative_path": direct_trace["task_relative_path"],
+                        },
+                    },
+                )
+                result_artifact_written = True
+                logger.info(
+                    "Generated direct media output: provider={} model={} media_type={}",
+                    direct_output.provider_id,
+                    direct_output.model,
+                    direct_output.media_type,
+                )
+                return media_result
+
             if workflow_info["source"] == "runninghub" and "workflow_id" in workflow_info:
                 logger.info(f"Executing RunningHub workflow: {workflow_input}")
             else:

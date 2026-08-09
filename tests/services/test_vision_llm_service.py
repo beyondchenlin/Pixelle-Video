@@ -7,7 +7,12 @@ import pytest
 from PIL import Image
 
 from pixelle_video.config import config_manager
-from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceRequiredError
+from pixelle_video.models.llm_interaction_trace import (
+    LLMTraceContext,
+    LLMTraceRecordingError,
+    LLMTraceRequiredError,
+)
+from pixelle_video.models.llm_response import LLMResponseContractError
 from pixelle_video.services.vision_llm_service import VisionLLMService
 
 
@@ -34,6 +39,10 @@ class _FakeClient:
         self.base_url = "https://example.test/v1"
         self.completions = _FakeCompletions()
         self.chat = SimpleNamespace(completions=self.completions)
+        self.close_calls = 0
+
+    async def close(self):
+        self.close_calls += 1
 
 
 class _FailingCompletions:
@@ -57,6 +66,11 @@ class _FakeRecorder:
 
     async def record_interaction(self, **kwargs):
         self.records.append(kwargs)
+
+
+class _FailingRecorder:
+    async def record_interaction(self, **kwargs):
+        raise OSError("trace store unavailable")
 
 
 def _trace_context() -> LLMTraceContext:
@@ -101,6 +115,7 @@ async def test_vision_llm_service_records_redacted_trace(monkeypatch):
     assert "<redacted:data-url>" in request_json
     assert "sha256" in request_json
     assert recorder.records[0]["status"] == "success"
+    assert recorder.records[0]["provider"] == "https://example.test"
 
 
 @pytest.mark.asyncio
@@ -134,6 +149,81 @@ async def test_vision_llm_service_redacts_provider_error_trace(monkeypatch):
     assert "C:\\" not in error_message
     assert "<redacted:data-url>" in error_message
     assert "<redacted:absolute-path>" in error_message
+
+
+@pytest.mark.asyncio
+async def test_vision_llm_service_rejects_empty_provider_response_and_records_error(monkeypatch):
+    service = VisionLLMService({"force_supports_vision": True})
+    client = _FakeClient()
+
+    async def empty_response(**kwargs):
+        return SimpleNamespace(choices=[], usage=None)
+
+    monkeypatch.setattr(client.completions, "create", empty_response)
+    monkeypatch.setattr(service, "_create_client", lambda **kwargs: client)
+    recorder = _FakeRecorder()
+
+    with pytest.raises(LLMResponseContractError):
+        await service.chat(
+            messages=[{"role": "user", "content": "describe"}],
+            model="qwen-vl-max",
+            trace_context=_trace_context(),
+            trace_recorder=recorder,
+        )
+
+    assert len(recorder.records) == 1
+    assert recorder.records[0]["status"] == "error"
+    assert recorder.records[0]["response_payload"]["content"] is None
+
+
+@pytest.mark.asyncio
+async def test_vision_llm_service_trace_failure_is_fail_closed(monkeypatch):
+    service = VisionLLMService({"force_supports_vision": True})
+    monkeypatch.setattr(service, "_create_client", lambda **kwargs: _FakeClient())
+
+    with pytest.raises(LLMTraceRecordingError):
+        await service.chat(
+            messages=[{"role": "user", "content": "describe"}],
+            model="qwen-vl-max",
+            trace_context=_trace_context(),
+            trace_recorder=_FailingRecorder(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_vision_llm_service_reuses_client_and_redacts_sensitive_extras(monkeypatch):
+    service = VisionLLMService({"force_supports_vision": True})
+    client = _FakeClient()
+    create_calls = 0
+
+    def create_client(**kwargs):
+        nonlocal create_calls
+        create_calls += 1
+        return client
+
+    monkeypatch.setattr(service, "_create_client", create_client)
+    recorder = _FakeRecorder()
+    extra_headers = {
+        "Authorization": "Bearer wire-secret",
+        "nested": {"api_key": "nested-secret"},
+    }
+    for _ in range(2):
+        await service.chat(
+            messages=[{"role": "user", "content": "describe"}],
+            model="qwen-vl-max",
+            trace_context=_trace_context(),
+            trace_recorder=recorder,
+            extra_headers=extra_headers,
+        )
+
+    assert create_calls == 1
+    assert client.completions.calls[0]["extra_headers"] is extra_headers
+    traced_extras = recorder.records[0]["request_payload"]["extra_parameters"]
+    assert traced_extras["extra_headers"]["Authorization"] == "[REDACTED]"
+    assert traced_extras["extra_headers"]["nested"]["api_key"] == "[REDACTED]"
+
+    await service.aclose()
+    assert client.close_calls == 1
 
 
 @pytest.mark.asyncio

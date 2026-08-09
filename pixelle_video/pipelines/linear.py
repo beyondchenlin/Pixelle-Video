@@ -18,6 +18,7 @@ It introduces `PipelineContext` for state management and `LinearVideoPipeline` f
 process orchestration.
 """
 
+import inspect
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional
@@ -62,7 +63,6 @@ from pixelle_video.services.timing_planner import TimingPlan
 from pixelle_video.services.vision_llm_service import VisionLLMService
 from pixelle_video.utils.logging_util import bind_log_context
 
-
 _REFERENCE_IMAGE_ENABLED_PARAM_NAMES = (
     "reference_image_enabled",
     "enable_reference_image",
@@ -73,6 +73,17 @@ _REFERENCE_IMAGE_ENABLED_PARAM_NAMES = (
 @asynccontextmanager
 async def _noop_async_context():
     yield
+
+
+async def _close_optional_async_resource(resource: Any) -> None:
+    close = getattr(resource, "aclose", None)
+    if not callable(close):
+        close = getattr(resource, "close", None)
+    if not callable(close):
+        return
+    result = close()
+    if inspect.isawaitable(result):
+        await result
 
 
 def _config_mapping_get(config: Any, key: str, default: Any = None) -> Any:
@@ -350,16 +361,20 @@ class LinearVideoPipeline(BasePipeline):
         if callable(trace_recorder_factory):
             trace_recorder = trace_recorder_factory(ctx)
 
-        result = await ReferenceImageAnalysisService().analyze(
-            vision_llm_service=VisionLLMService(vision_config),
-            asset=ctx.reference_image_asset,
-            prompt_language=prompt_language,
-            task_dir=ctx.task_dir,
-            analysis_mode=analysis_mode,
-            trace_context=trace_context,
-            trace_recorder=trace_recorder,
-            vision_config=vision_config,
-        )
+        vision_llm_service = VisionLLMService(vision_config)
+        try:
+            result = await ReferenceImageAnalysisService().analyze(
+                vision_llm_service=vision_llm_service,
+                asset=ctx.reference_image_asset,
+                prompt_language=prompt_language,
+                task_dir=ctx.task_dir,
+                analysis_mode=analysis_mode,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                vision_config=vision_config,
+            )
+        finally:
+            await _close_optional_async_resource(vision_llm_service)
         ctx.reference_image_analysis_result = result
         ctx.reference_image_analysis = result.analysis
         trace_payload = result.to_trace_dict()

@@ -21,6 +21,9 @@ def test_reference_image_and_vision_llm_are_typed_config_sections():
             "enabled": True,
             "model": "qwen-vl-max",
             "force_supports_vision": True,
+            "connect_timeout_seconds": 3,
+            "read_timeout_seconds": 45,
+            "max_retries": 2,
         },
     )
 
@@ -35,6 +38,9 @@ def test_reference_image_and_vision_llm_are_typed_config_sections():
     assert config.vision_llm.enabled is True
     assert config.vision_llm.model == "qwen-vl-max"
     assert config.vision_llm.force_supports_vision is True
+    assert config.vision_llm.connect_timeout_seconds == 3
+    assert config.vision_llm.read_timeout_seconds == 45
+    assert config.vision_llm.max_retries == 2
 
     payload = config.to_dict()
     assert payload["reference_image"]["enabled"] is True
@@ -97,3 +103,34 @@ def test_reference_image_config_rejects_invalid_modes():
 
     with pytest.raises(ValidationError):
         PixelleVideoConfig(vision_llm={"unavailable_policy": "ignore"})
+
+    with pytest.raises(ValidationError):
+        PixelleVideoConfig(vision_llm={"read_timeout_seconds": 0})
+
+    with pytest.raises(ValidationError):
+        PixelleVideoConfig(vision_llm={"max_retries": 6})
+
+
+def test_direct_media_config_defaults_disabled_and_validates_resource_limits():
+    config = PixelleVideoConfig(
+        direct_media={
+            "enabled": True,
+            "openai_image": {
+                "enabled": True,
+                "api_key": "configured-secret",
+                "max_output_size_mb": 32,
+                "max_output_pixels": 12_000_000,
+            },
+        }
+    )
+
+    assert PixelleVideoConfig().direct_media.enabled is False
+    assert PixelleVideoConfig().direct_media.openai_image.enabled is False
+    assert config.direct_media.enabled is True
+    assert config.direct_media.openai_image.max_output_size_mb == 32
+    assert config.direct_media.openai_image.max_output_pixels == 12_000_000
+
+    with pytest.raises(ValidationError):
+        PixelleVideoConfig(direct_media={"openai_image": {"max_output_size_mb": 0}})
+    with pytest.raises(ValidationError):
+        PixelleVideoConfig(direct_media={"openai_image": {"max_output_pixels": 0}})

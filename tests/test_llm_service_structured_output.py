@@ -5,6 +5,7 @@ from httpx import Timeout
 from pydantic import BaseModel
 
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
+from pixelle_video.models.llm_response import LLMProviderRequestError
 from pixelle_video.models.storyboard_planning import StoryboardPlanningResponse
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_service import LLMService
@@ -35,12 +36,13 @@ class _CreateRecorder:
         return self.response
 
 
-def test_llm_service_create_client_uses_configured_timeout_and_retries(monkeypatch):
-    captured_kwargs: dict[str, object] = {}
+@pytest.mark.asyncio
+async def test_llm_service_create_client_uses_configured_timeout_and_retries(monkeypatch):
+    captured_settings: dict[str, object] = {}
 
-    class _FakeAsyncOpenAI:
-        def __init__(self, **kwargs):
-            captured_kwargs.update(kwargs)
+    async def fake_create_openai_client(settings):
+        captured_settings["value"] = settings
+        return SimpleNamespace(base_url=settings.base_url)
 
     service = LLMService({})
     config_values = {
@@ -51,21 +53,29 @@ def test_llm_service_create_client_uses_configured_timeout_and_retries(monkeypat
         "max_retries": 0,
     }
 
-    monkeypatch.setattr("pixelle_video.services.llm_service.AsyncOpenAI", _FakeAsyncOpenAI)
+    monkeypatch.setattr(
+        "pixelle_video.services.llm_service.create_openai_client",
+        fake_create_openai_client,
+    )
     monkeypatch.setattr(service, "_get_config_value", lambda key, default=None: config_values.get(key, default))
 
-    service._create_client(api_key="key", base_url="https://provider.example/v1")
+    client = await service._create_client(
+        api_key="key",
+        base_url="https://provider.example/v1",
+    )
 
-    assert captured_kwargs["api_key"] == "key"
-    assert captured_kwargs["base_url"] == "https://provider.example/v1"
-    assert isinstance(captured_kwargs["timeout"], Timeout)
-    assert captured_kwargs["timeout"].as_dict() == {
+    settings = captured_settings["value"]
+    assert settings.api_key == "key"
+    assert settings.base_url == "https://provider.example/v1"
+    assert client.base_url == "https://provider.example/v1"
+    assert isinstance(settings.timeout(), Timeout)
+    assert settings.timeout().as_dict() == {
         "connect": 2.0,
         "read": 33.0,
         "write": 4.0,
         "pool": 5.0,
     }
-    assert captured_kwargs["max_retries"] == 0
+    assert settings.max_retries == 0
 
 
 class _CreateRejectsJsonModeThenSucceeds:
@@ -383,7 +393,7 @@ async def test_llm_service_does_not_retry_unrelated_type_errors(monkeypatch):
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
     trace_kwargs, _, trace_repository = _trace_dependencies("unrelated_type_error")
 
-    with pytest.raises(TypeError, match="temperature"):
+    with pytest.raises(LLMProviderRequestError, match="temperature"):
         await service(
             prompt="Review fallback provider",
             model="custom-model",
@@ -427,7 +437,7 @@ async def test_llm_service_does_not_retry_invalid_parameter_errors_that_only_men
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
     trace_kwargs, _, trace_repository = _trace_dependencies("invalid_parameter")
 
-    with pytest.raises(TypeError, match="max_tokens"):
+    with pytest.raises(LLMProviderRequestError, match="max_tokens"):
         await service(
             prompt="Review fallback provider",
             model="custom-model",
@@ -473,6 +483,48 @@ async def test_llm_service_falls_back_to_schema_prompt_for_unsupported_openai_mo
     assert len(create_recorder.calls) == 1
     metadata = trace_repository.appended[0]["trace"]["context"]["metadata"]
     assert metadata["prompt_template_overlays"][0]["prompt_id"] == "structured_schema_output"
+
+
+@pytest.mark.asyncio
+async def test_structured_output_budget_uses_expanded_schema_prompt(monkeypatch):
+    create_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content='{"title":"unused","rating":1}')
+            )
+        ]
+    )
+    fake_client, _, create_recorder = _build_fake_client(
+        base_url="https://api.deepseek.com/v1",
+        parse_response=None,
+        create_response=create_response,
+    )
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    original_get_config_value = service._get_config_value
+    monkeypatch.setattr(
+        service,
+        "_get_config_value",
+        lambda key, default=None: (
+            30
+            if key == "max_input_tokens"
+            else original_get_config_value(key, default)
+        ),
+    )
+    trace_kwargs, _, trace_repository = _trace_dependencies("expanded_prompt_budget")
+
+    with pytest.raises(ValueError, match="Estimated input token count"):
+        await service(
+            prompt="short",
+            model="deepseek-chat",
+            response_type=MovieReview,
+            **trace_kwargs,
+        )
+
+    assert create_recorder.calls == []
+    stored_trace = trace_repository.appended[0]["trace"]
+    assert stored_trace["status"] == "error"
+    assert "maximum input tokens (30)" in stored_trace["error_message"]
 
 
 def test_parse_response_as_model_rejects_truncated_outer_payload_instead_of_embedded_frame():
