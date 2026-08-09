@@ -251,8 +251,8 @@ sudo apt install ffmpeg
 项目使用 Puppeteer 驱动 Chrome 进行视频帧渲染。渲染器按以下顺序选择浏览器：
 
 1. 环境变量 `PRODUCER_HEADLESS_SHELL_PATH` 指定的浏览器。
-2. Windows、macOS 或 Linux 常见安装位置中的系统 Chrome、Edge 或 Chromium。
-3. Puppeteer 缓存中下载的专用浏览器。
+2. Puppeteer 缓存中与当前依赖版本锁定的 Chrome。
+3. Windows、macOS 或 Linux 常见安装位置中的系统 Chrome、Edge 或 Chromium。
 
 系统已经安装 Chrome、Edge 或 Chromium 时，不需要重复下载。Windows 可以先检查常用的 Chrome 路径：
 
@@ -260,14 +260,14 @@ sudo apt install ffmpeg
 Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'
 ```
 
-返回 `True` 后，Pixelle 会自动发现并仅把该路径传给渲染子进程。如果浏览器安装在自定义位置，在启动 Pixelle 前显式指定：
+返回 `True` 后，该浏览器可以作为锁定版本缺失时的后备。浏览器安装在自定义位置时，在启动 Pixelle 前显式指定：
 
 ```powershell
 $env:PRODUCER_HEADLESS_SHELL_PATH='D:\Apps\Chrome\chrome.exe'
 .\start_web.bat
 ```
 
-本机没有兼容浏览器时，再安装 Puppeteer 锁定的专用版本：
+推荐安装 Puppeteer 锁定的专用版本，以避免系统浏览器自动升级改变渲染结果：
 
 ```bash
 cd tools/hyperframes_bridge
@@ -287,7 +287,7 @@ cd Pixelle-Video
 
 #### 第二步：启动 API 和 Web 界面
 
-推荐直接使用项目启动脚本，它会先启动 Pixelle API，再启动 Web 界面：
+推荐直接使用项目启动脚本。脚本会检查端口占用，启动 Pixelle API，等待 `/health` 就绪后再启动 Web 界面；任一进程退出或收到中断时，监督器会清理另一个进程，避免遗留后台进程：
 
 ```bash
 # Windows
@@ -354,7 +354,7 @@ Set-Location 'D:\demo1\Pixelle\Pixelle'
 如果当前位于外层目录 `D:\demo1\Pixelle`，也可以直接使用包含下一层目录的脚本路径：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Pixelle\scripts\comfyui\start_backend.ps1
+.\Pixelle\scripts\comfyui\start_backend.bat
 ```
 
 出现“`-File` 形式参数的实际参数不存在”时，原因就是当前目录不对或脚本路径少了一层；这不是 ComfyUI 启动失败。
@@ -375,6 +375,7 @@ comfyui:
       managed: true
       restart_after_batch: true
       data_root: E:/ComfyUIData/pixelle
+      shared_base_path: E:/ComfyUIData
       runtime_dir: _runtime/comfyui
       logs_dir: logs/comfyui
       database_url: sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db
@@ -399,6 +400,7 @@ Copy-Item .\config.example.yaml .\config.yaml
 | `python_exe` | ComfyUI 使用的 Python 解释器 | 文件必须存在，并已安装 ComfyUI 所需依赖 |
 | `comfyui_root` | ComfyUI 程序根目录 | 目录中必须存在 `main.py` |
 | `data_root` | Pixelle 专用输入、输出、用户数据目录 | 建议与其他 ComfyUI 实例隔离 |
+| `shared_base_path` | 多个工作流共享的模型与自定义节点根目录 | 必须与 `data_root` 分开配置；通常是 `data_root` 的父目录 |
 | `database_url` | Pixelle 专用 ComfyUI 数据库 | 应指向 `data_root/user/comfyui.db` |
 | `runtime_dir` | 托管进程 PID 文件目录 | 使用项目内独立目录 |
 | `logs_dir` | 后端日志目录 | 使用项目内独立目录 |
@@ -412,13 +414,22 @@ Copy-Item .\config.example.yaml .\config.yaml
 在项目根目录执行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\comfyui\start_backend.ps1
+uv run python -m scripts.comfyui.backend_cli start
 ```
 
 Windows 用户也可以直接双击：
 
 ```text
 scripts\comfyui\start_backend.bat
+```
+
+无参数运行 `.bat` 或上面的 Python 命令时，会严格读取 `config.yaml` 的 `backends.default`。`.ps1` 是底层维护入口，不读取 `config.yaml`；只有在显式传入完整脚本参数或环境变量时才直接使用它。
+
+对应的检查和停止命令：
+
+```powershell
+uv run python -m scripts.comfyui.backend_cli check
+uv run python -m scripts.comfyui.backend_cli stop
 ```
 
 启动脚本是幂等的：托管后端已经在 `8000` 端口运行时，脚本会报告 `already_running`，不会再创建第二个实例。
@@ -478,7 +489,7 @@ Pixelle API 默认使用 `6789`。如果该端口已被其他程序占用，可�
 
 ```powershell
 $env:PIXELLE_API_PORT='8890'
-$env:PIXELLE_API_BASE_URL='http://localhost:8890/api'
+$env:PIXELLE_WEB_PORT='8510'
 .\start_web.bat
 ```
 
@@ -486,18 +497,18 @@ $env:PIXELLE_API_BASE_URL='http://localhost:8890/api'
 
 此时使用：
 
-- Web UI：`http://localhost:8501`
+- Web UI：`http://localhost:8510`
 - Pixelle API 健康检查：`http://localhost:8890/health`
 - API 文档：`http://localhost:8890/docs`
 
-这两个环境变量只对当前 PowerShell 窗口和从它启动的子进程生效。关闭窗口后不会永久修改系统配置。
+监督器会根据 `PIXELLE_API_PORT` 自动生成一致的 `PIXELLE_API_BASE_URL`，不需要手工设置。两个端口只对当前 PowerShell 窗口和从它启动的子进程生效。目标端口已经被占用时，启动器会明确失败，不会连接到来源不明的旧进程。
 
 ##### 8. 检查运行状态
 
 检查共享 ComfyUI 是否正在监听，以及该进程是否由 Pixelle 管理：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\comfyui\check_backend.ps1
+uv run python -m scripts.comfyui.backend_cli check
 ```
 
 Windows 用户也可以双击：
@@ -520,7 +531,7 @@ Invoke-RestMethod 'http://localhost:6789/health'
 安全停止 Pixelle 托管的 ComfyUI：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\comfyui\stop_backend.ps1
+uv run python -m scripts.comfyui.backend_cli stop
 ```
 
 Windows 用户也可以双击：
@@ -531,7 +542,7 @@ scripts\comfyui\stop_backend.bat
 
 停止脚本只会停止命令行、端口、数据目录和 PID 记录均匹配的 Pixelle 托管进程。`8000` 端口属于其他程序时，脚本会拒绝误杀该进程。
 
-停止 Web UI 和 Pixelle API 时，关闭 `start_web.bat` 创建的对应终端窗口。手动分开启动时，在各自终端中按 `Ctrl+C`。
+停止 Web UI 和 Pixelle API 时，在 `start_web.bat` 所在终端按 `Ctrl+C` 或关闭该终端。监督器会同时清理两个受管子进程。手动分开启动时，在各自终端中按 `Ctrl+C`。
 
 ##### 10. 日志与运行文件
 
@@ -545,6 +556,8 @@ scripts\comfyui\stop_backend.bat
 | 启动器 PID | `_runtime/comfyui/comfyui-backend.launcher.pid` |
 | 图片与音频输出 | 配置的 `data_root/output` |
 | ComfyUI 用户数据和数据库 | 配置的 `data_root/user` |
+| HyperFrames 桥接标准输出 | 每个任务的 `hyperframes/logs/hyperframes_bridge.stdout.log` |
+| HyperFrames 桥接错误输出 | 每个任务的 `hyperframes/logs/hyperframes_bridge.stderr.log` |
 
 每次重新启动时，旧日志会添加时间戳后归档，不会直接覆盖。排查启动失败时先查看错误日志，再查看标准输出日志。
 
@@ -555,12 +568,15 @@ scripts\comfyui\stop_backend.bat
 | `-File` 参数指向的脚本不存在 | 当前目录不是项目根目录 | 执行 `Test-Path .\start_web.bat`，再进入真正的仓库目录 |
 | `8000` 已被占用 | ComfyUI Desktop 或其他进程正在监听 | 先运行检查脚本；关闭冲突进程，不要同时启动两个 ComfyUI |
 | 启动后 90 秒仍未监听 | Python、ComfyUI 路径、依赖或自定义节点加载失败 | 查看 `logs/comfyui/comfyui-backend.stderr.log` |
-| Web UI 能打开但操作失败 | Pixelle API 未启动或前端使用了错误端口 | 检查 `/health`，并确认 `PIXELLE_API_BASE_URL` 与实际端口一致 |
+| Web UI 能打开但操作失败 | 手动分开启动时 Pixelle API 未启动 | 使用 `start_web.bat` 统一监督，或检查 `/health` |
+| 启动器报告端口已占用 | 旧进程或其他程序正在监听目标端口 | 关闭占用进程，或同时修改 `PIXELLE_API_PORT` / `PIXELLE_WEB_PORT` |
 | 图片或语音节点不存在 | 更新后自定义节点未安装、被禁用或导入失败 | 查看 ComfyUI 启动日志并修复对应节点依赖 |
 | 任务结束后进程 PID 变化 | `restart_after_batch: true` 正在释放内存 | 无需处理，等待后端重新就绪 |
 | 云端工作流没有启动本地 ComfyUI | 云端执行不使用本地后端 | 这是正常行为；只有 `selfhost` 本地工作流使用 `8000` |
 
-旧式双后端入口已经删除，图片与语音必须通过共享后端运行。
+旧式双后端入口保留为升级兼容转发，图片与语音仍只通过同一个共享后端运行，不会创建第二个实例。
+
+托管 ComfyUI 生命周期脚本基于 Windows PowerShell。macOS 和 Linux 用户应把后端配置为 `managed: false`，自行管理 ComfyUI 进程；Pixelle 仍会通过配置的 HTTP 地址提交本地工作流。
 
 #### 第三步：在 Web 界面配置
 
