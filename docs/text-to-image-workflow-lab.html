@@ -1459,7 +1459,7 @@
       <div class="api-strip">
         <div class="field-inline">
           <label for="apiBase">API</label>
-          <input id="apiBase" value="http://127.0.0.1:8899" spellcheck="false">
+          <input id="apiBase" value="http://127.0.0.1:6789" spellcheck="false">
         </div>
         <button class="small-btn" id="healthBtn" type="button">检测连接</button>
         <div class="status-pill" id="apiStatus">
@@ -1764,7 +1764,7 @@
     const toastEl = $("#toast");
 
     function normalizeBase(value) {
-      return String(value || "http://127.0.0.1:8899").trim().replace(/\/+$/, "");
+      return String(value || "http://127.0.0.1:6789").trim().replace(/\/+$/, "");
     }
 
     function nowTime() {
@@ -1994,7 +1994,7 @@
         const refs = collectTraceRefs(state.response);
         empty.textContent = refs.length
           ? "这个节点返回了 trace_id，但原始 payload 还没有拉取成功。请看“日志”标签中的错误信息。"
-          : "还没有抓到本次 LLM 原始提交/返回。请确认：1. 页面已刷新到最新版本；2. 顶部 API 是 http://127.0.0.1:8899；3. 已关闭演示模式并点过开始生成。";
+          : "还没有抓到本次 LLM 原始提交/返回。请确认：1. 页面已刷新到最新版本；2. 顶部 API 是 http://127.0.0.1:6789；3. 已关闭演示模式并点过开始生成。";
         container.appendChild(empty);
         return;
       }
@@ -3236,10 +3236,14 @@
     });
 
     const savedApiBase = localStorage.getItem("pixelle.workflowLab.apiBase");
-    if (savedApiBase && savedApiBase !== "http://127.0.0.1:6789") {
-      $("#apiBase").value = savedApiBase;
-    } else if (savedApiBase === "http://127.0.0.1:6789") {
+    const obsoleteApiBases = new Set([
+      "http://127.0.0.1:8888",
+      "http://127.0.0.1:8899",
+    ]);
+    if (savedApiBase && obsoleteApiBases.has(savedApiBase)) {
       localStorage.removeItem("pixelle.workflowLab.apiBase");
+    } else if (savedApiBase) {
+      $("#apiBase").value = savedApiBase;
     }
     resetState();
   </script>

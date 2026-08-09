@@ -89,5 +89,18 @@ def test_root_readmes_document_fixed_local_backend_ports() -> None:
             assert token not in text
 
 
+def test_workflow_lab_uses_current_api_port_and_migrates_legacy_defaults() -> None:
+    workflow_lab = REPO_ROOT / "docs" / "text-to-image-workflow-lab.html"
+    text = workflow_lab.read_text(encoding="utf-8")
+
+    assert '<input id="apiBase" value="http://127.0.0.1:6789"' in text
+    assert 'String(value || "http://127.0.0.1:6789")' in text
+    assert "顶部 API 是 http://127.0.0.1:6789" in text
+    assert text.count('"http://127.0.0.1:8888"') == 1
+    assert text.count('"http://127.0.0.1:8899"') == 1
+    assert "obsoleteApiBases.has(savedApiBase)" in text
+    assert '} else if (savedApiBase) {' in text
+
+
 def test_obsolete_omnivoice_qwen_asr_compat_script_is_removed() -> None:
     assert not (SCRIPT_DIR / "sync_omnivoice_qwen_asr_compat.ps1").exists()
