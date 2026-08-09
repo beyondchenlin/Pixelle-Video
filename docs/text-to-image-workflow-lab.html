@@ -1576,7 +1576,7 @@
           </div>
 
           <p class="hint">
-            当前机器的 8888 端口可能被其他服务占用；如果 Pixelle API 用了新端口，直接在顶部 API 输入框调整。
+            Pixelle API 默认使用 6789 端口；如果启动时覆盖了端口，直接在顶部 API 输入框调整。
           </p>
         </div>
       </section>
@@ -3236,9 +3236,9 @@
     });
 
     const savedApiBase = localStorage.getItem("pixelle.workflowLab.apiBase");
-    if (savedApiBase && savedApiBase !== "http://127.0.0.1:8888") {
+    if (savedApiBase && savedApiBase !== "http://127.0.0.1:6789") {
       $("#apiBase").value = savedApiBase;
-    } else if (savedApiBase === "http://127.0.0.1:8888") {
+    } else if (savedApiBase === "http://127.0.0.1:6789") {
       localStorage.removeItem("pixelle.workflowLab.apiBase");
     }
     resetState();

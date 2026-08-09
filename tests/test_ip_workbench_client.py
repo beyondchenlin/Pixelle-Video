@@ -23,7 +23,7 @@ def test_http_ip_workbench_client_wraps_asset_bible_helpers():
         return {"success": True, "application": {"prompt_plan": {"prompt_plan_id": "plan_1"}}}
 
     client = HttpStoryboardIPWorkbenchClient(
-        api_base_url="http://localhost:8888/api/",
+        api_base_url="http://localhost:6789/api/",
         asset_bible_loader=list_asset_bibles,
         scene_cast_loader=list_scene_casts,
         scene_cast_applier=apply_scene_cast_to_prompt_plan,
@@ -51,7 +51,7 @@ def test_http_ip_workbench_client_wraps_asset_bible_helpers():
         (
             "list_asset_bibles",
             {
-                "api_base_url": "http://localhost:8888/api",
+                "api_base_url": "http://localhost:6789/api",
                 "workspace_id": "workspace_1",
                 "project_id": "project_1",
             },
@@ -59,7 +59,7 @@ def test_http_ip_workbench_client_wraps_asset_bible_helpers():
         (
             "list_scene_casts",
             {
-                "api_base_url": "http://localhost:8888/api",
+                "api_base_url": "http://localhost:6789/api",
                 "workspace_id": "workspace_1",
                 "project_id": "project_1",
                 "asset_bible_id": "bible_demo",
@@ -68,7 +68,7 @@ def test_http_ip_workbench_client_wraps_asset_bible_helpers():
         (
             "apply",
             {
-                "api_base_url": "http://localhost:8888/api",
+                "api_base_url": "http://localhost:6789/api",
                 "workspace_id": "workspace_1",
                 "project_id": "project_1",
                 "asset_bible_id": "bible_demo",
@@ -164,7 +164,7 @@ def test_ip_workbench_client_factory_caches_http_by_api_base_url(monkeypatch):
     from web.state.ip_workbench_client import resolve_storyboard_ip_workbench_client
 
     monkeypatch.setenv("PIXELLE_WORKBENCH_CLIENT_MODE", "http")
-    session_state = {"api_base_url": "http://localhost:8888/api"}
+    session_state = {"api_base_url": "http://localhost:6789/api"}
 
     first = resolve_storyboard_ip_workbench_client(session_state, pixelle_video=None)
     second = resolve_storyboard_ip_workbench_client(session_state, pixelle_video=None)
@@ -172,7 +172,7 @@ def test_ip_workbench_client_factory_caches_http_by_api_base_url(monkeypatch):
     assert first is second
     assert session_state["storyboard_ip_workbench_client_cache_key"] == (
         "http",
-        "http://localhost:8888/api",
+        "http://localhost:6789/api",
     )
 
 
@@ -187,6 +187,6 @@ def test_formal_ip_workbench_ui_sources_do_not_import_http_helpers():
             "web.utils.asset_bible_api",
             "httpx",
             "DEFAULT_API_BASE_URL",
-            "localhost:8888",
+            "localhost:6789",
         ):
             assert token not in source

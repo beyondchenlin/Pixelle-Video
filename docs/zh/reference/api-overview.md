@@ -48,10 +48,10 @@ await pixelle.initialize()
 启动 API 服务：
 
 ```bash
-uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
+uv run uvicorn api.app:app --host 127.0.0.1 --port 6789
 ```
 
-本地开发时，Web 界面默认通过 `http://localhost:8001/api` 调用 Pixelle API。Swagger 文档地址为 `http://localhost:8001/docs`，健康检查地址为 `http://localhost:8001/health`。
+本地开发时，Web 界面默认通过 `http://localhost:6789/api` 调用 Pixelle API。Swagger 文档地址为 `http://localhost:6789/docs`，健康检查地址为 `http://localhost:6789/health`。
 
 ### 视频生成 - 同步
 
@@ -83,7 +83,7 @@ uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
 {
   "success": true,
   "message": "Success",
-  "video_url": "http://localhost:8001/api/files/xxx/final.mp4",
+  "video_url": "http://localhost:6789/api/files/xxx/final.mp4",
   "duration": 45.5,
   "file_size": 12345678
 }
@@ -116,7 +116,7 @@ uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
   "task_id": "abc123",
   "status": "completed",
   "result": {
-    "video_url": "http://localhost:8001/api/files/xxx/final.mp4",
+    "video_url": "http://localhost:6789/api/files/xxx/final.mp4",
     "duration": 45.5,
     "file_size": 12345678
   }
@@ -151,4 +151,4 @@ uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
 
 ## 更多信息
 
-API 文档也可通过 Swagger UI 访问：`http://localhost:8001/docs`
+API 文档也可通过 Swagger UI 访问：`http://localhost:6789/docs`

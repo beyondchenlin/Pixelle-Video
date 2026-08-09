@@ -655,7 +655,7 @@ def test_storyboard_advanced_controls_shows_workbench_hint_when_editing_disabled
     fake_ui.session_state.update(
         {
             "storyboard_planning_enabled": False,
-            "api_base_url": "http://localhost:8888/api",
+            "api_base_url": "http://localhost:6789/api",
             "project_id": "project_1",
             "workspace_id": "workspace_1",
         }

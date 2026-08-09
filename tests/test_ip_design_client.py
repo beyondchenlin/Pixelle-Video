@@ -42,7 +42,7 @@ def test_http_ip_design_client_wraps_asset_bible_helpers():
         return {"success": True, "scene_cast": {"scene_cast_id": kwargs["scene_cast_id"]}}
 
     client = HttpIPDesignClient(
-        api_base_url="http://localhost:8888/api/",
+        api_base_url="http://localhost:6789/api/",
         asset_bible_loader=list_asset_bibles,
         asset_bible_getter=load_asset_bible,
         asset_bible_saver=save_asset_bible,
@@ -111,7 +111,7 @@ def test_http_ip_design_client_wraps_asset_bible_helpers():
         "load_scene_cast",
         "save_scene_cast",
     ]
-    assert all(call["api_base_url"] == "http://localhost:8888/api" for _, call in calls)
+    assert all(call["api_base_url"] == "http://localhost:6789/api" for _, call in calls)
 
 
 def test_inprocess_ip_design_client_uses_asset_repository_without_http():
@@ -460,7 +460,7 @@ def test_ip_design_client_factory_caches_http_by_api_base_url(monkeypatch):
     from web.state.ip_design_client import resolve_ip_design_client
 
     monkeypatch.setenv("PIXELLE_WORKBENCH_CLIENT_MODE", "http")
-    session_state = {"api_base_url": "http://localhost:8888/api"}
+    session_state = {"api_base_url": "http://localhost:6789/api"}
 
     first = resolve_ip_design_client(session_state, pixelle_video=None)
     second = resolve_ip_design_client(session_state, pixelle_video=None)
@@ -468,5 +468,5 @@ def test_ip_design_client_factory_caches_http_by_api_base_url(monkeypatch):
     assert first is second
     assert session_state["ip_design_client_cache_key"] == (
         "http",
-        "http://localhost:8888/api",
+        "http://localhost:6789/api",
     )

@@ -57,8 +57,10 @@ def test_obsolete_dual_backend_batch_launchers_are_removed() -> None:
 
 def test_root_readmes_document_fixed_local_backend_ports() -> None:
     expected_tokens = (
-        "uv run uvicorn api.app:app --host 127.0.0.1 --port 8888",
-        "http://localhost:8888/health",
+        "uv run uvicorn api.app:app --host 127.0.0.1 --port 6789",
+        "http://localhost:6789/health",
+        "http://localhost:6789/docs",
+        "http://localhost:6789/api",
         "http://localhost:8501",
         "http://127.0.0.1:8000",
         r"scripts\comfyui\start_backend.bat",

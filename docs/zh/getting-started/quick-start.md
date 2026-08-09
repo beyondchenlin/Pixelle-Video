@@ -28,7 +28,7 @@ start_web.bat
 
 ```bash
 # 终端 1：启动 Pixelle API（FastAPI，供 Web 界面调用）
-uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
+uv run uvicorn api.app:app --host 127.0.0.1 --port 6789
 ```
 
 ```bash
@@ -36,10 +36,10 @@ uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
 uv run streamlit run web/app.py
 ```
 
-浏览器会自动打开 `http://localhost:8501`。API 健康检查地址为 `http://localhost:8001/health`，Swagger 文档地址为 `http://localhost:8001/docs`。
+浏览器会自动打开 `http://localhost:8501`。API 健康检查地址为 `http://localhost:6789/health`，Swagger 文档地址为 `http://localhost:6789/docs`。
 
 !!! note "API 必须运行"
-    `uv run streamlit run web/app.py` 只会启动 Web 界面，不会自动启动 Pixelle API。Stage1/Stage2 的工作台、分镜候选图和状态查询等功能需要 `http://localhost:8001/api` 可用。
+    `uv run streamlit run web/app.py` 只会启动 Web 界面，不会自动启动 Pixelle API。Stage1/Stage2 的工作台、分镜候选图和状态查询等功能需要 `http://localhost:6789/api` 可用。
 
 ---
 
