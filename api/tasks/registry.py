@@ -11,6 +11,7 @@ from typing import Callable
 from api.tasks.artifacts import ArtifactStore
 from api.tasks.lease import GenerationLease, LostLeaseError
 from api.tasks.models import (
+    ACTIVE_TASK_STATUSES,
     ArtifactStatus,
     ClaimedTask,
     ReserveOutcome,
@@ -21,8 +22,6 @@ from api.tasks.models import (
     utc_now,
 )
 from api.tasks.store import LostTaskLeaseError, TaskAlreadyExistsError, TaskStore
-
-ACTIVE_TASK_STATUSES = {TaskStatus.PENDING, TaskStatus.RUNNING}
 
 
 class GenerationRegistry:
@@ -242,14 +241,27 @@ class GenerationRegistry:
         )
 
     async def cancel(self, task_id: str) -> bool:
-        task = await self.store.get_task(task_id)
-        if task is None:
-            return False
+        for _attempt in range(5):
+            task = await self.store.get_task(task_id)
+            if task is None or task.status not in ACTIVE_TASK_STATUSES:
+                return False
 
-        cancelled = await self.store.cancel_task(task_id)
-        if cancelled and task.owner_id and task.lease_token:
-            await self.lease.release_task_lease(task_id, task.owner_id, task.lease_token)
-        return cancelled
+            cancelled = await self.store.cancel_task(
+                task_id,
+                expected_owner_id=task.owner_id,
+                expected_lease_token=task.lease_token,
+                require_lease_match=True,
+            )
+            if not cancelled:
+                continue
+            if task.owner_id and task.lease_token:
+                await self.lease.release_task_lease(
+                    task_id,
+                    task.owner_id,
+                    task.lease_token,
+                )
+            return True
+        return False
 
     async def get_task(self, task_id: str) -> Task | None:
         return await self.store.get_task(task_id)
@@ -292,8 +304,7 @@ class GenerationRegistry:
 
         await self.store.update_status(
             task_id=candidate.task_id,
-            status=TaskStatus.FAILED,
-            completed_at=utc_now(),
+            status=TaskStatus.COMPLETED,
             error="artifact missing",
             artifact_status=ArtifactStatus.MISSING,
         )

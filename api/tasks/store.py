@@ -6,7 +6,16 @@ import asyncio
 from datetime import datetime
 from typing import Protocol
 
-from api.tasks.models import ArtifactStatus, Task, TaskProgress, TaskStatus, TaskType, utc_now
+from api.tasks.models import (
+    TASK_STATUS_TRANSITION_SOURCES,
+    TERMINAL_TASK_STATUSES,
+    ArtifactStatus,
+    Task,
+    TaskProgress,
+    TaskStatus,
+    TaskType,
+    utc_now,
+)
 
 
 class TaskStoreError(RuntimeError):
@@ -23,6 +32,10 @@ class TaskNotFoundError(TaskStoreError):
 
 class LostTaskLeaseError(TaskStoreError):
     """Raised when a stale owner or lease token attempts to write state."""
+
+
+class InvalidTaskTransitionError(TaskStoreError):
+    """Raised when persisted task state would move backward or resurrect."""
 
 
 class TaskStore(Protocol):
@@ -108,7 +121,14 @@ class TaskStore(Protocol):
     async def count_tasks(self, status: TaskStatus | None) -> int:
         raise NotImplementedError
 
-    async def cancel_task(self, task_id: str) -> bool:
+    async def cancel_task(
+        self,
+        task_id: str,
+        *,
+        expected_owner_id: str | None = None,
+        expected_lease_token: str | None = None,
+        require_lease_match: bool = False,
+    ) -> bool:
         raise NotImplementedError
 
 
@@ -201,6 +221,11 @@ class InMemoryTaskStore:
                 expected_lease_token=expected_lease_token,
             )
 
+            if task.status not in TASK_STATUS_TRANSITION_SOURCES[status]:
+                raise InvalidTaskTransitionError(
+                    f"task {task_id} cannot transition from {task.status.value} to {status.value}"
+                )
+
             task.status = status
             if owner_id is not None:
                 task.owner_id = owner_id
@@ -216,6 +241,9 @@ class InMemoryTaskStore:
                 task.result = result
             if artifact_status is not None:
                 task.artifact_status = artifact_status
+            if status in TERMINAL_TASK_STATUSES:
+                task.lease_token = None
+                task.completed_at = completed_at or task.completed_at or utc_now()
             task.updated_at = utc_now()
 
     async def update_progress(
@@ -233,6 +261,10 @@ class InMemoryTaskStore:
                 expected_owner_id=expected_owner_id,
                 expected_lease_token=expected_lease_token,
             )
+            if task.status != TaskStatus.RUNNING:
+                raise InvalidTaskTransitionError(
+                    f"task {task_id} progress cannot change while {task.status.value}"
+                )
             task.progress = progress.model_copy(deep=True)
             task.updated_at = utc_now()
 
@@ -323,16 +355,29 @@ class InMemoryTaskStore:
                 return len(self._tasks)
             return sum(1 for task in self._tasks.values() if task.status == status)
 
-    async def cancel_task(self, task_id: str) -> bool:
+    async def cancel_task(
+        self,
+        task_id: str,
+        *,
+        expected_owner_id: str | None = None,
+        expected_lease_token: str | None = None,
+        require_lease_match: bool = False,
+    ) -> bool:
         async with self._lock:
             task = self._tasks.get(task_id)
             if task is None:
                 return False
             if task.status not in {TaskStatus.PENDING, TaskStatus.RUNNING}:
                 return False
+            if require_lease_match and (
+                task.owner_id != expected_owner_id
+                or task.lease_token != expected_lease_token
+            ):
+                return False
 
             now = utc_now()
             task.status = TaskStatus.CANCELLED
+            task.owner_id = None
             task.lease_token = None
             task.completed_at = now
             task.updated_at = now

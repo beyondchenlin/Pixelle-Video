@@ -72,7 +72,7 @@ async def test_registry_reuses_completed_only_when_artifact_exists():
 
 
 @pytest.mark.asyncio
-async def test_registry_marks_completed_missing_artifact_failed_before_regenerating():
+async def test_registry_marks_completed_artifact_missing_without_rewriting_terminal_history():
     artifact_store = MissingArtifactStore(existing_keys=set())
     ids = iter(["task-old", "task-new"])
     registry = GenerationRegistry(
@@ -104,9 +104,9 @@ async def test_registry_marks_completed_missing_artifact_failed_before_regenerat
 
     assert new.created is True
     assert new.task.task_id == "task-new"
-    failed_old = await registry.get_task("task-old")
-    assert failed_old.status == TaskStatus.FAILED
-    assert failed_old.artifact_status == ArtifactStatus.MISSING
+    completed_old = await registry.get_task("task-old")
+    assert completed_old.status == TaskStatus.COMPLETED
+    assert completed_old.artifact_status == ArtifactStatus.MISSING
 
 
 @pytest.mark.asyncio
