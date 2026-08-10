@@ -75,18 +75,12 @@ def _request_from_legacy_controls(
     *,
     ip_profile: Any,
 ) -> SeriesVisualSignatureRequest:
-    enabled = bool(controls.get("series_visual_signature_enabled", False))
-    if not enabled:
-        return SeriesVisualSignatureRequest.disabled()
-
     payload = {
         key: value
         for key, value in controls.items()
         if value is not None
     }
-    payload["series_visual_signature_enabled"] = True
-    payload.setdefault("series_visual_signature_role", "auto")
-    return SeriesVisualSignatureRequest.from_mapping(
+    request = SeriesVisualSignatureRequest.from_mapping(
         payload,
         profile_id=getattr(
             ip_profile,
@@ -94,6 +88,7 @@ def _request_from_legacy_controls(
             None,
         ),
     )
+    return request
 
 
 __all__ = ["ImagePromptComposer", "VisualPromptComposer"]
