@@ -30,7 +30,7 @@ class SignatureReplacementPolicy(str, Enum):
 
 
 MAX_TRAIT_CHARS = 64
-SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION = "v4_5_single_runtime"
+SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION = "v4_2_identity_contract"
 _FORBIDDEN_TRAIT_TERMS = (
     "always",
     "every scene",
@@ -51,9 +51,9 @@ _FORBIDDEN_TRAIT_TERMS = (
 class SeriesVisualSignatureRequest:
     """Canonical request for a recurring visual signature.
 
-    The request is global and provider-agnostic. Compatibility presentation
-    controls may still enter through ``compatibility_options`` while callers are
-    migrated, but there is only one request type and one role field.
+    Product-level compatibility controls may still enter through
+    ``compatibility_options`` while callers migrate, but runtime identity and
+    role selection use this single request type.
     """
 
     enabled: bool = False
@@ -91,7 +91,11 @@ class SeriesVisualSignatureRequest:
         )
         object.__setattr__(self, "user_hint", _optional_text(self.user_hint, max_chars=300))
         object.__setattr__(self, "asset_bible_id", _optional_text(self.asset_bible_id))
-        object.__setattr__(self, "generation_world_hint", _optional_text(self.generation_world_hint, max_chars=4000))
+        object.__setattr__(
+            self,
+            "generation_world_hint",
+            _optional_text(self.generation_world_hint, max_chars=4000),
+        )
         object.__setattr__(self, "compatibility_options", dict(self.compatibility_options or {}))
 
     @classmethod
@@ -114,8 +118,20 @@ class SeriesVisualSignatureRequest:
             data.get("series_visual_signature_enabled", data.get("enabled", False)),
             "series_visual_signature_enabled",
         )
-        role_present = "series_visual_signature_role" in data or "role" in data
-        default_role = SeriesVisualSignatureRole.AUTO if enabled else SeriesVisualSignatureRole.NONE
+        raw_role = data.get("series_visual_signature_role", data.get("role"))
+        explicit_role_marker = data.get("series_visual_signature_role_was_explicit")
+        if explicit_role_marker is None:
+            role_was_explicit = raw_role not in (None, "", "none", "auto")
+        else:
+            role_was_explicit = _bool_value(
+                explicit_role_marker,
+                "series_visual_signature_role_was_explicit",
+            )
+        if enabled and raw_role in (None, "", "none") and not role_was_explicit:
+            raw_role = SeriesVisualSignatureRole.AUTO
+        if raw_role is None:
+            raw_role = SeriesVisualSignatureRole.NONE
+
         compatibility_options = {
             str(key): value
             for key, value in data.items()
@@ -129,13 +145,46 @@ class SeriesVisualSignatureRequest:
             profile_id=profile_id
             or data.get("series_visual_signature_profile_id")
             or data.get("profile_id"),
-            role=data.get("series_visual_signature_role", data.get("role", default_role)),
-            role_was_explicit=data.get("series_visual_signature_role_was_explicit", role_present),
+            role=raw_role,
+            role_was_explicit=role_was_explicit,
             max_area_ratio=data.get("series_visual_signature_max_area_ratio", data.get("max_area_ratio")),
             user_hint=data.get("series_visual_signature_user_hint", data.get("user_hint")),
-            generation_world_hint=generation_world_hint
-            or data.get("generation_world_hint"),
+            generation_world_hint=generation_world_hint or data.get("generation_world_hint"),
             compatibility_options=compatibility_options,
+        )
+
+    @classmethod
+    def from_legacy_params(
+        cls,
+        source: Mapping[str, Any] | None,
+        *,
+        asset_bible_id: str | None = None,
+        profile_id: str | None = None,
+        generation_world_hint: str | None = None,
+    ) -> "SeriesVisualSignatureRequest":
+        return cls.from_mapping(
+            source,
+            asset_bible_id=asset_bible_id,
+            profile_id=profile_id,
+            generation_world_hint=generation_world_hint,
+        )
+
+    @classmethod
+    def from_controls(cls, controls: Any) -> "SeriesVisualSignatureRequest":
+        if controls is None:
+            return cls.disabled()
+        if hasattr(controls, "to_request"):
+            request = controls.to_request()
+            if isinstance(request, cls):
+                return request
+        source = controls.to_dict() if hasattr(controls, "to_dict") else controls
+        if not isinstance(source, Mapping):
+            raise TypeError("controls must expose to_dict() or be a mapping")
+        return cls.from_mapping(
+            source,
+            asset_bible_id=getattr(controls, "asset_bible_id", None),
+            profile_id=getattr(controls, "profile_id", None),
+            generation_world_hint=getattr(controls, "generation_world_hint", None),
         )
 
     @classmethod
@@ -193,8 +242,10 @@ class SeriesVisualSignatureRequest:
     def validate(self) -> None:
         if not self.enabled:
             return
+        if self.asset_bible_id is None:
+            raise ValueError("asset_bible_id is required when series visual signature is enabled")
         if self.profile_id is None:
-            raise ValueError("series_visual_signature_profile_id is required when visual signature is enabled")
+            raise ValueError("profile_id is required when series visual signature is enabled")
 
     def to_generation_dict(self) -> dict[str, Any]:
         if not self.enabled:
