@@ -172,6 +172,32 @@ def test_canonical_visual_prompt_composer_has_no_legacy_signature_controls() -> 
     assert "series_visual_signature_profile_snapshot" in argument_names
 
 
+def test_canonical_composer_persists_bounded_signature_observability_only() -> None:
+    tree = _parse(VISUAL_PROMPT_COMPOSER)
+    assigned_snapshot_keys: set[str] = set()
+    for node in ast.walk(tree):
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets.extend(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets.append(node.target)
+        for target in targets:
+            if (
+                isinstance(target, ast.Subscript)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "planning_snapshot"
+                and isinstance(target.slice, ast.Constant)
+                and isinstance(target.slice.value, str)
+            ):
+                assigned_snapshot_keys.add(target.slice.value)
+
+    assert "series_visual_signature_request" not in assigned_snapshot_keys
+    assert "series_visual_signature_profile_v45" not in assigned_snapshot_keys
+    assert "series_visual_signature_request_audit" in assigned_snapshot_keys
+    assert "series_visual_signature_profile_ref" in assigned_snapshot_keys
+    assert "series_visual_signature_projection_audit" in assigned_snapshot_keys
+
+
 def test_legacy_image_prompt_composer_is_adapter_not_second_prompt_runtime() -> None:
     tree = _parse(IMAGE_PROMPT_COMPOSER)
     classes = {
@@ -193,3 +219,4 @@ def test_projection_policy_forbids_raw_observability_payloads() -> None:
     assert 'raw_prompt_retention: str = "forbidden"' in text
     assert 'raw_subject_retention: str = "forbidden"' in text
     assert 'raw_identity_trait_retention: str = "forbidden"' in text
+    assert 'raw_request_hint_retention: str = "forbidden"' in text
