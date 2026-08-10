@@ -13,6 +13,13 @@ from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureRequest,
     VisualSignatureProfileSnapshot,
 )
+from pixelle_video.models.series_visual_signature_projection_policy import (
+    DEFAULT_SERIES_VISUAL_SIGNATURE_PROJECTION_AUDIT_POLICY,
+    DEFAULT_SERIES_VISUAL_SIGNATURE_PROJECTION_BUDGET,
+    SeriesVisualSignatureProjectionAuditPolicy,
+    SeriesVisualSignatureProjectionBudget,
+    SeriesVisualSignatureProjectionMetrics,
+)
 from pixelle_video.services.final_visual_prompt_compiler import FinalVisualPromptCompiler
 from pixelle_video.services.series_visual_signature_contract_builder import (
     SeriesVisualSignatureContractBuilder,
@@ -28,7 +35,7 @@ class SeriesVisualSignatureFrameProjection:
     required_subjects: tuple[str, ...]
 
     def audit_dict(self) -> dict[str, Any]:
-        """Return bounded observability without duplicating full prompts."""
+        """Return bounded observability without duplicating protected content."""
 
         return {
             "frame_id": self.frame_id,
@@ -51,22 +58,48 @@ class SeriesVisualSignatureFrameProjection:
 @dataclass(frozen=True)
 class SeriesVisualSignatureProjectionBatch:
     frames: tuple[SeriesVisualSignatureFrameProjection, ...]
+    expected_frame_count: int
+    budget: SeriesVisualSignatureProjectionBudget = (
+        DEFAULT_SERIES_VISUAL_SIGNATURE_PROJECTION_BUDGET
+    )
+    audit_policy: SeriesVisualSignatureProjectionAuditPolicy = (
+        DEFAULT_SERIES_VISUAL_SIGNATURE_PROJECTION_AUDIT_POLICY
+    )
 
     @property
     def prompts(self) -> list[str]:
         return [frame.bundle.positive_prompt for frame in self.frames]
 
+    @property
+    def metrics(self) -> SeriesVisualSignatureProjectionMetrics:
+        return SeriesVisualSignatureProjectionMetrics(
+            expected_frame_count=self.expected_frame_count,
+            projected_frame_count=len(self.frames),
+            unique_frame_count=len({frame.frame_id for frame in self.frames}),
+        )
+
     def audit_dict(self) -> dict[str, Any]:
-        return {
-            "schema_version": "series_visual_signature_projection_audit.v1",
-            "frame_count": len(self.frames),
-            "all_frames_passed": True,
+        metrics = self.metrics
+        payload = {
+            "schema_version": self.audit_policy.schema_version,
+            "audit_policy": self.audit_policy.to_dict(),
+            **metrics.to_dict(),
             "frames": [frame.audit_dict() for frame in self.frames],
         }
+        self.budget.assert_audit_size(payload)
+        return payload
 
 
+@dataclass(frozen=True)
 class SeriesVisualSignatureProjectionService:
     """Single production source for V4.5 visual-signature prompt projection."""
+
+    budget: SeriesVisualSignatureProjectionBudget = (
+        DEFAULT_SERIES_VISUAL_SIGNATURE_PROJECTION_BUDGET
+    )
+    audit_policy: SeriesVisualSignatureProjectionAuditPolicy = (
+        DEFAULT_SERIES_VISUAL_SIGNATURE_PROJECTION_AUDIT_POLICY
+    )
 
     def project_batch(
         self,
@@ -81,6 +114,8 @@ class SeriesVisualSignatureProjectionService:
         base_negative_prompts: Sequence[str | None] | None = None,
     ) -> SeriesVisualSignatureProjectionBatch:
         count = len(frame_ids)
+        if count <= 0:
+            raise ValueError("visual signature projection requires at least one frame")
         if len(base_prompts) != count or len(frame_contexts) != count:
             raise ValueError(
                 "visual signature projection requires prompt, frame id, and frame context counts to match"
@@ -94,11 +129,20 @@ class SeriesVisualSignatureProjectionService:
         if not request.enabled:
             raise ValueError("visual signature projection requires an enabled request")
 
+        self.budget.assert_batch_inputs(
+            frame_ids=frame_ids,
+            base_prompts=base_prompts,
+            base_negative_prompts=base_negative_prompts,
+        )
+        self.budget.assert_profile(profile)
+
         plans_by_frame = {plan.frame_id: plan for plan in article_concretization_plans}
         if len(plans_by_frame) != len(article_concretization_plans):
             raise ValueError("article concretization plans must have unique frame ids")
         briefs = dict(base_visual_briefs_by_frame or {})
 
+        # Projection is atomic at batch-observability level: if any frame fails,
+        # this method raises and no successful batch/audit object is returned.
         frames = tuple(
             self.project_frame(
                 frame_id=frame_id,
@@ -112,7 +156,20 @@ class SeriesVisualSignatureProjectionService:
             )
             for index, frame_id in enumerate(frame_ids)
         )
-        return SeriesVisualSignatureProjectionBatch(frames=frames)
+        batch = SeriesVisualSignatureProjectionBatch(
+            frames=frames,
+            expected_frame_count=count,
+            budget=self.budget,
+            audit_policy=self.audit_policy,
+        )
+        if not batch.metrics.all_frames_passed:
+            raise RuntimeError(
+                "visual signature projection produced incomplete batch coverage; "
+                "partial projection must not be published"
+            )
+        # Validate persistence size before returning the production batch.
+        batch.audit_dict()
+        return batch
 
     def project_frame(
         self,
@@ -132,6 +189,15 @@ class SeriesVisualSignatureProjectionService:
             raise ValueError("visual signature projection requires frame_id")
         if not base_prompt:
             raise ValueError("visual signature projection requires a signature-free base prompt")
+        if not request.enabled:
+            raise ValueError("visual signature projection requires an enabled request")
+
+        self.budget.assert_batch_inputs(
+            frame_ids=(frame_id,),
+            base_prompts=(base_prompt,),
+            base_negative_prompts=(base_negative_prompt,),
+        )
+        self.budget.assert_profile(profile)
 
         required_subjects = _required_subjects(
             article_plan=article_plan,
@@ -143,6 +209,7 @@ class SeriesVisualSignatureProjectionService:
                 "visual signature projection requires structured required subjects; "
                 "an empty subject set cannot satisfy subject-preservation invariants"
             )
+        self.budget.assert_required_subjects(required_subjects)
 
         article_payload, render_payload, visible_text_policy, task, role_context = (
             _projection_context(
