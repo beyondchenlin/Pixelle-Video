@@ -18,6 +18,33 @@ DEFAULT_MAX_REQUIRED_SUBJECT_CHARS = 256
 DEFAULT_MAX_IDENTITY_TRAITS = 32
 DEFAULT_MAX_PROJECTION_AUDIT_BYTES = 512 * 1024
 
+# Only fixed protocol field names may be retained in observability. Unknown
+# compatibility keys may be accepted at runtime while callers migrate, but their
+# names are user-controlled input and therefore must never be persisted.
+_AUDITABLE_SERIES_VISUAL_SIGNATURE_OPTION_KEYS = frozenset(
+    {
+        "series_visual_signature_enabled",
+        "series_visual_signature_asset_bible_id",
+        "series_visual_signature_profile_id",
+        "series_visual_signature_role",
+        "series_visual_signature_role_was_explicit",
+        "series_visual_signature_max_area_ratio",
+        "series_visual_signature_user_hint",
+        "series_visual_signature_pipeline_version",
+        "series_visual_signature_expression_mode",
+        "series_visual_signature_structure_mode",
+        "series_visual_signature_participation_mode",
+        "series_visual_signature_mode",
+        "series_visual_signature_consistency_mode",
+        "series_visual_signature_presentation_mode",
+        "series_visual_signature_enforcement",
+        "series_visual_signature_fallback_enabled",
+        "series_visual_signature_fallback_mode",
+        "series_visual_signature_min_visibility",
+        "series_visual_signature_strategy",
+    }
+)
+
 
 @dataclass(frozen=True)
 class SeriesVisualSignatureProjectionBudget:
@@ -228,6 +255,12 @@ class SeriesVisualSignatureProjectionAuditPolicy:
         self,
         request: SeriesVisualSignatureRequest,
     ) -> dict[str, Any]:
+        compatibility_option_keys = {
+            str(key) for key in request.compatibility_options.keys()
+        }
+        auditable_option_keys = sorted(
+            compatibility_option_keys & _AUDITABLE_SERIES_VISUAL_SIGNATURE_OPTION_KEYS
+        )
         return {
             "enabled": request.enabled,
             "pipeline_version": request.pipeline_version,
@@ -235,7 +268,12 @@ class SeriesVisualSignatureProjectionAuditPolicy:
             "role": request.role.value,
             "role_was_explicit": request.role_was_explicit,
             "max_area_ratio": request.max_area_ratio,
-            "compatibility_option_keys": sorted(request.compatibility_options.keys()),
+            "compatibility_option_keys": auditable_option_keys,
+            "compatibility_option_count": len(compatibility_option_keys),
+            "unrecognized_compatibility_option_count": len(
+                compatibility_option_keys
+                - _AUDITABLE_SERIES_VISUAL_SIGNATURE_OPTION_KEYS
+            ),
             "contains_user_hint": request.user_hint is not None,
             "contains_generation_world_hint": request.generation_world_hint is not None,
         }
