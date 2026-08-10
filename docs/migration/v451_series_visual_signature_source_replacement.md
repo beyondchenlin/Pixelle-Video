@@ -1,10 +1,10 @@
 # V4.5.1 Series Visual Signature Source Replacement
 
-This is a breaking cleanup patch. It is designed for source-level replacement, not suppressions.
+This migration ends with one production runtime contract, but the replacement is staged. The current production executor must not be physically removed before the V4.5 candidate path is complete, shadow-observed, and explicitly cut over.
 
-## Verdict
+## Target architecture
 
-The old IP / Visual Role runtime must leave the production source path. Recurring characters, mascot-like identities, dogs, Xiaohei-like figures, and brand characters must use one runtime contract only:
+The final production source path is:
 
 ```text
 SeriesVisualSignatureRequest
@@ -12,32 +12,85 @@ SeriesVisualSignatureRequest
 -> SeriesVisualSignatureContract
 -> FinalVisualPromptContractV45
 -> ArticleConcretizationPromptCompiler
+-> final prompt gate
 -> ZImagePromptBundle
 -> provider_z_image_adapter
 ```
 
-## What must be physically removed
+`provider_z_image_adapter` is a mechanical projection boundary. It must not reinterpret business constraints or repair prompts.
 
-Run these commands in the real repository after applying the patch. These are source removals, not suppressions:
+## Migration stages
 
-```powershell
-git rm -- pixelle_video/models/visual_role_request.py
-git rm -- pixelle_video/models/visual_role_strategy.py
-git rm -- pixelle_video/services/visual_anchor_integration_planner.py
-git rm -- pixelle_video/services/visual_role_prompt_projector.py
-git rm -- pixelle_video/services/visual_role_scene_planner.py
-git rm -- pixelle_video/services/visual_role_prompt_critic.py
-git rm -- pixelle_video/services/visual_role_repair_loop.py
-git rm -- web/components/ip_prompt_chain_controls.py
-git rm -- web/components/content_ip_world_controls.py
-git rm -- web/components/style_config_ip_controls.py
+### Stage 1: remove duplicate request facts without removing the production executor
+
+- `SeriesVisualSignatureRequest` has one canonical runtime definition.
+- Legacy/product controls may remain only as compatibility adapters that produce the canonical request.
+- Serialization must keep canonical normalized values authoritative; compatibility fields must not overwrite them.
+- Profile resolution must fail explicitly. A profile ID must never be fabricated into a display name or identity trait.
+
+### Stage 2: make the V4.5 candidate path safe to switch
+
+The candidate path must satisfy all of these invariants before shadow observation:
+
+- contract object -> dict -> compiler round trips keep the visual signature enabled and intact;
+- required source subjects are present in the model-visible positive prompt;
+- required subjects and identity traits are protected prompt sections and are never silently truncated;
+- if protected semantics exceed the provider prompt budget, compilation fails explicitly;
+- automatic role selection uses one context-aware resolver rather than a hard-coded role;
+- final prompt validation checks required subjects, identity name, identity traits, negative protections, and visible-text policy before provider projection;
+- provider projection remains mechanical.
+
+### Stage 3: same-frame shadow comparison
+
+The production prompt remains authoritative while the V4.5 candidate path runs beside it at prompt/contract level.
+
+The shadow path is observational only:
+
+- it must never replace or mutate the production prompt;
+- unexpected shadow exceptions are converted into failed shadow observations and must not interrupt production generation;
+- it does not issue a second image-generation request by default, so observation does not double provider cost;
+- production and candidate prompts are recorded per frame;
+- required-subject and identity presence are recorded separately for production and candidate prompts;
+- candidate final-gate and provider-projection results are recorded;
+- missing same-frame candidate coverage is a cutover blocker;
+- optional production/candidate render-result fields are reserved for an explicit later A/B media experiment.
+
+The strict cutover qualification is:
+
+```text
+shadow coverage rate == 100%
+candidate pass rate == 100%
+failed candidate frames == 0
+global shadow errors == 0
 ```
 
-If a path does not exist in your branch, leave it absent. Do not recreate compatibility wrappers.
+This qualification means "eligible for an explicit cutover decision". It does not automatically switch production traffic.
 
-## What may remain
+The runtime snapshot key is:
 
-Structured identity assets may remain after migration, but only as `VisualSignatureProfileSnapshot` fields:
+```text
+series_visual_signature_shadow_comparison
+```
+
+### Stage 4: explicit production cutover
+
+After representative deployed traffic demonstrates stable shadow qualification, submit a separate cutover change that routes the default production path through the canonical V4.5 chain.
+
+The cutover change must preserve rollback ability and must not delete the old executor in the same step.
+
+### Stage 5: physical source deletion
+
+Only after the new production path is stable may old execution services, duplicate article-level role/contract types, compatibility imports, and obsolete UI controls be physically removed.
+
+Do not recreate deleted runtime types as compatibility wrappers after this stage.
+
+## What may remain during staged migration
+
+The current `VisualPromptPlanningService` and visual-anchor execution path may remain while they still carry production traffic.
+
+Article concretization may also retain frame-level intermediate role/contract objects until the canonical V4.5 contract owns the production provider boundary. Those intermediate types must not become a second provider-facing fact source.
+
+Structured identity assets may remain, but `VisualSignatureProfileSnapshot` itself contains identity facts only:
 
 ```text
 series_visual_signature_profile_id
@@ -45,30 +98,31 @@ display_name
 identity_traits
 style_safe_traits
 forbidden_traits
+source_asset_ids
 ```
 
-Profiles must not carry paragraph prompts, provider prompts, scene prompts, or old runtime fields.
+Profiles must not carry paragraph prompts, provider prompts, scene prompts, or deprecated runtime fields.
 
-## Required integration edits in your local tree
+## Architecture and CI gates
 
-This patch adds the new infrastructure and failing architecture gates. Because this environment does not include your complete local source tree, the existing production call sites must be edited in your worktree as follows:
+The repository must enforce:
 
-1. API schema accepts only `series_visual_signature_*` fields and rejects old keys with `extra="forbid"`.
-2. Web UI removes old IP/Visual Role controls and emits only `series_visual_signature_*` fields.
-3. Generation contract stores `SeriesVisualSignatureRequest`, not old role/IP fields.
-4. Planning services build `SeriesVisualSignatureContract` through `SeriesVisualSignaturePlanningService` for article and non-article paths.
-5. Final prompt contract serializes `series_visual_signature`, not old role metadata.
-6. Provider code accepts only `ZImagePromptBundle` and never reads raw request params.
-7. Trace manifests prove no old runtime files or fields participated.
+- exactly one production definition of `SeriesVisualSignatureRequest`;
+- no deprecated IP/Visual Role runtime imports after their deletion stage;
+- object/dict prompt-contract round-trip coverage;
+- unresolved or mismatched profile failure coverage;
+- full required-subject preservation coverage;
+- context-aware automatic role coverage;
+- final prompt gate coverage;
+- provider adapter mechanical-projection coverage;
+- shadow comparison coverage, including missing-frame and candidate-failure cases;
+- prompt composer coverage proving shadow observation cannot replace production prompts.
 
-## Verification
+Run the dedicated workflow or equivalent commands:
 
 ```powershell
-python -m pytest tests/architecture/test_no_legacy_ip_runtime.py -q
-python -m pytest tests/models/test_series_visual_signature.py -q
-python -m pytest tests/services/test_series_visual_signature_contract_builder.py tests/services/test_series_visual_signature_planning_service.py -q
-python -m pytest tests/services/test_visible_text_prompt_rewriter.py tests/services/test_article_concretization_prompt_compiler.py tests/services/test_provider_z_image_adapter.py -q
-python -m ruff check pixelle_video/architecture pixelle_video/models/series_visual_signature.py pixelle_video/models/final_visual_prompt_contract_v45.py pixelle_video/models/z_image_prompt_bundle.py pixelle_video/services/series_visual_signature_contract_builder.py pixelle_video/services/series_visual_signature_planning_service.py pixelle_video/services/visible_text_prompt_rewriter.py pixelle_video/services/article_concretization_prompt_compiler.py pixelle_video/services/provider_z_image_adapter.py tests/architecture/test_no_legacy_ip_runtime.py tests/models/test_series_visual_signature.py tests/services/test_series_visual_signature_contract_builder.py tests/services/test_series_visual_signature_planning_service.py tests/services/test_visible_text_prompt_rewriter.py tests/services/test_article_concretization_prompt_compiler.py tests/services/test_provider_z_image_adapter.py
+python -m pytest -q tests/architecture/test_no_legacy_ip_runtime.py tests/models/test_series_visual_signature.py tests/models/test_series_visual_signature_request.py tests/services/test_series_visual_signature_*.py tests/services/test_article_concretization_prompt_compiler.py tests/services/test_provider_z_image_adapter.py
+python -m ruff check pixelle_video/models/series_visual_signature.py pixelle_video/models/series_visual_signature_request.py pixelle_video/services/series_visual_signature_*.py pixelle_video/services/article_concretization_prompt_compiler.py pixelle_video/services/provider_z_image_adapter.py pixelle_video/services/image_prompt_composer.py tests/architecture/test_no_legacy_ip_runtime.py tests/models/test_series_visual_signature.py tests/models/test_series_visual_signature_request.py tests/services/test_series_visual_signature_*.py tests/services/test_article_concretization_prompt_compiler.py tests/services/test_provider_z_image_adapter.py
 ```
 
-Do not use `git add .`. Stage explicit paths only.
+The dedicated Visual Signature CI workflow should be configured as a required check on `dev` in repository branch-protection settings once repository policy allows it.
