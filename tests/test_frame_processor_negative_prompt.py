@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from pixelle_video.models.media import MediaResult
 from pixelle_video.models.layered_template import LayeredTemplateSpec
+from pixelle_video.models.media import MediaResult
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.prompt_trace_artifacts import (

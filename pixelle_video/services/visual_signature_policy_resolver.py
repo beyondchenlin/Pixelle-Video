@@ -10,7 +10,6 @@ from pixelle_video.models.series_visual_signature_presentation import (
 from pixelle_video.models.visual_anchor_planning import AnchorCarrierType
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 
-
 _VISIBLE_CHARACTER_CARRIERS = (
     AnchorCarrierType.MINOR_SUPPORTING_CHARACTER.value,
     AnchorCarrierType.LIVING_CHARACTER.value,

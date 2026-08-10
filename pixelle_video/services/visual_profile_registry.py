@@ -7,7 +7,6 @@ import yaml
 
 from pixelle_video.models.visual_profile import VisualProfile
 
-
 BUILTIN_VISUAL_PROFILES: dict[str, dict[str, Any]] = {
     "article_cognitive_illustration": {
         "id": "article_cognitive_illustration",

@@ -15,15 +15,15 @@ from pixelle_video.models.visual_anchor_planning import (
     VisualAnchorPlacementPlan,
 )
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
+from pixelle_video.services.mandatory_ip_prompt_compiler import (
+    MandatoryIPParticipationError,
+    compile_mandatory_ip_participation_plan,
+)
 from pixelle_video.services.visual_anchor_policy import (
     anchor_identity_from_profile,
     infer_scene_anchor_affordances,
     is_scene_bound_anchor_candidate,
     sanitize_provider_anchor_clause,
-)
-from pixelle_video.services.mandatory_ip_prompt_compiler import (
-    MandatoryIPParticipationError,
-    compile_mandatory_ip_participation_plan,
 )
 from pixelle_video.services.visual_signature_clause_renderer import (
     render_visual_signature_candidate_clause,

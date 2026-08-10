@@ -8,7 +8,6 @@ from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.models.visual_profile import VisualProfile
 from pixelle_video.services.visual_quality_gate import VisualQualityGate
 
-
 VISUAL_PROFILE_PROMPT_MARKER = "Visual profile contract:"
 
 

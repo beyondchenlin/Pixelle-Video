@@ -8,8 +8,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from web.components import style_config
-from web.components import output_preview
+from web.components import output_preview, style_config
 
 
 class _FakeUpload:

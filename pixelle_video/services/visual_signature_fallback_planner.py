@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from pixelle_video.models.asset_bible import IPProfile
@@ -20,7 +19,9 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
-from pixelle_video.services.mandatory_ip_prompt_compiler import compile_mandatory_ip_participation_plan
+from pixelle_video.services.mandatory_ip_prompt_compiler import (
+    compile_mandatory_ip_participation_plan,
+)
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 from pixelle_video.services.visual_signature_policy_resolver import (
     policy_for_presentation_mode,

@@ -1,6 +1,8 @@
 from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
-from pixelle_video.models.series_visual_signature_presentation import SeriesVisualSignaturePresentationPolicy
+from pixelle_video.models.series_visual_signature_presentation import (
+    SeriesVisualSignaturePresentationPolicy,
+)
 from pixelle_video.models.visual_anchor_planning import AnchorCarrierType
 from pixelle_video.services.visual_signature_fallback_planner import (
     VisualSignatureFallbackPlanner,

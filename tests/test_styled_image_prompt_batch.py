@@ -7,7 +7,9 @@ from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec, StyleSourceSpec
-from pixelle_video.services.mandatory_ip_prompt_compiler import compile_mandatory_ip_participation_plan
+from pixelle_video.services.mandatory_ip_prompt_compiler import (
+    compile_mandatory_ip_participation_plan,
+)
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_helper import (
     apply_no_text_policy,

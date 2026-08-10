@@ -11,8 +11,13 @@ from pixelle_video.models.visual_anchor_planning import (
     VisualAnchorPlacementPlan,
 )
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
-from pixelle_video.services.mandatory_ip_prompt_compiler import compile_mandatory_ip_participation_plan
-from pixelle_video.services.provider_prompt_projector import MandatoryIPProjectionError, ProviderPromptProjector
+from pixelle_video.services.mandatory_ip_prompt_compiler import (
+    compile_mandatory_ip_participation_plan,
+)
+from pixelle_video.services.provider_prompt_projector import (
+    MandatoryIPProjectionError,
+    ProviderPromptProjector,
+)
 
 
 def _profile() -> IPProfile:

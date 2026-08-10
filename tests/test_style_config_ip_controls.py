@@ -1,5 +1,5 @@
-from web.components import series_visual_signature_controls
 from web import i18n
+from web.components import series_visual_signature_controls
 
 
 class _FakeStyleConfigUI:

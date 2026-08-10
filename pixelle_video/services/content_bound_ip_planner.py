@@ -7,8 +7,8 @@ from typing import Any
 from pixelle_video.models.content_bound_ip import (
     CONTENT_BOUND_POLICY_VERSION,
     DEFAULT_FORBIDDEN_IP_FORMS,
-    IPParticipationMechanism,
     ContentBoundIPPresencePlan,
+    IPParticipationMechanism,
     contains_decorative_ip_language,
     contains_weak_ip_action_language,
     is_serious_content_text,

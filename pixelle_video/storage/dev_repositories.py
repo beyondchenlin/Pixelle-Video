@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from pixelle_video.storage.resilient_json_store import (
-    load_json_with_quarantine,
-    save_json_atomic,
-)
 
 from pixelle_video.models.artifact import Artifact, ArtifactVersion
 from pixelle_video.models.asset_bible import AssetBible
@@ -20,6 +14,10 @@ from pixelle_video.models.prompt_plan import PromptPlanBundle
 from pixelle_video.models.scene_cast import SceneCast
 from pixelle_video.models.stale_dependency import DependencyEdge, StaleMark
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
+from pixelle_video.storage.resilient_json_store import (
+    load_json_with_quarantine,
+    save_json_atomic,
+)
 
 JsonPayload = dict[str, object]
 

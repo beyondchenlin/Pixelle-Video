@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from pixelle_video import service as service_module
 from pixelle_video.config import config_manager
 from pixelle_video.config.schema import ComfyUIConfig, PixelleVideoConfig
 from pixelle_video.service import PixelleVideoCore

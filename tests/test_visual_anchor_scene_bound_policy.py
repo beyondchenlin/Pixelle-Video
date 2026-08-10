@@ -21,7 +21,6 @@ from pixelle_video.services.provider_prompt_projector import (
 )
 from pixelle_video.services.visual_anchor_policy import is_scene_bound_anchor_candidate
 
-
 FORBIDDEN_ANCHOR_WORDS = (
     "画面角落",
     "画面边角",

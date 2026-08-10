@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 TRUE_STRINGS = frozenset({"1", "true", "yes", "y", "on", "enabled"})
 FALSE_STRINGS = frozenset({"0", "false", "no", "n", "off", "disabled", ""})
 

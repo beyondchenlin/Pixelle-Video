@@ -1,7 +1,4 @@
-from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
 
 from pixelle_video.services import reference_image_workflow_binding as binding_module
 from pixelle_video.services.reference_image_workflow_binding import (

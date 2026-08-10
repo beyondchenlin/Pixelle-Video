@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from pixelle_video.services.visual_story_context_budget import compact_visual_anchor_contexts, compact_visual_story_frame_context
+from pixelle_video.services.visual_story_context_budget import (
+    compact_visual_anchor_contexts,
+    compact_visual_story_frame_context,
+)
 
 
 def test_visual_story_context_budget_removes_unbounded_fields():

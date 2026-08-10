@@ -18,7 +18,6 @@ from pixelle_video.models.mandatory_visual_anchor_integration import (
 )
 from pixelle_video.models.series_visual_signature_presentation import (
     SeriesVisualSignatureEnforcementMode,
-    SeriesVisualSignatureFallbackMode,
     SeriesVisualSignaturePresentationMode,
     SeriesVisualSignaturePresentationPolicy,
 )

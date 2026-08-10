@@ -3,10 +3,10 @@ import logging
 import pytest
 
 from pixelle_video.utils.template_util import (
-    get_template_type,
     get_supported_template_orientations,
     get_template_orientation,
     get_template_preview_path,
+    get_template_type,
     lint_repository_media_templates,
     parse_template_contract,
     resolve_compatible_template_for_orientation,

@@ -1,7 +1,9 @@
 from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
+from pixelle_video.models.series_visual_signature_presentation import (
+    SeriesVisualSignaturePresentationPolicy,
+)
 from pixelle_video.models.series_visual_signature_request import SeriesVisualSignatureRequest
-from pixelle_video.models.series_visual_signature_presentation import SeriesVisualSignaturePresentationPolicy
 from pixelle_video.models.video_generation_contract import IPControlsContract
 from pixelle_video.models.visual_anchor_planning import (
     AnchorCarrierType,
@@ -11,11 +13,13 @@ from pixelle_video.models.visual_anchor_planning import (
     VisualAnchorPlacementPlan,
 )
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
-from pixelle_video.services.mandatory_ip_prompt_compiler import compile_mandatory_ip_participation_plan
+from pixelle_video.services.mandatory_ip_prompt_compiler import (
+    compile_mandatory_ip_participation_plan,
+)
 from pixelle_video.services.provider_prompt_projector import ProviderPromptProjector
 from pixelle_video.services.visual_anchor_projection_gate import validate_visual_anchor_projection
-from pixelle_video.services.visual_signature_policy_resolver import policy_for_presentation_mode
 from pixelle_video.services.visual_signature_clause_renderer import render_visual_anchor_plan_clause
+from pixelle_video.services.visual_signature_policy_resolver import policy_for_presentation_mode
 
 
 def _profile() -> IPProfile:

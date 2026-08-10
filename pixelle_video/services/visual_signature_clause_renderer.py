@@ -6,9 +6,11 @@ from typing import Any
 
 from pixelle_video.models.visual_anchor_planning import AnchorCarrierType, VisualAnchorPlacementPlan
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
-from pixelle_video.services.visual_anchor_policy import is_content_bound_carrier_type, sanitize_provider_anchor_clause
+from pixelle_video.services.visual_anchor_policy import (
+    is_content_bound_carrier_type,
+    sanitize_provider_anchor_clause,
+)
 from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
-
 
 _IDENTITY_NOUN_HINTS = (
     "小黑",

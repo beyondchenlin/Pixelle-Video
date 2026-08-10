@@ -34,8 +34,8 @@ from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE
-from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE
 from pixelle_video.services.persistence import PersistenceService
+from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE
 
 
 def _storyboard_plan_from_segments(segments: list[str]) -> StoryboardPlan:

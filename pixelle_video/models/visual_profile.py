@@ -5,7 +5,6 @@ from typing import Any, Mapping, Sequence
 
 from pixelle_video.models.template_text_policy import normalize_template_text_policy
 
-
 VISUAL_PROFILE_SCHEMA_VERSION = "visual_profile.v1"
 
 

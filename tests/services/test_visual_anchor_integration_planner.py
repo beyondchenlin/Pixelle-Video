@@ -9,7 +9,9 @@ from pixelle_video.models.mandatory_visual_anchor_integration import (
     MandatoryVisualAnchorIntegrationPlanResponse,
     MandatoryVisualAnchorIntegrationResponse,
 )
-from pixelle_video.models.series_visual_signature_presentation import SeriesVisualSignaturePresentationPolicy
+from pixelle_video.models.series_visual_signature_presentation import (
+    SeriesVisualSignaturePresentationPolicy,
+)
 from pixelle_video.models.visual_anchor_planning import AnchorProminence
 from pixelle_video.services.series_visual_signature_anchor_planner import (
     VisualAnchorIntegrationPlanner,
