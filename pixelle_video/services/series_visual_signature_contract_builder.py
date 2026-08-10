@@ -40,20 +40,35 @@ class SeriesVisualSignatureContractBuilder:
         profile: VisualSignatureProfileSnapshot | Mapping[str, Any] | None = None,
         strict_user_mode: bool = False,
     ) -> SeriesVisualSignatureContract:
-        normalized_request = request if isinstance(request, SeriesVisualSignatureRequest) else SeriesVisualSignatureRequest.from_mapping(request)
+        normalized_request = (
+            request
+            if isinstance(request, SeriesVisualSignatureRequest)
+            else SeriesVisualSignatureRequest.from_mapping(request)
+        )
         if not normalized_request.enabled:
             return SeriesVisualSignatureContract.disabled()
-        if normalized_request.role is SeriesVisualSignatureRole.NONE:
-            return SeriesVisualSignatureContract.disabled(warnings=("series_visual_signature_role_none",))
-        normalized_profile = self._normalize_profile(profile, normalized_request.profile_id)
+
+        normalized_request.validate()
+        normalized_profile = self._normalize_profile(profile)
         if normalized_profile is None:
-            message = "enabled series visual signature requires series_visual_signature_profile_id"
-            if strict_user_mode:
-                raise ValueError(message)
-            return SeriesVisualSignatureContract.disabled(warnings=(message,))
+            profile_id = normalized_request.profile_id or "<missing>"
+            raise ValueError(
+                "enabled series visual signature profile could not be resolved: "
+                f"{profile_id}"
+            )
+        if normalized_profile.profile_id != normalized_request.profile_id:
+            raise ValueError(
+                "resolved series visual signature profile does not match request profile_id: "
+                f"requested={normalized_request.profile_id}, resolved={normalized_profile.profile_id}"
+            )
+
         role = self._resolve_role(normalized_request.role)
         requested_area = normalized_request.max_area_ratio
-        max_area_ratio = requested_area if requested_area is not None else _ROLE_MAX_AREA_RATIO[role]
+        max_area_ratio = (
+            requested_area
+            if requested_area is not None
+            else _ROLE_MAX_AREA_RATIO[role]
+        )
         return SeriesVisualSignatureContract(
             enabled=True,
             role=role,
@@ -61,7 +76,10 @@ class SeriesVisualSignatureContractBuilder:
             replacement_policy=SignatureReplacementPolicy.NO_SUBJECT_REPLACEMENT,
             max_area_ratio=max_area_ratio,
             participation_rule=_ROLE_RULES[role],
-            style_integration_rule="Draw the signature in the same render surface as the scene; never photorealistic unless the whole scene is photorealistic.",
+            style_integration_rule=(
+                "Draw the signature in the same render surface as the scene; "
+                "never photorealistic unless the whole scene is photorealistic."
+            ),
             forbidden_behaviors=(
                 "do not replace required article subjects",
                 "do not appear as a sticker, logo, watermark, or corner badge",
@@ -73,23 +91,17 @@ class SeriesVisualSignatureContractBuilder:
     def _normalize_profile(
         self,
         profile: VisualSignatureProfileSnapshot | Mapping[str, Any] | None,
-        profile_id: str | None,
     ) -> VisualSignatureProfileSnapshot | None:
         if isinstance(profile, VisualSignatureProfileSnapshot):
             return profile
         if isinstance(profile, Mapping):
             return VisualSignatureProfileSnapshot.from_mapping(profile)
-        if profile_id:
-            return VisualSignatureProfileSnapshot(
-                profile_id=profile_id,
-                display_name=profile_id,
-                identity_traits=(profile_id,),
-            )
         return None
 
     def _resolve_role(self, role: SeriesVisualSignatureRole) -> SeriesVisualSignatureRole:
-        if role is SeriesVisualSignatureRole.AUTO:
-            return SeriesVisualSignatureRole.GUIDE
+        # ``none`` used to leak in from article-concretization defaults even when
+        # the global visual signature switch was enabled. The global enabled flag
+        # owns presence; an unset/none role therefore means automatic role choice.
         if role in {SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO}:
-            raise ValueError("series visual signature requires a concrete role")
+            return SeriesVisualSignatureRole.GUIDE
         return role
