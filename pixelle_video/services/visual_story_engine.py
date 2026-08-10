@@ -71,7 +71,7 @@ class VisualStoryEngineService:
         if not normalized_source:
             raise ValueError("source_text is required for visual story engine")
 
-        analysis, raw_candidates, recommended_route_id = await self._analyze_routes(
+        analysis, raw_candidates = await self._analyze_routes(
             llm_service=llm_service,
             source_text=normalized_source,
             title=title,
@@ -88,7 +88,6 @@ class VisualStoryEngineService:
         )
         selection = self._select_route(
             candidates=candidates,
-            model_recommended_route_id=recommended_route_id,
             user_selected_route_id=user_selected_route_id,
             auto_select_after_seconds=auto_select_after_seconds,
         )
@@ -137,11 +136,10 @@ class VisualStoryEngineService:
         target_language: str,
         trace_context: Any,
         trace_recorder: LLMInteractionRecorder | None,
-    ) -> tuple[ArticleVisualUnderstanding, tuple[VisualRouteCandidate, ...], str]:
+    ) -> tuple[ArticleVisualUnderstanding, tuple[VisualRouteCandidate, ...]]:
         rendered_prompt = render_article_visual_route_analysis_prompt(
             source_text=source_text,
             title=title,
-            ip_profile=None,
             channel_strategy=channel_strategy,
             user_intent_hint=user_intent_hint,
             candidate_count=candidate_count,
@@ -187,10 +185,7 @@ class VisualStoryEngineService:
             )
             if not candidates:
                 raise ValueError("route analysis returned no route candidates")
-            recommended_route_id = str(
-                payload.get("recommended_route_id") or candidates[0].route_id
-            )
-            return article, candidates, recommended_route_id
+            return article, candidates
         except Exception as exc:
             logger.warning(
                 "Visual route analysis failed; using deterministic fallback: {} | payload_keys={}",
@@ -203,7 +198,6 @@ class VisualStoryEngineService:
         self,
         *,
         candidates: Sequence[VisualRouteCandidate],
-        model_recommended_route_id: str,
         user_selected_route_id: str | None,
         auto_select_after_seconds: int,
     ) -> RouteSelectionDecision:
@@ -224,7 +218,7 @@ class VisualStoryEngineService:
                 recommended_route_id=best.route_id,
                 selected_route_id=user_selected_route_id,
                 selection_source=RouteSelectionSource.USER_SELECTED,
-                reason="User selected visual route; overrides model/system default.",
+                reason="User selected visual route; overrides the deterministic content ranking.",
                 auto_select_after_seconds=auto_select_after_seconds,
                 user_overrode=user_selected_route_id != best.route_id,
                 low_confidence=low_confidence,
@@ -236,25 +230,22 @@ class VisualStoryEngineService:
                 selected_route_id=fallback.route_id,
                 selection_source=RouteSelectionSource.FALLBACK_CONSERVATIVE,
                 reason=(
-                    "Recommendation confidence was low; using a conservative "
-                    "content route with reliable visual explainability."
+                    "Content-route confidence was low; using a conservative route "
+                    "with reliable visual explainability."
                 ),
                 auto_select_after_seconds=auto_select_after_seconds,
                 low_confidence=True,
                 fallback_used=fallback.route_id != best.route_id,
                 fallback_reason="low_confidence_or_small_margin",
             )
-        selected = by_id.get(model_recommended_route_id, best)
-        if selected.final_score + DEFAULT_CONFIDENT_MARGIN < best.final_score:
-            selected = best
         return RouteSelectionDecision(
             recommended_route_id=best.route_id,
-            selected_route_id=selected.route_id,
+            selected_route_id=best.route_id,
             selection_source=RouteSelectionSource.API_AUTO,
             reason=(
-                "Default route selected by article fit, memorability, channel "
-                "consistency, production reliability, and risk. Recurring identity "
-                "does not participate in route ranking."
+                "Default route selected by deterministic article fit, memorability, "
+                "channel consistency, production reliability, and risk. Model-provided "
+                "final scores and recurring identity compatibility are ignored."
             ),
             auto_select_after_seconds=auto_select_after_seconds,
             low_confidence=False,
@@ -318,15 +309,44 @@ class VisualStoryEngineService:
 
 
 def _content_only_candidate(candidate: VisualRouteCandidate) -> VisualRouteCandidate:
-    payload = candidate.to_dict()
-    payload["recommended_ip_role"] = "none"
-    payload["ip_fit_reason"] = (
-        "Recurring identity is not evaluated in Visual Story; canonical V4.5 projection owns it."
+    source_scores = candidate.scores
+    content_scores = VisualRouteScores(
+        content_fit=source_scores.content_fit,
+        memorability=source_scores.memorability,
+        ip_compatibility=0.0,
+        channel_consistency=source_scores.channel_consistency,
+        production_reliability=source_scores.production_reliability,
+        risk=source_scores.risk,
+        final=_content_route_score(source_scores),
     )
-    scores = dict(payload.get("scores") or {})
-    scores["ip_compatibility"] = 0.5
-    payload["scores"] = scores
-    return VisualRouteCandidate.from_mapping(payload)
+    return VisualRouteCandidate(
+        route_id=candidate.route_id,
+        route_name=candidate.route_name,
+        route_type=candidate.route_type,
+        visual_premise=candidate.visual_premise,
+        why_it_fits_article=candidate.why_it_fits_article,
+        frame_storytelling_logic=candidate.frame_storytelling_logic,
+        style_family=candidate.style_family,
+        recommended_ip_role=VisualSignatureRole.NONE,
+        ip_fit_reason=(
+            "Recurring identity is out of scope for Visual Story; canonical V4.5 final projection owns it."
+        ),
+        route_specific_rules=candidate.route_specific_rules,
+        risk_notes=candidate.risk_notes,
+        sample_frame_premise=candidate.sample_frame_premise,
+        scores=content_scores,
+    )
+
+
+def _content_route_score(scores: VisualRouteScores) -> float:
+    value = (
+        scores.content_fit * 0.38
+        + scores.memorability * 0.22
+        + scores.channel_consistency * 0.17
+        + scores.production_reliability * 0.23
+        - scores.risk * 0.22
+    )
+    return max(0.0, min(1.0, round(value, 4)))
 
 
 def _content_channel_strategy(
@@ -360,7 +380,7 @@ def _neutral_compatibility(
         compatible=True,
         recommended_role=VisualSignatureRole.NONE,
         recommended_visibility=IPVisibilityLevel.NONE,
-        compatibility_score=0.5,
+        compatibility_score=0.0,
         reason=(
             "Recurring identity compatibility is intentionally not evaluated in "
             "Visual Story; canonical V4.5 final projection owns it."
@@ -489,7 +509,7 @@ def _fallback_article_and_routes(
     source_text: str,
     title: str | None,
     candidate_count: int,
-) -> tuple[ArticleVisualUnderstanding, tuple[VisualRouteCandidate, ...], str]:
+) -> tuple[ArticleVisualUnderstanding, tuple[VisualRouteCandidate, ...]]:
     excerpt = source_text.strip()[:220] or title or "article"
     article = ArticleVisualUnderstanding(
         input_kind=(
@@ -516,7 +536,7 @@ def _fallback_article_and_routes(
             frame_storytelling_logic="每帧解释一个局部观点，整体保持同一内容视觉路线。",
             style_family="editorial_diagram",
             recommended_ip_role="none",
-            scores=VisualRouteScores(0.76, 0.66, 0.5, 0.72, 0.88, 0.12),
+            scores=VisualRouteScores(0.76, 0.66, 0.0, 0.72, 0.88, 0.12),
         ),
         VisualRouteCandidate(
             route_id="philosophical_metaphor",
@@ -527,7 +547,7 @@ def _fallback_article_and_routes(
             frame_storytelling_logic="每帧延展同一个隐喻世界，避免重复但保持统一。",
             style_family="handdrawn_explainer",
             recommended_ip_role="none",
-            scores=VisualRouteScores(0.72, 0.82, 0.5, 0.70, 0.72, 0.2),
+            scores=VisualRouteScores(0.72, 0.82, 0.0, 0.70, 0.72, 0.2),
         ),
         VisualRouteCandidate(
             route_id="absurd_comic",
@@ -538,10 +558,10 @@ def _fallback_article_and_routes(
             frame_storytelling_logic="每帧一个小包袱，但统一内容世界规则。",
             style_family="cartoon_comic",
             recommended_ip_role="none",
-            scores=VisualRouteScores(0.62, 0.84, 0.5, 0.62, 0.68, 0.32),
+            scores=VisualRouteScores(0.62, 0.84, 0.0, 0.62, 0.68, 0.32),
         ),
     )[: max(1, min(candidate_count, 3))]
-    return article, routes, routes[0].route_id
+    return article, routes
 
 
 def _route_by_id(
