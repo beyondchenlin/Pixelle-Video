@@ -39,7 +39,12 @@ async def test_prompt_composer_records_shadow_report_without_replacing_productio
             prompts=[production_prompt],
             negative_prompt=None,
             resolved_style=None,
-            planning_snapshot={"existing": True},
+            planning_snapshot={
+                "existing": True,
+                "base_visual_briefs_by_frame": {
+                    "frame-1": {"main_subjects": ["worker", "assembly machine"]}
+                },
+            },
         )
 
     class FakeShadowReport:
@@ -88,6 +93,7 @@ async def test_prompt_composer_records_shadow_report_without_replacing_productio
     fallback_context = captured_shadow["fallback_frame_contexts"]["frame-1"]
     assert fallback_context["frame_source_text"] == "A worker operates a machine."
     assert fallback_context["visual_goal"] == "show the production process"
+    assert fallback_context["required_subjects"] == ["worker", "assembly machine"]
     assert result.planning_snapshot["existing"] is True
     assert (
         result.planning_snapshot["series_visual_signature_shadow_comparison"][
