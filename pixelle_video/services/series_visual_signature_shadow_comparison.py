@@ -83,6 +83,7 @@ class SeriesVisualSignatureShadowReport:
     frame_results: tuple[SeriesVisualSignatureShadowFrameResult, ...] = ()
     global_errors: tuple[str, ...] = ()
     comparison_level: str = "prompt_contract_shadow"
+    candidate_provider: str = "z_image"
     candidate_media_generation: str = "disabled"
 
     @property
@@ -125,6 +126,7 @@ class SeriesVisualSignatureShadowReport:
             "schema_version": "series_visual_signature_shadow.v1",
             "enabled": self.enabled,
             "comparison_level": self.comparison_level,
+            "candidate_provider": self.candidate_provider,
             "candidate_media_generation": self.candidate_media_generation,
             "expected_frame_count": self.expected_frame_count,
             "attempted_frame_count": self.attempted_frame_count,
@@ -150,16 +152,58 @@ def build_series_visual_signature_shadow_report(
 ) -> SeriesVisualSignatureShadowReport:
     """Run the V4.5 prompt path beside production without changing production output.
 
-    The shadow path is intentionally prompt/contract-only. It does not issue a
-    second provider media request, so enabling observation cannot double image
-    generation cost. Optional render-result fields are reserved for a later
-    explicit A/B experiment.
+    Every exception is converted into an observational failure report. The
+    shadow path must never become a production prompt-generation dependency.
+    It is prompt/contract-only and never issues a second provider media request.
     """
 
     normalized_frame_ids = tuple(str(value or "").strip() for value in frame_ids)
     normalized_prompts = tuple(str(value or "") for value in production_prompts)
-    expected_count = len(normalized_frame_ids)
-    if len(normalized_prompts) != expected_count:
+    try:
+        return _build_shadow_report(
+            production_prompts=normalized_prompts,
+            frame_ids=normalized_frame_ids,
+            article_concretization_plans=article_concretization_plans,
+            request=request,
+            legacy_profile=legacy_profile,
+            ip_profile=ip_profile,
+            enabled_fallback=enabled_fallback,
+        )
+    except Exception as exc:
+        enabled = bool(request.enabled if request is not None else enabled_fallback)
+        error = f"unexpected shadow comparison failure: {type(exc).__name__}: {exc}"
+        return SeriesVisualSignatureShadowReport(
+            enabled=enabled,
+            expected_frame_count=len(normalized_frame_ids),
+            frame_results=tuple(
+                SeriesVisualSignatureShadowFrameResult(
+                    frame_id=frame_id,
+                    status="blocked",
+                    production_prompt=(
+                        normalized_prompts[index]
+                        if index < len(normalized_prompts)
+                        else ""
+                    ),
+                    candidate_error=error,
+                )
+                for index, frame_id in enumerate(normalized_frame_ids)
+            ),
+            global_errors=(error,),
+        )
+
+
+def _build_shadow_report(
+    *,
+    production_prompts: Sequence[str],
+    frame_ids: Sequence[str],
+    article_concretization_plans: Sequence[ArticleConcretizationPlan],
+    request: SeriesVisualSignatureRequest | None,
+    legacy_profile: SeriesVisualSignatureProfile | None,
+    ip_profile: Any,
+    enabled_fallback: bool,
+) -> SeriesVisualSignatureShadowReport:
+    expected_count = len(frame_ids)
+    if len(production_prompts) != expected_count:
         return SeriesVisualSignatureShadowReport(
             enabled=bool(request.enabled if request is not None else enabled_fallback),
             expected_frame_count=expected_count,
@@ -199,18 +243,18 @@ def build_series_visual_signature_shadow_report(
                 SeriesVisualSignatureShadowFrameResult(
                     frame_id=frame_id,
                     status="blocked",
-                    production_prompt=normalized_prompts[index],
+                    production_prompt=production_prompts[index],
                     candidate_error=error,
                 )
-                for index, frame_id in enumerate(normalized_frame_ids)
+                for index, frame_id in enumerate(frame_ids)
             ),
             global_errors=(error,),
         )
 
     plans_by_frame = {plan.frame_id: plan for plan in article_concretization_plans}
     results: list[SeriesVisualSignatureShadowFrameResult] = []
-    for index, frame_id in enumerate(normalized_frame_ids):
-        production_prompt = normalized_prompts[index]
+    for index, frame_id in enumerate(frame_ids):
+        production_prompt = production_prompts[index]
         plan = plans_by_frame.get(frame_id)
         if plan is None:
             results.append(
@@ -259,9 +303,6 @@ def _profile_snapshot(
     traits = tuple(identity_contract.required_identity_traits)
     if not traits:
         traits = tuple(profile.identity_kernel)
-    # The V4.5 profile snapshot is deliberately identity-only. Legacy profile
-    # appearance/forbidden-role fields are prompt-policy material, not identity
-    # facts, and copying them here can reintroduce prompt instructions as traits.
     return VisualSignatureProfileSnapshot(
         profile_id=profile.profile_id,
         display_name=profile.display_name,
