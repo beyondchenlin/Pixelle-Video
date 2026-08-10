@@ -197,6 +197,11 @@ class ImagePromptComposer:
                 and series_visual_signature_request.enabled
             )
         ):
+            fallback_frame_contexts = {
+                str(context.get("frame_id") or "").strip(): context
+                for context in prompt_contexts.frame_contexts
+                if str(context.get("frame_id") or "").strip()
+            }
             shadow_report = build_series_visual_signature_shadow_report(
                 production_prompts=batch.prompts,
                 frame_ids=[frame.frame_id for frame in storyboard_plan.frames],
@@ -205,6 +210,7 @@ class ImagePromptComposer:
                 legacy_profile=series_visual_signature_profile,
                 ip_profile=ip_profile,
                 enabled_fallback=series_visual_signature_enabled,
+                fallback_frame_contexts=fallback_frame_contexts,
             )
 
         planning_snapshot = dict(batch.planning_snapshot or {})
