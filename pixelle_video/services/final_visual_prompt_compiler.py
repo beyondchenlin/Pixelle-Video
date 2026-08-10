@@ -220,7 +220,7 @@ def _signature_clause(signature: SeriesVisualSignatureContract) -> str:
     return (
         f"Recurring visual identity {profile.display_name} appears in the scene, recognizable by every configured identity trait: {traits}. "
         f"It works as {role_text}, physically bound to a real diagram element, prop, surface, or supporting action. "
-        f"Keep it clear but subordinate, within about {int(signature.max_area_ratio * 100)}% of the image area, matching the scene style and never replacing required source subjects."
+        f"Keep it clear but subordinate, within about {int(signature.max_area_ratio * 100)}% of the frame area, matching the scene style and never replacing required source subjects."
     )
 
 
