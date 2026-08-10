@@ -4,18 +4,13 @@ from dataclasses import replace
 
 import pytest
 
+from pixelle_video.models import series_visual_signature_request as compatibility
 from pixelle_video.models.series_visual_signature import (
     SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION,
     SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION,
     SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS,
     SeriesVisualSignatureRequest,
     is_supported_series_visual_signature_pipeline_version,
-)
-from pixelle_video.models.series_visual_signature_request import (
-    SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION as COMPAT_LEGACY_VERSION,
-    SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION as COMPAT_CURRENT_VERSION,
-    SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS as COMPAT_SUPPORTED_VERSIONS,
-    is_supported_series_visual_signature_pipeline_version as compat_is_supported,
 )
 
 
@@ -42,10 +37,22 @@ def test_pipeline_version_is_real_canonical_dataclass_field() -> None:
 
 
 def test_compatibility_module_reexports_canonical_pipeline_facts() -> None:
-    assert COMPAT_LEGACY_VERSION == SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION
-    assert COMPAT_CURRENT_VERSION == SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION
-    assert COMPAT_SUPPORTED_VERSIONS is SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS
-    assert compat_is_supported is is_supported_series_visual_signature_pipeline_version
+    assert (
+        compatibility.SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION
+        == SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION
+    )
+    assert (
+        compatibility.SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION
+        == SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION
+    )
+    assert (
+        compatibility.SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS
+        is SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS
+    )
+    assert (
+        compatibility.is_supported_series_visual_signature_pipeline_version
+        is is_supported_series_visual_signature_pipeline_version
+    )
 
 
 def test_request_mapping_can_restore_legacy_pipeline_version() -> None:
