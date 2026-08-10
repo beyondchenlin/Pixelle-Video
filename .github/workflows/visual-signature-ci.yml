@@ -1,78 +1,16 @@
 name: Visual Signature CI
 
+# Intentionally no paths filter: source-replacement invariants scan multiple
+# runtime roots, so a newly added file must not be able to bypass this gate.
 on:
   pull_request:
     branches:
       - dev
       - main
-    paths:
-      - "pixelle_video/models/article_concretization.py"
-      - "pixelle_video/models/series_visual_signature.py"
-      - "pixelle_video/models/series_visual_signature_request.py"
-      - "pixelle_video/models/series_visual_signature_projection_policy.py"
-      - "pixelle_video/models/final_visual_prompt_bundle.py"
-      - "pixelle_video/models/final_visual_prompt_contract_v45.py"
-      - "pixelle_video/models/visual_story_engine.py"
-      - "pixelle_video/services/series_visual_signature_*.py"
-      - "pixelle_video/services/final_visual_prompt_compiler.py"
-      - "pixelle_video/services/article_concretization_*.py"
-      - "pixelle_video/services/provider_z_image_adapter.py"
-      - "pixelle_video/services/visual_prompt_composer.py"
-      - "pixelle_video/services/image_prompt_composer.py"
-      - "pixelle_video/services/visual_story_*.py"
-      - "pixelle_video/prompts/visual_story_*.py"
-      - "pixelle_video/prompts/templates/article_visual_route_analysis.md"
-      - "pixelle_video/prompts/templates/frame_visual_plan_batch.md"
-      - "tests/architecture/test_no_legacy_ip_runtime.py"
-      - "tests/architecture/test_visual_signature_source_replacement.py"
-      - "tests/models/test_series_visual_signature.py"
-      - "tests/models/test_series_visual_signature_request.py"
-      - "tests/models/test_visual_route_scores_source_authority.py"
-      - "tests/services/test_series_visual_signature_*.py"
-      - "tests/services/test_article_concretization_*.py"
-      - "tests/services/test_provider_z_image_adapter.py"
-      - "tests/services/test_visual_story_source_replacement.py"
-      - "docs/migration/v451_series_visual_signature_source_replacement.md"
-      - "docs/migration/v451_series_visual_signature_source_replacement_review2.md"
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".github/workflows/visual-signature-ci.yml"
   push:
     branches:
       - dev
       - main
-    paths:
-      - "pixelle_video/models/article_concretization.py"
-      - "pixelle_video/models/series_visual_signature.py"
-      - "pixelle_video/models/series_visual_signature_request.py"
-      - "pixelle_video/models/series_visual_signature_projection_policy.py"
-      - "pixelle_video/models/final_visual_prompt_bundle.py"
-      - "pixelle_video/models/final_visual_prompt_contract_v45.py"
-      - "pixelle_video/models/visual_story_engine.py"
-      - "pixelle_video/services/series_visual_signature_*.py"
-      - "pixelle_video/services/final_visual_prompt_compiler.py"
-      - "pixelle_video/services/article_concretization_*.py"
-      - "pixelle_video/services/provider_z_image_adapter.py"
-      - "pixelle_video/services/visual_prompt_composer.py"
-      - "pixelle_video/services/image_prompt_composer.py"
-      - "pixelle_video/services/visual_story_*.py"
-      - "pixelle_video/prompts/visual_story_*.py"
-      - "pixelle_video/prompts/templates/article_visual_route_analysis.md"
-      - "pixelle_video/prompts/templates/frame_visual_plan_batch.md"
-      - "tests/architecture/test_no_legacy_ip_runtime.py"
-      - "tests/architecture/test_visual_signature_source_replacement.py"
-      - "tests/models/test_series_visual_signature.py"
-      - "tests/models/test_series_visual_signature_request.py"
-      - "tests/models/test_visual_route_scores_source_authority.py"
-      - "tests/services/test_series_visual_signature_*.py"
-      - "tests/services/test_article_concretization_*.py"
-      - "tests/services/test_provider_z_image_adapter.py"
-      - "tests/services/test_visual_story_source_replacement.py"
-      - "docs/migration/v451_series_visual_signature_source_replacement.md"
-      - "docs/migration/v451_series_visual_signature_source_replacement_review2.md"
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".github/workflows/visual-signature-ci.yml"
   workflow_dispatch:
 
 permissions:
