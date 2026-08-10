@@ -45,6 +45,8 @@ The candidate path must satisfy all of these invariants before shadow observatio
 
 ### Stage 3: same-frame shadow comparison
 
+This stage is implemented in the current source-replacement PR.
+
 The production prompt remains authoritative while the V4.5 candidate path runs beside it at prompt/contract level.
 
 The shadow path is observational only:
