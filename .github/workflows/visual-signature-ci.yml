@@ -18,6 +18,7 @@ on:
       - "tests/services/test_series_visual_signature_*.py"
       - "tests/services/test_article_concretization_prompt_compiler.py"
       - "tests/services/test_provider_z_image_adapter.py"
+      - "docs/migration/v451_series_visual_signature_source_replacement.md"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/visual-signature-ci.yml"
@@ -38,6 +39,7 @@ on:
       - "tests/services/test_series_visual_signature_*.py"
       - "tests/services/test_article_concretization_prompt_compiler.py"
       - "tests/services/test_provider_z_image_adapter.py"
+      - "docs/migration/v451_series_visual_signature_source_replacement.md"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/visual-signature-ci.yml"
@@ -74,6 +76,7 @@ jobs:
             pixelle_video/services/series_visual_signature_contract_builder.py \
             pixelle_video/services/series_visual_signature_planning_service.py \
             pixelle_video/services/series_visual_signature_role_resolver.py \
+            pixelle_video/services/series_visual_signature_prompt_presence.py \
             pixelle_video/services/series_visual_signature_final_prompt_gate.py \
             pixelle_video/services/series_visual_signature_shadow_comparison.py \
             pixelle_video/services/article_concretization_prompt_compiler.py \
@@ -100,6 +103,7 @@ jobs:
             pixelle_video/services/series_visual_signature_contract_builder.py \
             pixelle_video/services/series_visual_signature_planning_service.py \
             pixelle_video/services/series_visual_signature_role_resolver.py \
+            pixelle_video/services/series_visual_signature_prompt_presence.py \
             pixelle_video/services/series_visual_signature_final_prompt_gate.py \
             pixelle_video/services/series_visual_signature_shadow_comparison.py \
             pixelle_video/services/article_concretization_prompt_compiler.py \
