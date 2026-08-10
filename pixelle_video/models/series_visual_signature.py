@@ -30,6 +30,14 @@ class SignatureReplacementPolicy(str, Enum):
 
 
 MAX_TRAIT_CHARS = 64
+SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION = "v4_expression"
+SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION = "v4_2_identity_contract"
+SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS = frozenset(
+    {
+        SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION,
+        SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION,
+    }
+)
 _FORBIDDEN_TRAIT_TERMS = (
     "always",
     "every scene",
@@ -48,10 +56,13 @@ _FORBIDDEN_TRAIT_TERMS = (
 
 @dataclass(frozen=True)
 class SeriesVisualSignatureRequest:
-    """Global request for a recurring visual signature.
+    """Canonical request for a recurring visual signature.
 
-    This is intentionally not derived from article-concretization enablement.
-    Article concretization may consume this request, but does not own it.
+    Product-level compatibility controls may still enter through
+    ``compatibility_options`` while callers migrate, but runtime identity and
+    role selection use this single request type. ``pipeline_version`` remains a
+    real dataclass field so legacy routing can be represented without creating a
+    second request class.
     """
 
     enabled: bool = False
@@ -60,42 +71,232 @@ class SeriesVisualSignatureRequest:
     role_was_explicit: bool = False
     max_area_ratio: float | None = None
     user_hint: str | None = None
+    asset_bible_id: str | None = None
+    generation_world_hint: str | None = None
+    pipeline_version: str = SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION
+    compatibility_options: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "enabled", _bool_value(self.enabled, "series_visual_signature_enabled"))
         object.__setattr__(self, "profile_id", _optional_text(self.profile_id))
-        object.__setattr__(self, "role", _enum_value("series_visual_signature_role", self.role, SeriesVisualSignatureRole, SeriesVisualSignatureRole.NONE))
-        object.__setattr__(self, "role_was_explicit", _bool_value(self.role_was_explicit, "series_visual_signature_role_was_explicit"))
-        object.__setattr__(self, "max_area_ratio", _optional_ratio(self.max_area_ratio, "series_visual_signature_max_area_ratio"))
+        object.__setattr__(
+            self,
+            "role",
+            _enum_value(
+                "series_visual_signature_role",
+                self.role,
+                SeriesVisualSignatureRole,
+                SeriesVisualSignatureRole.AUTO if self.enabled else SeriesVisualSignatureRole.NONE,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "role_was_explicit",
+            _bool_value(self.role_was_explicit, "series_visual_signature_role_was_explicit"),
+        )
+        object.__setattr__(
+            self,
+            "max_area_ratio",
+            _optional_ratio(self.max_area_ratio, "series_visual_signature_max_area_ratio"),
+        )
         object.__setattr__(self, "user_hint", _optional_text(self.user_hint, max_chars=300))
+        object.__setattr__(self, "asset_bible_id", _optional_text(self.asset_bible_id))
+        object.__setattr__(
+            self,
+            "generation_world_hint",
+            _optional_text(self.generation_world_hint, max_chars=4000),
+        )
+        object.__setattr__(self, "pipeline_version", _pipeline_version_value(self.pipeline_version))
+        object.__setattr__(self, "compatibility_options", dict(self.compatibility_options or {}))
 
     @classmethod
-    def from_mapping(cls, source: Mapping[str, Any] | None) -> "SeriesVisualSignatureRequest":
+    def from_mapping(
+        cls,
+        source: Mapping[str, Any] | None,
+        *,
+        asset_bible_id: str | None = None,
+        profile_id: str | None = None,
+        generation_world_hint: str | None = None,
+    ) -> "SeriesVisualSignatureRequest":
         data = dict(source or {})
         reject_deprecated_signature_fields(data, context="series visual signature request")
         nested = data.get("series_visual_signature")
         if isinstance(nested, Mapping):
             reject_deprecated_signature_fields(nested, context="series visual signature request")
             data = {**data, **nested}
-        role_present = "series_visual_signature_role" in data or "role" in data
+
+        enabled = _bool_value(
+            data.get("series_visual_signature_enabled", data.get("enabled", False)),
+            "series_visual_signature_enabled",
+        )
+        raw_role = data.get("series_visual_signature_role", data.get("role"))
+        explicit_role_marker = data.get("series_visual_signature_role_was_explicit")
+        if explicit_role_marker is None:
+            role_was_explicit = raw_role not in (None, "", "none", "auto")
+        else:
+            role_was_explicit = _bool_value(
+                explicit_role_marker,
+                "series_visual_signature_role_was_explicit",
+            )
+        if enabled and raw_role in (None, "", "none") and not role_was_explicit:
+            raw_role = SeriesVisualSignatureRole.AUTO
+        if raw_role is None:
+            raw_role = SeriesVisualSignatureRole.NONE
+
+        compatibility_options = {
+            str(key): value
+            for key, value in data.items()
+            if str(key).startswith("series_visual_signature_")
+        }
         return cls(
-            enabled=data.get("series_visual_signature_enabled", data.get("enabled", False)),
-            profile_id=data.get("series_visual_signature_profile_id", data.get("profile_id")),
-            role=data.get("series_visual_signature_role", data.get("role", SeriesVisualSignatureRole.NONE)),
-            role_was_explicit=data.get("series_visual_signature_role_was_explicit", role_present),
+            enabled=enabled,
+            asset_bible_id=asset_bible_id
+            or data.get("series_visual_signature_asset_bible_id")
+            or data.get("asset_bible_id"),
+            profile_id=profile_id
+            or data.get("series_visual_signature_profile_id")
+            or data.get("profile_id"),
+            role=raw_role,
+            role_was_explicit=role_was_explicit,
             max_area_ratio=data.get("series_visual_signature_max_area_ratio", data.get("max_area_ratio")),
             user_hint=data.get("series_visual_signature_user_hint", data.get("user_hint")),
+            generation_world_hint=generation_world_hint or data.get("generation_world_hint"),
+            pipeline_version=data.get(
+                "pipeline_version",
+                data.get(
+                    "series_visual_signature_pipeline_version",
+                    SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION,
+                ),
+            ),
+            compatibility_options=compatibility_options,
         )
 
+    @classmethod
+    def from_legacy_params(
+        cls,
+        source: Mapping[str, Any] | None,
+        *,
+        asset_bible_id: str | None = None,
+        profile_id: str | None = None,
+        generation_world_hint: str | None = None,
+    ) -> "SeriesVisualSignatureRequest":
+        return cls.from_mapping(
+            source,
+            asset_bible_id=asset_bible_id,
+            profile_id=profile_id,
+            generation_world_hint=generation_world_hint,
+        )
+
+    @classmethod
+    def from_controls(cls, controls: Any) -> "SeriesVisualSignatureRequest":
+        if controls is None:
+            return cls.disabled()
+        if hasattr(controls, "to_request"):
+            request = controls.to_request()
+            if isinstance(request, cls):
+                return request
+        source = controls.to_dict() if hasattr(controls, "to_dict") else controls
+        if not isinstance(source, Mapping):
+            raise TypeError("controls must expose to_dict() or be a mapping")
+        return cls.from_mapping(
+            source,
+            asset_bible_id=getattr(controls, "asset_bible_id", None),
+            profile_id=getattr(controls, "profile_id", None),
+            generation_world_hint=getattr(controls, "generation_world_hint", None),
+        )
+
+    @classmethod
+    def disabled(cls) -> "SeriesVisualSignatureRequest":
+        return cls(enabled=False, role=SeriesVisualSignatureRole.NONE)
+
+    @property
+    def presentation_policy(self):
+        from pixelle_video.models.series_visual_signature_presentation import (
+            SeriesVisualSignaturePresentationPolicy,
+        )
+
+        return SeriesVisualSignaturePresentationPolicy.from_mapping(self.compatibility_options)
+
+    @property
+    def strategy(self):
+        return self.presentation_policy.strategy_controls()
+
+    @property
+    def effective_signature_mode(self):
+        return self.strategy.effective_signature_mode
+
+    @property
+    def expression_mode(self):
+        from pixelle_video.models.visual_expression import VisualExpressionMode
+
+        return VisualExpressionMode.from_value(
+            self.compatibility_options.get("series_visual_signature_expression_mode")
+        )
+
+    @property
+    def structure_mode(self):
+        from pixelle_video.models.series_visual_signature_identity import (
+            SeriesVisualSignatureStructureMode,
+        )
+
+        return SeriesVisualSignatureStructureMode.from_value(
+            self.compatibility_options.get("series_visual_signature_structure_mode")
+        )
+
+    @property
+    def participation_mode(self):
+        from pixelle_video.models.series_visual_signature_identity import (
+            SeriesVisualSignatureParticipationMode,
+        )
+
+        return SeriesVisualSignatureParticipationMode.from_value(
+            self.compatibility_options.get("series_visual_signature_participation_mode")
+        )
+
+    def validate(self) -> None:
+        if not self.enabled:
+            return
+        if self.asset_bible_id is None:
+            raise ValueError("asset_bible_id is required when series visual signature is enabled")
+        if self.profile_id is None:
+            raise ValueError("profile_id is required when series visual signature is enabled")
+
+    def to_generation_dict(self) -> dict[str, Any]:
+        if not self.enabled:
+            return {}
+        payload = dict(self.compatibility_options)
+        payload.update(
+            {
+                "series_visual_signature_enabled": True,
+                "series_visual_signature_profile_id": self.profile_id,
+                "series_visual_signature_role": self.role.value,
+            }
+        )
+        if self.asset_bible_id is not None:
+            payload["series_visual_signature_asset_bible_id"] = self.asset_bible_id
+        if self.max_area_ratio is not None:
+            payload["series_visual_signature_max_area_ratio"] = self.max_area_ratio
+        if self.user_hint is not None:
+            payload["series_visual_signature_user_hint"] = self.user_hint
+        return payload
+
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "series_visual_signature_enabled": self.enabled,
-            "series_visual_signature_profile_id": self.profile_id,
-            "series_visual_signature_role": self.role.value,
-            "series_visual_signature_role_was_explicit": self.role_was_explicit,
-            "series_visual_signature_max_area_ratio": self.max_area_ratio,
-            "series_visual_signature_user_hint": self.user_hint,
-        }
+        payload = dict(self.compatibility_options)
+        payload.update(
+            {
+                "enabled": self.enabled,
+                "pipeline_version": self.pipeline_version,
+                "series_visual_signature_enabled": self.enabled,
+                "series_visual_signature_profile_id": self.profile_id,
+                "series_visual_signature_role": self.role.value,
+                "series_visual_signature_role_was_explicit": self.role_was_explicit,
+                "series_visual_signature_max_area_ratio": self.max_area_ratio,
+                "series_visual_signature_user_hint": self.user_hint,
+                "series_visual_signature_asset_bible_id": self.asset_bible_id,
+                "generation_world_hint": self.generation_world_hint,
+            }
+        )
+        return payload
 
 
 @dataclass(frozen=True)
@@ -128,6 +329,10 @@ class VisualSignatureProfileSnapshot:
             forbidden_traits=data.get("forbidden_traits") or (),
             source_asset_ids=data.get("source_asset_ids") or (),
         )
+
+    @classmethod
+    def from_dict(cls, source: Mapping[str, Any]) -> "VisualSignatureProfileSnapshot":
+        return cls.from_mapping(source)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -172,6 +377,41 @@ class SeriesVisualSignatureContract:
             raise ValueError("disabled series visual signature must not carry a profile")
 
     @classmethod
+    def from_mapping(
+        cls,
+        source: Mapping[str, Any] | "SeriesVisualSignatureContract" | None,
+    ) -> "SeriesVisualSignatureContract":
+        if isinstance(source, cls):
+            return source
+        data = dict(source or {})
+        reject_deprecated_signature_fields(data, context="series visual signature contract")
+        enabled = _bool_value(data.get("enabled", False), "enabled")
+        warnings = data.get("warnings") or ()
+        if not enabled:
+            return cls.disabled(warnings=warnings)
+        raw_profile = data.get("profile")
+        if not isinstance(raw_profile, Mapping):
+            raise ValueError("enabled serialized series visual signature contract requires profile")
+        return cls(
+            enabled=True,
+            role=data.get("role", SeriesVisualSignatureRole.AUTO),
+            profile=VisualSignatureProfileSnapshot.from_mapping(raw_profile),
+            replacement_policy=data.get(
+                "replacement_policy",
+                SignatureReplacementPolicy.NO_SUBJECT_REPLACEMENT,
+            ),
+            max_area_ratio=data.get("max_area_ratio", 0.0),
+            participation_rule=data.get("participation_rule") or "Series visual signature participates in the scene.",
+            style_integration_rule=data.get("style_integration_rule") or "",
+            forbidden_behaviors=data.get("forbidden_behaviors") or (),
+            warnings=warnings,
+        )
+
+    @classmethod
+    def from_dict(cls, source: Mapping[str, Any]) -> "SeriesVisualSignatureContract":
+        return cls.from_mapping(source)
+
+    @classmethod
     def disabled(cls, *, warnings: Sequence[str] = ()) -> "SeriesVisualSignatureContract":
         return cls(
             enabled=False,
@@ -196,6 +436,19 @@ class SeriesVisualSignatureContract:
             "forbidden_behaviors": list(self.forbidden_behaviors),
             "warnings": list(self.warnings),
         }
+
+
+def is_supported_series_visual_signature_pipeline_version(value: Any) -> bool:
+    return str(value or "").strip() in SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS
+
+
+def _pipeline_version_value(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("pipeline_version must be a supported series visual signature pipeline version")
+    normalized = value.strip()
+    if normalized not in SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS:
+        raise ValueError("pipeline_version must be a supported series visual signature pipeline version")
+    return normalized
 
 
 def _enum_value(field_name: str, value: Any, enum_cls: type[Enum], default: Any) -> Any:
@@ -258,14 +511,20 @@ def _text_tuple(field_name: str, values: Sequence[Any], *, allow_empty: bool) ->
 
 def _trait_tuple(field_name: str, values: Sequence[Any], *, allow_empty: bool) -> tuple[str, ...]:
     result = _text_tuple(field_name, values, allow_empty=allow_empty)
-    for trait in result:
+    for index, trait in enumerate(result):
         if len(trait) > MAX_TRAIT_CHARS:
-            raise ValueError(f"{field_name} item exceeds {MAX_TRAIT_CHARS} characters")
+            raise ValueError(
+                f"{field_name} item exceeds {MAX_TRAIT_CHARS} characters at index {index}"
+            )
         lowered = trait.lower()
         if any(term in lowered for term in _FORBIDDEN_TRAIT_TERMS):
-            raise ValueError(f"{field_name} item contains prompt instruction language: {trait}")
+            raise ValueError(
+                f"{field_name} item contains prompt instruction language at index {index}"
+            )
         if "\n" in trait or ";" in trait or "；" in trait:
-            raise ValueError(f"{field_name} item must be a short trait, not a prompt paragraph")
+            raise ValueError(
+                f"{field_name} item must be a short trait, not a prompt paragraph at index {index}"
+            )
     return result
 
 
@@ -285,3 +544,17 @@ def _ratio_value(value: Any, field_name: str) -> float:
     if parsed < 0.0 or parsed > 1.0:
         raise ValueError(f"{field_name} must be between 0 and 1")
     return parsed
+
+
+__all__ = [
+    "MAX_TRAIT_CHARS",
+    "SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION",
+    "SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION",
+    "SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS",
+    "SeriesVisualSignatureContract",
+    "SeriesVisualSignatureRequest",
+    "SeriesVisualSignatureRole",
+    "SignatureReplacementPolicy",
+    "VisualSignatureProfileSnapshot",
+    "is_supported_series_visual_signature_pipeline_version",
+]

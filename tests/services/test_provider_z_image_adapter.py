@@ -21,6 +21,21 @@ def test_provider_adapter_accepts_only_prompt_bundle() -> None:
     assert payload["render_config"]["steps"] == 35
 
 
+def test_provider_adapter_does_not_reinterpret_locked_constraints() -> None:
+    bundle = ZImagePromptBundle(
+        positive_prompt="Executable source and identity constraints are already compiled here.",
+        locked_constraints=(
+            "Keep required source subjects visible and primary.",
+            "Keep the recurring identity scene-bound.",
+        ),
+    )
+
+    payload = project_z_image_prompt_bundle(bundle=bundle)
+
+    assert payload["prompt"] == bundle.positive_prompt
+    assert payload["metadata"]["locked_constraints"] == list(bundle.locked_constraints)
+
+
 def test_provider_adapter_rejects_deprecated_metadata_deep() -> None:
     deprecated_profile_key = next(
         key

@@ -16,8 +16,8 @@ def project_z_image_prompt_bundle(
 ) -> dict[str, Any]:
     """Provider adapter for local Z-Image.
 
-    Provider adapters are intentionally dumb. They do not read raw generation
-    params, final contracts, or visual signature requests.
+    The adapter is intentionally mechanical: all executable prompt semantics
+    must already be compiled into ``ZImagePromptBundle`` before this boundary.
     """
     if not isinstance(bundle, ZImagePromptBundle):
         raise TypeError("project_z_image_prompt_bundle requires a ZImagePromptBundle")

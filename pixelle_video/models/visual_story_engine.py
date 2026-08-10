@@ -5,7 +5,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Any, Literal
+from typing import Any
 
 from pixelle_video.models.content_bound_ip import IPParticipationMechanism
 from pixelle_video.models.ip_duty import (
@@ -212,6 +212,15 @@ class ArticleVisualUnderstanding:
 
 @dataclass(frozen=True)
 class VisualRouteScores:
+    """Route scores with one deterministic content-only ranking authority.
+
+    ``ip_compatibility`` and ``final`` remain accepted solely so historical
+    serialized payloads keep loading during migration. Neither field is allowed
+    to influence route ranking. Recurring visual identity is owned by the
+    canonical V4.5 projection stage, and model-supplied final scores are treated
+    as untrusted derived data.
+    """
+
     content_fit: float = 0.0
     memorability: float = 0.0
     ip_compatibility: float = 0.0
@@ -221,7 +230,14 @@ class VisualRouteScores:
     final: float | None = None
 
     def __post_init__(self) -> None:
-        for name in ("content_fit", "memorability", "ip_compatibility", "channel_consistency", "production_reliability", "risk"):
+        for name in (
+            "content_fit",
+            "memorability",
+            "ip_compatibility",
+            "channel_consistency",
+            "production_reliability",
+            "risk",
+        ):
             object.__setattr__(self, name, _score(getattr(self, name), name))
         if self.final is not None:
             object.__setattr__(self, "final", _score(self.final, "final"))
@@ -231,23 +247,38 @@ class VisualRouteScores:
         source = dict(source or {})
         return cls(
             content_fit=source.get("content_fit", source.get("content_fit_score", 0.0)),
-            memorability=source.get("memorability", source.get("visual_memorability", source.get("visual_memorability_score", 0.0))),
-            ip_compatibility=source.get("ip_compatibility", source.get("ip_compatibility_score", 0.0)),
-            channel_consistency=source.get("channel_consistency", source.get("channel_fit", source.get("channel_consistency_score", 0.0))),
-            production_reliability=source.get("production_reliability", source.get("production_reliability_score", 0.0)),
+            memorability=source.get(
+                "memorability",
+                source.get(
+                    "visual_memorability",
+                    source.get("visual_memorability_score", 0.0),
+                ),
+            ),
+            ip_compatibility=source.get(
+                "ip_compatibility",
+                source.get("ip_compatibility_score", 0.0),
+            ),
+            channel_consistency=source.get(
+                "channel_consistency",
+                source.get(
+                    "channel_fit",
+                    source.get("channel_consistency_score", 0.0),
+                ),
+            ),
+            production_reliability=source.get(
+                "production_reliability",
+                source.get("production_reliability_score", 0.0),
+            ),
             risk=source.get("risk", source.get("risk_score", 0.0)),
             final=source.get("final", source.get("final_score")),
         )
 
     def computed_final(self) -> float:
-        if self.final is not None:
-            return self.final
         return _clamp(
-            self.content_fit * 0.31
-            + self.memorability * 0.18
-            + self.ip_compatibility * 0.22
-            + self.channel_consistency * 0.13
-            + self.production_reliability * 0.16
+            self.content_fit * 0.38
+            + self.memorability * 0.22
+            + self.channel_consistency * 0.17
+            + self.production_reliability * 0.23
             - self.risk * 0.22
         )
 

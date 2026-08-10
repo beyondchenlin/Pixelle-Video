@@ -9,6 +9,9 @@ from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureRole,
     VisualSignatureProfileSnapshot,
 )
+from pixelle_video.models.series_visual_signature_request import (
+    SeriesVisualSignatureRequest as CompatibilitySeriesVisualSignatureRequest,
+)
 
 
 def test_request_does_not_derive_enabled_from_article_concretization() -> None:
@@ -16,6 +19,26 @@ def test_request_does_not_derive_enabled_from_article_concretization() -> None:
 
     assert request.enabled is False
     assert request.role is SeriesVisualSignatureRole.NONE
+
+
+def test_compatibility_module_reexports_canonical_request_type() -> None:
+    assert CompatibilitySeriesVisualSignatureRequest is SeriesVisualSignatureRequest
+
+
+def test_enabled_request_repairs_default_none_role_to_auto() -> None:
+    request = SeriesVisualSignatureRequest.from_mapping(
+        {
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "asset_bible_1",
+            "series_visual_signature_profile_id": "dog_1",
+            "series_visual_signature_role": "none",
+        }
+    )
+
+    assert request.role is SeriesVisualSignatureRole.AUTO
+    assert request.role_was_explicit is False
+    assert request.to_dict()["series_visual_signature_role"] == "auto"
+    assert request.to_generation_dict()["series_visual_signature_role"] == "auto"
 
 
 def test_request_rejects_deprecated_runtime_fields() -> None:
@@ -47,6 +70,21 @@ def test_profile_rejects_prompt_paragraph_fields_and_instruction_traits() -> Non
         )
 
 
+def test_profile_validation_error_does_not_echo_protected_trait_text() -> None:
+    protected_trait = "private logo trait 938475"
+
+    with pytest.raises(ValueError) as exc_info:
+        VisualSignatureProfileSnapshot(
+            profile_id="dog_1",
+            display_name="Dog",
+            identity_traits=[protected_trait],
+        )
+
+    assert "prompt instruction language" in str(exc_info.value)
+    assert "index 0" in str(exc_info.value)
+    assert protected_trait not in str(exc_info.value)
+
+
 def test_contract_serializes_new_field_names_only() -> None:
     profile = VisualSignatureProfileSnapshot(
         profile_id="dog_1",
@@ -66,3 +104,26 @@ def test_contract_serializes_new_field_names_only() -> None:
     assert payload["series_visual_signature_profile_id"] == "dog_1"
     assert "identity_profile_id" not in payload
     assert payload["max_area_ratio"] == pytest.approx(0.2)
+
+
+def test_contract_round_trip_preserves_identity_and_role() -> None:
+    original = SeriesVisualSignatureContract(
+        enabled=True,
+        role="operator",
+        profile=VisualSignatureProfileSnapshot(
+            profile_id="dog_1",
+            display_name="Dalmatian",
+            identity_traits=("black spots", "black sunglasses"),
+        ),
+        max_area_ratio=0.28,
+        participation_rule="Operate the visual mechanism without replacing source subjects.",
+        forbidden_behaviors=("do not replace source subjects",),
+    )
+
+    restored = SeriesVisualSignatureContract.from_mapping(original.to_dict())
+
+    assert restored.enabled is True
+    assert restored.role is SeriesVisualSignatureRole.OPERATOR
+    assert restored.profile is not None
+    assert restored.profile.profile_id == "dog_1"
+    assert restored.profile.identity_traits == ("black spots", "black sunglasses")
