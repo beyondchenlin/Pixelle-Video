@@ -10,6 +10,9 @@ from pixelle_video.models.series_visual_signature import (
     SignatureReplacementPolicy,
     VisualSignatureProfileSnapshot,
 )
+from pixelle_video.services.series_visual_signature_role_resolver import (
+    resolve_series_visual_signature_role,
+)
 
 _ROLE_MAX_AREA_RATIO = {
     SeriesVisualSignatureRole.CORE_ACTOR: 0.45,
@@ -39,6 +42,7 @@ class SeriesVisualSignatureContractBuilder:
         request: SeriesVisualSignatureRequest | Mapping[str, Any] | None,
         profile: VisualSignatureProfileSnapshot | Mapping[str, Any] | None = None,
         strict_user_mode: bool = False,
+        role_context: Mapping[str, Any] | None = None,
     ) -> SeriesVisualSignatureContract:
         normalized_request = (
             request
@@ -64,7 +68,10 @@ class SeriesVisualSignatureContractBuilder:
                 f"requested={normalized_request.profile_id}, resolved={normalized_profile.profile_id}"
             )
 
-        role = self._resolve_role(normalized_request.role)
+        role = resolve_series_visual_signature_role(
+            normalized_request.role,
+            context=role_context,
+        )
         requested_area = normalized_request.max_area_ratio
         max_area_ratio = (
             requested_area
@@ -99,11 +106,3 @@ class SeriesVisualSignatureContractBuilder:
         if isinstance(profile, Mapping):
             return VisualSignatureProfileSnapshot.from_mapping(profile)
         return None
-
-    def _resolve_role(self, role: SeriesVisualSignatureRole) -> SeriesVisualSignatureRole:
-        # The global enabled flag owns presence. A missing/none role can leak from
-        # article-concretization defaults, so it resolves through the automatic
-        # role path rather than silently disabling the signature.
-        if role in {SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO}:
-            return SeriesVisualSignatureRole.GUIDE
-        return role
