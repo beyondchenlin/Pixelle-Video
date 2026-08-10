@@ -197,11 +197,19 @@ class ImagePromptComposer:
                 and series_visual_signature_request.enabled
             )
         ):
-            fallback_frame_contexts = {
-                str(context.get("frame_id") or "").strip(): context
-                for context in prompt_contexts.frame_contexts
-                if str(context.get("frame_id") or "").strip()
-            }
+            base_visual_briefs = (
+                dict((batch.planning_snapshot or {}).get("base_visual_briefs_by_frame") or {})
+            )
+            fallback_frame_contexts: dict[str, Mapping[str, Any]] = {}
+            for context in prompt_contexts.frame_contexts:
+                frame_id = str(context.get("frame_id") or "").strip()
+                if not frame_id:
+                    continue
+                shadow_context = dict(context)
+                brief = base_visual_briefs.get(frame_id)
+                if isinstance(brief, Mapping) and brief.get("main_subjects"):
+                    shadow_context["required_subjects"] = list(brief["main_subjects"])
+                fallback_frame_contexts[frame_id] = shadow_context
             shadow_report = build_series_visual_signature_shadow_report(
                 production_prompts=batch.prompts,
                 frame_ids=[frame.frame_id for frame in storyboard_plan.frames],
