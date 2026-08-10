@@ -9,6 +9,7 @@ from pixelle_video.models.series_visual_signature import (
     VisualSignatureProfileSnapshot,
 )
 from pixelle_video.models.series_visual_signature_projection_policy import (
+    SeriesVisualSignatureProjectionAuditPolicy,
     SeriesVisualSignatureProjectionBudget,
 )
 from pixelle_video.services.series_visual_signature_projection_service import (
@@ -90,6 +91,25 @@ def test_projection_audit_forbids_raw_prompt_subject_and_identity_retention() ->
     assert raw_prompt not in serialized
     assert identity_trait not in serialized
     assert f'"{raw_subject}"' not in serialized
+
+
+def test_request_audit_never_persists_user_controlled_compatibility_key_names() -> None:
+    sentinel = "private-compatibility-key-918273"
+    request = SeriesVisualSignatureRequest(
+        compatibility_options={
+            "series_visual_signature_mode": "auto",
+            f"series_visual_signature_{sentinel}": "private-value",
+        }
+    )
+
+    audit = SeriesVisualSignatureProjectionAuditPolicy().request_audit_dict(request)
+    serialized = json.dumps(audit, ensure_ascii=False, sort_keys=True)
+
+    assert audit["compatibility_option_keys"] == ["series_visual_signature_mode"]
+    assert audit["compatibility_option_count"] == 2
+    assert audit["unrecognized_compatibility_option_count"] == 1
+    assert sentinel not in serialized
+    assert "private-value" not in serialized
 
 
 def test_projection_failure_audit_has_denominator_and_no_raw_cause_text() -> None:
