@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from pixelle_video.architecture.legacy_signature_field_guard import (
@@ -73,7 +74,7 @@ class FinalVisualPromptContractV45:
         object.__setattr__(
             self,
             "projected_prompt_parts",
-            _freeze_json(projected_parts),
+            tuple(_freeze_json(part) for part in projected_parts),
         )
         object.__setattr__(
             self,
@@ -126,20 +127,21 @@ def _text_tuple(
 
 def _freeze_json(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return tuple(sorted((str(key), _freeze_json(child)) for key, child in value.items()))
-    if isinstance(value, list | tuple):
+        return MappingProxyType(
+            {str(key): _freeze_json(child) for key, child in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
         return tuple(_freeze_json(child) for child in value)
-    return value
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    raise ValueError(
+        f"FinalVisualPromptContractV45 values must be JSON-compatible, got {type(value).__name__}"
+    )
 
 
 def _thaw_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_json(child) for key, child in value.items()}
     if isinstance(value, tuple):
-        if all(
-            isinstance(item, tuple)
-            and len(item) == 2
-            and isinstance(item[0], str)
-            for item in value
-        ):
-            return {key: _thaw_json(child) for key, child in value}
         return [_thaw_json(child) for child in value]
     return value
