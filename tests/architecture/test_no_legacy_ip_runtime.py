@@ -19,6 +19,7 @@ FORBIDDEN_RUNTIME_FILES = (
     "pixelle_video/services/visual_role_scene_planner.py",
     "pixelle_video/services/visual_role_prompt_critic.py",
     "pixelle_video/services/visual_role_repair_loop.py",
+    "pixelle_video/services/series_visual_signature_shadow_comparison.py",
     "web/components/ip_prompt_chain_controls.py",
     "web/components/content_ip_world_controls.py",
     "web/components/style_config_ip_controls.py",
@@ -40,6 +41,9 @@ ALLOWLIST_PARTS = (
 )
 CANONICAL_SIGNATURE_REQUEST_MODULE = "pixelle_video/models/series_visual_signature.py"
 SIGNATURE_REQUEST_ADAPTER_MODULE = "pixelle_video/models/series_visual_signature_request.py"
+CANONICAL_FINAL_COMPILER_MODULE = "pixelle_video/services/final_visual_prompt_compiler.py"
+COMPAT_FINAL_COMPILER_MODULE = "pixelle_video/services/article_concretization_prompt_compiler.py"
+IMAGE_PROMPT_COMPOSER_MODULE = "pixelle_video/services/image_prompt_composer.py"
 PIPELINE_VERSION_FACT_NAMES = frozenset(
     {
         "SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION",
@@ -48,6 +52,23 @@ PIPELINE_VERSION_FACT_NAMES = frozenset(
     }
 )
 PIPELINE_VERSION_FUNCTION_NAME = "is_supported_series_visual_signature_pipeline_version"
+LEGACY_BASE_GENERATOR_DISABLED_KEYWORDS = {
+    "series_visual_signature_enabled": False,
+    "ip_profile": None,
+    "series_visual_signature_expression_mode": None,
+    "series_visual_signature_structure_mode": None,
+    "series_visual_signature_participation_mode": None,
+    "series_visual_signature_request": None,
+    "series_visual_signature_profile": None,
+    "series_visual_signature_mode": None,
+    "series_visual_signature_consistency_mode": None,
+    "series_visual_signature_presentation_mode": None,
+    "series_visual_signature_enforcement": None,
+    "series_visual_signature_fallback_enabled": None,
+    "series_visual_signature_fallback_mode": None,
+    "series_visual_signature_min_visibility": None,
+    "scene_casts_by_frame": None,
+}
 
 
 def test_legacy_runtime_files_are_physically_removed() -> None:
@@ -72,7 +93,10 @@ def test_runtime_python_does_not_import_deprecated_modules() -> None:
     for relative in _runtime_files():
         if not relative.endswith(".py") or _is_allowlisted(relative):
             continue
-        tree = ast.parse((ROOT / relative).read_text(encoding="utf-8-sig"), filename=relative)
+        tree = ast.parse(
+            (ROOT / relative).read_text(encoding="utf-8-sig"),
+            filename=relative,
+        )
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -89,9 +113,13 @@ def test_series_visual_signature_request_has_one_runtime_class_definition() -> N
     for relative in _runtime_files():
         if not relative.endswith(".py"):
             continue
-        tree = ast.parse((ROOT / relative).read_text(encoding="utf-8-sig"), filename=relative)
+        tree = ast.parse(
+            (ROOT / relative).read_text(encoding="utf-8-sig"),
+            filename=relative,
+        )
         if any(
-            isinstance(node, ast.ClassDef) and node.name == "SeriesVisualSignatureRequest"
+            isinstance(node, ast.ClassDef)
+            and node.name == "SeriesVisualSignatureRequest"
             for node in ast.walk(tree)
         ):
             definitions.append(relative)
@@ -107,7 +135,10 @@ def test_pipeline_version_facts_have_one_runtime_definition() -> None:
     for relative in _runtime_files():
         if not relative.endswith(".py"):
             continue
-        tree = ast.parse((ROOT / relative).read_text(encoding="utf-8-sig"), filename=relative)
+        tree = ast.parse(
+            (ROOT / relative).read_text(encoding="utf-8-sig"),
+            filename=relative,
+        )
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
@@ -118,7 +149,10 @@ def test_pipeline_version_facts_have_one_runtime_definition() -> None:
                 for name in _assigned_names(node.target):
                     if name in assignments_by_name:
                         assignments_by_name[name].append(relative)
-            elif isinstance(node, ast.FunctionDef) and node.name == PIPELINE_VERSION_FUNCTION_NAME:
+            elif (
+                isinstance(node, ast.FunctionDef)
+                and node.name == PIPELINE_VERSION_FUNCTION_NAME
+            ):
                 function_definitions.append(relative)
 
     assert assignments_by_name == {
@@ -130,9 +164,13 @@ def test_pipeline_version_facts_have_one_runtime_definition() -> None:
 
 def test_legacy_request_module_is_adapter_not_second_runtime_model() -> None:
     adapter_path = ROOT / SIGNATURE_REQUEST_ADAPTER_MODULE
-    tree = ast.parse(adapter_path.read_text(encoding="utf-8-sig"), filename=str(adapter_path))
+    tree = ast.parse(
+        adapter_path.read_text(encoding="utf-8-sig"),
+        filename=str(adapter_path),
+    )
     assert not any(
-        isinstance(node, ast.ClassDef) and node.name == "SeriesVisualSignatureRequest"
+        isinstance(node, ast.ClassDef)
+        and node.name == "SeriesVisualSignatureRequest"
         for node in ast.walk(tree)
     )
     assert any(
@@ -150,6 +188,67 @@ def test_legacy_request_module_is_adapter_not_second_runtime_model() -> None:
     }
     assert PIPELINE_VERSION_FACT_NAMES.issubset(imported_names)
     assert PIPELINE_VERSION_FUNCTION_NAME in imported_names
+
+
+def test_final_visual_prompt_compiler_has_one_semantic_implementation() -> None:
+    definitions: list[str] = []
+    for relative in _runtime_files():
+        if not relative.endswith(".py"):
+            continue
+        tree = ast.parse(
+            (ROOT / relative).read_text(encoding="utf-8-sig"),
+            filename=relative,
+        )
+        if any(
+            isinstance(node, ast.ClassDef)
+            and node.name == "FinalVisualPromptCompiler"
+            for node in ast.walk(tree)
+        ):
+            definitions.append(relative)
+    assert definitions == [CANONICAL_FINAL_COMPILER_MODULE]
+
+    compat_path = ROOT / COMPAT_FINAL_COMPILER_MODULE
+    compat_tree = ast.parse(
+        compat_path.read_text(encoding="utf-8-sig"),
+        filename=str(compat_path),
+    )
+    compat_classes = [
+        node
+        for node in compat_tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "ArticleConcretizationPromptCompiler"
+    ]
+    assert len(compat_classes) == 1
+    assert not any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for node in compat_classes[0].body
+    )
+
+
+def test_image_prompt_composer_hard_disables_legacy_signature_generator_inputs() -> None:
+    path = ROOT / IMAGE_PROMPT_COMPOSER_MODULE
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and _call_name(node.func) == "generate_styled_image_prompt_batch"
+    ]
+    assert len(calls) == 1
+    keyword_values = {keyword.arg: keyword.value for keyword in calls[0].keywords if keyword.arg}
+    for keyword, expected in LEGACY_BASE_GENERATOR_DISABLED_KEYWORDS.items():
+        assert keyword in keyword_values, f"missing hard-disabled legacy keyword: {keyword}"
+        value = keyword_values[keyword]
+        assert isinstance(value, ast.Constant), f"{keyword} must be a literal constant"
+        assert value.value is expected, f"{keyword} must stay hard-disabled"
+
+
+def _call_name(value: ast.expr) -> str:
+    if isinstance(value, ast.Name):
+        return value.id
+    if isinstance(value, ast.Attribute):
+        return value.attr
+    return ""
 
 
 def _assigned_names(target: ast.expr) -> tuple[str, ...]:
