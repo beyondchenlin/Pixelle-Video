@@ -19,12 +19,11 @@ def test_provider_adapter_accepts_only_prompt_bundle() -> None:
     assert payload["provider"] == "z_image"
     assert payload["prompt"] == "A clean unlabeled relationship map."
     assert payload["render_config"]["steps"] == 35
-    assert payload["metadata"]["locked_constraints_projected"] is False
 
 
-def test_provider_adapter_projects_locked_constraints_into_model_prompt() -> None:
+def test_provider_adapter_does_not_reinterpret_locked_constraints() -> None:
     bundle = ZImagePromptBundle(
-        positive_prompt="A clean unlabeled relationship map.",
+        positive_prompt="Executable source and identity constraints are already compiled here.",
         locked_constraints=(
             "Keep required source subjects visible and primary.",
             "Keep the recurring identity scene-bound.",
@@ -33,9 +32,8 @@ def test_provider_adapter_projects_locked_constraints_into_model_prompt() -> Non
 
     payload = project_z_image_prompt_bundle(bundle=bundle)
 
-    assert "Keep required source subjects visible and primary." in payload["prompt"]
-    assert "Keep the recurring identity scene-bound." in payload["prompt"]
-    assert payload["metadata"]["locked_constraints_projected"] is True
+    assert payload["prompt"] == bundle.positive_prompt
+    assert payload["metadata"]["locked_constraints"] == list(bundle.locked_constraints)
 
 
 def test_provider_adapter_rejects_deprecated_metadata_deep() -> None:
