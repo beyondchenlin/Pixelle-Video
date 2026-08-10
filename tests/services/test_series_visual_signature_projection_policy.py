@@ -65,6 +65,15 @@ def test_projection_audit_has_explicit_denominator_and_full_coverage() -> None:
     assert audit["all_frames_passed"] is True
 
 
+def test_projection_audit_encodes_single_runtime_ownership() -> None:
+    policy = _project().audit_dict()["audit_policy"]
+
+    assert policy["production_identity_owner"] == "canonical_v45_projection"
+    assert policy["compatibility_adapter_scope"] == "input_normalization_only"
+    assert policy["legacy_prompt_runtime_allowed"] is False
+    assert policy["shadow_runtime_allowed"] is False
+
+
 def test_projection_audit_forbids_raw_prompt_subject_and_identity_retention() -> None:
     raw_prompt = "worker operates a machine"
     raw_subject = "worker"
