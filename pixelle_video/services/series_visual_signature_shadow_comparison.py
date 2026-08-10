@@ -259,12 +259,15 @@ def _profile_snapshot(
     traits = tuple(identity_contract.required_identity_traits)
     if not traits:
         traits = tuple(profile.identity_kernel)
+    # The V4.5 profile snapshot is deliberately identity-only. Legacy profile
+    # appearance/forbidden-role fields are prompt-policy material, not identity
+    # facts, and copying them here can reintroduce prompt instructions as traits.
     return VisualSignatureProfileSnapshot(
         profile_id=profile.profile_id,
         display_name=profile.display_name,
         identity_traits=traits,
-        style_safe_traits=tuple(profile.appearance_traits[:3]),
-        forbidden_traits=tuple(profile.forbidden_role_forms[:6]),
+        style_safe_traits=(),
+        forbidden_traits=(),
         source_asset_ids=tuple(profile.reference_assets),
     )
 
