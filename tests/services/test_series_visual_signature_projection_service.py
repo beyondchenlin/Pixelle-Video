@@ -9,6 +9,7 @@ from pixelle_video.services.series_visual_signature_profile_snapshot_builder imp
     SeriesVisualSignatureProfileSnapshotBuilder,
 )
 from pixelle_video.services.series_visual_signature_projection_service import (
+    SeriesVisualSignatureProjectionError,
     SeriesVisualSignatureProjectionService,
 )
 
@@ -113,13 +114,13 @@ def test_projection_requires_unique_frame_ids() -> None:
         )
 
 
-def test_projection_rejects_empty_subject_facts() -> None:
+def test_projection_rejects_empty_subject_facts_with_bounded_failure_metrics() -> None:
     profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
         request=_request(),
         ip_profile=_ip_profile(),
     )
 
-    with pytest.raises(ValueError, match="structured required subjects"):
+    with pytest.raises(SeriesVisualSignatureProjectionError) as exc_info:
         SeriesVisualSignatureProjectionService().project_batch(
             base_prompts=["abstract machinery"],
             frame_ids=["frame-1"],
@@ -127,6 +128,16 @@ def test_projection_rejects_empty_subject_facts() -> None:
             request=_request(),
             profile=profile,
         )
+
+    error = exc_info.value
+    assert error.reason_code == "missing_required_subjects"
+    audit = error.audit_dict()
+    assert audit["expected_frame_count"] == 1
+    assert audit["attempted_frame_count"] == 1
+    assert audit["projected_frame_count"] == 0
+    assert audit["failed_frame_count"] == 1
+    assert audit["not_attempted_frame_count"] == 0
+    assert audit["coverage_rate"] == 0.0
 
 
 def test_projection_preserves_base_prompt_and_all_identity_traits() -> None:
@@ -160,5 +171,8 @@ def test_projection_preserves_base_prompt_and_all_identity_traits() -> None:
     assert result.frames[0].signature.max_area_ratio == pytest.approx(0.2)
     audit = result.audit_dict()
     assert audit["all_frames_passed"] is True
+    assert audit["attempted_frame_count"] == 1
+    assert audit["failed_frame_count"] == 0
+    assert audit["not_attempted_frame_count"] == 0
     assert "positive_prompt" not in audit["frames"][0]
     assert len(audit["frames"][0]["positive_prompt_sha256"]) == 64
