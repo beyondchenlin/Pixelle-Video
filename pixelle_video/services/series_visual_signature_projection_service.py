@@ -265,10 +265,12 @@ class SeriesVisualSignatureProjectionService:
             base_visual_brief=base_visual_brief,
         )
         if not required_subjects:
-            raise ValueError(
-                "visual signature projection requires structured required subjects; "
-                "an empty subject set cannot satisfy subject-preservation invariants"
+            return self._compile_pass_through_frame(
+                frame_id=frame_id,
+                base_prompt=base_prompt,
+                base_negative_prompt=base_negative_prompt,
             )
+
         self.budget.assert_required_subjects(required_subjects)
 
         article_payload, render_payload, visible_text_policy, task, role_context = (
@@ -305,6 +307,47 @@ class SeriesVisualSignatureProjectionService:
             contract=contract,
             signature=signature,
             required_subjects=required_subjects,
+        )
+
+    def _compile_pass_through_frame(
+        self,
+        *,
+        frame_id: str,
+        base_prompt: str,
+        base_negative_prompt: str | None = None,
+    ) -> SeriesVisualSignatureFrameProjection:
+        """Compile a pass-through frame via the standard compiler pipeline
+        when no required subjects are defined, preserving the base prompt
+        with disabled signature contract semantics.
+        """
+
+        disabled_signature = SeriesVisualSignatureContract.disabled()
+        contract = FinalVisualPromptContractV45(
+            contract_id=f"v45:{frame_id}",
+            frame_id=frame_id,
+            primary_visual_task="cognitive_explanation",
+            required_subjects=(),
+            article_concretization={
+                "diagram": {
+                    "grammar": "plain_scene",
+                    "visual_metaphor": base_prompt,
+                },
+            },
+            series_visual_signature=disabled_signature,
+            diagram_render={"render_style": "preserve_base"},
+            visible_text_policy="preserve_base",
+            projected_prompt_parts=(),
+        )
+        bundle = FinalVisualPromptCompiler().compile(
+            final_contract=contract,
+            base_negative_prompt=base_negative_prompt,
+        )
+        return SeriesVisualSignatureFrameProjection(
+            frame_id=frame_id,
+            bundle=bundle,
+            contract=contract,
+            signature=disabled_signature,
+            required_subjects=(),
         )
 
 
