@@ -267,19 +267,21 @@ class SeriesVisualSignatureRequest:
         return payload
 
     def to_dict(self) -> dict[str, Any]:
-        payload = {
-            "enabled": self.enabled,
-            "pipeline_version": self.pipeline_version,
-            "series_visual_signature_enabled": self.enabled,
-            "series_visual_signature_profile_id": self.profile_id,
-            "series_visual_signature_role": self.role.value,
-            "series_visual_signature_role_was_explicit": self.role_was_explicit,
-            "series_visual_signature_max_area_ratio": self.max_area_ratio,
-            "series_visual_signature_user_hint": self.user_hint,
-            "series_visual_signature_asset_bible_id": self.asset_bible_id,
-            "generation_world_hint": self.generation_world_hint,
-        }
-        payload.update(self.compatibility_options)
+        payload = dict(self.compatibility_options)
+        payload.update(
+            {
+                "enabled": self.enabled,
+                "pipeline_version": self.pipeline_version,
+                "series_visual_signature_enabled": self.enabled,
+                "series_visual_signature_profile_id": self.profile_id,
+                "series_visual_signature_role": self.role.value,
+                "series_visual_signature_role_was_explicit": self.role_was_explicit,
+                "series_visual_signature_max_area_ratio": self.max_area_ratio,
+                "series_visual_signature_user_hint": self.user_hint,
+                "series_visual_signature_asset_bible_id": self.asset_bible_id,
+                "generation_world_hint": self.generation_world_hint,
+            }
+        )
         return payload
 
 
