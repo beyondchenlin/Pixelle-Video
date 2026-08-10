@@ -22,6 +22,9 @@ from pixelle_video.services.series_visual_signature_contract_builder import (
 from pixelle_video.services.series_visual_signature_profile_builder import (
     SeriesVisualSignatureProfileBuilder,
 )
+from pixelle_video.services.series_visual_signature_prompt_presence import (
+    prompt_presence_map,
+)
 
 
 @dataclass(frozen=True)
@@ -569,12 +572,7 @@ def _identity_terms(profile: VisualSignatureProfileSnapshot) -> tuple[str, ...]:
 
 
 def _presence_map(text: str, terms: Sequence[str]) -> dict[str, bool]:
-    haystack = " ".join(str(text or "").split()).casefold()
-    return {
-        str(term): str(term).casefold() in haystack
-        for term in terms
-        if str(term or "").strip()
-    }
+    return prompt_presence_map(text, terms)
 
 
 def _first_text(*values: Any) -> str:
