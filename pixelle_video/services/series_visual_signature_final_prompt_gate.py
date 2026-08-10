@@ -46,7 +46,7 @@ def assert_series_visual_signature_final_prompt(
             raise SeriesVisualSignatureFinalPromptGateError(
                 "final visual prompt gate failed: visual signature display name missing"
             )
-        for trait in profile.identity_traits[:3]:
+        for trait in profile.identity_traits:
             if not prompt_contains_term(positive, trait):
                 raise SeriesVisualSignatureFinalPromptGateError(
                     "final visual prompt gate failed: visual signature identity trait missing: "
@@ -58,6 +58,10 @@ def assert_series_visual_signature_final_prompt(
                     "final visual prompt gate failed: visual signature negative protection missing: "
                     f"{forbidden}"
                 )
+        if "duplicate recurring visual signature" not in negative:
+            raise SeriesVisualSignatureFinalPromptGateError(
+                "final visual prompt gate failed: duplicate visual signature protection missing"
+            )
 
     if str(visible_text_policy or "").strip() == "no_visible_text":
         if "readable text" not in negative:
