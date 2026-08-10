@@ -71,8 +71,7 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
         )
         if profile_id != request.profile_id:
             raise ValueError(
-                "resolved IPProfile does not match request profile_id: "
-                f"requested={request.profile_id}, resolved={profile_id or '<empty>'}"
+                "resolved IPProfile does not match request profile_id"
             )
         display_name = _text(getattr(ip_profile, "name", None))
         if not display_name:
@@ -111,8 +110,7 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
     ) -> VisualSignatureProfileSnapshot:
         if profile.profile_id != request.profile_id:
             raise ValueError(
-                "resolved SeriesVisualSignatureProfile does not match request profile_id: "
-                f"requested={request.profile_id}, resolved={profile.profile_id}"
+                "resolved SeriesVisualSignatureProfile does not match request profile_id"
             )
         identity_traits = _validated_identity_traits(
             _dedupe(
@@ -134,20 +132,22 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
 
 def _validated_identity_traits(values: Sequence[str]) -> tuple[str, ...]:
     result = _dedupe(values)
-    for trait in result:
+    for index, trait in enumerate(result):
         if len(trait) > MAX_TRAIT_CHARS:
             raise ValueError(
-                f"visual signature identity trait exceeds {MAX_TRAIT_CHARS} characters: {trait}"
+                "visual signature identity trait exceeds "
+                f"{MAX_TRAIT_CHARS} characters at index {index}"
             )
         lowered = trait.casefold()
         if any(term in lowered for term in _INSTRUCTION_LIKE_TRAIT_TERMS):
             raise ValueError(
-                "visual signature identity traits must be visual noun phrases, not model instructions: "
-                f"{trait}"
+                "visual signature identity traits must be visual noun phrases, "
+                f"not model instructions; invalid trait at index {index}"
             )
         if "\n" in trait or ";" in trait or "；" in trait:
             raise ValueError(
-                "visual signature identity traits must be short visual noun phrases"
+                "visual signature identity traits must be short visual noun phrases; "
+                f"invalid trait at index {index}"
             )
     return result
 
