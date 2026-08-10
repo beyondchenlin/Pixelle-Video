@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pixelle_video.architecture.legacy_signature_field_guard import (
@@ -12,6 +12,10 @@ from pixelle_video.services.visible_text_prompt_rewriter import (
     NO_VISIBLE_TEXT_NEGATIVE_PROMPT,
     rewrite_for_no_visible_text,
 )
+
+_MAX_POSITIVE_PROMPT_CHARS = 1000
+_REQUIRED_SUBJECTS_BUDGET = 260
+_SIGNATURE_BUDGET = 500
 
 
 class ArticleConcretizationPromptCompiler:
@@ -25,7 +29,12 @@ class ArticleConcretizationPromptCompiler:
         diagram = dict(concretization.get("diagram") or {})
         render = dict(contract.get("diagram_render") or concretization.get("render") or {})
         signature = _signature_contract(final_contract, contract)
-        visible_text_policy = str(contract.get("visible_text_policy") or diagram.get("visible_text_policy") or "no_visible_text")
+        required_subjects = _required_subjects(contract.get("required_subjects"))
+        visible_text_policy = str(
+            contract.get("visible_text_policy")
+            or diagram.get("visible_text_policy")
+            or "no_visible_text"
+        )
 
         main_visual = _first_non_empty(
             diagram.get("visual_metaphor"),
@@ -34,29 +43,51 @@ class ArticleConcretizationPromptCompiler:
             "one clear explanation visual",
         )
         diagram_clause = _diagram_clause(diagram)
-        style_clause = _style_clause(render)
+        required_subjects_clause = _required_subjects_clause(required_subjects)
         signature_clause = _signature_clause(signature)
-        positive_parts = [main_visual, diagram_clause, signature_clause, style_clause]
-        positive_prompt = ". ".join(part for part in positive_parts if part)
-        negative_parts = ["photorealistic mascot, sticker, logo, watermark, dense messy diagram"]
-        locked_constraints = [
-            "provider adapter must receive only ZImagePromptBundle",
-            "series visual signature must not replace required subjects",
+        style_clause = _style_clause(render)
+        positive_prompt = _compose_budgeted_prompt(
+            main_visual=main_visual,
+            diagram_clause=diagram_clause,
+            required_subjects_clause=required_subjects_clause,
+            signature_clause=signature_clause,
+            style_clause=style_clause,
+            limit=_MAX_POSITIVE_PROMPT_CHARS,
+        )
+
+        negative_parts = [
+            "photorealistic mascot, sticker, logo, watermark, dense messy diagram"
         ]
+        if signature.enabled and signature.profile is not None:
+            negative_parts.extend(signature.profile.forbidden_traits)
+
+        locked_constraints = []
+        if required_subjects:
+            locked_constraints.append(
+                "Keep every required source subject visible and primary; the recurring visual signature must not replace, merge with, or hide them."
+            )
+        if signature.enabled and signature.profile is not None:
+            locked_constraints.append(
+                "Keep the recurring visual identity scene-bound and recognizable by its configured identity traits; never render it as a sticker, logo, watermark, or corner badge."
+            )
         if visible_text_policy == "no_visible_text":
             positive_prompt = rewrite_for_no_visible_text(positive_prompt)
             negative_parts.append(NO_VISIBLE_TEXT_NEGATIVE_PROMPT)
-            locked_constraints.append("no visible text: use blank marks and unlabeled nodes only")
+            locked_constraints.append(
+                "Use no visible readable text; use blank marks and unlabeled nodes only."
+            )
+
         metadata = {
             "schema_version": "v4.5-signature",
             "contract_id": contract.get("contract_id"),
             "frame_id": contract.get("frame_id"),
             "compiler": "ArticleConcretizationPromptCompiler",
             "target_provider": "z_image",
+            "required_subjects": list(required_subjects),
             "series_visual_signature": signature.to_dict(),
         }
         return ZImagePromptBundle(
-            positive_prompt=_shorten(positive_prompt, 1000),
+            positive_prompt=positive_prompt,
             negative_prompt=", ".join(part for part in negative_parts if part),
             locked_constraints=tuple(locked_constraints),
             metadata=metadata,
@@ -71,14 +102,58 @@ def _to_mapping(value: Any) -> dict[str, Any]:
     raise ValueError("final_contract must be a mapping or expose to_dict()")
 
 
-def _signature_contract(original_contract: Any, contract_payload: Mapping[str, Any]) -> SeriesVisualSignatureContract:
+def _signature_contract(
+    original_contract: Any,
+    contract_payload: Mapping[str, Any],
+) -> SeriesVisualSignatureContract:
     candidate = getattr(original_contract, "series_visual_signature", None)
     if isinstance(candidate, SeriesVisualSignatureContract):
         return candidate
     raw = contract_payload.get("series_visual_signature")
     if isinstance(raw, SeriesVisualSignatureContract):
         return raw
-    return SeriesVisualSignatureContract.disabled()
+    if isinstance(raw, Mapping):
+        return SeriesVisualSignatureContract.from_mapping(raw)
+    if raw is None:
+        return SeriesVisualSignatureContract.disabled()
+    raise ValueError("series_visual_signature must be a contract or mapping")
+
+
+def _required_subjects(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        value = (value,)
+    if not isinstance(value, Sequence):
+        raise ValueError("required_subjects must be a sequence of strings")
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = " ".join(str(item or "").strip().split())
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return tuple(result)
+
+
+def _required_subjects_clause(required_subjects: Sequence[str]) -> str:
+    if not required_subjects:
+        return ""
+    compact_subjects = [
+        _shorten(subject, 72)
+        for subject in required_subjects[:5]
+        if str(subject).strip()
+    ]
+    return _shorten(
+        "Required source subjects stay visible and primary: "
+        + ", ".join(compact_subjects)
+        + ". Do not replace, merge, hide, or transform them into the recurring visual identity.",
+        _REQUIRED_SUBJECTS_BUDGET,
+    )
 
 
 def _diagram_clause(diagram: Mapping[str, Any]) -> str:
@@ -111,12 +186,15 @@ def _signature_clause(signature: SeriesVisualSignatureContract) -> str:
     if not signature.enabled:
         return ""
     profile = signature.profile
-    traits = ", ".join(profile.identity_traits[:3]) if profile else "recurring visual signature"
+    if profile is None:
+        raise ValueError("enabled series visual signature requires a profile")
+    traits = ", ".join(profile.identity_traits[:3])
     role_text = _natural_signature_role(signature.role.value)
-    return (
-        f"A small recurring visual identity with these traits appears in the scene: {traits}. "
-        f"It works as {role_text}, physically bound to a real diagram element, paper card, prop, or supporting action. "
-        f"Keep it clear but subordinate, within about {int(signature.max_area_ratio * 100)}% of the image area, matching the scene style."
+    return _shorten(
+        f"Recurring visual identity {profile.display_name} appears in the scene, recognizable by: {traits}. "
+        f"It works as {role_text}, physically bound to a real diagram element, prop, surface, or supporting action. "
+        f"Keep it clear but subordinate, within about {int(signature.max_area_ratio * 100)}% of the image area, matching the scene style and never replacing required source subjects.",
+        _SIGNATURE_BUDGET,
     )
 
 
@@ -132,6 +210,53 @@ def _natural_signature_role(role: str) -> str:
     }.get(str(role or ""), "a scene-bound participant")
 
 
+def _compose_budgeted_prompt(
+    *,
+    main_visual: str,
+    diagram_clause: str,
+    required_subjects_clause: str,
+    signature_clause: str,
+    style_clause: str,
+    limit: int,
+) -> str:
+    protected_parts = [
+        part for part in (required_subjects_clause, signature_clause) if part
+    ]
+    protected_text = ". ".join(protected_parts)
+    if len(protected_text) >= limit:
+        # Identity and source-subject protection are the non-negotiable parts.
+        return _shorten(protected_text, limit)
+
+    optional_budget = limit - len(protected_text)
+    if protected_text:
+        optional_budget -= 2
+
+    optional_candidates = [main_visual, diagram_clause, style_clause]
+    optional_parts: list[str] = []
+    for candidate in optional_candidates:
+        text = " ".join(str(candidate or "").split())
+        if not text or optional_budget <= 0:
+            continue
+        separator_cost = 2 if optional_parts else 0
+        available = optional_budget - separator_cost
+        if available <= 0:
+            break
+        fitted = _shorten(text, available)
+        if not fitted:
+            continue
+        optional_parts.append(fitted)
+        optional_budget -= len(fitted) + separator_cost
+
+    ordered = []
+    if optional_parts:
+        # Preserve the original semantic order for the parts that fit.
+        ordered.extend(optional_parts[:2])
+    ordered.extend(protected_parts)
+    if len(optional_parts) > 2:
+        ordered.extend(optional_parts[2:])
+    return _shorten(". ".join(part for part in ordered if part), limit)
+
+
 def _first_non_empty(*values: Any) -> str:
     for value in values:
         if isinstance(value, str) and value.strip():
@@ -140,7 +265,11 @@ def _first_non_empty(*values: Any) -> str:
 
 
 def _shorten(text: str, limit: int) -> str:
+    if limit <= 0:
+        return ""
     text = " ".join(text.split())
     if len(text) <= limit:
         return text
+    if limit == 1:
+        return "…"
     return text[: limit - 1].rstrip() + "…"
