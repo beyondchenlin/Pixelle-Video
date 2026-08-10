@@ -81,7 +81,7 @@ def test_enabled_signature_requires_every_identity_trait() -> None:
     assert "Dalmatian" in bundle.positive_prompt
     for trait in _signature().profile.identity_traits:
         assert trait in bundle.positive_prompt
-    assert "within about 18% of the image area" in bundle.positive_prompt
+    assert "within about 18% of the frame area" in bundle.positive_prompt
     assert "photorealistic mascot" in bundle.negative_prompt
     assert "sticker" in bundle.negative_prompt
     assert "watermark" in bundle.negative_prompt
