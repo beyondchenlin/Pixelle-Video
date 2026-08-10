@@ -7,8 +7,9 @@ import pytest
 from pixelle_video.models.series_visual_signature import SeriesVisualSignatureRequest
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
-from pixelle_video.services import image_prompt_composer as composer_module
+from pixelle_video.services import visual_prompt_composer as composer_module
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
+from pixelle_video.services.visual_prompt_composer import VisualPromptComposer
 
 
 def _storyboard_plan() -> StoryboardPlan:
@@ -65,6 +66,20 @@ async def _base_batch(**kwargs):
     )
 
 
+def _enabled_request() -> SeriesVisualSignatureRequest:
+    return SeriesVisualSignatureRequest.from_mapping(
+        {
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_profile_id": "dog_1",
+            "series_visual_signature_role": "auto",
+        }
+    )
+
+
+def test_image_prompt_composer_is_only_a_compatibility_alias() -> None:
+    assert ImagePromptComposer is VisualPromptComposer
+
+
 @pytest.mark.asyncio
 async def test_prompt_composer_uses_signature_free_base_then_canonical_projection(
     monkeypatch,
@@ -82,20 +97,13 @@ async def test_prompt_composer_uses_signature_free_base_then_canonical_projectio
         fake_generate_styled_image_prompt_batch,
     )
 
-    request = SeriesVisualSignatureRequest.from_mapping(
-        {
-            "series_visual_signature_enabled": True,
-            "series_visual_signature_profile_id": "dog_1",
-            "series_visual_signature_role": "auto",
-        }
-    )
-    result = await ImagePromptComposer().compose(
+    result = await VisualPromptComposer().compose(
         llm_service=None,
         storyboard_plan=_storyboard_plan(),
         image_config={},
         ip_profile=_ip_profile(),
         series_visual_signature_enabled=True,
-        series_visual_signature_request=request,
+        series_visual_signature_request=_enabled_request(),
         visual_story_context={
             "selected_visual_route": {
                 "route_id": "content-route",
@@ -191,6 +199,40 @@ async def test_prompt_composer_uses_signature_free_base_then_canonical_projectio
 
 
 @pytest.mark.asyncio
+async def test_video_prompt_path_uses_same_canonical_visual_signature_projection(
+    monkeypatch,
+) -> None:
+    captured_generation = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured_generation.update(kwargs)
+        return await _base_batch(**kwargs)
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await VisualPromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan(),
+        image_config={},
+        media_type="video",
+        ip_profile=_ip_profile(),
+        series_visual_signature_enabled=True,
+        series_visual_signature_request=_enabled_request(),
+    )
+
+    assert captured_generation["media_type"] == "video"
+    assert captured_generation["series_visual_signature_enabled"] is False
+    assert "Dalmatian" in result.prompts[0]
+    assert result.planning_snapshot[
+        "series_visual_signature_projection_audit"
+    ]["all_frames_passed"] is True
+
+
+@pytest.mark.asyncio
 async def test_explicit_disabled_canonical_request_never_falls_back_to_legacy_runtime(
     monkeypatch,
 ) -> None:
@@ -206,7 +248,7 @@ async def test_explicit_disabled_canonical_request_never_falls_back_to_legacy_ru
         fake_generate_styled_image_prompt_batch,
     )
 
-    result = await ImagePromptComposer().compose(
+    result = await VisualPromptComposer().compose(
         llm_service=None,
         storyboard_plan=_storyboard_plan(),
         image_config={},
