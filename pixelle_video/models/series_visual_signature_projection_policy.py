@@ -184,18 +184,22 @@ class SeriesVisualSignatureProjectionMetrics:
 
 @dataclass(frozen=True)
 class SeriesVisualSignatureProjectionAuditPolicy:
-    """Privacy and retention contract for projection observability.
+    """Privacy, retention and runtime-ownership contract for projection observability.
 
     Projection audit is planning metadata, not a second prompt store. Raw prompt,
-    subject, identity-trait, user-hint and world-hint text is forbidden. The
-    bounded hash/count record follows the existing planning-snapshot lifecycle
-    rather than creating a new retention subsystem with a competing source of
-    truth.
+    subject, identity-trait, user-hint and world-hint text is forbidden. Runtime
+    ownership is encoded as invariants rather than a migration switch: there is
+    one canonical production identity owner and compatibility may normalize input
+    only. This avoids reintroducing a dual-runtime feature flag.
     """
 
     schema_version: str = "series_visual_signature_projection_audit.v2"
     payload_class: str = "bounded_hash_count_only"
     retention_owner: str = "planning_snapshot_lifecycle"
+    production_identity_owner: str = "canonical_v45_projection"
+    compatibility_adapter_scope: str = "input_normalization_only"
+    legacy_prompt_runtime_allowed: bool = False
+    shadow_runtime_allowed: bool = False
     raw_prompt_retention: str = "forbidden"
     raw_subject_retention: str = "forbidden"
     raw_identity_trait_retention: str = "forbidden"
@@ -206,6 +210,10 @@ class SeriesVisualSignatureProjectionAuditPolicy:
             "schema_version": self.schema_version,
             "payload_class": self.payload_class,
             "retention_owner": self.retention_owner,
+            "production_identity_owner": self.production_identity_owner,
+            "compatibility_adapter_scope": self.compatibility_adapter_scope,
+            "legacy_prompt_runtime_allowed": self.legacy_prompt_runtime_allowed,
+            "shadow_runtime_allowed": self.shadow_runtime_allowed,
             "contains_raw_prompt": False,
             "contains_raw_subjects": False,
             "contains_raw_identity_traits": False,
