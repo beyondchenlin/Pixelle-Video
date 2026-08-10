@@ -40,6 +40,14 @@ ALLOWLIST_PARTS = (
 )
 CANONICAL_SIGNATURE_REQUEST_MODULE = "pixelle_video/models/series_visual_signature.py"
 SIGNATURE_REQUEST_ADAPTER_MODULE = "pixelle_video/models/series_visual_signature_request.py"
+PIPELINE_VERSION_FACT_NAMES = frozenset(
+    {
+        "SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION",
+        "SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION",
+        "SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS",
+    }
+)
+PIPELINE_VERSION_FUNCTION_NAME = "is_supported_series_visual_signature_pipeline_version"
 
 
 def test_legacy_runtime_files_are_physically_removed() -> None:
@@ -91,6 +99,35 @@ def test_series_visual_signature_request_has_one_runtime_class_definition() -> N
     assert definitions == [CANONICAL_SIGNATURE_REQUEST_MODULE]
 
 
+def test_pipeline_version_facts_have_one_runtime_definition() -> None:
+    assignments_by_name: dict[str, list[str]] = {
+        name: [] for name in PIPELINE_VERSION_FACT_NAMES
+    }
+    function_definitions: list[str] = []
+    for relative in _runtime_files():
+        if not relative.endswith(".py"):
+            continue
+        tree = ast.parse((ROOT / relative).read_text(encoding="utf-8-sig"), filename=relative)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    for name in _assigned_names(target):
+                        if name in assignments_by_name:
+                            assignments_by_name[name].append(relative)
+            elif isinstance(node, ast.AnnAssign):
+                for name in _assigned_names(node.target):
+                    if name in assignments_by_name:
+                        assignments_by_name[name].append(relative)
+            elif isinstance(node, ast.FunctionDef) and node.name == PIPELINE_VERSION_FUNCTION_NAME:
+                function_definitions.append(relative)
+
+    assert assignments_by_name == {
+        name: [CANONICAL_SIGNATURE_REQUEST_MODULE]
+        for name in PIPELINE_VERSION_FACT_NAMES
+    }
+    assert function_definitions == [CANONICAL_SIGNATURE_REQUEST_MODULE]
+
+
 def test_legacy_request_module_is_adapter_not_second_runtime_model() -> None:
     adapter_path = ROOT / SIGNATURE_REQUEST_ADAPTER_MODULE
     tree = ast.parse(adapter_path.read_text(encoding="utf-8-sig"), filename=str(adapter_path))
@@ -104,6 +141,26 @@ def test_legacy_request_module_is_adapter_not_second_runtime_model() -> None:
         and any(alias.name == "SeriesVisualSignatureRequest" for alias in node.names)
         for node in ast.walk(tree)
     )
+    imported_names = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "pixelle_video.models.series_visual_signature"
+        for alias in node.names
+    }
+    assert PIPELINE_VERSION_FACT_NAMES.issubset(imported_names)
+    assert PIPELINE_VERSION_FUNCTION_NAME in imported_names
+
+
+def _assigned_names(target: ast.expr) -> tuple[str, ...]:
+    if isinstance(target, ast.Name):
+        return (target.id,)
+    if isinstance(target, (ast.Tuple, ast.List)):
+        result: list[str] = []
+        for item in target.elts:
+            result.extend(_assigned_names(item))
+        return tuple(result)
+    return ()
 
 
 def _runtime_files() -> list[str]:
