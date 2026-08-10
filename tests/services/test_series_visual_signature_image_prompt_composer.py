@@ -35,11 +35,33 @@ def _ip_profile():
     return SimpleNamespace(
         series_visual_signature_profile_id="dog_1",
         name="Dalmatian",
-        identity_lock=("black spots", "black sunglasses", "red collar", "small round ears"),
+        identity_lock=(
+            "black spots",
+            "black sunglasses",
+            "red collar",
+            "small round ears",
+        ),
         minimal_traits=(),
         identity_anchors=(),
         forbidden_elements=(),
         metadata={},
+    )
+
+
+async def _base_batch(**kwargs):
+    return StyledImagePromptBatch(
+        prompts=["worker beside assembly machine, neutral cinematic scene"],
+        negative_prompt="low quality",
+        resolved_style=None,
+        planning_snapshot={
+            "existing": True,
+            "base_visual_briefs_by_frame": {
+                "frame-1": {
+                    "main_subjects": ["worker", "assembly machine"],
+                    "base_image_prompt": "worker beside assembly machine, neutral cinematic scene",
+                }
+            },
+        },
     )
 
 
@@ -52,20 +74,7 @@ async def test_prompt_composer_uses_signature_free_base_then_canonical_projectio
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured_generation.update(kwargs)
-        return StyledImagePromptBatch(
-            prompts=[base_prompt],
-            negative_prompt="low quality",
-            resolved_style=None,
-            planning_snapshot={
-                "existing": True,
-                "base_visual_briefs_by_frame": {
-                    "frame-1": {
-                        "main_subjects": ["worker", "assembly machine"],
-                        "base_image_prompt": base_prompt,
-                    }
-                },
-            },
-        )
+        return await _base_batch(**kwargs)
 
     monkeypatch.setattr(
         composer_module,
@@ -88,7 +97,34 @@ async def test_prompt_composer_uses_signature_free_base_then_canonical_projectio
         series_visual_signature_enabled=True,
         series_visual_signature_request=request,
         visual_story_context={
-            "selected_visual_route": {"route_id": "content-route"},
+            "selected_visual_route": {
+                "route_id": "content-route",
+                "route_name": "Factory process",
+                "route_type": "process_map",
+                "visual_premise": "show the assembly process",
+                "why_it_fits_article": "matches the factory claim",
+                "recommended_ip_role": "operator",
+                "ip_fit_reason": "legacy IP-specific ranking",
+                "scores": {"ip_compatibility": 0.99},
+            },
+            "frame_visual_plans": [
+                {
+                    "frame_id": "frame-1",
+                    "frame_index": 0,
+                    "source_text": "A worker operates a machine.",
+                    "local_claim": "show the production process",
+                    "visual_task": "process walkthrough",
+                    "visual_logic": "follow the factory route",
+                    "required_subjects": ["worker", "assembly machine"],
+                    "visible_text_policy": "no_visible_text",
+                    "cognitive_anchor": "legacy IP anchor",
+                    "physical_metaphor": "legacy IP metaphor",
+                    "scene_arena": "legacy IP arena",
+                    "ip_action_affordance": "legacy IP action",
+                    "forbidden_ip_forms": ["sticker"],
+                    "content_bound_ip_ready": True,
+                }
+            ],
             "frame_ip_fusion_plans": [
                 {"frame_id": "frame-1", "legacy_identity": "must not reach base"}
             ],
@@ -107,10 +143,24 @@ async def test_prompt_composer_uses_signature_free_base_then_canonical_projectio
     assert captured_generation["scene_casts_by_frame"] is None
     generation_context = captured_generation["prompt_contexts"].frame_contexts[0]
     assert "visual_story_ip_fusion_plan" not in generation_context
-    assert "legacy_identity" not in str(generation_context)
-    assert "legacy_ip_style" not in str(generation_context)
-    assert "stable legacy signature" not in str(generation_context)
+    context_text = str(generation_context)
+    for forbidden in (
+        "legacy_identity",
+        "legacy_ip_style",
+        "stable legacy signature",
+        "legacy IP anchor",
+        "legacy IP metaphor",
+        "legacy IP arena",
+        "legacy IP action",
+        "recommended_ip_role",
+        "ip_fit_reason",
+        "ip_compatibility",
+    ):
+        assert forbidden not in context_text
     assert generation_context["selected_visual_route"]["route_id"] == "content-route"
+    frame_plan = generation_context["visual_story_frame_plan"]
+    assert frame_plan["local_claim"] == "show the production process"
+    assert frame_plan["required_subjects"] == ["worker", "assembly machine"]
 
     final_prompt = result.prompts[0]
     assert base_prompt in final_prompt
@@ -138,3 +188,40 @@ async def test_prompt_composer_uses_signature_free_base_then_canonical_projectio
     assert "positive_prompt" not in frame_audit
     assert "negative_prompt" not in frame_audit
     assert len(frame_audit["positive_prompt_sha256"]) == 64
+
+
+@pytest.mark.asyncio
+async def test_explicit_disabled_canonical_request_never_falls_back_to_legacy_runtime(
+    monkeypatch,
+) -> None:
+    captured_generation = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured_generation.update(kwargs)
+        return await _base_batch(**kwargs)
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await ImagePromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan(),
+        image_config={},
+        ip_profile=_ip_profile(),
+        series_visual_signature_enabled=True,
+        series_visual_signature_request=SeriesVisualSignatureRequest.disabled(),
+        series_visual_signature_expression_mode="literal_character",
+        series_visual_signature_structure_mode="global",
+        series_visual_signature_participation_mode="mandatory",
+    )
+
+    assert result.prompts == [
+        "worker beside assembly machine, neutral cinematic scene"
+    ]
+    assert captured_generation["series_visual_signature_enabled"] is False
+    assert captured_generation["series_visual_signature_request"] is None
+    assert captured_generation["ip_profile"] is None
+    assert "series_visual_signature_projection_audit" not in result.planning_snapshot
