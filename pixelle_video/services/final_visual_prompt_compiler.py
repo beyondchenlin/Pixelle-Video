@@ -6,7 +6,7 @@ from typing import Any
 from pixelle_video.architecture.legacy_signature_field_guard import (
     reject_deprecated_signature_fields,
 )
-from pixelle_video.models.final_image_prompt_bundle import FinalImagePromptBundle
+from pixelle_video.models.final_visual_prompt_bundle import FinalVisualPromptBundle
 from pixelle_video.models.series_visual_signature import SeriesVisualSignatureContract
 from pixelle_video.models.z_image_prompt_bundle import ZImagePromptBundle
 from pixelle_video.services.series_visual_signature_final_prompt_gate import (
@@ -23,14 +23,14 @@ _MAX_POSITIVE_PROMPT_CHARS = 1200
 
 
 class FinalVisualPromptCompiler:
-    """Compile a provider-neutral final visual prompt from the V4.5 contract."""
+    """Compile a provider- and media-neutral final visual prompt."""
 
     def compile(
         self,
         *,
         final_contract: Any,
         base_negative_prompt: str | None = None,
-    ) -> FinalImagePromptBundle:
+    ) -> FinalVisualPromptBundle:
         contract = _to_mapping(final_contract)
         reject_deprecated_signature_fields(contract, context="final contract")
         concretization = dict(contract.get("article_concretization") or {})
@@ -106,7 +106,7 @@ class FinalVisualPromptCompiler:
             visible_text_policy=visible_text_policy,
         )
 
-        return FinalImagePromptBundle(
+        return FinalVisualPromptBundle(
             positive_prompt=positive_prompt,
             negative_prompt=negative_prompt,
             locked_constraints=tuple(locked_constraints),
@@ -124,7 +124,7 @@ class FinalVisualPromptCompiler:
         """Compatibility/provider adapter entry point for Z-Image only."""
 
         bundle = self.compile(final_contract=final_contract)
-        metadata = dict(bundle.metadata)
+        metadata = bundle.to_dict()["metadata"]
         metadata["target_provider"] = "z_image"
         return ZImagePromptBundle(
             positive_prompt=bundle.positive_prompt,
