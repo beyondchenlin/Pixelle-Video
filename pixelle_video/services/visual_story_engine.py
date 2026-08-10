@@ -317,7 +317,7 @@ def _content_only_candidate(candidate: VisualRouteCandidate) -> VisualRouteCandi
         channel_consistency=source_scores.channel_consistency,
         production_reliability=source_scores.production_reliability,
         risk=source_scores.risk,
-        final=_content_route_score(source_scores),
+        final=None,
     )
     return VisualRouteCandidate(
         route_id=candidate.route_id,
@@ -336,17 +336,6 @@ def _content_only_candidate(candidate: VisualRouteCandidate) -> VisualRouteCandi
         sample_frame_premise=candidate.sample_frame_premise,
         scores=content_scores,
     )
-
-
-def _content_route_score(scores: VisualRouteScores) -> float:
-    value = (
-        scores.content_fit * 0.38
-        + scores.memorability * 0.22
-        + scores.channel_consistency * 0.17
-        + scores.production_reliability * 0.23
-        - scores.risk * 0.22
-    )
-    return max(0.0, min(1.0, round(value, 4)))
 
 
 def _content_channel_strategy(
