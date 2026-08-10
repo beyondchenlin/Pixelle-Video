@@ -30,7 +30,14 @@ class SignatureReplacementPolicy(str, Enum):
 
 
 MAX_TRAIT_CHARS = 64
+SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION = "v4_expression"
 SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION = "v4_2_identity_contract"
+SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS = frozenset(
+    {
+        SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION,
+        SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION,
+    }
+)
 _FORBIDDEN_TRAIT_TERMS = (
     "always",
     "every scene",
@@ -53,7 +60,9 @@ class SeriesVisualSignatureRequest:
 
     Product-level compatibility controls may still enter through
     ``compatibility_options`` while callers migrate, but runtime identity and
-    role selection use this single request type.
+    role selection use this single request type. ``pipeline_version`` remains a
+    real dataclass field so legacy routing can be represented without creating a
+    second request class.
     """
 
     enabled: bool = False
@@ -64,6 +73,7 @@ class SeriesVisualSignatureRequest:
     user_hint: str | None = None
     asset_bible_id: str | None = None
     generation_world_hint: str | None = None
+    pipeline_version: str = SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION
     compatibility_options: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -96,6 +106,7 @@ class SeriesVisualSignatureRequest:
             "generation_world_hint",
             _optional_text(self.generation_world_hint, max_chars=4000),
         )
+        object.__setattr__(self, "pipeline_version", _pipeline_version_value(self.pipeline_version))
         object.__setattr__(self, "compatibility_options", dict(self.compatibility_options or {}))
 
     @classmethod
@@ -150,6 +161,13 @@ class SeriesVisualSignatureRequest:
             max_area_ratio=data.get("series_visual_signature_max_area_ratio", data.get("max_area_ratio")),
             user_hint=data.get("series_visual_signature_user_hint", data.get("user_hint")),
             generation_world_hint=generation_world_hint or data.get("generation_world_hint"),
+            pipeline_version=data.get(
+                "pipeline_version",
+                data.get(
+                    "series_visual_signature_pipeline_version",
+                    SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION,
+                ),
+            ),
             compatibility_options=compatibility_options,
         )
 
@@ -190,10 +208,6 @@ class SeriesVisualSignatureRequest:
     @classmethod
     def disabled(cls) -> "SeriesVisualSignatureRequest":
         return cls(enabled=False, role=SeriesVisualSignatureRole.NONE)
-
-    @property
-    def pipeline_version(self) -> str:
-        return SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION
 
     @property
     def presentation_policy(self):
@@ -424,6 +438,19 @@ class SeriesVisualSignatureContract:
         }
 
 
+def is_supported_series_visual_signature_pipeline_version(value: Any) -> bool:
+    return str(value or "").strip() in SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS
+
+
+def _pipeline_version_value(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("pipeline_version must be a supported series visual signature pipeline version")
+    normalized = value.strip()
+    if normalized not in SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS:
+        raise ValueError("pipeline_version must be a supported series visual signature pipeline version")
+    return normalized
+
+
 def _enum_value(field_name: str, value: Any, enum_cls: type[Enum], default: Any) -> Any:
     if isinstance(value, enum_cls):
         return value
@@ -515,10 +542,13 @@ def _ratio_value(value: Any, field_name: str) -> float:
 
 __all__ = [
     "MAX_TRAIT_CHARS",
+    "SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION",
     "SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION",
+    "SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS",
     "SeriesVisualSignatureContract",
     "SeriesVisualSignatureRequest",
     "SeriesVisualSignatureRole",
     "SignatureReplacementPolicy",
     "VisualSignatureProfileSnapshot",
+    "is_supported_series_visual_signature_pipeline_version",
 ]
