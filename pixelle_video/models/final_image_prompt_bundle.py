@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Any
+
+
+@dataclass(frozen=True)
+class FinalImagePromptBundle:
+    """Provider-neutral final prompt payload.
+
+    This object is the semantic boundary between Pixelle visual planning and a
+    concrete media provider adapter. Provider-specific size or field limits must
+    be enforced by the adapter, not by visual-signature planning.
+    """
+
+    positive_prompt: str
+    negative_prompt: str = ""
+    locked_constraints: Sequence[str] = field(default_factory=tuple)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "positive_prompt",
+            _require_text("positive_prompt", self.positive_prompt),
+        )
+        object.__setattr__(
+            self,
+            "negative_prompt",
+            _optional_text(self.negative_prompt) or "",
+        )
+        object.__setattr__(
+            self,
+            "locked_constraints",
+            _text_tuple("locked_constraints", self.locked_constraints),
+        )
+        object.__setattr__(
+            self,
+            "metadata",
+            MappingProxyType(dict(self.metadata or {})),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "positive_prompt": self.positive_prompt,
+            "negative_prompt": self.negative_prompt,
+            "locked_constraints": list(self.locked_constraints),
+            "metadata": dict(self.metadata),
+        }
+
+
+def _require_text(field_name: str, value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-empty string")
+    return " ".join(value.strip().split())
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("optional prompt text must be a string")
+    text = " ".join(value.strip().split())
+    return text or None
+
+
+def _text_tuple(field_name: str, values: Sequence[Any]) -> tuple[str, ...]:
+    if values is None:
+        values = ()
+    if isinstance(values, str) or not isinstance(values, Sequence):
+        raise ValueError(f"{field_name} must be a sequence of strings")
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = _require_text(field_name, value)
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return tuple(result)
+
+
+__all__ = ["FinalImagePromptBundle"]
