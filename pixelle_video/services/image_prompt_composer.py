@@ -47,6 +47,31 @@ from pixelle_video.utils.prompt_helper import (
     final_visual_prompt_template_metadata,
 )
 
+_CONTENT_FRAME_VISUAL_KEYS = (
+    "frame_id",
+    "frame_index",
+    "source_text",
+    "local_claim",
+    "visual_task",
+    "visual_logic",
+    "required_subjects",
+    "forbidden_losses",
+    "evidence_refs",
+    "visible_text_policy",
+)
+_CONTENT_ROUTE_KEYS = (
+    "route_id",
+    "route_name",
+    "route_type",
+    "visual_premise",
+    "why_it_fits_article",
+    "frame_storytelling_logic",
+    "style_family",
+    "route_specific_rules",
+    "risk_notes",
+    "sample_frame_premise",
+)
+
 
 @dataclass
 class ImagePromptComposer:
@@ -117,10 +142,7 @@ class ImagePromptComposer:
                 visual_story_context,
                 reference_patch,
             )
-        if signature_enabled:
-            visual_story_context = _signature_free_visual_story_context(
-                visual_story_context
-            )
+        visual_story_context = _content_only_visual_story_context(visual_story_context)
 
         normalized_overrides = normalize_plan_frame_overrides(
             frame_overrides,
@@ -136,10 +158,10 @@ class ImagePromptComposer:
             visual_story_context,
         )
 
-        # The existing generator remains responsible for scene, style, camera,
-        # reference-image, text, and provider capability planning. When the
-        # canonical visual signature is enabled, every legacy IP/signature input
-        # is removed from this base stage so the result is provably signature-free.
+        # This generator owns scene/style/camera/reference-image/text planning only.
+        # Every legacy recurring-IP/signature input is disabled unconditionally.
+        # A disabled canonical request means no signature; it never falls back to
+        # the old runtime via a stale boolean or compatibility field.
         batch = await generate_styled_image_prompt_batch(
             llm_service=llm_service,
             narrations=[
@@ -170,45 +192,21 @@ class ImagePromptComposer:
             frame_overrides=normalized_overrides,
             text_rendering=project_prompt_text_rendering_request(text_rendering),
             native_prompt_hints_by_frame=native_prompt_hints_by_frame,
-            series_visual_signature_enabled=False if signature_enabled else series_visual_signature_enabled,
-            ip_profile=None if signature_enabled else ip_profile,
-            series_visual_signature_expression_mode=(
-                None if signature_enabled else series_visual_signature_expression_mode
-            ),
-            series_visual_signature_structure_mode=(
-                None if signature_enabled else series_visual_signature_structure_mode
-            ),
-            series_visual_signature_participation_mode=(
-                None if signature_enabled else series_visual_signature_participation_mode
-            ),
-            series_visual_signature_request=(
-                None if signature_enabled else series_visual_signature_request
-            ),
-            series_visual_signature_profile=(
-                None if signature_enabled else series_visual_signature_profile
-            ),
-            series_visual_signature_mode=(
-                None if signature_enabled else series_visual_signature_mode
-            ),
-            series_visual_signature_consistency_mode=(
-                None if signature_enabled else series_visual_signature_consistency_mode
-            ),
-            series_visual_signature_presentation_mode=(
-                None if signature_enabled else series_visual_signature_presentation_mode
-            ),
-            series_visual_signature_enforcement=(
-                None if signature_enabled else series_visual_signature_enforcement
-            ),
-            series_visual_signature_fallback_enabled=(
-                None if signature_enabled else series_visual_signature_fallback_enabled
-            ),
-            series_visual_signature_fallback_mode=(
-                None if signature_enabled else series_visual_signature_fallback_mode
-            ),
-            series_visual_signature_min_visibility=(
-                None if signature_enabled else series_visual_signature_min_visibility
-            ),
-            scene_casts_by_frame=None if signature_enabled else scene_casts_by_frame,
+            series_visual_signature_enabled=False,
+            ip_profile=None,
+            series_visual_signature_expression_mode=None,
+            series_visual_signature_structure_mode=None,
+            series_visual_signature_participation_mode=None,
+            series_visual_signature_request=None,
+            series_visual_signature_profile=None,
+            series_visual_signature_mode=None,
+            series_visual_signature_consistency_mode=None,
+            series_visual_signature_presentation_mode=None,
+            series_visual_signature_enforcement=None,
+            series_visual_signature_fallback_enabled=None,
+            series_visual_signature_fallback_mode=None,
+            series_visual_signature_min_visibility=None,
+            scene_casts_by_frame=None,
             stage_callback=stage_callback,
             upstream_llm_trace_refs=upstream_llm_trace_refs,
             trace_context=trace_context,
@@ -235,6 +233,10 @@ class ImagePromptComposer:
 
         planning_snapshot = dict(batch.planning_snapshot or {})
         if signature_enabled:
+            if media_type != "image":
+                raise ValueError(
+                    "canonical series visual signature projection currently supports image media only"
+                )
             profile_snapshot = SeriesVisualSignatureProfileSnapshotBuilder().build(
                 request=resolved_signature_request,
                 ip_profile=ip_profile,
@@ -372,21 +374,74 @@ def _resolve_signature_request(
     )
 
 
-def _signature_free_visual_story_context(
+def _content_only_visual_story_context(
     visual_story_context: Optional[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Keep content route facts while removing legacy IP/signature decisions."""
+    """Project visual-story context onto content facts only.
 
-    context = dict(visual_story_context or {})
-    context.pop("frame_ip_fusion_plans", None)
-    engine = dict(context.get("visual_story_engine") or {})
-    engine.pop("style_harmonization", None)
-    engine.pop("channel_memory_intent", None)
-    if engine:
-        context["visual_story_engine"] = engine
-    else:
-        context.pop("visual_story_engine", None)
-    return context
+    The upstream visual-story engine still exposes legacy recurring-IP fields.
+    This boundary is deliberately whitelist-based so newly-added IP fields cannot
+    silently leak into the signature-free base prompt in future releases.
+    """
+
+    source = dict(visual_story_context or {})
+    result: dict[str, Any] = {}
+    reference_image = source.get("reference_image")
+    if isinstance(reference_image, Mapping):
+        result["reference_image"] = dict(reference_image)
+
+    route_source = source.get("selected_visual_route")
+    if not isinstance(route_source, Mapping):
+        engine_source = source.get("visual_story_engine")
+        if isinstance(engine_source, Mapping):
+            route_source = engine_source.get("selected_visual_route")
+    route = _content_only_route(route_source)
+    if route:
+        result["selected_visual_route"] = route
+
+    frame_visuals = source.get("frame_visual_plans")
+    if isinstance(frame_visuals, Sequence) and not isinstance(frame_visuals, (str, bytes)):
+        sanitized = [
+            _content_only_frame_visual_plan(item)
+            for item in frame_visuals
+            if isinstance(item, Mapping)
+        ]
+        sanitized = [item for item in sanitized if item]
+        if sanitized:
+            result["frame_visual_plans"] = sanitized
+
+    engine_source = source.get("visual_story_engine")
+    if isinstance(engine_source, Mapping):
+        engine: dict[str, Any] = {}
+        plan_id = engine_source.get("plan_id")
+        article = engine_source.get("article")
+        if plan_id:
+            engine["plan_id"] = plan_id
+        if isinstance(article, Mapping):
+            engine["article"] = dict(article)
+        if route:
+            engine["selected_visual_route"] = route
+        if engine:
+            result["visual_story_engine"] = engine
+    return result
+
+
+def _content_only_route(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    return {
+        key: value[key]
+        for key in _CONTENT_ROUTE_KEYS
+        if key in value and value[key] is not None
+    }
+
+
+def _content_only_frame_visual_plan(value: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: value[key]
+        for key in _CONTENT_FRAME_VISUAL_KEYS
+        if key in value and value[key] is not None
+    }
 
 
 def _base_negative_prompts(
