@@ -8,6 +8,24 @@ from pixelle_video.services.series_visual_signature_contract_builder import (
 )
 
 
+def _profile(profile_id: str = "dog_1") -> dict:
+    return {
+        "series_visual_signature_profile_id": profile_id,
+        "display_name": "Dalmatian",
+        "identity_traits": ["black spots", "black sunglasses"],
+    }
+
+
+def _enabled_request(**overrides) -> dict:
+    payload = {
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_profile_id": "dog_1",
+        "series_visual_signature_role": "auto",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_builder_returns_disabled_contract_when_request_disabled() -> None:
     contract = SeriesVisualSignatureContractBuilder().build(request={})
 
@@ -16,24 +34,48 @@ def test_builder_returns_disabled_contract_when_request_disabled() -> None:
     assert contract.profile is None
 
 
-def test_builder_resolves_auto_role_to_guide_without_old_runtime() -> None:
+def test_builder_auto_role_uses_conservative_fallback_without_context() -> None:
     contract = SeriesVisualSignatureContractBuilder().build(
-        request={
-            "series_visual_signature_enabled": True,
-            "series_visual_signature_profile_id": "dog_1",
-            "series_visual_signature_role": "auto",
-        },
-        profile={
-            "series_visual_signature_profile_id": "dog_1",
-            "display_name": "Dalmatian",
-            "identity_traits": ["black spots", "black sunglasses"],
-        },
+        request=_enabled_request(),
+        profile=_profile(),
     )
 
     assert contract.enabled is True
+    assert contract.role is SeriesVisualSignatureRole.SILENT_WITNESS
+    assert contract.max_area_ratio == pytest.approx(0.16)
+    assert "photorealistic" in " ".join(contract.forbidden_behaviors)
+
+
+def test_builder_auto_role_uses_operator_for_process_flow() -> None:
+    contract = SeriesVisualSignatureContractBuilder().build(
+        request=_enabled_request(),
+        profile=_profile(),
+        role_context={"explanation_diagram_grammar": "process_flow"},
+    )
+
+    assert contract.role is SeriesVisualSignatureRole.OPERATOR
+    assert contract.max_area_ratio == pytest.approx(0.28)
+
+
+def test_builder_auto_role_uses_guide_for_relationship_map() -> None:
+    contract = SeriesVisualSignatureContractBuilder().build(
+        request=_enabled_request(),
+        profile=_profile(),
+        role_context={"explanation_diagram_grammar": "relationship_map"},
+    )
+
     assert contract.role is SeriesVisualSignatureRole.GUIDE
     assert contract.max_area_ratio == pytest.approx(0.2)
-    assert "photorealistic" in " ".join(contract.forbidden_behaviors)
+
+
+def test_builder_explicit_role_wins_over_context() -> None:
+    contract = SeriesVisualSignatureContractBuilder().build(
+        request=_enabled_request(series_visual_signature_role="container"),
+        profile=_profile(),
+        role_context={"explanation_diagram_grammar": "process_flow"},
+    )
+
+    assert contract.role is SeriesVisualSignatureRole.CONTAINER
 
 
 def test_builder_requires_profile_id_when_enabled() -> None:
