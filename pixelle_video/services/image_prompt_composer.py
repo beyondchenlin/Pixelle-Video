@@ -30,11 +30,14 @@ from pixelle_video.services.reference_image_visual_context_adapter import (
     merge_ip_profile_from_reference_patch,
     reference_image_prompt_planning_snapshot,
 )
+from pixelle_video.services.series_visual_signature_shadow_comparison import (
+    build_series_visual_signature_shadow_report,
+)
 from pixelle_video.services.visual_profile_registry import resolve_visual_profile
 from pixelle_video.services.visual_prompt_profile_projector import apply_visual_profile_to_batch
 from pixelle_video.services.visual_quality_gate import VisualQualityGate
-from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.services.visual_story_prompt_context import attach_visual_story_context
+from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_helper import (
     final_visual_prompt_clause_template_metadata,
     final_visual_prompt_template_metadata,
@@ -186,7 +189,29 @@ class ImagePromptComposer:
                 ),
             )
 
+        shadow_report = None
+        if media_type == "image" and (
+            series_visual_signature_enabled
+            or (
+                series_visual_signature_request is not None
+                and series_visual_signature_request.enabled
+            )
+        ):
+            shadow_report = build_series_visual_signature_shadow_report(
+                production_prompts=batch.prompts,
+                frame_ids=[frame.frame_id for frame in storyboard_plan.frames],
+                article_concretization_plans=article_concretization_plans,
+                request=series_visual_signature_request,
+                legacy_profile=series_visual_signature_profile,
+                ip_profile=ip_profile,
+                enabled_fallback=series_visual_signature_enabled,
+            )
+
         planning_snapshot = dict(batch.planning_snapshot or {})
+        if shadow_report is not None:
+            planning_snapshot["series_visual_signature_shadow_comparison"] = (
+                shadow_report.to_dict()
+            )
         reference_snapshot = reference_image_prompt_planning_snapshot(
             reference_patch,
             ip_profile=ip_profile,
