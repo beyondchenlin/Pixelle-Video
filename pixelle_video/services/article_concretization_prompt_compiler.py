@@ -8,6 +8,9 @@ from pixelle_video.architecture.legacy_signature_field_guard import (
 )
 from pixelle_video.models.series_visual_signature import SeriesVisualSignatureContract
 from pixelle_video.models.z_image_prompt_bundle import ZImagePromptBundle
+from pixelle_video.services.series_visual_signature_final_prompt_gate import (
+    assert_series_visual_signature_final_prompt,
+)
 from pixelle_video.services.visible_text_prompt_rewriter import (
     NO_VISIBLE_TEXT_NEGATIVE_PROMPT,
     rewrite_for_no_visible_text,
@@ -43,9 +46,6 @@ class ArticleConcretizationPromptCompiler:
             "one clear explanation visual",
         )
         if visible_text_policy == "no_visible_text":
-            # Rewrite potentially risky user/article text before allocating the
-            # final prompt budget so the rewrite cannot push protected identity
-            # or required-subject clauses past the provider limit afterward.
             main_visual = rewrite_for_no_visible_text(main_visual)
 
         diagram_clause = _diagram_clause(diagram)
@@ -82,6 +82,15 @@ class ArticleConcretizationPromptCompiler:
                 "Use no visible readable text; use blank marks and unlabeled nodes only."
             )
 
+        negative_prompt = ", ".join(part for part in negative_parts if part)
+        assert_series_visual_signature_final_prompt(
+            positive_prompt=positive_prompt,
+            negative_prompt=negative_prompt,
+            required_subjects=required_subjects,
+            signature=signature,
+            visible_text_policy=visible_text_policy,
+        )
+
         metadata = {
             "schema_version": "v4.5-signature",
             "contract_id": contract.get("contract_id"),
@@ -93,7 +102,7 @@ class ArticleConcretizationPromptCompiler:
         }
         return ZImagePromptBundle(
             positive_prompt=positive_prompt,
-            negative_prompt=", ".join(part for part in negative_parts if part),
+            negative_prompt=negative_prompt,
             locked_constraints=tuple(locked_constraints),
             metadata=metadata,
         )
@@ -229,7 +238,6 @@ def _compose_budgeted_prompt(
     ]
     protected_text = ". ".join(protected_parts)
     if len(protected_text) >= limit:
-        # Identity and source-subject protection are the non-negotiable parts.
         return _shorten(protected_text, limit)
 
     optional_budget = limit - len(protected_text)
@@ -254,7 +262,6 @@ def _compose_budgeted_prompt(
 
     ordered = []
     if optional_parts:
-        # Preserve the original semantic order for the parts that fit.
         ordered.extend(optional_parts[:2])
     ordered.extend(protected_parts)
     if len(optional_parts) > 2:
