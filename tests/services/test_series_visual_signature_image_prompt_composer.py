@@ -76,12 +76,13 @@ def _enabled_request() -> SeriesVisualSignatureRequest:
     )
 
 
-def test_image_prompt_composer_is_only_a_compatibility_alias() -> None:
-    assert ImagePromptComposer is VisualPromptComposer
+def test_image_prompt_composer_is_a_real_compatibility_adapter() -> None:
+    assert ImagePromptComposer is not VisualPromptComposer
+    assert ImagePromptComposer.__module__.endswith("image_prompt_composer")
 
 
 @pytest.mark.asyncio
-async def test_prompt_composer_uses_signature_free_base_then_canonical_projection(
+async def test_canonical_prompt_composer_uses_signature_free_base_then_projection(
     monkeypatch,
 ) -> None:
     base_prompt = "worker beside assembly machine, neutral cinematic scene"
@@ -102,7 +103,6 @@ async def test_prompt_composer_uses_signature_free_base_then_canonical_projectio
         storyboard_plan=_storyboard_plan(),
         image_config={},
         ip_profile=_ip_profile(),
-        series_visual_signature_enabled=True,
         series_visual_signature_request=_enabled_request(),
         visual_story_context={
             "selected_visual_route": {
@@ -189,13 +189,18 @@ async def test_prompt_composer_uses_signature_free_base_then_canonical_projectio
     assert "series_visual_signature_shadow_comparison" not in snapshot
     audit = snapshot["series_visual_signature_projection_audit"]
     assert audit["all_frames_passed"] is True
-    assert audit["frame_count"] == 1
+    assert audit["expected_frame_count"] == 1
+    assert audit["projected_frame_count"] == 1
+    assert audit["coverage_rate"] == 1.0
     frame_audit = audit["frames"][0]
     assert frame_audit["identity_trait_count"] == 4
     assert frame_audit["final_gate_passed"] is True
     assert "positive_prompt" not in frame_audit
     assert "negative_prompt" not in frame_audit
     assert len(frame_audit["positive_prompt_sha256"]) == 64
+    assert snapshot["series_visual_signature_contract_by_frame"]["frame-1"][
+        "required_subject_count"
+    ] == 2
 
 
 @pytest.mark.asyncio
@@ -220,7 +225,6 @@ async def test_video_prompt_path_uses_same_canonical_visual_signature_projection
         image_config={},
         media_type="video",
         ip_profile=_ip_profile(),
-        series_visual_signature_enabled=True,
         series_visual_signature_request=_enabled_request(),
     )
 
@@ -233,7 +237,7 @@ async def test_video_prompt_path_uses_same_canonical_visual_signature_projection
 
 
 @pytest.mark.asyncio
-async def test_explicit_disabled_canonical_request_never_falls_back_to_legacy_runtime(
+async def test_canonical_disabled_request_has_no_legacy_fallback(
     monkeypatch,
 ) -> None:
     captured_generation = {}
@@ -253,11 +257,7 @@ async def test_explicit_disabled_canonical_request_never_falls_back_to_legacy_ru
         storyboard_plan=_storyboard_plan(),
         image_config={},
         ip_profile=_ip_profile(),
-        series_visual_signature_enabled=True,
         series_visual_signature_request=SeriesVisualSignatureRequest.disabled(),
-        series_visual_signature_expression_mode="literal_character",
-        series_visual_signature_structure_mode="global",
-        series_visual_signature_participation_mode="mandatory",
     )
 
     assert result.prompts == [
@@ -266,4 +266,95 @@ async def test_explicit_disabled_canonical_request_never_falls_back_to_legacy_ru
     assert captured_generation["series_visual_signature_enabled"] is False
     assert captured_generation["series_visual_signature_request"] is None
     assert captured_generation["ip_profile"] is None
+    assert "series_visual_signature_projection_audit" not in result.planning_snapshot
+
+
+@pytest.mark.asyncio
+async def test_compatibility_adapter_compiles_legacy_controls_once(
+    monkeypatch,
+) -> None:
+    captured_generation = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured_generation.update(kwargs)
+        return await _base_batch(**kwargs)
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await ImagePromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan(),
+        image_config={},
+        ip_profile=_ip_profile(),
+        series_visual_signature_enabled=True,
+        series_visual_signature_expression_mode="literal_character",
+        series_visual_signature_structure_mode="global",
+        series_visual_signature_participation_mode="mandatory",
+    )
+
+    assert "Dalmatian" in result.prompts[0]
+    request = result.planning_snapshot["series_visual_signature_request"]
+    assert request["series_visual_signature_enabled"] is True
+    assert request["series_visual_signature_expression_mode"] == "literal_character"
+    assert request["series_visual_signature_structure_mode"] == "global"
+    assert request["series_visual_signature_participation_mode"] == "mandatory"
+
+
+@pytest.mark.asyncio
+async def test_compatibility_adapter_canonical_request_wins_over_legacy_controls(
+    monkeypatch,
+) -> None:
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        return await _base_batch(**kwargs)
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await ImagePromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan(),
+        image_config={},
+        ip_profile=_ip_profile(),
+        series_visual_signature_enabled=True,
+        series_visual_signature_expression_mode="literal_character",
+        series_visual_signature_request=SeriesVisualSignatureRequest.disabled(),
+    )
+
+    assert result.prompts == [
+        "worker beside assembly machine, neutral cinematic scene"
+    ]
+    assert "series_visual_signature_projection_audit" not in result.planning_snapshot
+
+
+@pytest.mark.asyncio
+async def test_compatibility_adapter_parses_string_false_without_bool_coercion(
+    monkeypatch,
+) -> None:
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        return await _base_batch(**kwargs)
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await ImagePromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan(),
+        image_config={},
+        ip_profile=_ip_profile(),
+        series_visual_signature_enabled="false",
+    )
+
+    assert result.prompts == [
+        "worker beside assembly machine, neutral cinematic scene"
+    ]
     assert "series_visual_signature_projection_audit" not in result.planning_snapshot
