@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pixelle_video.models.article_concretization import ArticleConcretizationPlan
-from pixelle_video.models.final_image_prompt_bundle import FinalImagePromptBundle
+from pixelle_video.models.final_visual_prompt_bundle import FinalVisualPromptBundle
 from pixelle_video.models.final_visual_prompt_contract_v45 import FinalVisualPromptContractV45
 from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureContract,
@@ -22,7 +22,7 @@ from pixelle_video.services.series_visual_signature_contract_builder import (
 @dataclass(frozen=True)
 class SeriesVisualSignatureFrameProjection:
     frame_id: str
-    bundle: FinalImagePromptBundle
+    bundle: FinalVisualPromptBundle
     contract: FinalVisualPromptContractV45
     signature: SeriesVisualSignatureContract
     required_subjects: tuple[str, ...]
