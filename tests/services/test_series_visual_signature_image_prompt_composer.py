@@ -85,6 +85,9 @@ async def test_prompt_composer_records_shadow_report_without_replacing_productio
     assert captured_shadow["production_prompts"] == [production_prompt]
     assert captured_shadow["frame_ids"] == ["frame-1"]
     assert captured_shadow["request"] is request
+    fallback_context = captured_shadow["fallback_frame_contexts"]["frame-1"]
+    assert fallback_context["frame_source_text"] == "A worker operates a machine."
+    assert fallback_context["visual_goal"] == "show the production process"
     assert result.planning_snapshot["existing"] is True
     assert (
         result.planning_snapshot["series_visual_signature_shadow_comparison"][
