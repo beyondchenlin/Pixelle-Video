@@ -39,11 +39,11 @@ def __getattr__(name: str) -> typing.Any:
     if name == "HttpIPDesignClient":
         from web.ip_design.http_client import HttpIPDesignClient
         _LAZY_IMPORTS["HttpIPDesignClient"] = HttpIPDesignClient
-        return HttpIPDesignClient
+        return _LAZY_IMPORTS[name]
     if name == "InProcessIPDesignClient":
         from web.ip_design.inprocess_client import InProcessIPDesignClient
         _LAZY_IMPORTS["InProcessIPDesignClient"] = InProcessIPDesignClient
-        return InProcessIPDesignClient
+        return _LAZY_IMPORTS[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

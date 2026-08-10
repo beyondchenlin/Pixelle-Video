@@ -11,16 +11,9 @@ TTS 和图像插件的内存检测与释放。
 
 import gc
 import sys
+from typing import Dict, List, Tuple, Type
 
 import torch
-
-try:
-    from typing import Dict, List, Tuple, Type
-except ImportError:
-    from typing import List
-    Tuple = tuple
-    Type = type
-    Dict = dict
 
 PIXELLE_RELEASE_PROTOCOL_VERSION = 2
 
