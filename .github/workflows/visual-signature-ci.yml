@@ -10,18 +10,24 @@ on:
       - "pixelle_video/models/series_visual_signature_request.py"
       - "pixelle_video/models/final_visual_prompt_bundle.py"
       - "pixelle_video/models/final_visual_prompt_contract_v45.py"
+      - "pixelle_video/models/visual_story_engine.py"
       - "pixelle_video/services/series_visual_signature_*.py"
       - "pixelle_video/services/final_visual_prompt_compiler.py"
-      - "pixelle_video/services/article_concretization_prompt_compiler.py"
+      - "pixelle_video/services/article_concretization_*.py"
       - "pixelle_video/services/provider_z_image_adapter.py"
       - "pixelle_video/services/visual_prompt_composer.py"
       - "pixelle_video/services/image_prompt_composer.py"
+      - "pixelle_video/services/visual_story_*.py"
+      - "pixelle_video/prompts/visual_story_*.py"
+      - "pixelle_video/prompts/templates/article_visual_route_analysis.md"
+      - "pixelle_video/prompts/templates/frame_visual_plan_batch.md"
       - "tests/architecture/test_no_legacy_ip_runtime.py"
       - "tests/models/test_series_visual_signature.py"
       - "tests/models/test_series_visual_signature_request.py"
       - "tests/services/test_series_visual_signature_*.py"
-      - "tests/services/test_article_concretization_prompt_compiler.py"
+      - "tests/services/test_article_concretization_*.py"
       - "tests/services/test_provider_z_image_adapter.py"
+      - "tests/services/test_visual_story_source_replacement.py"
       - "docs/migration/v451_series_visual_signature_source_replacement.md"
       - "pyproject.toml"
       - "uv.lock"
@@ -35,18 +41,24 @@ on:
       - "pixelle_video/models/series_visual_signature_request.py"
       - "pixelle_video/models/final_visual_prompt_bundle.py"
       - "pixelle_video/models/final_visual_prompt_contract_v45.py"
+      - "pixelle_video/models/visual_story_engine.py"
       - "pixelle_video/services/series_visual_signature_*.py"
       - "pixelle_video/services/final_visual_prompt_compiler.py"
-      - "pixelle_video/services/article_concretization_prompt_compiler.py"
+      - "pixelle_video/services/article_concretization_*.py"
       - "pixelle_video/services/provider_z_image_adapter.py"
       - "pixelle_video/services/visual_prompt_composer.py"
       - "pixelle_video/services/image_prompt_composer.py"
+      - "pixelle_video/services/visual_story_*.py"
+      - "pixelle_video/prompts/visual_story_*.py"
+      - "pixelle_video/prompts/templates/article_visual_route_analysis.md"
+      - "pixelle_video/prompts/templates/frame_visual_plan_batch.md"
       - "tests/architecture/test_no_legacy_ip_runtime.py"
       - "tests/models/test_series_visual_signature.py"
       - "tests/models/test_series_visual_signature_request.py"
       - "tests/services/test_series_visual_signature_*.py"
-      - "tests/services/test_article_concretization_prompt_compiler.py"
+      - "tests/services/test_article_concretization_*.py"
       - "tests/services/test_provider_z_image_adapter.py"
+      - "tests/services/test_visual_story_source_replacement.py"
       - "docs/migration/v451_series_visual_signature_source_replacement.md"
       - "pyproject.toml"
       - "uv.lock"
@@ -83,6 +95,7 @@ jobs:
             pixelle_video/models/series_visual_signature_request.py \
             pixelle_video/models/final_visual_prompt_bundle.py \
             pixelle_video/models/final_visual_prompt_contract_v45.py \
+            pixelle_video/models/visual_story_engine.py \
             pixelle_video/services/series_visual_signature_contract_builder.py \
             pixelle_video/services/series_visual_signature_planning_service.py \
             pixelle_video/services/series_visual_signature_role_resolver.py \
@@ -92,9 +105,16 @@ jobs:
             pixelle_video/services/series_visual_signature_projection_service.py \
             pixelle_video/services/final_visual_prompt_compiler.py \
             pixelle_video/services/article_concretization_prompt_compiler.py \
+            pixelle_video/services/article_concretization_resolution.py \
             pixelle_video/services/provider_z_image_adapter.py \
             pixelle_video/services/visual_prompt_composer.py \
-            pixelle_video/services/image_prompt_composer.py
+            pixelle_video/services/image_prompt_composer.py \
+            pixelle_video/services/visual_story_engine.py \
+            pixelle_video/services/visual_story_batch_orchestrator.py \
+            pixelle_video/services/visual_story_frame_services.py \
+            pixelle_video/services/visual_story_quality_gate.py \
+            pixelle_video/prompts/visual_story_engine.py \
+            pixelle_video/prompts/visual_story_execution.py
 
       - name: Run visual signature tests
         env:
@@ -105,8 +125,9 @@ jobs:
             tests/models/test_series_visual_signature.py \
             tests/models/test_series_visual_signature_request.py \
             tests/services/test_series_visual_signature_*.py \
-            tests/services/test_article_concretization_prompt_compiler.py \
-            tests/services/test_provider_z_image_adapter.py
+            tests/services/test_article_concretization_*.py \
+            tests/services/test_provider_z_image_adapter.py \
+            tests/services/test_visual_story_source_replacement.py
 
       - name: Ruff visual signature scope
         run: |
@@ -115,6 +136,7 @@ jobs:
             pixelle_video/models/series_visual_signature_request.py \
             pixelle_video/models/final_visual_prompt_bundle.py \
             pixelle_video/models/final_visual_prompt_contract_v45.py \
+            pixelle_video/models/visual_story_engine.py \
             pixelle_video/services/series_visual_signature_contract_builder.py \
             pixelle_video/services/series_visual_signature_planning_service.py \
             pixelle_video/services/series_visual_signature_role_resolver.py \
@@ -124,12 +146,20 @@ jobs:
             pixelle_video/services/series_visual_signature_projection_service.py \
             pixelle_video/services/final_visual_prompt_compiler.py \
             pixelle_video/services/article_concretization_prompt_compiler.py \
+            pixelle_video/services/article_concretization_resolution.py \
             pixelle_video/services/provider_z_image_adapter.py \
             pixelle_video/services/visual_prompt_composer.py \
             pixelle_video/services/image_prompt_composer.py \
+            pixelle_video/services/visual_story_engine.py \
+            pixelle_video/services/visual_story_batch_orchestrator.py \
+            pixelle_video/services/visual_story_frame_services.py \
+            pixelle_video/services/visual_story_quality_gate.py \
+            pixelle_video/prompts/visual_story_engine.py \
+            pixelle_video/prompts/visual_story_execution.py \
             tests/architecture/test_no_legacy_ip_runtime.py \
             tests/models/test_series_visual_signature.py \
             tests/models/test_series_visual_signature_request.py \
             tests/services/test_series_visual_signature_*.py \
-            tests/services/test_article_concretization_prompt_compiler.py \
-            tests/services/test_provider_z_image_adapter.py
+            tests/services/test_article_concretization_*.py \
+            tests/services/test_provider_z_image_adapter.py \
+            tests/services/test_visual_story_source_replacement.py
