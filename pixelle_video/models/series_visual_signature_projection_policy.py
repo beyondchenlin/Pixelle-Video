@@ -5,7 +5,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
+from pixelle_video.models.series_visual_signature import (
+    SeriesVisualSignatureRequest,
+    VisualSignatureProfileSnapshot,
+)
 
 DEFAULT_MAX_PROJECTION_FRAMES = 512
 DEFAULT_MAX_BASE_PROMPT_CHARS = 20_000
@@ -114,20 +117,24 @@ class SeriesVisualSignatureProjectionBudget:
 @dataclass(frozen=True)
 class SeriesVisualSignatureProjectionMetrics:
     expected_frame_count: int
+    attempted_frame_count: int
     projected_frame_count: int
     unique_frame_count: int
 
     def __post_init__(self) -> None:
         for field_name in (
             "expected_frame_count",
+            "attempted_frame_count",
             "projected_frame_count",
             "unique_frame_count",
         ):
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{field_name} must be a non-negative integer")
-        if self.projected_frame_count > self.expected_frame_count:
-            raise ValueError("projected_frame_count cannot exceed expected_frame_count")
+        if self.attempted_frame_count > self.expected_frame_count:
+            raise ValueError("attempted_frame_count cannot exceed expected_frame_count")
+        if self.projected_frame_count > self.attempted_frame_count:
+            raise ValueError("projected_frame_count cannot exceed attempted_frame_count")
         if self.unique_frame_count > self.projected_frame_count:
             raise ValueError("unique_frame_count cannot exceed projected_frame_count")
 
@@ -137,7 +144,11 @@ class SeriesVisualSignatureProjectionMetrics:
 
     @property
     def failed_frame_count(self) -> int:
-        return self.expected_frame_count - self.projected_frame_count
+        return self.attempted_frame_count - self.projected_frame_count
+
+    @property
+    def not_attempted_frame_count(self) -> int:
+        return self.expected_frame_count - self.attempted_frame_count
 
     @property
     def coverage_rate(self) -> float:
@@ -149,18 +160,23 @@ class SeriesVisualSignatureProjectionMetrics:
     def all_frames_passed(self) -> bool:
         return (
             self.expected_frame_count > 0
+            and self.attempted_frame_count == self.expected_frame_count
+            and self.projected_frame_count == self.expected_frame_count
             and self.coverage_rate == 1.0
             and self.failed_frame_count == 0
+            and self.not_attempted_frame_count == 0
             and self.duplicate_frame_count == 0
         )
 
     def to_dict(self) -> dict[str, int | float | bool]:
         return {
             "expected_frame_count": self.expected_frame_count,
+            "attempted_frame_count": self.attempted_frame_count,
             "projected_frame_count": self.projected_frame_count,
             "unique_frame_count": self.unique_frame_count,
             "duplicate_frame_count": self.duplicate_frame_count,
             "failed_frame_count": self.failed_frame_count,
+            "not_attempted_frame_count": self.not_attempted_frame_count,
             "coverage_rate": self.coverage_rate,
             "all_frames_passed": self.all_frames_passed,
         }
@@ -171,9 +187,10 @@ class SeriesVisualSignatureProjectionAuditPolicy:
     """Privacy and retention contract for projection observability.
 
     Projection audit is planning metadata, not a second prompt store. Raw prompt,
-    subject and identity-trait text is forbidden. The bounded hash/count record
-    follows the existing planning-snapshot lifecycle rather than creating a new
-    retention subsystem with a competing source of truth.
+    subject, identity-trait, user-hint and world-hint text is forbidden. The
+    bounded hash/count record follows the existing planning-snapshot lifecycle
+    rather than creating a new retention subsystem with a competing source of
+    truth.
     """
 
     schema_version: str = "series_visual_signature_projection_audit.v2"
@@ -182,6 +199,7 @@ class SeriesVisualSignatureProjectionAuditPolicy:
     raw_prompt_retention: str = "forbidden"
     raw_subject_retention: str = "forbidden"
     raw_identity_trait_retention: str = "forbidden"
+    raw_request_hint_retention: str = "forbidden"
 
     def to_dict(self) -> dict[str, str | bool]:
         return {
@@ -191,9 +209,39 @@ class SeriesVisualSignatureProjectionAuditPolicy:
             "contains_raw_prompt": False,
             "contains_raw_subjects": False,
             "contains_raw_identity_traits": False,
+            "contains_raw_request_hints": False,
             "raw_prompt_retention": self.raw_prompt_retention,
             "raw_subject_retention": self.raw_subject_retention,
             "raw_identity_trait_retention": self.raw_identity_trait_retention,
+            "raw_request_hint_retention": self.raw_request_hint_retention,
+        }
+
+    def request_audit_dict(
+        self,
+        request: SeriesVisualSignatureRequest,
+    ) -> dict[str, Any]:
+        return {
+            "enabled": request.enabled,
+            "pipeline_version": request.pipeline_version,
+            "profile_id": request.profile_id,
+            "role": request.role.value,
+            "role_was_explicit": request.role_was_explicit,
+            "max_area_ratio": request.max_area_ratio,
+            "compatibility_option_keys": sorted(request.compatibility_options.keys()),
+            "contains_user_hint": request.user_hint is not None,
+            "contains_generation_world_hint": request.generation_world_hint is not None,
+        }
+
+    def profile_reference_dict(
+        self,
+        profile: VisualSignatureProfileSnapshot,
+    ) -> dict[str, Any]:
+        return {
+            "profile_id": profile.profile_id,
+            "identity_trait_count": len(profile.identity_traits),
+            "style_safe_trait_count": len(profile.style_safe_traits),
+            "forbidden_trait_count": len(profile.forbidden_traits),
+            "source_asset_count": len(profile.source_asset_ids),
         }
 
 
