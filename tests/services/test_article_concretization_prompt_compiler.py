@@ -83,7 +83,8 @@ def test_serialized_signature_contract_round_trip_keeps_signature_enabled() -> N
         }
     )
 
-    assert bundle.metadata["series_visual_signature"]["enabled"] is True
+    metadata = bundle.to_dict()["metadata"]
+    assert metadata["series_visual_signature"]["enabled"] is True
     assert "Dalmatian" in bundle.positive_prompt
     assert "black spots" in bundle.positive_prompt
 
