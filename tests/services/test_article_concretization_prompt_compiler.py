@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureContract,
     VisualSignatureProfileSnapshot,
@@ -61,8 +63,12 @@ def test_enabled_signature_is_small_line_art_not_real_participant() -> None:
     )
 
     assert "Dalmatian" in bundle.positive_prompt
+    assert "black spots" in bundle.positive_prompt
+    assert "black sunglasses" in bundle.positive_prompt
     assert "within about 18% of the image area" in bundle.positive_prompt
     assert "photorealistic mascot" in bundle.negative_prompt
+    assert "sticker" in bundle.negative_prompt
+    assert "watermark" in bundle.negative_prompt
     assert "real in-scene participant" not in bundle.positive_prompt
 
 
@@ -108,6 +114,8 @@ def test_required_subjects_are_model_visible_and_protected() -> None:
 
     assert "factory owner" in bundle.positive_prompt
     assert "assembly line" in bundle.positive_prompt
+    assert "Do not replace, merge, hide" in bundle.positive_prompt
+    assert "never replacing required source subjects" in bundle.positive_prompt
     assert any("required source subject" in item.lower() for item in bundle.locked_constraints)
 
 
@@ -129,8 +137,29 @@ def test_long_main_visual_cannot_truncate_signature_or_required_subjects() -> No
         }
     )
 
-    assert len(bundle.positive_prompt) <= 1200
+    assert len(bundle.positive_prompt) <= 1000
     assert "worker" in bundle.positive_prompt
     assert "machine" in bundle.positive_prompt
     assert "Dalmatian" in bundle.positive_prompt
     assert "black spots" in bundle.positive_prompt
+
+
+def test_protected_semantics_over_budget_fail_instead_of_truncating() -> None:
+    subjects = [f"required subject {index} " + ("x" * 80) for index in range(20)]
+
+    with pytest.raises(ValueError, match="protected visual prompt semantics exceed"):
+        ArticleConcretizationPromptCompiler().compile_for_z_image(
+            final_contract={
+                "contract_id": "contract_over_budget",
+                "frame_id": "frame_over_budget",
+                "visible_text_policy": "no_visible_text",
+                "required_subjects": subjects,
+                "series_visual_signature": _signature().to_dict(),
+                "article_concretization": {
+                    "diagram": {
+                        "grammar": "process_flow",
+                        "visual_metaphor": "production system",
+                    }
+                },
+            }
+        )
