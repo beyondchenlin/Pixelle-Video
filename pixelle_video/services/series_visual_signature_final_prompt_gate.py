@@ -25,7 +25,7 @@ def assert_series_visual_signature_final_prompt(
         )
 
     for subject in required_subjects:
-        token = _protected_token(subject)
+        token = " ".join(str(subject or "").strip().split())
         if token and token.casefold() not in positive.casefold():
             raise SeriesVisualSignatureFinalPromptGateError(
                 "final visual prompt gate failed: required subject missing from positive prompt: "
@@ -60,13 +60,6 @@ def assert_series_visual_signature_final_prompt(
             raise SeriesVisualSignatureFinalPromptGateError(
                 "final visual prompt gate failed: no-visible-text negative protection missing"
             )
-
-
-def _protected_token(value: str) -> str:
-    text = " ".join(str(value or "").strip().split())
-    if len(text) <= 72:
-        return text
-    return text[:71].rstrip()
 
 
 __all__ = [
