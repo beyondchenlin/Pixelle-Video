@@ -17,8 +17,7 @@ from pixelle_video.services.visible_text_prompt_rewriter import (
 )
 
 _MAX_POSITIVE_PROMPT_CHARS = 1000
-_REQUIRED_SUBJECTS_BUDGET = 260
-_SIGNATURE_BUDGET = 500
+_MAX_REQUIRED_SUBJECT_CHARS = 72
 
 
 class ArticleConcretizationPromptCompiler:
@@ -158,15 +157,14 @@ def _required_subjects_clause(required_subjects: Sequence[str]) -> str:
     if not required_subjects:
         return ""
     compact_subjects = [
-        _shorten(subject, 72)
-        for subject in required_subjects[:5]
+        _shorten(subject, _MAX_REQUIRED_SUBJECT_CHARS)
+        for subject in required_subjects
         if str(subject).strip()
     ]
-    return _shorten(
+    return (
         "Required source subjects stay visible and primary: "
         + ", ".join(compact_subjects)
-        + ". Do not replace, merge, hide, or transform them into the recurring visual identity.",
-        _REQUIRED_SUBJECTS_BUDGET,
+        + ". Do not replace, merge, hide, or transform them into the recurring visual identity."
     )
 
 
@@ -204,11 +202,10 @@ def _signature_clause(signature: SeriesVisualSignatureContract) -> str:
         raise ValueError("enabled series visual signature requires a profile")
     traits = ", ".join(profile.identity_traits[:3])
     role_text = _natural_signature_role(signature.role.value)
-    return _shorten(
+    return (
         f"Recurring visual identity {profile.display_name} appears in the scene, recognizable by: {traits}. "
         f"It works as {role_text}, physically bound to a real diagram element, prop, surface, or supporting action. "
-        f"Keep it clear but subordinate, within about {int(signature.max_area_ratio * 100)}% of the image area, matching the scene style and never replacing required source subjects.",
-        _SIGNATURE_BUDGET,
+        f"Keep it clear but subordinate, within about {int(signature.max_area_ratio * 100)}% of the image area, matching the scene style and never replacing required source subjects."
     )
 
 
@@ -237,8 +234,11 @@ def _compose_budgeted_prompt(
         part for part in (required_subjects_clause, signature_clause) if part
     ]
     protected_text = ". ".join(protected_parts)
-    if len(protected_text) >= limit:
-        return _shorten(protected_text, limit)
+    if len(protected_text) > limit:
+        raise ValueError(
+            "protected visual prompt semantics exceed provider prompt budget; "
+            "reduce required subjects or identity verbosity before generation"
+        )
 
     optional_budget = limit - len(protected_text)
     if protected_text:
