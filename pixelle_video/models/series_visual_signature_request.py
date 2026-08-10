@@ -63,9 +63,9 @@ _SERIES_VISUAL_SIGNATURE_V4_OPTION_KEYS = frozenset(
 class SeriesVisualSignatureControlsContract:
     """Compatibility adapter for old product-level controls.
 
-    The adapter validates presentation controls and then produces the canonical
-    ``models.series_visual_signature.SeriesVisualSignatureRequest``. It must not
-    become a second runtime request model.
+    It validates legacy/product controls and produces the canonical
+    ``models.series_visual_signature.SeriesVisualSignatureRequest``. This module
+    intentionally does not define a second request runtime type.
     """
 
     enabled: bool = False
@@ -116,12 +116,18 @@ class SeriesVisualSignatureControlsContract:
     def to_generation_dict(self) -> dict[str, Any]:
         if not self.enabled:
             return {}
-        payload = {
-            "series_visual_signature_enabled": True,
+        return {
             "series_visual_signature_expression_mode": self.expression_mode.value,
             "series_visual_signature_structure_mode": self.structure_mode.value,
             "series_visual_signature_participation_mode": self.participation_mode.value,
             **self.presentation_policy.to_generation_dict(),
+        }
+
+    def to_request(self) -> SeriesVisualSignatureRequest:
+        payload = {
+            **dict(self.source_mapping),
+            **self.to_generation_dict(),
+            "series_visual_signature_enabled": self.enabled,
         }
         if self.asset_bible_id is not None:
             payload["series_visual_signature_asset_bible_id"] = self.asset_bible_id
@@ -129,17 +135,6 @@ class SeriesVisualSignatureControlsContract:
             payload["series_visual_signature_profile_id"] = self.profile_id
         if self.generation_world_hint is not None:
             payload["generation_world_hint"] = self.generation_world_hint
-        for key in (
-            "series_visual_signature_role",
-            "series_visual_signature_max_area_ratio",
-            "series_visual_signature_user_hint",
-        ):
-            if key in self.source_mapping and self.source_mapping.get(key) is not None:
-                payload[key] = self.source_mapping[key]
-        return payload
-
-    def to_request(self) -> SeriesVisualSignatureRequest:
-        payload = {**dict(self.source_mapping), **self.to_generation_dict()}
         return SeriesVisualSignatureRequest.from_mapping(
             payload,
             asset_bible_id=self.asset_bible_id,
