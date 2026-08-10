@@ -12,6 +12,7 @@ from pixelle_video.models.series_visual_signature_projection_policy import (
     SeriesVisualSignatureProjectionBudget,
 )
 from pixelle_video.services.series_visual_signature_projection_service import (
+    SeriesVisualSignatureProjectionError,
     SeriesVisualSignatureProjectionService,
 )
 
@@ -52,11 +53,14 @@ def _project(
 def test_projection_audit_has_explicit_denominator_and_full_coverage() -> None:
     audit = _project().audit_dict()
 
+    assert audit["status"] == "passed"
     assert audit["expected_frame_count"] == 1
+    assert audit["attempted_frame_count"] == 1
     assert audit["projected_frame_count"] == 1
     assert audit["unique_frame_count"] == 1
     assert audit["duplicate_frame_count"] == 0
     assert audit["failed_frame_count"] == 0
+    assert audit["not_attempted_frame_count"] == 0
     assert audit["coverage_rate"] == 1.0
     assert audit["all_frames_passed"] is True
 
@@ -73,12 +77,58 @@ def test_projection_audit_forbids_raw_prompt_subject_and_identity_retention() ->
     assert audit["audit_policy"]["contains_raw_prompt"] is False
     assert audit["audit_policy"]["contains_raw_subjects"] is False
     assert audit["audit_policy"]["contains_raw_identity_traits"] is False
+    assert audit["audit_policy"]["contains_raw_request_hints"] is False
     assert raw_prompt not in serialized
     assert identity_trait not in serialized
-    # The frame id/contract id may contain the word "worker" only if a caller
-    # chooses such an id. This fixture does not, so the protected subject itself
-    # must not be persisted by the audit payload.
     assert f'"{raw_subject}"' not in serialized
+
+
+def test_projection_failure_audit_has_denominator_and_no_raw_cause_text() -> None:
+    raw_subject = "private-subject-918273"
+    service = SeriesVisualSignatureProjectionService(
+        budget=SeriesVisualSignatureProjectionBudget(max_required_subject_chars=5)
+    )
+
+    with pytest.raises(SeriesVisualSignatureProjectionError) as exc_info:
+        _project(service=service, primary_subject=raw_subject)
+
+    audit = exc_info.value.audit_dict()
+    serialized = json.dumps(audit, ensure_ascii=False, sort_keys=True)
+    assert audit["status"] == "failed"
+    assert audit["expected_frame_count"] == 1
+    assert audit["attempted_frame_count"] == 1
+    assert audit["projected_frame_count"] == 0
+    assert audit["failed_frame_count"] == 1
+    assert audit["not_attempted_frame_count"] == 0
+    assert audit["coverage_rate"] == 0.0
+    assert audit["reason_code"] == "projection_budget_exceeded"
+    assert audit["exception_type"] == "ValueError"
+    assert raw_subject not in serialized
+
+
+def test_projection_failure_marks_remaining_frames_not_attempted() -> None:
+    service = SeriesVisualSignatureProjectionService(
+        budget=SeriesVisualSignatureProjectionBudget(max_required_subject_chars=5)
+    )
+
+    with pytest.raises(SeriesVisualSignatureProjectionError) as exc_info:
+        service.project_batch(
+            base_prompts=["one", "two", "three"],
+            frame_ids=["frame-1", "frame-2", "frame-3"],
+            frame_contexts=[
+                {"primary_subject": "worker"},
+                {"primary_subject": "owner"},
+                {"primary_subject": "robot"},
+            ],
+            request=_request(),
+            profile=_profile(),
+        )
+
+    audit = exc_info.value.audit_dict()
+    assert audit["attempted_frame_count"] == 1
+    assert audit["projected_frame_count"] == 0
+    assert audit["failed_frame_count"] == 1
+    assert audit["not_attempted_frame_count"] == 2
 
 
 def test_projection_budget_rejects_too_many_frames_before_projection() -> None:
@@ -112,7 +162,7 @@ def test_projection_budget_rejects_subject_count_and_subject_length() -> None:
     count_limited = SeriesVisualSignatureProjectionService(
         budget=SeriesVisualSignatureProjectionBudget(max_required_subjects_per_frame=1)
     )
-    with pytest.raises(ValueError, match="required-subject count exceeds"):
+    with pytest.raises(SeriesVisualSignatureProjectionError) as count_error:
         count_limited.project_batch(
             base_prompts=["worker and owner"],
             frame_ids=["frame-1"],
@@ -125,12 +175,14 @@ def test_projection_budget_rejects_subject_count_and_subject_length() -> None:
             request=_request(),
             profile=_profile(),
         )
+    assert count_error.value.reason_code == "projection_budget_exceeded"
 
     length_limited = SeriesVisualSignatureProjectionService(
         budget=SeriesVisualSignatureProjectionBudget(max_required_subject_chars=5)
     )
-    with pytest.raises(ValueError, match="required subject exceeds"):
+    with pytest.raises(SeriesVisualSignatureProjectionError) as length_error:
         _project(service=length_limited, primary_subject="worker")
+    assert length_error.value.reason_code == "projection_budget_exceeded"
 
 
 def test_projection_budget_rejects_excessive_identity_traits() -> None:
