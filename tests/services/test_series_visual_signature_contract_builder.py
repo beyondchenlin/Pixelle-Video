@@ -78,10 +78,36 @@ def test_builder_explicit_role_wins_over_context() -> None:
     assert contract.role is SeriesVisualSignatureRole.CONTAINER
 
 
+def test_builder_accepts_smaller_user_area_than_role_limit() -> None:
+    contract = SeriesVisualSignatureContractBuilder().build(
+        request=_enabled_request(
+            series_visual_signature_role="guide",
+            series_visual_signature_max_area_ratio=0.12,
+        ),
+        profile=_profile(),
+    )
+
+    assert contract.max_area_ratio == pytest.approx(0.12)
+
+
+def test_builder_rejects_user_area_above_role_semantic_limit() -> None:
+    with pytest.raises(ValueError, match="exceeds the semantic limit"):
+        SeriesVisualSignatureContractBuilder().build(
+            request=_enabled_request(
+                series_visual_signature_role="guide",
+                series_visual_signature_max_area_ratio=0.8,
+            ),
+            profile=_profile(),
+        )
+
+
 def test_builder_requires_profile_id_when_enabled() -> None:
     with pytest.raises(ValueError, match="requires series_visual_signature_profile_id"):
         SeriesVisualSignatureContractBuilder().build(
-            request={"series_visual_signature_enabled": True, "series_visual_signature_role": "guide"},
+            request={
+                "series_visual_signature_enabled": True,
+                "series_visual_signature_role": "guide",
+            },
             strict_user_mode=True,
         )
 
