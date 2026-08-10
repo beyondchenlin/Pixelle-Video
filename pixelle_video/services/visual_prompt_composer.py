@@ -138,6 +138,10 @@ class VisualPromptComposer:
                 "series_visual_signature_request must be the canonical SeriesVisualSignatureRequest"
             )
         signature_enabled = resolved_signature_request.enabled
+        if not signature_enabled and series_visual_signature_profile_snapshot is not None:
+            raise ValueError(
+                "series_visual_signature_profile_snapshot requires an enabled canonical request"
+            )
 
         if reference_patch:
             visual_story_context = _merge_visual_story_context_patch(
@@ -274,11 +278,13 @@ class VisualPromptComposer:
                 planning_snapshot=planning_snapshot,
                 rendered_prompts=rendered_prompts,
             )
-            planning_snapshot["series_visual_signature_request"] = (
-                resolved_signature_request.to_dict()
+            planning_snapshot["series_visual_signature_request_audit"] = (
+                projection.audit_policy.request_audit_dict(
+                    resolved_signature_request
+                )
             )
-            planning_snapshot["series_visual_signature_profile_v45"] = (
-                profile_snapshot.to_dict()
+            planning_snapshot["series_visual_signature_profile_ref"] = (
+                projection.audit_policy.profile_reference_dict(profile_snapshot)
             )
             planning_snapshot["series_visual_signature_projection_audit"] = (
                 projection.audit_dict()
