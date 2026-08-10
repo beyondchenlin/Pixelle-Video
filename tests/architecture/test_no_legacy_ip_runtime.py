@@ -43,7 +43,8 @@ CANONICAL_SIGNATURE_REQUEST_MODULE = "pixelle_video/models/series_visual_signatu
 SIGNATURE_REQUEST_ADAPTER_MODULE = "pixelle_video/models/series_visual_signature_request.py"
 CANONICAL_FINAL_COMPILER_MODULE = "pixelle_video/services/final_visual_prompt_compiler.py"
 COMPAT_FINAL_COMPILER_MODULE = "pixelle_video/services/article_concretization_prompt_compiler.py"
-IMAGE_PROMPT_COMPOSER_MODULE = "pixelle_video/services/image_prompt_composer.py"
+CANONICAL_VISUAL_PROMPT_COMPOSER_MODULE = "pixelle_video/services/visual_prompt_composer.py"
+COMPAT_IMAGE_PROMPT_COMPOSER_MODULE = "pixelle_video/services/image_prompt_composer.py"
 PIPELINE_VERSION_FACT_NAMES = frozenset(
     {
         "SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION",
@@ -225,8 +226,36 @@ def test_final_visual_prompt_compiler_has_one_semantic_implementation() -> None:
     )
 
 
-def test_image_prompt_composer_hard_disables_legacy_signature_generator_inputs() -> None:
-    path = ROOT / IMAGE_PROMPT_COMPOSER_MODULE
+def test_visual_prompt_composer_has_one_semantic_implementation() -> None:
+    canonical_path = ROOT / CANONICAL_VISUAL_PROMPT_COMPOSER_MODULE
+    canonical_tree = ast.parse(
+        canonical_path.read_text(encoding="utf-8-sig"),
+        filename=str(canonical_path),
+    )
+    assert any(
+        isinstance(node, ast.ClassDef) and node.name == "VisualPromptComposer"
+        for node in canonical_tree.body
+    )
+
+    compat_path = ROOT / COMPAT_IMAGE_PROMPT_COMPOSER_MODULE
+    compat_tree = ast.parse(
+        compat_path.read_text(encoding="utf-8-sig"),
+        filename=str(compat_path),
+    )
+    assert not any(
+        isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        for node in compat_tree.body
+    )
+    assert any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "pixelle_video.services.visual_prompt_composer"
+        and any(alias.name == "VisualPromptComposer" for alias in node.names)
+        for node in compat_tree.body
+    )
+
+
+def test_visual_prompt_composer_hard_disables_legacy_signature_generator_inputs() -> None:
+    path = ROOT / CANONICAL_VISUAL_PROMPT_COMPOSER_MODULE
     tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
     calls = [
         node
@@ -235,7 +264,11 @@ def test_image_prompt_composer_hard_disables_legacy_signature_generator_inputs()
         and _call_name(node.func) == "generate_styled_image_prompt_batch"
     ]
     assert len(calls) == 1
-    keyword_values = {keyword.arg: keyword.value for keyword in calls[0].keywords if keyword.arg}
+    keyword_values = {
+        keyword.arg: keyword.value
+        for keyword in calls[0].keywords
+        if keyword.arg
+    }
     for keyword, expected in LEGACY_BASE_GENERATOR_DISABLED_KEYWORDS.items():
         assert keyword in keyword_values, f"missing hard-disabled legacy keyword: {keyword}"
         value = keyword_values[keyword]
