@@ -66,14 +66,14 @@ async def _base_batch(**kwargs):
     )
 
 
-def _enabled_request() -> SeriesVisualSignatureRequest:
-    return SeriesVisualSignatureRequest.from_mapping(
-        {
-            "series_visual_signature_enabled": True,
-            "series_visual_signature_profile_id": "dog_1",
-            "series_visual_signature_role": "auto",
-        }
-    )
+def _enabled_request(**overrides) -> SeriesVisualSignatureRequest:
+    payload = {
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_profile_id": "dog_1",
+        "series_visual_signature_role": "auto",
+    }
+    payload.update(overrides)
+    return SeriesVisualSignatureRequest.from_mapping(payload)
 
 
 def test_image_prompt_composer_is_a_real_compatibility_adapter() -> None:
@@ -187,10 +187,16 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
     snapshot = result.planning_snapshot
     assert snapshot["existing"] is True
     assert "series_visual_signature_shadow_comparison" not in snapshot
+    assert "series_visual_signature_request" not in snapshot
+    assert "series_visual_signature_profile_v45" not in snapshot
     audit = snapshot["series_visual_signature_projection_audit"]
+    assert audit["status"] == "passed"
     assert audit["all_frames_passed"] is True
     assert audit["expected_frame_count"] == 1
+    assert audit["attempted_frame_count"] == 1
     assert audit["projected_frame_count"] == 1
+    assert audit["failed_frame_count"] == 0
+    assert audit["not_attempted_frame_count"] == 0
     assert audit["coverage_rate"] == 1.0
     frame_audit = audit["frames"][0]
     assert frame_audit["identity_trait_count"] == 4
@@ -201,6 +207,13 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
     assert snapshot["series_visual_signature_contract_by_frame"]["frame-1"][
         "required_subject_count"
     ] == 2
+    assert snapshot["series_visual_signature_profile_ref"] == {
+        "profile_id": "dog_1",
+        "identity_trait_count": 4,
+        "style_safe_trait_count": 0,
+        "forbidden_trait_count": 0,
+        "source_asset_count": 0,
+    }
 
 
 @pytest.mark.asyncio
@@ -270,6 +283,31 @@ async def test_canonical_disabled_request_has_no_legacy_fallback(
 
 
 @pytest.mark.asyncio
+async def test_canonical_rejects_profile_snapshot_for_disabled_request(monkeypatch) -> None:
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        return await _base_batch(**kwargs)
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+    profile = composer_module.SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=_enabled_request(),
+        ip_profile=_ip_profile(),
+    )
+
+    with pytest.raises(ValueError, match="requires an enabled canonical request"):
+        await VisualPromptComposer().compose(
+            llm_service=None,
+            storyboard_plan=_storyboard_plan(),
+            image_config={},
+            series_visual_signature_request=SeriesVisualSignatureRequest.disabled(),
+            series_visual_signature_profile_snapshot=profile,
+        )
+
+
+@pytest.mark.asyncio
 async def test_compatibility_adapter_compiles_legacy_controls_once(
     monkeypatch,
 ) -> None:
@@ -297,11 +335,56 @@ async def test_compatibility_adapter_compiles_legacy_controls_once(
     )
 
     assert "Dalmatian" in result.prompts[0]
-    request = result.planning_snapshot["series_visual_signature_request"]
-    assert request["series_visual_signature_enabled"] is True
-    assert request["series_visual_signature_expression_mode"] == "literal_character"
-    assert request["series_visual_signature_structure_mode"] == "global"
-    assert request["series_visual_signature_participation_mode"] == "mandatory"
+    request_audit = result.planning_snapshot["series_visual_signature_request_audit"]
+    assert request_audit["enabled"] is True
+    assert set(request_audit["compatibility_option_keys"]) >= {
+        "series_visual_signature_enabled",
+        "series_visual_signature_expression_mode",
+        "series_visual_signature_structure_mode",
+        "series_visual_signature_participation_mode",
+    }
+    snapshot_text = str(result.planning_snapshot)
+    assert "literal_character" not in snapshot_text
+    assert "global" not in snapshot_text
+    assert "mandatory" not in snapshot_text
+
+
+@pytest.mark.asyncio
+async def test_request_audit_never_persists_user_or_world_hint_text(monkeypatch) -> None:
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        return await _base_batch(**kwargs)
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+    secret_hint = "private user visual instruction 938475"
+    world_hint = "confidential world note 483920"
+
+    result = await VisualPromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan(),
+        image_config={},
+        ip_profile=_ip_profile(),
+        series_visual_signature_request=_enabled_request(
+            series_visual_signature_user_hint=secret_hint,
+            generation_world_hint=world_hint,
+        ),
+    )
+
+    request_audit = result.planning_snapshot["series_visual_signature_request_audit"]
+    assert request_audit["contains_user_hint"] is True
+    assert request_audit["contains_generation_world_hint"] is True
+    projection_metadata = {
+        key: value
+        for key, value in result.planning_snapshot.items()
+        if key.startswith("series_visual_signature_")
+    }
+    projection_text = str(projection_metadata)
+    assert secret_hint not in projection_text
+    assert world_hint not in projection_text
+    assert "black spots" not in projection_text
 
 
 @pytest.mark.asyncio
