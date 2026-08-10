@@ -42,6 +42,12 @@ class ArticleConcretizationPromptCompiler:
             contract.get("visual_concretization_summary"),
             "one clear explanation visual",
         )
+        if visible_text_policy == "no_visible_text":
+            # Rewrite potentially risky user/article text before allocating the
+            # final prompt budget so the rewrite cannot push protected identity
+            # or required-subject clauses past the provider limit afterward.
+            main_visual = rewrite_for_no_visible_text(main_visual)
+
         diagram_clause = _diagram_clause(diagram)
         required_subjects_clause = _required_subjects_clause(required_subjects)
         signature_clause = _signature_clause(signature)
@@ -71,7 +77,6 @@ class ArticleConcretizationPromptCompiler:
                 "Keep the recurring visual identity scene-bound and recognizable by its configured identity traits; never render it as a sticker, logo, watermark, or corner badge."
             )
         if visible_text_policy == "no_visible_text":
-            positive_prompt = rewrite_for_no_visible_text(positive_prompt)
             negative_parts.append(NO_VISIBLE_TEXT_NEGATIVE_PROMPT)
             locked_constraints.append(
                 "Use no visible readable text; use blank marks and unlabeled nodes only."
