@@ -92,7 +92,7 @@ def _resolve(
     *,
     article_plan: ArticleUnderstandingPlan | None = None,
     frame_plan: FrameUnderstandingPlan | None = None,
-    series_visual_signature_profile_id: str | None = "ip-1",
+    series_visual_signature_profile_id: str | None = None,
     template_aspect_ratio: DiagramAspectRatio = DiagramAspectRatio.VERTICAL_9_16,
     strict_user_mode: bool = True,
     series_visual_signature_strategy=None,
@@ -260,7 +260,10 @@ def test_approved_labels_only_requires_labels():
     )
 
     with pytest.raises(ArticleConcretizationResolutionConflict, match="approved labels"):
-        _resolve(request, frame_plan=_frame_plan(visible_text_policy=VisibleTextPolicy.FREE_TEXT_ALLOWED))
+        _resolve(
+            request,
+            frame_plan=_frame_plan(visible_text_policy=VisibleTextPolicy.FREE_TEXT_ALLOWED),
+        )
 
 
 def test_visible_text_intersection_source_and_approved():
@@ -476,60 +479,50 @@ def test_canvas_override_conflict_raises_only_when_canvas_override_is_explicit()
     assert resolution.layout.panel_inside_canvas is True
 
 
-def test_signature_role_requires_ip_profile_in_strict_mode():
+@pytest.mark.parametrize("legacy_role", ["operator", "auto", "guide", "silent_witness"])
+@pytest.mark.parametrize("strict_user_mode", [True, False])
+def test_article_signature_role_is_ignored_at_article_boundary(
+    legacy_role: str,
+    strict_user_mode: bool,
+):
     request = ArticleConcretizationRequest.from_mapping(
         {
             "enabled": True,
-            "series_visual_signature_role": "operator",
+            "series_visual_signature_role": legacy_role,
         }
     )
 
-    with pytest.raises(ArticleConcretizationResolutionConflict, match="series_visual_signature_profile_id"):
-        _resolve(request, series_visual_signature_profile_id=None, strict_user_mode=True)
-
-
-def test_signature_role_without_ip_non_strict_drops_to_none_with_warning():
-    request = ArticleConcretizationRequest.from_mapping(
-        {
-            "enabled": True,
-            "series_visual_signature_role": "operator",
-        }
+    resolution = _resolve(
+        request,
+        series_visual_signature_profile_id=None,
+        strict_user_mode=strict_user_mode,
     )
-
-    resolution = _resolve(request, series_visual_signature_profile_id=None, strict_user_mode=False)
 
     assert resolution.effective_signature_role is SeriesVisualSignatureRole.NONE
-    assert resolution.fallback_used is True
-    assert resolution.fallback_reason == "signature_role_requires_ip_profile"
-    assert any("series_visual_signature_profile_id" in warning for warning in resolution.warnings)
-
-
-def test_auto_signature_role_requires_ip_profile_in_strict_mode():
-    request = ArticleConcretizationRequest.from_mapping(
-        {
-            "enabled": True,
-            "series_visual_signature_role": "auto",
-        }
+    assert resolution.fallback_used is False
+    assert resolution.fallback_reason is None
+    assert any(
+        "series_visual_signature_role" in warning and "deprecated and ignored" in warning
+        for warning in resolution.warnings
     )
 
-    with pytest.raises(ArticleConcretizationResolutionConflict, match="series_visual_signature_profile_id"):
-        _resolve(request, series_visual_signature_profile_id=None, strict_user_mode=True)
 
+def test_article_signature_profile_is_ignored_without_becoming_fallback():
+    request = ArticleConcretizationRequest.from_mapping({"enabled": True})
 
-def test_auto_signature_role_without_ip_non_strict_drops_to_none_with_warning():
-    request = ArticleConcretizationRequest.from_mapping(
-        {
-            "enabled": True,
-            "series_visual_signature_role": "auto",
-        }
+    resolution = _resolve(
+        request,
+        series_visual_signature_profile_id="profile-legacy",
+        strict_user_mode=True,
     )
-
-    resolution = _resolve(request, series_visual_signature_profile_id=None, strict_user_mode=False)
 
     assert resolution.effective_signature_role is SeriesVisualSignatureRole.NONE
-    assert resolution.fallback_used is True
-    assert resolution.fallback_reason == "signature_role_requires_ip_profile"
-    assert any("series_visual_signature_profile_id" in warning for warning in resolution.warnings)
+    assert resolution.fallback_used is False
+    assert resolution.fallback_reason is None
+    assert any(
+        "series_visual_signature_profile_id" in warning and "deprecated and ignored" in warning
+        for warning in resolution.warnings
+    )
 
 
 def test_old_series_visual_signature_strategy_conflict_records_warning():
@@ -548,4 +541,5 @@ def test_old_series_visual_signature_strategy_conflict_records_warning():
     )
 
     assert resolution.effective_signature_role is SeriesVisualSignatureRole.NONE
+    assert resolution.fallback_used is False
     assert any("series_visual_signature_strategy" in warning for warning in resolution.warnings)
