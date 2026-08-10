@@ -124,9 +124,32 @@ def test_shadow_non_article_frame_uses_storyboard_context() -> None:
     assert result.candidate_source_kind == "storyboard_frame_context"
     assert result.production_prompt == production_prompt
     assert production_prompt in result.candidate_prompt
+    assert "Preserve the base scene action" in result.candidate_prompt
     assert "worker" in result.candidate_prompt
     assert "assembly machine" in result.candidate_prompt
     assert "Dalmatian" in result.candidate_prompt
+
+
+def test_shadow_non_article_frame_without_subject_facts_is_not_cutover_ready() -> None:
+    report = build_series_visual_signature_shadow_report(
+        production_prompts=["an abstract scene"],
+        frame_ids=["frame-1"],
+        article_concretization_plans=[],
+        request=_request(),
+        legacy_profile=_profile(),
+        fallback_frame_contexts={
+            "frame-1": {
+                "frame_id": "frame-1",
+                "frame_source_text": "An abstract scene.",
+            }
+        },
+    )
+
+    result = report.frame_results[0]
+    assert report.ready_for_cutover is False
+    assert report.coverage_rate == 0.0
+    assert result.status == "blocked"
+    assert "structured subject facts" in result.candidate_error
 
 
 def test_shadow_requires_full_same_frame_coverage_before_cutover() -> None:
