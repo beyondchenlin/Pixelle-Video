@@ -37,6 +37,8 @@ def test_enabled_request_repairs_default_none_role_to_auto() -> None:
 
     assert request.role is SeriesVisualSignatureRole.AUTO
     assert request.role_was_explicit is False
+    assert request.to_dict()["series_visual_signature_role"] == "auto"
+    assert request.to_generation_dict()["series_visual_signature_role"] == "auto"
 
 
 def test_request_rejects_deprecated_runtime_fields() -> None:
