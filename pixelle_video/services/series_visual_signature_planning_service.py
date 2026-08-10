@@ -16,10 +16,11 @@ ProfileResolver = Callable[[str], Mapping[str, Any] | VisualSignatureProfileSnap
 
 
 class SeriesVisualSignaturePlanningService:
-    """Global entry point for recurring visual signatures.
+    """Cutover target for recurring visual-signature contract planning.
 
-    Article concretization, ordinary storyboard scenes, and brand-style scenes
-    should all use this service. No caller should use old IP/role runtime code.
+    The service owns canonical request parsing, profile resolution, and contract
+    construction. Existing production callers may still use compatibility
+    planners until the migration bridge is enabled and validated.
     """
 
     def __init__(self, *, profile_resolver: ProfileResolver | None = None) -> None:
@@ -34,7 +35,12 @@ class SeriesVisualSignaturePlanningService:
     ) -> SeriesVisualSignatureContract:
         request = SeriesVisualSignatureRequest.from_mapping(video_params)
         profile = self._resolve_profile(request.profile_id, video_params)
-        return self._builder.build(request=request, profile=profile, strict_user_mode=strict_user_mode)
+        return self._builder.build(
+            request=request,
+            profile=profile,
+            strict_user_mode=strict_user_mode,
+            role_context=video_params,
+        )
 
     def _resolve_profile(
         self,
