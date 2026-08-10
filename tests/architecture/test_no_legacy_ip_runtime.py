@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import ast
 from pathlib import Path
@@ -232,9 +232,15 @@ def test_visual_prompt_composer_has_one_semantic_implementation() -> None:
         canonical_path.read_text(encoding="utf-8-sig"),
         filename=str(canonical_path),
     )
-    assert any(
-        isinstance(node, ast.ClassDef) and node.name == "VisualPromptComposer"
+    canonical_classes = [
+        node
         for node in canonical_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "VisualPromptComposer"
+    ]
+    assert len(canonical_classes) == 1
+    assert any(
+        isinstance(node, ast.AsyncFunctionDef) and node.name == "compose"
+        for node in canonical_classes[0].body
     )
 
     compat_path = ROOT / COMPAT_IMAGE_PROMPT_COMPOSER_MODULE
@@ -243,15 +249,35 @@ def test_visual_prompt_composer_has_one_semantic_implementation() -> None:
         filename=str(compat_path),
     )
     assert not any(
-        isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        isinstance(node, ast.ClassDef) and node.name == "VisualPromptComposer"
         for node in compat_tree.body
     )
+    adapter_classes = [
+        node
+        for node in compat_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "ImagePromptComposer"
+    ]
+    assert len(adapter_classes) == 1
+    adapter_methods = [
+        node.name
+        for node in adapter_classes[0].body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    assert adapter_methods == ["compose"]
     assert any(
         isinstance(node, ast.ImportFrom)
         and node.module == "pixelle_video.services.visual_prompt_composer"
         and any(alias.name == "VisualPromptComposer" for alias in node.names)
         for node in compat_tree.body
     )
+    adapter_call_names = {
+        _call_name(node.func)
+        for node in ast.walk(adapter_classes[0])
+        if isinstance(node, ast.Call)
+    }
+    assert "generate_styled_image_prompt_batch" not in adapter_call_names
+    assert "project_batch" not in adapter_call_names
+    assert "project_frame" not in adapter_call_names
 
 
 def test_visual_prompt_composer_hard_disables_legacy_signature_generator_inputs() -> None:
