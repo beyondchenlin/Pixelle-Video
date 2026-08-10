@@ -13,14 +13,13 @@ from pixelle_video.models.article_concretization import (
     DiagramRenderStyle,
     ExplanationDiagramBrief,
     ExplanationDiagramGrammar,
-    SeriesVisualSignatureContract,
-    SeriesVisualSignatureRole,
 )
 from pixelle_video.models.article_understanding import (
     ArticleUnderstandingPlan,
     FrameUnderstandingPlan,
     SubjectAnchor,
 )
+from pixelle_video.models.series_visual_signature import SeriesVisualSignatureContract
 from pixelle_video.models.visual_planning_mode import PrimaryVisualTask
 
 _DEFAULT_ENTITY = "article_claim"
@@ -36,6 +35,16 @@ class ArticleConcretizationPlanner:
         source_text: str,
         identity_profile_id: str | None = None,
     ) -> ArticleConcretizationPlan | None:
+        """Build article structure without owning recurring visual identity.
+
+        ``identity_profile_id`` remains accepted only for call-site compatibility
+        during the migration. Article concretization is deliberately
+        signature-neutral; the canonical final projection stage is the only
+        component allowed to resolve profile, role, participation and prompt
+        injection.
+        """
+
+        del identity_profile_id
         if not resolution.enabled:
             return None
 
@@ -70,10 +79,6 @@ class ArticleConcretizationPlanner:
             selected_subjects=selected_subjects,
             source_evidence_ids=source_evidence_ids,
         )
-        signature = _build_signature_contract(
-            resolution.effective_signature_role,
-            identity_profile_id=identity_profile_id,
-        )
         render = _build_render_contract(resolution)
 
         return ArticleConcretizationPlan(
@@ -83,7 +88,7 @@ class ArticleConcretizationPlanner:
             resolution=resolution,
             anchor=anchor,
             diagram=diagram,
-            series_signature=signature,
+            series_signature=SeriesVisualSignatureContract.disabled(),
             render=render,
         )
 
@@ -118,45 +123,6 @@ def _build_diagram_brief(
             evidence_ids=source_evidence_ids,
         ),
         visible_text=resolution.visible_text,
-    )
-
-
-def _build_signature_contract(
-    role: SeriesVisualSignatureRole,
-    *,
-    identity_profile_id: str | None,
-) -> SeriesVisualSignatureContract:
-    if role in {SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO}:
-        return SeriesVisualSignatureContract(
-            enabled=False,
-            role=SeriesVisualSignatureRole.NONE,
-            identity_profile_id=None,
-            participation_rule="No recurring series signature participates.",
-            replacement_policy="no_subject_replacement",
-            visual_weight=0.0,
-            forbidden_behaviors=(
-                "do not replace article subjects",
-                "do not add a recurring signature subject",
-            ),
-        )
-    if not identity_profile_id:
-        raise ValueError("identity_profile_id is required for enabled series signature")
-
-    return SeriesVisualSignatureContract(
-        enabled=True,
-        role=role,
-        identity_profile_id=identity_profile_id,
-        participation_rule=(
-            f"Series signature identity {identity_profile_id} participates as "
-            f"{role.value} role only; it must not replace article subjects."
-        ),
-        replacement_policy="no_subject_replacement",
-        visual_weight=_signature_visual_weight(role),
-        forbidden_behaviors=(
-            "do not replace article subjects",
-            "do not override required subjects",
-            "do not become the evidence source",
-        ),
     )
 
 
@@ -385,23 +351,6 @@ def _negative_style_rules(render_style: DiagramRenderStyle) -> tuple[str, ...]:
         "no unsupported subject substitution",
         "no style rule that changes the article claim",
     )
-
-
-def _signature_visual_weight(role: SeriesVisualSignatureRole) -> float:
-    if role in {
-        SeriesVisualSignatureRole.SILENT_WITNESS,
-        SeriesVisualSignatureRole.BACKGROUND_MARK,
-    }:
-        return 0.2
-    if role in {SeriesVisualSignatureRole.GUIDE, SeriesVisualSignatureRole.OPERATOR}:
-        return 0.35
-    if role in {
-        SeriesVisualSignatureRole.CORE_ACTOR,
-        SeriesVisualSignatureRole.CONTAINER,
-        SeriesVisualSignatureRole.OBSTACLE,
-    }:
-        return 0.45
-    return 0.0
 
 
 def _preferred_subject_labels(
