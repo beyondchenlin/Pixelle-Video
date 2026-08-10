@@ -511,14 +511,20 @@ def _text_tuple(field_name: str, values: Sequence[Any], *, allow_empty: bool) ->
 
 def _trait_tuple(field_name: str, values: Sequence[Any], *, allow_empty: bool) -> tuple[str, ...]:
     result = _text_tuple(field_name, values, allow_empty=allow_empty)
-    for trait in result:
+    for index, trait in enumerate(result):
         if len(trait) > MAX_TRAIT_CHARS:
-            raise ValueError(f"{field_name} item exceeds {MAX_TRAIT_CHARS} characters")
+            raise ValueError(
+                f"{field_name} item exceeds {MAX_TRAIT_CHARS} characters at index {index}"
+            )
         lowered = trait.lower()
         if any(term in lowered for term in _FORBIDDEN_TRAIT_TERMS):
-            raise ValueError(f"{field_name} item contains prompt instruction language: {trait}")
+            raise ValueError(
+                f"{field_name} item contains prompt instruction language at index {index}"
+            )
         if "\n" in trait or ";" in trait or "；" in trait:
-            raise ValueError(f"{field_name} item must be a short trait, not a prompt paragraph")
+            raise ValueError(
+                f"{field_name} item must be a short trait, not a prompt paragraph at index {index}"
+            )
     return result
 
 
