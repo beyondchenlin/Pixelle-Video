@@ -102,13 +102,13 @@ class SeriesVisualSignatureShadowFrameInput:
                     "required_subjects": list(required_subjects),
                 },
                 "diagram": {
-                    "grammar": "single_explanation_image",
+                    "grammar": "plain_scene",
                     "primary_visual_task": primary_visual_task,
                     "visual_metaphor": visual_summary,
                 },
                 "shadow_source_kind": "storyboard_frame_context",
             },
-            diagram_render={},
+            diagram_render={"render_style": "preserve_base"},
             visible_text_policy=visible_text_policy,
             role_context={
                 "primary_visual_task": primary_visual_task,
@@ -439,6 +439,20 @@ def _build_frame_result(
     identity_terms = _identity_terms(profile)
     production_subject_presence = _presence_map(production_prompt, required_subjects)
     production_identity_presence = _presence_map(production_prompt, identity_terms)
+
+    if frame_input.source_kind == "storyboard_frame_context" and not required_subjects:
+        return SeriesVisualSignatureShadowFrameResult(
+            frame_id=frame_input.frame_id,
+            status="blocked",
+            production_prompt=production_prompt,
+            candidate_source_kind=frame_input.source_kind,
+            production_required_subjects_present=production_subject_presence,
+            production_identity_terms_present=production_identity_presence,
+            candidate_error=(
+                "non-article shadow candidate requires structured subject facts from "
+                "the storyboard frame or base visual brief"
+            ),
+        )
 
     candidate_prompt = ""
     candidate_negative_prompt = ""
