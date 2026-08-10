@@ -3,6 +3,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from pixelle_video.models.series_visual_signature import SeriesVisualSignatureContract
+from pixelle_video.services.series_visual_signature_prompt_presence import (
+    normalize_prompt_text,
+    prompt_contains_term,
+)
 
 
 class SeriesVisualSignatureFinalPromptGateError(ValueError):
@@ -17,16 +21,16 @@ def assert_series_visual_signature_final_prompt(
     signature: SeriesVisualSignatureContract,
     visible_text_policy: str,
 ) -> None:
-    positive = " ".join(str(positive_prompt or "").split())
-    negative = " ".join(str(negative_prompt or "").split()).lower()
+    positive = normalize_prompt_text(positive_prompt)
+    negative = normalize_prompt_text(negative_prompt).lower()
     if not positive:
         raise SeriesVisualSignatureFinalPromptGateError(
             "final visual prompt gate failed: positive prompt is empty"
         )
 
     for subject in required_subjects:
-        token = " ".join(str(subject or "").strip().split())
-        if token and token.casefold() not in positive.casefold():
+        token = normalize_prompt_text(subject)
+        if token and not prompt_contains_term(positive, token):
             raise SeriesVisualSignatureFinalPromptGateError(
                 "final visual prompt gate failed: required subject missing from positive prompt: "
                 f"{token}"
@@ -38,12 +42,12 @@ def assert_series_visual_signature_final_prompt(
             raise SeriesVisualSignatureFinalPromptGateError(
                 "final visual prompt gate failed: enabled signature has no profile"
             )
-        if profile.display_name.casefold() not in positive.casefold():
+        if not prompt_contains_term(positive, profile.display_name):
             raise SeriesVisualSignatureFinalPromptGateError(
                 "final visual prompt gate failed: visual signature display name missing"
             )
         for trait in profile.identity_traits[:3]:
-            if trait.casefold() not in positive.casefold():
+            if not prompt_contains_term(positive, trait):
                 raise SeriesVisualSignatureFinalPromptGateError(
                     "final visual prompt gate failed: visual signature identity trait missing: "
                     f"{trait}"
