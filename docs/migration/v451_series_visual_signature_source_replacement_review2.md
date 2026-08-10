@@ -228,6 +228,8 @@ coverage_rate == 1.0
 
 第一轮修复后又发现 core composer 仍把完整 canonical request 与完整 profile snapshot 复制进 planning snapshot，构成绕过 audit policy 的旁路。
 
+第二轮收口后再次对抗检查发现：`compatibility_options` 接受兼容协议输入，而旧 request audit 会直接持久化全部 option key 名称。未知 key 名称本身属于用户可控输入，攻击者可以把受保护文本编码进 key 名称，形成“只存 key 不存 value”仍然泄漏的旁路。
+
 **根因修复**
 
 projection audit 固定为：
@@ -249,7 +251,9 @@ raw_request_hint_retention = forbidden
 - subject / trait 数量；
 - final gate 状态；
 - frame / contract id；
-- 稳定失败 reason code。
+- 稳定失败 reason code；
+- 固定白名单中的 compatibility option key；
+- compatibility option 总数与未知 option 数量。
 
 禁止保存：
 
@@ -257,7 +261,8 @@ raw_request_hint_retention = forbidden
 - 原始 required subjects；
 - 原始 identity traits；
 - 原始 user hint / world hint；
-- 原始异常 cause message。
+- 原始异常 cause message；
+- 未识别、用户可控的 compatibility option key 名称和值。
 
 `VisualPromptComposer` 现在只写：
 
@@ -270,9 +275,11 @@ series_visual_signature_contract_by_frame   # bounded summary
 
 不再复制完整 request / profile snapshot。
 
+`SeriesVisualSignatureProjectionAuditPolicy.request_audit_dict()` 将“运行时可接受的兼容协议”与“可持久化审计协议”分离：未知兼容 key 仍可在迁移边界存在，但审计只能记录固定协议白名单 key；未知 key 只计数，不记录名称和值。
+
 这里不新增独立数据库 / TTL 系统，而是复用既有 planning snapshot 生命周期；由于没有新增原始 prompt/identity corpus，保留风险被限制在已有工件生命周期内。
 
-状态：**P1 已从持久化源头解决。**
+状态：**P1 已从持久化源头解决，并封堵用户可控 key 名称旁路。**
 
 ### P1-4：受保护身份 / 主体文本会通过异常日志旁路泄漏
 
@@ -341,7 +348,7 @@ shadow_runtime_allowed         = false
 
 ---
 
-## 4. 支持的兼容协议面，不视为第二运行时
+## 4. 支持的兼容协议面与维护性收口，不视为第二运行时
 
 ### P2-1：历史输入字段仍在 API / adapter 边界存在
 
@@ -372,6 +379,21 @@ shadow_runtime_allowed         = false
 
 只要上述门禁成立，这些是协议壳，不是第二运行时。
 
+### P2-3：CI 路径过滤可能让新增运行时文件绕过架构门禁
+
+**风险**
+
+架构测试本身会递归扫描 `api`、`pixelle_video`、`web` 运行时根目录，但旧 CI workflow 对触发文件使用人工维护的 `paths` 清单。新增视觉签名相关文件如果没有命中清单，架构扫描器本身就没有机会执行，形成“扫描能力正确、触发入口可绕过”的维护漏洞。
+
+**根因修复**
+
+- 删除 Visual Signature CI 在 `pull_request` / `push` 上的 `paths` 过滤；
+- 所有进入 `dev` / `main` 的变更都会执行视觉签名架构门禁；
+- 继续保留 concurrency cancellation，同一 PR 只执行最新有效运行，控制重复成本；
+- 新文件不能再通过文件名或目录命名绕过全仓 runtime scanner。
+
+状态：**P2 已从触发机制根修，不再依赖人工维护路径清单。**
+
 ---
 
 ## 5. Review 1 总结
@@ -385,11 +407,12 @@ shadow_runtime_allowed         = false
 3. compatibility composer 需要成为真正受限 adapter；
 4. success coverage 缺少严格分母；
 5. planning snapshot 仍复制完整 request / profile；
-6. 上游 Visual Story / IP context 可旁路进入 base prompt 的风险需要白名单锁死。
+6. 上游 Visual Story / IP context 可旁路进入 base prompt 的风险需要白名单锁死；
+7. CI 的人工 `paths` 过滤可让新增文件绕过全仓架构扫描，因此改成对 `dev` / `main` 无路径过滤触发。
 
 **第一轮结论**
 
-当前生产身份拥有者收口为 canonical V4.5 projection；route score 与 core composer 也各只有一个语义事实源。
+当前生产身份拥有者收口为 canonical V4.5 projection；route score 与 core composer 也各只有一个语义事实源；架构扫描不再受新增文件路径清单约束。
 
 ---
 
@@ -405,11 +428,12 @@ shadow_runtime_allowed         = false
 4. final gate 会在错误消息中回显 missing subject / trait；
 5. projection 缺少确定性运行 / audit 大小预算；
 6. 可切换 migration state 会重新制造双运行时，因此改成不可变 ownership policy；
-7. architecture gate 继续扩大，防止完整 request/profile 回到 planning snapshot。
+7. architecture gate 继续扩大，防止完整 request/profile 回到 planning snapshot；
+8. compatibility option 的未知 key 名称可编码受保护文本并进入审计，因此改成固定白名单 key + 未知 key 只计数。
 
 **第二轮结论**
 
-在已审查生产路径中，没有再发现新的 source-level 双身份运行时阻塞。剩余历史字段属于有明确 authority、门禁和退出条件的兼容协议面，不具备独立运行语义。
+在已审查生产路径中，没有再发现新的 source-level 双身份运行时阻塞。剩余历史字段属于有明确 authority、门禁和退出条件的兼容协议面，不具备独立运行语义；运行时兼容输入与可持久化审计字段也已经分离。
 
 ---
 
@@ -431,7 +455,10 @@ Visual Signature CI 必须覆盖并 lint：
 - source-replacement AST architecture gates；
 - provider projection；
 - Visual Story content-only source replacement；
-- 两份 migration/review 文档的 path trigger。
+- compatibility option audit key 白名单与未知 key 计数行为；
+- 两份 migration/review 文档与 workflow 自身。
+
+触发策略：Visual Signature CI 对进入 `dev` / `main` 的 `pull_request` / `push` **不使用 `paths` 过滤**。架构测试会自行扫描运行时根目录，因此新增文件不能通过遗漏路径清单跳过门禁。
 
 重点边界测试包括：
 
@@ -445,7 +472,8 @@ Visual Signature CI 必须覆盖并 lint：
 - failure denominator / not-attempted；
 - oversized frame/prompt/subject/traits/audit；
 - raw prompt/subject/trait/hint 不进入 projection observability；
-- raw protected term 不进入 profile/final-gate error message。
+- raw protected term 不进入 profile/final-gate error message；
+- user-controlled compatibility option key 名称不进入持久化 audit，只记录固定白名单 key 和未知 key 数量。
 
 ---
 
@@ -470,7 +498,7 @@ unresolved blocking review threads = 0
 - 兼容：**仅输入归一化；canonical request 永远权威。**
 - 失败：**fail closed，成功与失败都有明确分母。**
 - 性能：**确定性复杂度 / 持久化预算。**
-- 安全与隐私：**projection observability 不保存受保护原文，已审查错误源不回显受保护主体/trait。**
-- 维护性：**AST 门禁 + 可执行测试防止主要双运行时、双评分、原始快照复制和兼容层越权回归。**
+- 安全与隐私：**projection observability 不保存受保护原文；未知用户可控 compatibility key 名称不持久化；已审查错误源不回显受保护主体/trait。**
+- 维护性：**AST 门禁 + 可执行测试防止主要双运行时、双评分、原始快照复制和兼容层越权回归；CI 不再允许新运行时文件通过路径过滤遗漏绕过架构扫描。**
 
 合并建议：**仅在最终 HEAD 两套 CI 全绿、可合并且无阻塞 review thread 后恢复 Ready for review。**
