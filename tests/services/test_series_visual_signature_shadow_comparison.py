@@ -131,11 +131,14 @@ def test_shadow_profile_failure_is_observed_not_raised() -> None:
 
 
 def test_shadow_candidate_failure_is_recorded_without_falling_back() -> None:
-    overlong_subject = "subject-" + ("x" * 90)
+    over_budget_subjects = tuple(
+        f"required subject {index} " + ("x" * 70)
+        for index in range(20)
+    )
     report = build_series_visual_signature_shadow_report(
         production_prompts=["old prompt remains usable"],
         frame_ids=["frame-1"],
-        article_concretization_plans=[_plan(required_subjects=(overlong_subject,))],
+        article_concretization_plans=[_plan(required_subjects=over_budget_subjects)],
         request=_request(),
         legacy_profile=_profile(),
     )
@@ -144,6 +147,7 @@ def test_shadow_candidate_failure_is_recorded_without_falling_back() -> None:
     assert report.ready_for_cutover is False
     assert result.status == "failed"
     assert result.candidate_error is not None
+    assert "protected visual prompt semantics exceed" in result.candidate_error
     assert result.production_prompt == "old prompt remains usable"
 
 
