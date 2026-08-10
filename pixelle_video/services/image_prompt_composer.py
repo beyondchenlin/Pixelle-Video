@@ -4,12 +4,13 @@ from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 
 from pixelle_video.models.article_concretization import ArticleConcretizationPlan
+from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.prompt_context import PromptContextEnvelope
+from pixelle_video.models.series_visual_signature import SeriesVisualSignatureRequest
 from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
-from pixelle_video.models.series_visual_signature_request import SeriesVisualSignatureRequest
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
@@ -30,8 +31,11 @@ from pixelle_video.services.reference_image_visual_context_adapter import (
     merge_ip_profile_from_reference_patch,
     reference_image_prompt_planning_snapshot,
 )
-from pixelle_video.services.series_visual_signature_shadow_comparison import (
-    build_series_visual_signature_shadow_report,
+from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
+    SeriesVisualSignatureProfileSnapshotBuilder,
+)
+from pixelle_video.services.series_visual_signature_projection_service import (
+    SeriesVisualSignatureProjectionService,
 )
 from pixelle_video.services.visual_profile_registry import resolve_visual_profile
 from pixelle_video.services.visual_prompt_profile_projector import apply_visual_profile_to_batch
@@ -101,10 +105,21 @@ class ImagePromptComposer:
     ) -> StyledImagePromptBatch:
         reference_patch = current_reference_image_visual_story_context_patch()
         ip_profile = merge_ip_profile_from_reference_patch(ip_profile, reference_patch)
+        resolved_signature_request = _resolve_signature_request(
+            request=series_visual_signature_request,
+            enabled_fallback=series_visual_signature_enabled,
+            ip_profile=ip_profile,
+        )
+        signature_enabled = resolved_signature_request.enabled
+
         if reference_patch:
             visual_story_context = _merge_visual_story_context_patch(
                 visual_story_context,
                 reference_patch,
+            )
+        if signature_enabled:
+            visual_story_context = _signature_free_visual_story_context(
+                visual_story_context
             )
 
         normalized_overrides = normalize_plan_frame_overrides(
@@ -120,6 +135,11 @@ class ImagePromptComposer:
             prompt_contexts,
             visual_story_context,
         )
+
+        # The existing generator remains responsible for scene, style, camera,
+        # reference-image, text, and provider capability planning. When the
+        # canonical visual signature is enabled, every legacy IP/signature input
+        # is removed from this base stage so the result is provably signature-free.
         batch = await generate_styled_image_prompt_batch(
             llm_service=llm_service,
             narrations=[
@@ -150,21 +170,45 @@ class ImagePromptComposer:
             frame_overrides=normalized_overrides,
             text_rendering=project_prompt_text_rendering_request(text_rendering),
             native_prompt_hints_by_frame=native_prompt_hints_by_frame,
-            series_visual_signature_enabled=series_visual_signature_enabled,
-            ip_profile=ip_profile,
-            series_visual_signature_expression_mode=series_visual_signature_expression_mode,
-            series_visual_signature_structure_mode=series_visual_signature_structure_mode,
-            series_visual_signature_participation_mode=series_visual_signature_participation_mode,
-            series_visual_signature_request=series_visual_signature_request,
-            series_visual_signature_profile=series_visual_signature_profile,
-            series_visual_signature_mode=series_visual_signature_mode,
-            series_visual_signature_consistency_mode=series_visual_signature_consistency_mode,
-            series_visual_signature_presentation_mode=series_visual_signature_presentation_mode,
-            series_visual_signature_enforcement=series_visual_signature_enforcement,
-            series_visual_signature_fallback_enabled=series_visual_signature_fallback_enabled,
-            series_visual_signature_fallback_mode=series_visual_signature_fallback_mode,
-            series_visual_signature_min_visibility=series_visual_signature_min_visibility,
-            scene_casts_by_frame=scene_casts_by_frame,
+            series_visual_signature_enabled=False if signature_enabled else series_visual_signature_enabled,
+            ip_profile=None if signature_enabled else ip_profile,
+            series_visual_signature_expression_mode=(
+                None if signature_enabled else series_visual_signature_expression_mode
+            ),
+            series_visual_signature_structure_mode=(
+                None if signature_enabled else series_visual_signature_structure_mode
+            ),
+            series_visual_signature_participation_mode=(
+                None if signature_enabled else series_visual_signature_participation_mode
+            ),
+            series_visual_signature_request=(
+                None if signature_enabled else series_visual_signature_request
+            ),
+            series_visual_signature_profile=(
+                None if signature_enabled else series_visual_signature_profile
+            ),
+            series_visual_signature_mode=(
+                None if signature_enabled else series_visual_signature_mode
+            ),
+            series_visual_signature_consistency_mode=(
+                None if signature_enabled else series_visual_signature_consistency_mode
+            ),
+            series_visual_signature_presentation_mode=(
+                None if signature_enabled else series_visual_signature_presentation_mode
+            ),
+            series_visual_signature_enforcement=(
+                None if signature_enabled else series_visual_signature_enforcement
+            ),
+            series_visual_signature_fallback_enabled=(
+                None if signature_enabled else series_visual_signature_fallback_enabled
+            ),
+            series_visual_signature_fallback_mode=(
+                None if signature_enabled else series_visual_signature_fallback_mode
+            ),
+            series_visual_signature_min_visibility=(
+                None if signature_enabled else series_visual_signature_min_visibility
+            ),
+            scene_casts_by_frame=None if signature_enabled else scene_casts_by_frame,
             stage_callback=stage_callback,
             upstream_llm_trace_refs=upstream_llm_trace_refs,
             trace_context=trace_context,
@@ -189,43 +233,63 @@ class ImagePromptComposer:
                 ),
             )
 
-        shadow_report = None
-        if media_type == "image" and (
-            series_visual_signature_enabled
-            or (
-                series_visual_signature_request is not None
-                and series_visual_signature_request.enabled
-            )
-        ):
-            base_visual_briefs = (
-                dict((batch.planning_snapshot or {}).get("base_visual_briefs_by_frame") or {})
-            )
-            fallback_frame_contexts: dict[str, Mapping[str, Any]] = {}
-            for context in prompt_contexts.frame_contexts:
-                frame_id = str(context.get("frame_id") or "").strip()
-                if not frame_id:
-                    continue
-                shadow_context = dict(context)
-                brief = base_visual_briefs.get(frame_id)
-                if isinstance(brief, Mapping) and brief.get("main_subjects"):
-                    shadow_context["required_subjects"] = list(brief["main_subjects"])
-                fallback_frame_contexts[frame_id] = shadow_context
-            shadow_report = build_series_visual_signature_shadow_report(
-                production_prompts=batch.prompts,
-                frame_ids=[frame.frame_id for frame in storyboard_plan.frames],
-                article_concretization_plans=article_concretization_plans,
-                request=series_visual_signature_request,
-                legacy_profile=series_visual_signature_profile,
-                ip_profile=ip_profile,
-                enabled_fallback=series_visual_signature_enabled,
-                fallback_frame_contexts=fallback_frame_contexts,
-            )
-
         planning_snapshot = dict(batch.planning_snapshot or {})
-        if shadow_report is not None:
-            planning_snapshot["series_visual_signature_shadow_comparison"] = (
-                shadow_report.to_dict()
+        if signature_enabled:
+            profile_snapshot = SeriesVisualSignatureProfileSnapshotBuilder().build(
+                request=resolved_signature_request,
+                ip_profile=ip_profile,
+                legacy_profile=series_visual_signature_profile,
             )
+            briefs = dict(
+                planning_snapshot.get("base_visual_briefs_by_frame") or {}
+            )
+            base_negative_prompts = _base_negative_prompts(
+                batch=batch,
+                frame_count=storyboard_plan.resolved_scene_count,
+            )
+            projection = SeriesVisualSignatureProjectionService().project_batch(
+                base_prompts=batch.prompts,
+                frame_ids=[frame.frame_id for frame in storyboard_plan.frames],
+                frame_contexts=prompt_contexts.frame_contexts,
+                request=resolved_signature_request,
+                profile=profile_snapshot,
+                article_concretization_plans=article_concretization_plans,
+                base_visual_briefs_by_frame=briefs,
+                base_negative_prompts=base_negative_prompts,
+            )
+            rendered_prompts = _project_rendered_prompts(
+                batch.rendered_prompts,
+                projection.frames,
+            )
+            batch = StyledImagePromptBatch(
+                prompts=projection.prompts,
+                negative_prompt=_projection_negative_prompt(
+                    projection.frames,
+                    rendered_prompts,
+                ),
+                resolved_style=batch.resolved_style,
+                planning_snapshot=planning_snapshot,
+                rendered_prompts=rendered_prompts,
+            )
+            planning_snapshot["series_visual_signature_request"] = (
+                resolved_signature_request.to_dict()
+            )
+            planning_snapshot["series_visual_signature_profile_v45"] = (
+                profile_snapshot.to_dict()
+            )
+            planning_snapshot["series_visual_signature_projection_audit"] = (
+                projection.audit_dict()
+            )
+            planning_snapshot["series_visual_signature_contract_by_frame"] = {
+                frame.frame_id: {
+                    "contract_id": frame.contract.contract_id,
+                    "role": frame.signature.role.value,
+                    "max_area_ratio": frame.signature.max_area_ratio,
+                    "required_subjects": list(frame.required_subjects),
+                }
+                for frame in projection.frames
+            }
+
         reference_snapshot = reference_image_prompt_planning_snapshot(
             reference_patch,
             ip_profile=ip_profile,
@@ -285,6 +349,121 @@ class ImagePromptComposer:
         )
 
 
+def _resolve_signature_request(
+    *,
+    request: SeriesVisualSignatureRequest | None,
+    enabled_fallback: bool,
+    ip_profile: Any,
+) -> SeriesVisualSignatureRequest:
+    if request is not None:
+        return request
+    if not enabled_fallback:
+        return SeriesVisualSignatureRequest.disabled()
+    return SeriesVisualSignatureRequest.from_mapping(
+        {
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_profile_id": getattr(
+                ip_profile,
+                "series_visual_signature_profile_id",
+                None,
+            ),
+            "series_visual_signature_role": "auto",
+        }
+    )
+
+
+def _signature_free_visual_story_context(
+    visual_story_context: Optional[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Keep content route facts while removing legacy IP/signature decisions."""
+
+    context = dict(visual_story_context or {})
+    context.pop("frame_ip_fusion_plans", None)
+    engine = dict(context.get("visual_story_engine") or {})
+    engine.pop("style_harmonization", None)
+    engine.pop("channel_memory_intent", None)
+    if engine:
+        context["visual_story_engine"] = engine
+    else:
+        context.pop("visual_story_engine", None)
+    return context
+
+
+def _base_negative_prompts(
+    *,
+    batch: StyledImagePromptBatch,
+    frame_count: int,
+) -> tuple[str | None, ...]:
+    rendered = tuple(batch.rendered_prompts or ())
+    if rendered:
+        if len(rendered) != frame_count:
+            raise ValueError(
+                "rendered prompt count must match frame count before visual signature projection"
+            )
+        return tuple(item.negative_prompt for item in rendered)
+    return tuple(batch.negative_prompt for _ in range(frame_count))
+
+
+def _project_rendered_prompts(
+    rendered_prompts: Sequence[RenderedMediaPrompt],
+    projection_frames: Sequence[Any],
+) -> list[RenderedMediaPrompt]:
+    rendered = tuple(rendered_prompts or ())
+    if not rendered:
+        return []
+    if len(rendered) != len(projection_frames):
+        raise ValueError(
+            "rendered prompt count must match projection frame count"
+        )
+    result: list[RenderedMediaPrompt] = []
+    for base_rendered, projection in zip(rendered, projection_frames):
+        metadata = base_rendered.metadata_to_dict()
+        metadata["series_visual_signature_v45"] = {
+            "contract_id": projection.contract.contract_id,
+            "role": projection.signature.role.value,
+            "max_area_ratio": projection.signature.max_area_ratio,
+            "audit": projection.audit_dict(),
+        }
+        result.append(
+            RenderedMediaPrompt(
+                prompt=projection.bundle.positive_prompt,
+                negative_prompt=projection.bundle.negative_prompt or None,
+                prompt_contract=base_rendered.prompt_contract,
+                renderer_id=base_rendered.renderer_id,
+                renderer_version=base_rendered.renderer_version,
+                metadata=metadata,
+            )
+        )
+    return result
+
+
+def _projection_negative_prompt(
+    projection_frames: Sequence[Any],
+    rendered_prompts: Sequence[RenderedMediaPrompt],
+) -> str | None:
+    if rendered_prompts:
+        values = [item.negative_prompt for item in rendered_prompts if item.negative_prompt]
+    else:
+        values = [
+            frame.bundle.negative_prompt
+            for frame in projection_frames
+            if frame.bundle.negative_prompt
+        ]
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for part in str(value).split(","):
+            text = " ".join(part.strip().split())
+            if not text:
+                continue
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(text)
+    return ", ".join(result) or None
+
+
 def _merge_visual_story_context_patch(
     visual_story_context: Optional[Mapping[str, Any]],
     reference_patch: Mapping[str, Any],
@@ -300,7 +479,9 @@ def _build_prompt_contexts(
     frame_overrides: list[dict[str, Any]],
     article_concretization_plans: Sequence[ArticleConcretizationPlan],
 ) -> PromptContextEnvelope:
-    overrides_by_frame_id = {override["frame_id"]: override for override in frame_overrides}
+    overrides_by_frame_id = {
+        override["frame_id"]: override for override in frame_overrides
+    }
     article_plans_by_frame_id = article_concretization_plans_by_frame(
         storyboard_plan=storyboard_plan,
         plans=article_concretization_plans,
