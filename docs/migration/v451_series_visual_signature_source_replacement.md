@@ -154,9 +154,11 @@ The canonical projection emits a bounded audit record under:
 series_visual_signature_projection_audit
 ```
 
+The audit schema is `series_visual_signature_projection_audit.v3`. Version 3 makes observation coverage and successful projection separate metrics so a failed-but-observed frame cannot be confused with an unattempted frame.
+
 ### Success denominator
 
-Every successful batch records:
+Every successful or failed batch audit records:
 
 ```text
 expected_frame_count
@@ -167,8 +169,18 @@ duplicate_frame_count
 failed_frame_count
 not_attempted_frame_count
 coverage_rate
+projection_success_rate
 all_frames_passed
 ```
+
+The rates have distinct meanings:
+
+```text
+coverage_rate            = attempted_frame_count / expected_frame_count
+projection_success_rate  = projected_frame_count / expected_frame_count
+```
+
+`coverage_rate` answers whether expected production frames reached the canonical projection attempt. `projection_success_rate` answers whether expected frames completed projection successfully. A frame that was attempted and failed therefore contributes to coverage but not projection success.
 
 A successful production batch is publishable only when:
 
@@ -180,6 +192,7 @@ duplicate == 0
 failed == 0
 not_attempted == 0
 coverage_rate == 1.0
+projection_success_rate == 1.0
 ```
 
 Duplicate frame ids are rejected before projection.
@@ -189,6 +202,7 @@ Duplicate frame ids are rejected before projection.
 A frame projection failure raises `SeriesVisualSignatureProjectionError` with a bounded audit payload containing:
 
 - expected/attempted/projected/failed/not-attempted counts;
+- observation coverage and projection success rates;
 - failed frame id/index;
 - stable reason code;
 - exception type.
@@ -199,17 +213,20 @@ The production method remains fail closed: a partial batch is never returned as 
 
 ## Privacy and retention policy
 
-Projection observability is not a second prompt store.
+Projection observability is not a second prompt store and does not own a second storage lifecycle.
 
 The audit policy is:
 
 ```text
-payload_class = bounded_hash_count_only
-retention_owner = planning_snapshot_lifecycle
-raw_prompt_retention = forbidden
-raw_subject_retention = forbidden
-raw_identity_trait_retention = forbidden
-raw_request_hint_retention = forbidden
+payload_class                  = bounded_hash_count_only
+retention_owner                = parent_planning_snapshot
+retention_mode                 = inherit_parent_planning_snapshot_atomically
+independent_retention_allowed  = false
+independent_cleanup_allowed    = false
+raw_prompt_retention           = forbidden
+raw_subject_retention          = forbidden
+raw_identity_trait_retention   = forbidden
+raw_request_hint_retention     = forbidden
 ```
 
 Projection audit may store:
@@ -226,7 +243,9 @@ It must not store raw positive/negative prompts, raw subjects, raw identity trai
 
 `VisualPromptComposer` therefore stores only a canonical request audit summary and a profile reference/count summary. It does not copy the full canonical request or full profile snapshot into planning observability.
 
-This audit follows the existing planning-snapshot lifecycle; it does not create an independent retention database or TTL system. Because no additional raw prompt/identity corpus is created, retention risk is bounded even if the parent planning artifact has a longer lifecycle.
+The projection audit is embedded planning metadata. Its retention is inherited atomically from the parent planning snapshot: it cannot outlive the parent artifact, cannot receive an independent TTL, and cannot be independently renewed or cleaned up. This avoids creating a visual-signature-specific retention database, cleanup scheduler, or orphaned audit lifecycle.
+
+Because no additional raw prompt/identity corpus is created, retention risk is bounded by the existing parent planning artifact lifecycle.
 
 ## Deterministic runtime budget
 
@@ -290,13 +309,14 @@ Executable architecture tests enforce:
 - `ImagePromptComposer` remains an adapter with no base-prompt or projection implementation;
 - deleted legacy templates remain absent;
 - projection observability declares raw prompt/subject/identity/request-hint retention forbidden;
+- projection observability inherits the parent planning-snapshot lifecycle and cannot own independent retention or cleanup;
 - final prompt gate, protected terms, provider projection, profile security, route/frame content-only behavior and article no-role behavior remain covered by tests.
 
 ## CI contract
 
 `.github/workflows/visual-signature-ci.yml` must compile, test and lint the canonical models/services, compatibility adapter, architecture gates and source-replacement tests.
 
-The workflow includes both migration documents in its path triggers so a documentation-only change to the production contract revalidates executable behavior.
+The workflow is intentionally not gated by a manually maintained `paths` list for changes entering `dev` or `main`; repository-wide runtime architecture scanners must always have an opportunity to run when those branches are affected.
 
 Repository policy should make Visual Signature CI a required `dev` branch check when branch-protection settings permit it.
 
@@ -310,7 +330,9 @@ This source replacement is complete only when the final PR head satisfies all of
 - canonical core composer has no historical signature controls;
 - compatibility adapter is the only historical input normalization boundary;
 - projection audit has explicit success/failure denominators;
+- projection audit separates observation coverage from successful projection rate;
 - projection observability retains no raw prompt/subject/identity/request-hint text;
+- projection observability inherits the parent planning-snapshot lifecycle atomically and cannot create independent retention/cleanup;
 - deterministic projection budgets are enforced;
 - architecture gates pass;
 - Visual Signature CI passes on the final head;

@@ -143,6 +143,13 @@ class SeriesVisualSignatureProjectionBudget:
 
 @dataclass(frozen=True)
 class SeriesVisualSignatureProjectionMetrics:
+    """Executable denominator contract for canonical production projection.
+
+    Coverage means that an expected frame reached a projection attempt. Projection
+    success is tracked separately so a failed-but-observed frame cannot be confused
+    with a frame that was never attempted.
+    """
+
     expected_frame_count: int
     attempted_frame_count: int
     projected_frame_count: int
@@ -179,6 +186,16 @@ class SeriesVisualSignatureProjectionMetrics:
 
     @property
     def coverage_rate(self) -> float:
+        """Fraction of expected frames that reached a projection attempt."""
+
+        if self.expected_frame_count <= 0:
+            return 0.0
+        return self.attempted_frame_count / self.expected_frame_count
+
+    @property
+    def projection_success_rate(self) -> float:
+        """Fraction of expected frames that completed projection successfully."""
+
         if self.expected_frame_count <= 0:
             return 0.0
         return self.projected_frame_count / self.expected_frame_count
@@ -190,6 +207,7 @@ class SeriesVisualSignatureProjectionMetrics:
             and self.attempted_frame_count == self.expected_frame_count
             and self.projected_frame_count == self.expected_frame_count
             and self.coverage_rate == 1.0
+            and self.projection_success_rate == 1.0
             and self.failed_frame_count == 0
             and self.not_attempted_frame_count == 0
             and self.duplicate_frame_count == 0
@@ -205,6 +223,7 @@ class SeriesVisualSignatureProjectionMetrics:
             "failed_frame_count": self.failed_frame_count,
             "not_attempted_frame_count": self.not_attempted_frame_count,
             "coverage_rate": self.coverage_rate,
+            "projection_success_rate": self.projection_success_rate,
             "all_frames_passed": self.all_frames_passed,
         }
 
@@ -217,12 +236,17 @@ class SeriesVisualSignatureProjectionAuditPolicy:
     subject, identity-trait, user-hint and world-hint text is forbidden. Runtime
     ownership is encoded as invariants rather than a migration switch: there is
     one canonical production identity owner and compatibility may normalize input
-    only. This avoids reintroducing a dual-runtime feature flag.
+    only. Retention is inherited atomically from the parent planning snapshot;
+    projection observability cannot create an independent TTL or cleanup lifecycle.
+    This avoids reintroducing a second storage or runtime authority.
     """
 
-    schema_version: str = "series_visual_signature_projection_audit.v2"
+    schema_version: str = "series_visual_signature_projection_audit.v3"
     payload_class: str = "bounded_hash_count_only"
-    retention_owner: str = "planning_snapshot_lifecycle"
+    retention_owner: str = "parent_planning_snapshot"
+    retention_mode: str = "inherit_parent_planning_snapshot_atomically"
+    independent_retention_allowed: bool = False
+    independent_cleanup_allowed: bool = False
     production_identity_owner: str = "canonical_v45_projection"
     compatibility_adapter_scope: str = "input_normalization_only"
     legacy_prompt_runtime_allowed: bool = False
@@ -237,6 +261,9 @@ class SeriesVisualSignatureProjectionAuditPolicy:
             "schema_version": self.schema_version,
             "payload_class": self.payload_class,
             "retention_owner": self.retention_owner,
+            "retention_mode": self.retention_mode,
+            "independent_retention_allowed": self.independent_retention_allowed,
+            "independent_cleanup_allowed": self.independent_cleanup_allowed,
             "production_identity_owner": self.production_identity_owner,
             "compatibility_adapter_scope": self.compatibility_adapter_scope,
             "legacy_prompt_runtime_allowed": self.legacy_prompt_runtime_allowed,

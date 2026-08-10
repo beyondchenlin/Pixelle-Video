@@ -137,7 +137,8 @@ def test_projection_rejects_empty_subject_facts_with_bounded_failure_metrics() -
     assert audit["projected_frame_count"] == 0
     assert audit["failed_frame_count"] == 1
     assert audit["not_attempted_frame_count"] == 0
-    assert audit["coverage_rate"] == 0.0
+    assert audit["coverage_rate"] == 1.0
+    assert audit["projection_success_rate"] == 0.0
 
 
 def test_projection_preserves_base_prompt_and_all_identity_traits() -> None:
@@ -174,5 +175,7 @@ def test_projection_preserves_base_prompt_and_all_identity_traits() -> None:
     assert audit["attempted_frame_count"] == 1
     assert audit["failed_frame_count"] == 0
     assert audit["not_attempted_frame_count"] == 0
+    assert audit["coverage_rate"] == 1.0
+    assert audit["projection_success_rate"] == 1.0
     assert "positive_prompt" not in audit["frames"][0]
     assert len(audit["frames"][0]["positive_prompt_sha256"]) == 64

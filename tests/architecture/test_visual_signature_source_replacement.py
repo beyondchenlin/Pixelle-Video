@@ -212,10 +212,17 @@ def test_legacy_image_prompt_composer_is_adapter_not_second_prompt_runtime() -> 
     assert "SeriesVisualSignatureProjectionService" not in text
 
 
-def test_projection_policy_forbids_raw_observability_payloads() -> None:
+def test_projection_policy_forbids_raw_observability_and_independent_retention() -> None:
     text = PROJECTION_POLICY.read_text(encoding="utf-8-sig")
+    assert 'schema_version: str = "series_visual_signature_projection_audit.v3"' in text
     assert 'payload_class: str = "bounded_hash_count_only"' in text
-    assert 'retention_owner: str = "planning_snapshot_lifecycle"' in text
+    assert 'retention_owner: str = "parent_planning_snapshot"' in text
+    assert (
+        'retention_mode: str = "inherit_parent_planning_snapshot_atomically"'
+        in text
+    )
+    assert "independent_retention_allowed: bool = False" in text
+    assert "independent_cleanup_allowed: bool = False" in text
     assert 'raw_prompt_retention: str = "forbidden"' in text
     assert 'raw_subject_retention: str = "forbidden"' in text
     assert 'raw_identity_trait_retention: str = "forbidden"' in text

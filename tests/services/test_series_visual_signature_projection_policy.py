@@ -11,6 +11,7 @@ from pixelle_video.models.series_visual_signature import (
 from pixelle_video.models.series_visual_signature_projection_policy import (
     SeriesVisualSignatureProjectionAuditPolicy,
     SeriesVisualSignatureProjectionBudget,
+    SeriesVisualSignatureProjectionMetrics,
 )
 from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureProjectionError,
@@ -54,6 +55,7 @@ def _project(
 def test_projection_audit_has_explicit_denominator_and_full_coverage() -> None:
     audit = _project().audit_dict()
 
+    assert audit["schema_version"] == "series_visual_signature_projection_audit.v3"
     assert audit["status"] == "passed"
     assert audit["expected_frame_count"] == 1
     assert audit["attempted_frame_count"] == 1
@@ -63,7 +65,23 @@ def test_projection_audit_has_explicit_denominator_and_full_coverage() -> None:
     assert audit["failed_frame_count"] == 0
     assert audit["not_attempted_frame_count"] == 0
     assert audit["coverage_rate"] == 1.0
+    assert audit["projection_success_rate"] == 1.0
     assert audit["all_frames_passed"] is True
+
+
+def test_projection_metrics_separate_observation_coverage_from_success_rate() -> None:
+    metrics = SeriesVisualSignatureProjectionMetrics(
+        expected_frame_count=4,
+        attempted_frame_count=3,
+        projected_frame_count=2,
+        unique_frame_count=2,
+    )
+
+    assert metrics.coverage_rate == pytest.approx(0.75)
+    assert metrics.projection_success_rate == pytest.approx(0.5)
+    assert metrics.failed_frame_count == 1
+    assert metrics.not_attempted_frame_count == 1
+    assert metrics.all_frames_passed is False
 
 
 def test_projection_audit_encodes_single_runtime_ownership() -> None:
@@ -83,7 +101,13 @@ def test_projection_audit_forbids_raw_prompt_subject_and_identity_retention() ->
     serialized = json.dumps(audit, ensure_ascii=False, sort_keys=True)
 
     assert audit["audit_policy"]["payload_class"] == "bounded_hash_count_only"
-    assert audit["audit_policy"]["retention_owner"] == "planning_snapshot_lifecycle"
+    assert audit["audit_policy"]["retention_owner"] == "parent_planning_snapshot"
+    assert (
+        audit["audit_policy"]["retention_mode"]
+        == "inherit_parent_planning_snapshot_atomically"
+    )
+    assert audit["audit_policy"]["independent_retention_allowed"] is False
+    assert audit["audit_policy"]["independent_cleanup_allowed"] is False
     assert audit["audit_policy"]["contains_raw_prompt"] is False
     assert audit["audit_policy"]["contains_raw_subjects"] is False
     assert audit["audit_policy"]["contains_raw_identity_traits"] is False
@@ -129,7 +153,8 @@ def test_projection_failure_audit_has_denominator_and_no_raw_cause_text() -> Non
     assert audit["projected_frame_count"] == 0
     assert audit["failed_frame_count"] == 1
     assert audit["not_attempted_frame_count"] == 0
-    assert audit["coverage_rate"] == 0.0
+    assert audit["coverage_rate"] == 1.0
+    assert audit["projection_success_rate"] == 0.0
     assert audit["reason_code"] == "projection_budget_exceeded"
     assert audit["exception_type"] == "ValueError"
     assert raw_subject not in serialized
@@ -158,6 +183,8 @@ def test_projection_failure_marks_remaining_frames_not_attempted() -> None:
     assert audit["projected_frame_count"] == 0
     assert audit["failed_frame_count"] == 1
     assert audit["not_attempted_frame_count"] == 2
+    assert audit["coverage_rate"] == pytest.approx(1 / 3)
+    assert audit["projection_success_rate"] == 0.0
 
 
 def test_projection_budget_rejects_too_many_frames_before_projection() -> None:
