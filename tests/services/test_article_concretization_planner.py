@@ -172,11 +172,11 @@ def _resolution(
     )
 
 
-def test_planner_consumes_resolution_not_raw_request():
+def test_planner_consumes_article_resolution_but_not_signature_role():
     raw_request = _request(
         cognitive_anchor_kind="contrast",
         explanation_diagram_grammar="contrast_board",
-        series_visual_signature_role="none",
+        series_visual_signature_role="guide",
         diagram_render_style="brand_kv",
         diagram_aspect_ratio="square_1_1",
         diagram_visible_text_policy="free_text_allowed",
@@ -204,14 +204,16 @@ def test_planner_consumes_resolution_not_raw_request():
         article_plan=_article_plan(),
         frame_plan=_frame_plan(),
         source_text="Source text fallback should not alter resolved fields.",
-        identity_profile_id="ip_main",
+        identity_profile_id="legacy-profile",
     )
 
     assert plan is not None
     assert plan.anchor.anchor_kind is CognitiveAnchorKind.CAUSAL_MECHANISM
     assert plan.diagram.grammar is ExplanationDiagramGrammar.PROCESS_FLOW
     assert plan.diagram.visible_text.effective_policy is VisibleTextPolicy.NO_VISIBLE_TEXT
-    assert plan.series_signature.role is SeriesVisualSignatureRole.GUIDE
+    assert plan.series_signature.enabled is False
+    assert plan.series_signature.role is SeriesVisualSignatureRole.NONE
+    assert plan.series_signature.profile is None
     assert plan.render.render_style is DiagramRenderStyle.CLEAN_VECTOR
     assert plan.render.canvas_aspect_ratio is DiagramAspectRatio.VERTICAL_9_16
     assert plan.render.diagram_panel_aspect_ratio is DiagramAspectRatio.LANDSCAPE_16_9
@@ -289,26 +291,21 @@ def test_planner_keeps_source_evidence_ids():
     assert plan.anchor.source_text_excerpt == "Policy changes market incentives."
 
 
-def test_planner_builds_signature_contract_from_resolved_role():
+def test_planner_never_builds_active_signature_contract():
     plan = ArticleConcretizationPlanner().plan(
-        resolution=_resolution(effective_signature_role=SeriesVisualSignatureRole.GUIDE),
+        resolution=_resolution(effective_signature_role=SeriesVisualSignatureRole.OPERATOR),
         article_plan=_article_plan(),
         frame_plan=_frame_plan(),
         source_text="Policy changes market incentives.",
-        identity_profile_id="ip_main",
+        identity_profile_id="legacy-profile",
     )
 
     assert plan is not None
-    assert plan.series_signature.enabled is True
-    assert plan.series_signature.role is SeriesVisualSignatureRole.GUIDE
-    assert plan.series_signature.identity_profile_id == "ip_main"
-    assert plan.series_signature.replacement_policy == "no_subject_replacement"
-    assert plan.series_signature.visual_weight == 0.35
-    assert "ip_main" in plan.series_signature.participation_rule
-    assert any(
-        "replace article subjects" in behavior
-        for behavior in plan.series_signature.forbidden_behaviors
-    )
+    assert plan.series_signature.enabled is False
+    assert plan.series_signature.role is SeriesVisualSignatureRole.NONE
+    assert plan.series_signature.profile is None
+    assert plan.series_signature.max_area_ratio == 0.0
+    assert "disabled" in plan.series_signature.participation_rule.casefold()
 
 
 def test_planner_builds_render_contract_from_layout_resolution():
