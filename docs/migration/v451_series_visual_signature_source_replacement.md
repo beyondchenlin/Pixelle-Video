@@ -1,113 +1,52 @@
 # V4.5.1 Series Visual Signature Source Replacement
 
-This migration ends with one production runtime contract, but the replacement is staged. The current production executor must not be physically removed before the V4.5 candidate path is complete, shadow-observed, and explicitly cut over.
+## Verdict
 
-## Target architecture
+This migration is a source replacement, not a shadow rollout.
 
-The final production source path is:
+The former same-frame shadow design was removed because its candidate path reused a production prompt that had already passed through the legacy signature path. That design could compare two prompt representations, but it could not prove that V4.5 independently owned recurring visual identity. Keeping it would preserve two execution semantics and create a false cutover signal.
+
+The production architecture in this PR therefore follows one rule:
+
+> Content planning is signature-free. Recurring visual identity may enter only at the canonical V4.5 final projection boundary.
+
+## Canonical production path
 
 ```text
-SeriesVisualSignatureRequest
--> VisualSignatureProfileSnapshot
--> SeriesVisualSignatureContract
--> FinalVisualPromptContractV45
--> ArticleConcretizationPromptCompiler
--> final prompt gate
--> ZImagePromptBundle
--> provider_z_image_adapter
+Article / Storyboard
+-> VisualStoryEngine                     # content-only route selection
+-> FrameVisualPlanBatchService           # content-only frame planning
+-> VisualPromptComposer
+     -> signature-free base prompt
+     -> VisualSignatureProfileSnapshot   # explicit identity facts only
+     -> canonical role resolver
+     -> SeriesVisualSignatureContract
+     -> FinalVisualPromptContractV45
+     -> FinalVisualPromptCompiler
+     -> final prompt gate
+     -> provider/media adapter
 ```
 
-`provider_z_image_adapter` is a mechanical projection boundary. It must not reinterpret business constraints or repair prompts.
+`provider_z_image_adapter` and other provider/media adapters are mechanical boundaries. They must not repair prompts, reinterpret business constraints, select roles, or invent identity facts.
 
-## Migration stages
+## Ownership rules
 
-### Stage 1: remove duplicate request facts without removing the production executor
+### Request ownership
 
-- `SeriesVisualSignatureRequest` has one canonical runtime definition.
-- Legacy/product controls may remain only as compatibility adapters that produce the canonical request.
-- Pipeline-version facts also have one source of truth. `v4_expression` remains a supported compatibility value and `v4_2_identity_contract` remains the canonical default, but both are defined and validated by the canonical request model.
-- `pipeline_version` remains a real dataclass field so existing legacy routing based on `dataclasses.replace(...)` continues to work during migration.
-- Serialization must keep canonical normalized values authoritative; compatibility fields must not overwrite them.
-- Profile resolution must fail explicitly. A profile ID must never be fabricated into a display name or identity trait.
+`SeriesVisualSignatureRequest` has exactly one runtime definition in `pixelle_video.models.series_visual_signature`.
 
-### Stage 2: make the V4.5 candidate path safe to switch
+The historical `series_visual_signature_request.py` module may re-export or adapt the canonical type for protocol compatibility, but it must not define a second request class or version registry.
 
-The candidate path must satisfy all of these invariants before shadow observation:
+Canonical request state always wins over compatibility fields during serialization and projection.
 
-- contract object -> dict -> compiler round trips keep the visual signature enabled and intact;
-- required source subjects are present in the model-visible positive prompt;
-- required subjects and identity traits are protected prompt sections and are never silently truncated;
-- if protected semantics exceed the provider prompt budget, compilation fails explicitly;
-- automatic role selection uses one context-aware resolver rather than a hard-coded role;
-- final prompt validation checks required subjects, identity name, identity traits, negative protections, and visible-text policy before provider projection;
-- protected-term matching uses boundary-safe matching for ASCII terms so a subject such as `AI` cannot be falsely matched inside an unrelated word such as `chair`;
-- provider projection remains mechanical.
+### Profile ownership
 
-### Stage 3: same-frame shadow comparison
+`VisualSignatureProfileSnapshot` is the only runtime identity snapshot used by final projection.
 
-This stage is implemented in the current source-replacement PR.
-
-The production prompt remains authoritative while the V4.5 candidate path runs beside it at prompt/contract level.
-
-The shadow path is observational only:
-
-- it must never replace or mutate the production prompt;
-- unexpected shadow exceptions are converted into failed shadow observations and must not interrupt production generation;
-- it does not issue a second image-generation request by default, so observation does not double provider cost;
-- production and candidate prompts are recorded per frame;
-- required-subject and identity presence are recorded separately for production and candidate prompts using the same protected-term matcher as the final gate;
-- candidate final-gate and provider-projection results are recorded;
-- missing same-frame candidate coverage is a cutover blocker;
-- optional production/candidate render-result fields are reserved for an explicit later A/B media experiment.
-
-Shadow frame input has two supported sources:
-
-1. If an `ArticleConcretizationPlan` exists for the frame, the candidate consumes the real article anchor, required subjects, diagram grammar, render contract, visible-text policy, and role context.
-2. Otherwise the candidate consumes the same-frame storyboard/prompt context. It reuses the current production base scene text so the shadow experiment isolates visual-signature source replacement from unrelated base-scene generation changes. Required subjects come from storyboard subjects plus `BaseVisualBrief.main_subjects` when available. The candidate uses `plain_scene` / `preserve_base` semantics so it preserves the existing action, subject hierarchy, camera, lighting, and visual style instead of forcing an explanatory-diagram grammar.
-
-A non-article frame with no structured subject facts is `blocked`. An empty subject list must never be interpreted as proof that subject preservation passed.
-
-The strict cutover qualification is:
+A profile snapshot may contain only explicit identity facts:
 
 ```text
-shadow coverage rate == 100%
-candidate pass rate == 100%
-failed candidate frames == 0
-global shadow errors == 0
-```
-
-This qualification means "eligible for an explicit cutover decision". It does not automatically switch production traffic.
-
-The runtime snapshot key is:
-
-```text
-series_visual_signature_shadow_comparison
-```
-
-Each frame record includes `candidate_source_kind` so deployed observations can distinguish article-concretization candidates from ordinary storyboard-frame candidates.
-
-### Stage 4: explicit production cutover
-
-After representative deployed traffic demonstrates stable shadow qualification, submit a separate cutover change that routes the default production path through the canonical V4.5 chain.
-
-The cutover change must preserve rollback ability and must not delete the old executor in the same step.
-
-### Stage 5: physical source deletion
-
-Only after the new production path is stable may old execution services, duplicate article-level role/contract types, compatibility imports, and obsolete UI controls be physically removed.
-
-Do not recreate deleted runtime types as compatibility wrappers after this stage.
-
-## What may remain during staged migration
-
-The current `VisualPromptPlanningService` and visual-anchor execution path may remain while they still carry production traffic.
-
-Article concretization may also retain frame-level intermediate role/contract objects until the canonical V4.5 contract owns the production provider boundary. Those intermediate types must not become a second provider-facing fact source.
-
-Structured identity assets may remain, but `VisualSignatureProfileSnapshot` itself contains identity facts only:
-
-```text
-series_visual_signature_profile_id
+profile_id
 display_name
 identity_traits
 style_safe_traits
@@ -115,34 +54,267 @@ forbidden_traits
 source_asset_ids
 ```
 
-Profiles must not carry paragraph prompts, provider prompts, scene prompts, or deprecated runtime fields.
+Identity may never be fabricated from profile id, display name, world hint, free-form prose, or missing asset data.
 
-## Architecture and CI gates
+Identity traits are treated as untrusted data:
 
-The repository must enforce:
+- length is bounded;
+- instruction-like text is rejected;
+- multiline/instruction-shaped traits are rejected;
+- validation errors never echo the raw rejected trait;
+- all required identity traits must survive into the final prompt and pass the final gate.
 
-- exactly one production definition of `SeriesVisualSignatureRequest`;
-- one canonical definition of supported series-visual-signature pipeline versions;
-- legacy `pipeline_version` dataclass replacement compatibility until the legacy route is physically removed;
-- no deprecated IP/Visual Role runtime imports after their deletion stage;
-- object/dict prompt-contract round-trip coverage;
-- unresolved or mismatched profile failure coverage;
-- full required-subject preservation coverage;
-- boundary-safe protected-term matching coverage;
-- context-aware automatic role coverage;
-- final prompt gate coverage;
-- provider adapter mechanical-projection coverage;
-- shadow comparison coverage for article frames and ordinary storyboard frames;
-- shadow coverage for missing frame context, missing subject facts, profile failure, over-budget protected semantics, and candidate failure;
-- prompt composer coverage proving shadow observation cannot replace production prompts and proving base-visual subject facts reach the non-article shadow path.
+### Role ownership
 
-Run the dedicated workflow or equivalent commands:
+Only the canonical V4.5 role resolver may decide the recurring visual-signature role.
 
-```powershell
-python -m pytest -q tests/architecture/test_no_legacy_ip_runtime.py tests/models/test_series_visual_signature.py tests/models/test_series_visual_signature_request.py tests/services/test_series_visual_signature_*.py tests/services/test_article_concretization_prompt_compiler.py tests/services/test_provider_z_image_adapter.py
-python -m ruff check pixelle_video/models/series_visual_signature.py pixelle_video/models/series_visual_signature_request.py pixelle_video/services/series_visual_signature_*.py pixelle_video/services/article_concretization_prompt_compiler.py pixelle_video/services/provider_z_image_adapter.py pixelle_video/services/image_prompt_composer.py tests/architecture/test_no_legacy_ip_runtime.py tests/models/test_series_visual_signature.py tests/models/test_series_visual_signature_request.py tests/services/test_series_visual_signature_*.py tests/services/test_article_concretization_prompt_compiler.py tests/services/test_provider_z_image_adapter.py
+Article Concretization no longer owns a second role decision center. Historical article role/profile/strategy inputs are compatibility diagnostics only and must resolve to `NONE` at the article boundary.
+
+`models/article_concretization.py` re-exports the canonical role/contract types and does not define article-local duplicates.
+
+### Content-route ownership
+
+Visual Story is content-only.
+
+`VisualRouteScores.computed_final()` is the single route-ranking authority. Its score is derived only from:
+
+```text
+content_fit
+memorability
+channel_consistency
+production_reliability
+risk
 ```
 
-The dedicated Visual Signature CI workflow includes this migration document in its path trigger so documentation-only changes to the cutover contract are revalidated against the executable tests.
+Historical `ip_compatibility` and model-supplied `final` values may still deserialize for protocol compatibility, but neither may influence route ranking. The service must not define a second route-score formula.
 
-The dedicated Visual Signature CI workflow should be configured as a required check on `dev` in repository branch-protection settings once repository policy allows it.
+## Compatibility boundary
+
+`VisualPromptComposer` is the canonical media-neutral core service. It accepts:
+
+- canonical `SeriesVisualSignatureRequest`;
+- optional canonical `VisualSignatureProfileSnapshot`;
+- the resolved `IPProfile` asset source used to build a snapshot when required.
+
+It does **not** accept historical expression/structure/participation/mode/fallback controls.
+
+`ImagePromptComposer` is a bounded compatibility adapter. Historical callers may still pass the old fields to that adapter; it normalizes them once into the canonical request/profile snapshot and delegates to `VisualPromptComposer`.
+
+If a canonical request and historical controls are both supplied, the canonical request is authoritative. Historical controls cannot overwrite it.
+
+The adapter contains no prompt-generation or projection implementation.
+
+## Signature-free base generation
+
+Before canonical projection, `VisualPromptComposer` hard-disables all legacy recurring-IP / visual-signature inputs sent to the lower base generator.
+
+Visual Story context is whitelist-projected. Only content route facts, content frame facts, and reference-image facts may reach the base prompt. Compatibility-only IP fields and active IP fusion plans are excluded.
+
+This prevents a hidden double application in which recurring identity appears in the base scene and is injected again by V4.5.
+
+## Article Concretization contract
+
+Article Concretization owns:
+
+- cognitive anchor;
+- explanation grammar;
+- diagram layout;
+- visible-text policy;
+- render style;
+- article required subjects and evidence.
+
+It does not own recurring identity.
+
+`ArticleConcretizationPlanner` may retain historical identity parameters in its call signature only while old callers exist, but those parameters are non-operative. Every article plan carries the canonical disabled `SeriesVisualSignatureContract` until the final projection stage creates the active contract.
+
+## Required-subject invariants
+
+Every projected frame must have structured required subjects.
+
+Sources are merged from:
+
+1. Article Concretization required subjects when present;
+2. base visual brief subjects;
+3. storyboard primary/secondary subjects;
+4. explicit frame required subjects.
+
+An empty subject set is an error. It must never be interpreted as proof that subject preservation passed.
+
+Protected-term matching is boundary-safe for short ASCII tokens so a subject such as `AI` cannot be falsely matched inside an unrelated word such as `chair`.
+
+Required subjects and required identity traits are protected final-prompt semantics. They are never silently truncated. If the protected semantics themselves exceed the provider budget, compilation fails closed.
+
+## Projection observability contract
+
+The old shadow snapshot is deleted. There is no `series_visual_signature_shadow_comparison` runtime fact source.
+
+The canonical projection emits a bounded audit record under:
+
+```text
+series_visual_signature_projection_audit
+```
+
+### Success denominator
+
+Every successful batch records:
+
+```text
+expected_frame_count
+attempted_frame_count
+projected_frame_count
+unique_frame_count
+duplicate_frame_count
+failed_frame_count
+not_attempted_frame_count
+coverage_rate
+all_frames_passed
+```
+
+A successful production batch is publishable only when:
+
+```text
+attempted == expected
+projected == expected
+unique == expected
+duplicate == 0
+failed == 0
+not_attempted == 0
+coverage_rate == 1.0
+```
+
+Duplicate frame ids are rejected before projection.
+
+### Failure denominator
+
+A frame projection failure raises `SeriesVisualSignatureProjectionError` with a bounded audit payload containing:
+
+- expected/attempted/projected/failed/not-attempted counts;
+- failed frame id/index;
+- stable reason code;
+- exception type.
+
+The failure audit does not contain the raw exception message or protected prompt data. Remaining frames are explicitly counted as not attempted.
+
+The production method remains fail closed: a partial batch is never returned as a successful projection.
+
+## Privacy and retention policy
+
+Projection observability is not a second prompt store.
+
+The audit policy is:
+
+```text
+payload_class = bounded_hash_count_only
+retention_owner = planning_snapshot_lifecycle
+raw_prompt_retention = forbidden
+raw_subject_retention = forbidden
+raw_identity_trait_retention = forbidden
+raw_request_hint_retention = forbidden
+```
+
+Projection audit may store:
+
+- prompt character counts;
+- SHA-256 fingerprints;
+- role;
+- subject/trait counts;
+- gate state;
+- operational frame/contract ids;
+- bounded failure reason codes.
+
+It must not store raw positive/negative prompts, raw subjects, raw identity traits, user hints, or world hints.
+
+`VisualPromptComposer` therefore stores only a canonical request audit summary and a profile reference/count summary. It does not copy the full canonical request or full profile snapshot into planning observability.
+
+This audit follows the existing planning-snapshot lifecycle; it does not create an independent retention database or TTL system. Because no additional raw prompt/identity corpus is created, retention risk is bounded even if the parent planning artifact has a longer lifecycle.
+
+## Deterministic runtime budget
+
+Projection correctness must not depend on wall-clock latency because host load is nondeterministic.
+
+The canonical projection instead enforces deterministic complexity limits:
+
+```text
+max frames per batch             = 512
+max base prompt chars/frame      = 20,000
+max negative prompt chars/frame  = 12,000
+max required subjects/frame      = 64
+max required subject chars       = 256
+max identity traits              = 32
+max projection audit bytes       = 512 KiB
+```
+
+The limits are validated before or during projection. Over-budget inputs fail explicitly; the service never silently drops protected semantics to remain inside the budget.
+
+These defaults may be revised only together with tests and the migration contract.
+
+## Migration state
+
+Current source state after this PR:
+
+```text
+production identity owner        = canonical V4.5 projection
+legacy prompt runtime allowed    = no
+article signature runtime        = disabled/non-operative compatibility only
+visual-story signature runtime   = disabled/non-operative compatibility only
+legacy input adapter             = allowed at ImagePromptComposer boundary only
+raw projection observability     = forbidden
+shadow runtime                   = removed
+```
+
+The compatibility adapter is a protocol boundary, not a second runtime. It may be physically removed only after supported external/first-party callers no longer send historical controls. Until then architecture tests must prove it cannot execute prompt generation or projection itself.
+
+## Physically removed runtime
+
+The source-replacement work deletes or prevents revival of:
+
+- legacy shadow comparison runtime and tests;
+- old IP route-compatibility prompt template;
+- old style-harmonization prompt template;
+- old frame-IP-fusion prompt templates;
+- Visual Story IP model prompt renderers;
+- Article Concretization automatic visual-signature role resolver;
+- article-local duplicate visual-signature role/contract classes;
+- active recurring-IP planning in Visual Story content routes/frame plans.
+
+## Architecture gates
+
+Executable architecture tests enforce:
+
+- one canonical request/version source;
+- Article Concretization cannot define a second visual-signature role/contract;
+- Article Concretization cannot resolve active visual-signature roles;
+- shared route scoring cannot read external `final` or `ip_compatibility`;
+- Visual Story cannot define a second content-score formula;
+- `VisualPromptComposer.compose()` cannot regain historical signature controls;
+- `ImagePromptComposer` remains an adapter with no base-prompt or projection implementation;
+- deleted legacy templates remain absent;
+- projection observability declares raw prompt/subject/identity/request-hint retention forbidden;
+- final prompt gate, protected terms, provider projection, profile security, route/frame content-only behavior and article no-role behavior remain covered by tests.
+
+## CI contract
+
+`.github/workflows/visual-signature-ci.yml` must compile, test and lint the canonical models/services, compatibility adapter, architecture gates and source-replacement tests.
+
+The workflow includes both migration documents in its path triggers so a documentation-only change to the production contract revalidates executable behavior.
+
+Repository policy should make Visual Signature CI a required `dev` branch check when branch-protection settings permit it.
+
+## Done definition
+
+This source replacement is complete only when the final PR head satisfies all of the following:
+
+- shared route score ignores external `final` and IP compatibility;
+- old Article Concretization role tests are migrated to the new ownership boundary;
+- article-local duplicate role/contract definitions are gone;
+- canonical core composer has no historical signature controls;
+- compatibility adapter is the only historical input normalization boundary;
+- projection audit has explicit success/failure denominators;
+- projection observability retains no raw prompt/subject/identity/request-hint text;
+- deterministic projection budgets are enforced;
+- architecture gates pass;
+- Visual Signature CI passes on the final head;
+- Reference Image CI passes on the final head;
+- PR is mergeable and has no unresolved blocking review thread.
+
+Do not call the migration complete before the final-head checks satisfy this list.
