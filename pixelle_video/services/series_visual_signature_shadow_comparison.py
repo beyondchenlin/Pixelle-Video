@@ -25,6 +25,98 @@ from pixelle_video.services.series_visual_signature_profile_builder import (
 
 
 @dataclass(frozen=True)
+class SeriesVisualSignatureShadowFrameInput:
+    frame_id: str
+    source_kind: str
+    primary_visual_task: str
+    required_subjects: tuple[str, ...]
+    article_concretization: Mapping[str, Any]
+    diagram_render: Mapping[str, Any]
+    visible_text_policy: str
+    role_context: Mapping[str, Any]
+
+    @classmethod
+    def from_article_plan(
+        cls,
+        plan: ArticleConcretizationPlan,
+    ) -> "SeriesVisualSignatureShadowFrameInput":
+        return cls(
+            frame_id=plan.frame_id,
+            source_kind="article_concretization_plan",
+            primary_visual_task=plan.diagram.primary_visual_task.value,
+            required_subjects=tuple(plan.anchor.required_subjects),
+            article_concretization={
+                "plan_id": plan.plan_id,
+                "anchor": plan.anchor.to_dict(),
+                "diagram": plan.diagram.to_dict(),
+            },
+            diagram_render=plan.render.to_dict(),
+            visible_text_policy=plan.diagram.visible_text.effective_policy.value,
+            role_context={
+                "effective_anchor_kind": plan.resolution.effective_anchor_kind.value,
+                "effective_diagram_grammar": plan.resolution.effective_diagram_grammar.value,
+                "primary_visual_task": plan.diagram.primary_visual_task.value,
+            },
+        )
+
+    @classmethod
+    def from_frame_context(
+        cls,
+        *,
+        frame_id: str,
+        production_prompt: str,
+        context: Mapping[str, Any],
+    ) -> "SeriesVisualSignatureShadowFrameInput":
+        required_subjects = _required_subjects_from_frame_context(context)
+        visual_summary = " ".join(str(production_prompt or "").split())
+        if not visual_summary:
+            visual_summary = _first_text(
+                context.get("visual_goal"),
+                context.get("prompt_intent"),
+                context.get("frame_source_text"),
+                context.get("source_text"),
+                "one clear scene",
+            )
+        primary_visual_task = _first_text(
+            context.get("primary_visual_task"),
+            context.get("visual_task"),
+            "cognitive_explanation",
+        )
+        visible_text_policy = _first_text(
+            context.get("visible_text_policy"),
+            "free_text_allowed",
+        )
+        return cls(
+            frame_id=frame_id,
+            source_kind="storyboard_frame_context",
+            primary_visual_task=primary_visual_task,
+            required_subjects=required_subjects,
+            article_concretization={
+                "anchor": {
+                    "anchor_kind": "auto",
+                    "anchor_claim": _first_text(
+                        context.get("frame_source_text"),
+                        context.get("source_text"),
+                        visual_summary,
+                    ),
+                    "required_subjects": list(required_subjects),
+                },
+                "diagram": {
+                    "grammar": "single_explanation_image",
+                    "primary_visual_task": primary_visual_task,
+                    "visual_metaphor": visual_summary,
+                },
+                "shadow_source_kind": "storyboard_frame_context",
+            },
+            diagram_render={},
+            visible_text_policy=visible_text_policy,
+            role_context={
+                "primary_visual_task": primary_visual_task,
+            },
+        )
+
+
+@dataclass(frozen=True)
 class SeriesVisualSignatureShadowFrameResult:
     frame_id: str
     status: str
@@ -32,6 +124,7 @@ class SeriesVisualSignatureShadowFrameResult:
     candidate_prompt: str = ""
     candidate_negative_prompt: str = ""
     required_subjects: tuple[str, ...] = ()
+    candidate_source_kind: str = ""
     production_required_subjects_present: Mapping[str, bool] = field(default_factory=dict)
     candidate_required_subjects_present: Mapping[str, bool] = field(default_factory=dict)
     production_identity_terms_present: Mapping[str, bool] = field(default_factory=dict)
@@ -59,6 +152,7 @@ class SeriesVisualSignatureShadowFrameResult:
             "frame_id": self.frame_id,
             "status": self.status,
             "passed": self.passed,
+            "candidate_source_kind": self.candidate_source_kind,
             "production_prompt": self.production_prompt,
             "candidate_prompt": self.candidate_prompt,
             "candidate_negative_prompt": self.candidate_negative_prompt,
@@ -149,12 +243,17 @@ def build_series_visual_signature_shadow_report(
     legacy_profile: SeriesVisualSignatureProfile | None = None,
     ip_profile: Any = None,
     enabled_fallback: bool = False,
+    fallback_frame_contexts: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> SeriesVisualSignatureShadowReport:
-    """Run the V4.5 prompt path beside production without changing production output.
+    """Run the V4.5 signature path beside production without changing output.
+
+    Article frames consume the article-concretization plan. Other frames consume
+    the existing storyboard/prompt context while reusing the production base
+    scene text as the visual summary. This isolates the visual-signature source
+    replacement from unrelated base-scene generation changes.
 
     Every exception is converted into an observational failure report. The
-    shadow path must never become a production prompt-generation dependency.
-    It is prompt/contract-only and never issues a second provider media request.
+    shadow path never issues a second provider media request.
     """
 
     normalized_frame_ids = tuple(str(value or "").strip() for value in frame_ids)
@@ -168,6 +267,7 @@ def build_series_visual_signature_shadow_report(
             legacy_profile=legacy_profile,
             ip_profile=ip_profile,
             enabled_fallback=enabled_fallback,
+            fallback_frame_contexts=fallback_frame_contexts or {},
         )
     except Exception as exc:
         enabled = bool(request.enabled if request is not None else enabled_fallback)
@@ -201,6 +301,7 @@ def _build_shadow_report(
     legacy_profile: SeriesVisualSignatureProfile | None,
     ip_profile: Any,
     enabled_fallback: bool,
+    fallback_frame_contexts: Mapping[str, Mapping[str, Any]],
 ) -> SeriesVisualSignatureShadowReport:
     expected_count = len(frame_ids)
     if len(production_prompts) != expected_count:
@@ -251,12 +352,23 @@ def _build_shadow_report(
             global_errors=(error,),
         )
 
-    plans_by_frame = {plan.frame_id: plan for plan in article_concretization_plans}
+    inputs_by_frame = {
+        plan.frame_id: SeriesVisualSignatureShadowFrameInput.from_article_plan(plan)
+        for plan in article_concretization_plans
+    }
     results: list[SeriesVisualSignatureShadowFrameResult] = []
     for index, frame_id in enumerate(frame_ids):
         production_prompt = production_prompts[index]
-        plan = plans_by_frame.get(frame_id)
-        if plan is None:
+        frame_input = inputs_by_frame.get(frame_id)
+        if frame_input is None:
+            fallback_context = fallback_frame_contexts.get(frame_id)
+            if isinstance(fallback_context, Mapping):
+                frame_input = SeriesVisualSignatureShadowFrameInput.from_frame_context(
+                    frame_id=frame_id,
+                    production_prompt=production_prompt,
+                    context=fallback_context,
+                )
+        if frame_input is None:
             results.append(
                 SeriesVisualSignatureShadowFrameResult(
                     frame_id=frame_id,
@@ -266,14 +378,17 @@ def _build_shadow_report(
                         production_prompt,
                         _identity_terms(profile_snapshot),
                     ),
-                    candidate_error="V4.5 shadow candidate requires an article concretization plan for the same frame",
+                    candidate_error=(
+                        "V4.5 shadow candidate requires either an article concretization "
+                        "plan or a same-frame storyboard context"
+                    ),
                 )
             )
             continue
         results.append(
             _build_frame_result(
                 production_prompt=production_prompt,
-                plan=plan,
+                frame_input=frame_input,
                 request=resolved_request,
                 profile=profile_snapshot,
             )
@@ -316,11 +431,11 @@ def _profile_snapshot(
 def _build_frame_result(
     *,
     production_prompt: str,
-    plan: ArticleConcretizationPlan,
+    frame_input: SeriesVisualSignatureShadowFrameInput,
     request: SeriesVisualSignatureRequest,
     profile: VisualSignatureProfileSnapshot,
 ) -> SeriesVisualSignatureShadowFrameResult:
-    required_subjects = tuple(plan.anchor.required_subjects)
+    required_subjects = frame_input.required_subjects
     identity_terms = _identity_terms(profile)
     production_subject_presence = _presence_map(production_prompt, required_subjects)
     production_identity_presence = _presence_map(production_prompt, identity_terms)
@@ -329,8 +444,23 @@ def _build_frame_result(
     candidate_negative_prompt = ""
     candidate_contract_payload: Mapping[str, Any] | None = None
     try:
-        signature = _signature_contract(request=request, profile=profile, plan=plan)
-        final_contract = _final_contract(plan=plan, signature=signature)
+        signature = SeriesVisualSignatureContractBuilder().build(
+            request=request,
+            profile=profile,
+            strict_user_mode=True,
+            role_context=frame_input.role_context,
+        )
+        final_contract = FinalVisualPromptContractV45(
+            contract_id=f"shadow:{frame_input.frame_id}",
+            frame_id=frame_input.frame_id,
+            primary_visual_task=frame_input.primary_visual_task,
+            required_subjects=required_subjects,
+            article_concretization=frame_input.article_concretization,
+            series_visual_signature=signature,
+            diagram_render=frame_input.diagram_render,
+            visible_text_policy=frame_input.visible_text_policy,
+            projected_prompt_parts=(),
+        )
         candidate_contract_payload = final_contract.to_dict()
         bundle = ArticleConcretizationPromptCompiler().compile_for_z_image(
             final_contract=final_contract
@@ -359,12 +489,13 @@ def _build_frame_result(
                 reasons.append("candidate prompt lost identity terms")
             error = "; ".join(reasons)
         return SeriesVisualSignatureShadowFrameResult(
-            frame_id=plan.frame_id,
+            frame_id=frame_input.frame_id,
             status=status,
             production_prompt=production_prompt,
             candidate_prompt=candidate_prompt,
             candidate_negative_prompt=candidate_negative_prompt,
             required_subjects=required_subjects,
+            candidate_source_kind=frame_input.source_kind,
             production_required_subjects_present=production_subject_presence,
             candidate_required_subjects_present=candidate_subject_presence,
             production_identity_terms_present=production_identity_presence,
@@ -376,12 +507,13 @@ def _build_frame_result(
         )
     except Exception as exc:
         return SeriesVisualSignatureShadowFrameResult(
-            frame_id=plan.frame_id,
+            frame_id=frame_input.frame_id,
             status="failed",
             production_prompt=production_prompt,
             candidate_prompt=candidate_prompt,
             candidate_negative_prompt=candidate_negative_prompt,
             required_subjects=required_subjects,
+            candidate_source_kind=frame_input.source_kind,
             production_required_subjects_present=production_subject_presence,
             candidate_required_subjects_present=_presence_map(candidate_prompt, required_subjects),
             production_identity_terms_present=production_identity_presence,
@@ -393,44 +525,29 @@ def _build_frame_result(
         )
 
 
-def _signature_contract(
-    *,
-    request: SeriesVisualSignatureRequest,
-    profile: VisualSignatureProfileSnapshot,
-    plan: ArticleConcretizationPlan,
-) -> SeriesVisualSignatureContract:
-    return SeriesVisualSignatureContractBuilder().build(
-        request=request,
-        profile=profile,
-        strict_user_mode=True,
-        role_context={
-            "effective_anchor_kind": plan.resolution.effective_anchor_kind.value,
-            "effective_diagram_grammar": plan.resolution.effective_diagram_grammar.value,
-            "primary_visual_task": plan.diagram.primary_visual_task.value,
-        },
-    )
-
-
-def _final_contract(
-    *,
-    plan: ArticleConcretizationPlan,
-    signature: SeriesVisualSignatureContract,
-) -> FinalVisualPromptContractV45:
-    return FinalVisualPromptContractV45(
-        contract_id=f"shadow:{plan.plan_id}",
-        frame_id=plan.frame_id,
-        primary_visual_task=plan.diagram.primary_visual_task.value,
-        required_subjects=tuple(plan.anchor.required_subjects),
-        article_concretization={
-            "plan_id": plan.plan_id,
-            "anchor": plan.anchor.to_dict(),
-            "diagram": plan.diagram.to_dict(),
-        },
-        series_visual_signature=signature,
-        diagram_render=plan.render.to_dict(),
-        visible_text_policy=plan.diagram.visible_text.effective_policy.value,
-        projected_prompt_parts=(),
-    )
+def _required_subjects_from_frame_context(context: Mapping[str, Any]) -> tuple[str, ...]:
+    values: list[Any] = []
+    primary = context.get("primary_subject")
+    if primary is not None:
+        values.append(primary)
+    secondary = context.get("secondary_subjects")
+    if isinstance(secondary, Sequence) and not isinstance(secondary, (str, bytes)):
+        values.extend(secondary)
+    explicit = context.get("required_subjects")
+    if isinstance(explicit, Sequence) and not isinstance(explicit, (str, bytes)):
+        values.extend(explicit)
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = " ".join(str(value or "").strip().split())
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return tuple(result)
 
 
 def _identity_terms(profile: VisualSignatureProfileSnapshot) -> tuple[str, ...]:
@@ -446,7 +563,17 @@ def _presence_map(text: str, terms: Sequence[str]) -> dict[str, bool]:
     }
 
 
+def _first_text(*values: Any) -> str:
+    for value in values:
+        raw = getattr(value, "value", value)
+        text = " ".join(str(raw or "").strip().split())
+        if text:
+            return text
+    return ""
+
+
 __all__ = [
+    "SeriesVisualSignatureShadowFrameInput",
     "SeriesVisualSignatureShadowFrameResult",
     "SeriesVisualSignatureShadowReport",
     "build_series_visual_signature_shadow_report",
