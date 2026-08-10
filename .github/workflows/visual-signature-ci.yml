@@ -8,12 +8,13 @@ on:
     paths:
       - "pixelle_video/models/series_visual_signature.py"
       - "pixelle_video/models/series_visual_signature_request.py"
-      - "pixelle_video/models/final_image_prompt_bundle.py"
+      - "pixelle_video/models/final_visual_prompt_bundle.py"
       - "pixelle_video/models/final_visual_prompt_contract_v45.py"
       - "pixelle_video/services/series_visual_signature_*.py"
       - "pixelle_video/services/final_visual_prompt_compiler.py"
       - "pixelle_video/services/article_concretization_prompt_compiler.py"
       - "pixelle_video/services/provider_z_image_adapter.py"
+      - "pixelle_video/services/visual_prompt_composer.py"
       - "pixelle_video/services/image_prompt_composer.py"
       - "tests/architecture/test_no_legacy_ip_runtime.py"
       - "tests/models/test_series_visual_signature.py"
@@ -32,12 +33,13 @@ on:
     paths:
       - "pixelle_video/models/series_visual_signature.py"
       - "pixelle_video/models/series_visual_signature_request.py"
-      - "pixelle_video/models/final_image_prompt_bundle.py"
+      - "pixelle_video/models/final_visual_prompt_bundle.py"
       - "pixelle_video/models/final_visual_prompt_contract_v45.py"
       - "pixelle_video/services/series_visual_signature_*.py"
       - "pixelle_video/services/final_visual_prompt_compiler.py"
       - "pixelle_video/services/article_concretization_prompt_compiler.py"
       - "pixelle_video/services/provider_z_image_adapter.py"
+      - "pixelle_video/services/visual_prompt_composer.py"
       - "pixelle_video/services/image_prompt_composer.py"
       - "tests/architecture/test_no_legacy_ip_runtime.py"
       - "tests/models/test_series_visual_signature.py"
@@ -79,7 +81,7 @@ jobs:
           python -m py_compile \
             pixelle_video/models/series_visual_signature.py \
             pixelle_video/models/series_visual_signature_request.py \
-            pixelle_video/models/final_image_prompt_bundle.py \
+            pixelle_video/models/final_visual_prompt_bundle.py \
             pixelle_video/models/final_visual_prompt_contract_v45.py \
             pixelle_video/services/series_visual_signature_contract_builder.py \
             pixelle_video/services/series_visual_signature_planning_service.py \
@@ -91,6 +93,7 @@ jobs:
             pixelle_video/services/final_visual_prompt_compiler.py \
             pixelle_video/services/article_concretization_prompt_compiler.py \
             pixelle_video/services/provider_z_image_adapter.py \
+            pixelle_video/services/visual_prompt_composer.py \
             pixelle_video/services/image_prompt_composer.py
 
       - name: Run visual signature tests
@@ -110,7 +113,7 @@ jobs:
           python -m ruff check \
             pixelle_video/models/series_visual_signature.py \
             pixelle_video/models/series_visual_signature_request.py \
-            pixelle_video/models/final_image_prompt_bundle.py \
+            pixelle_video/models/final_visual_prompt_bundle.py \
             pixelle_video/models/final_visual_prompt_contract_v45.py \
             pixelle_video/services/series_visual_signature_contract_builder.py \
             pixelle_video/services/series_visual_signature_planning_service.py \
@@ -122,6 +125,7 @@ jobs:
             pixelle_video/services/final_visual_prompt_compiler.py \
             pixelle_video/services/article_concretization_prompt_compiler.py \
             pixelle_video/services/provider_z_image_adapter.py \
+            pixelle_video/services/visual_prompt_composer.py \
             pixelle_video/services/image_prompt_composer.py \
             tests/architecture/test_no_legacy_ip_runtime.py \
             tests/models/test_series_visual_signature.py \
