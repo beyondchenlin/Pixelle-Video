@@ -116,22 +116,6 @@ COMPATIBLE_GRAMMARS_BY_ANCHOR: Mapping[
     }
 )
 
-AUTO_SIGNATURE_ROLE_BY_ANCHOR: Mapping[CognitiveAnchorKind, SeriesVisualSignatureRole] = MappingProxyType(
-    {
-        CognitiveAnchorKind.CAUSAL_MECHANISM: SeriesVisualSignatureRole.OPERATOR,
-        CognitiveAnchorKind.PROCESS: SeriesVisualSignatureRole.OPERATOR,
-        CognitiveAnchorKind.DECISION_PATH: SeriesVisualSignatureRole.OPERATOR,
-        CognitiveAnchorKind.STATE_MACHINE: SeriesVisualSignatureRole.OPERATOR,
-        CognitiveAnchorKind.STRUCTURE: SeriesVisualSignatureRole.GUIDE,
-        CognitiveAnchorKind.RELATIONSHIP: SeriesVisualSignatureRole.GUIDE,
-        CognitiveAnchorKind.EVIDENCE: SeriesVisualSignatureRole.GUIDE,
-        CognitiveAnchorKind.JUDGMENT: SeriesVisualSignatureRole.SILENT_WITNESS,
-        CognitiveAnchorKind.STATE: SeriesVisualSignatureRole.SILENT_WITNESS,
-        CognitiveAnchorKind.METAPHOR: SeriesVisualSignatureRole.SILENT_WITNESS,
-        CognitiveAnchorKind.CONTRAST: SeriesVisualSignatureRole.SILENT_WITNESS,
-    }
-)
-
 
 def resolve_article_concretization(
     *,
@@ -143,6 +127,13 @@ def resolve_article_concretization(
     strict_user_mode: bool,
     series_visual_signature_strategy: Any = None,
 ) -> ArticleConcretizationResolution:
+    """Resolve article-only visual structure.
+
+    Historical visual-signature inputs remain accepted at this boundary so old
+    callers deserialize safely, but they are intentionally non-operative. Role
+    selection belongs exclusively to the canonical V4.5 final projection stage.
+    """
+
     template_ratio = _diagram_aspect_ratio(template_aspect_ratio, "template_aspect_ratio")
     if not request.enabled:
         return _disabled_resolution(request=request, template_aspect_ratio=template_ratio)
@@ -175,19 +166,10 @@ def resolve_article_concretization(
     warnings.extend(visible_text.warnings)
     mark_fallback(visible_text_fallback)
 
-    signature_role, signature_warnings, signature_fallback = _resolve_signature_role(
-        request=request,
-        anchor=anchor,
-        grammar=grammar,
-        series_visual_signature_profile_id=series_visual_signature_profile_id,
-        strict_user_mode=strict_user_mode,
-    )
-    warnings.extend(signature_warnings)
-    mark_fallback(signature_fallback)
-
     warnings.extend(
-        _legacy_series_visual_signature_strategy_warnings(
+        _deprecated_signature_input_warnings(
             request=request,
+            series_visual_signature_profile_id=series_visual_signature_profile_id,
             series_visual_signature_strategy=series_visual_signature_strategy,
         )
     )
@@ -197,7 +179,7 @@ def resolve_article_concretization(
         enabled=True,
         effective_anchor_kind=anchor,
         effective_diagram_grammar=grammar,
-        effective_signature_role=signature_role,
+        effective_signature_role=SeriesVisualSignatureRole.NONE,
         effective_render_style=request.diagram_render_style,
         layout=layout,
         visible_text=visible_text,
@@ -258,7 +240,10 @@ def _resolve_grammar(
     anchor: CognitiveAnchorKind,
     strict_user_mode: bool,
 ) -> tuple[ExplanationDiagramGrammar, tuple[str, ...], str | None]:
-    default_grammar = DEFAULT_GRAMMAR_BY_ANCHOR.get(anchor, ExplanationDiagramGrammar.SINGLE_EXPLANATION_IMAGE)
+    default_grammar = DEFAULT_GRAMMAR_BY_ANCHOR.get(
+        anchor,
+        ExplanationDiagramGrammar.SINGLE_EXPLANATION_IMAGE,
+    )
     requested_grammar = request.explanation_diagram_grammar
     if requested_grammar is ExplanationDiagramGrammar.AUTO:
         return default_grammar, (), None
@@ -324,7 +309,11 @@ def _resolve_visible_text(
     if VisibleTextPolicy.NO_VISIBLE_TEXT in policies:
         return _no_visible_text_resolution(), None
 
-    constraints = tuple(policy for policy in policies if policy is not VisibleTextPolicy.FREE_TEXT_ALLOWED)
+    constraints = tuple(
+        policy
+        for policy in policies
+        if policy is not VisibleTextPolicy.FREE_TEXT_ALLOWED
+    )
     if not constraints:
         return (
             VisibleTextResolution(
@@ -354,7 +343,10 @@ def _resolve_visible_text(
         if not allowed:
             return _visible_text_conflict_or_downgrade(
                 reason="visible_text_intersection_empty",
-                message="visible text intersection is empty for source_text_only and approved_labels_only",
+                message=(
+                    "visible text intersection is empty for source_text_only and "
+                    "approved_labels_only"
+                ),
                 strict_user_mode=strict_user_mode,
             )
         return (
@@ -427,75 +419,30 @@ def _no_visible_text_resolution() -> VisibleTextResolution:
     )
 
 
-def _resolve_signature_role(
+def _deprecated_signature_input_warnings(
     *,
     request: ArticleConcretizationRequest,
-    anchor: CognitiveAnchorKind,
-    grammar: ExplanationDiagramGrammar,
     series_visual_signature_profile_id: str | None,
-    strict_user_mode: bool,
-) -> tuple[SeriesVisualSignatureRole, tuple[str, ...], str | None]:
-    requested_role = request.series_visual_signature_role
-    if requested_role is SeriesVisualSignatureRole.NONE:
-        return SeriesVisualSignatureRole.NONE, (), None
-    if requested_role is SeriesVisualSignatureRole.AUTO:
-        if not _has_series_visual_signature_profile_id(series_visual_signature_profile_id):
-            return _signature_role_requires_ip_profile_resolution(
-                requested_role=requested_role,
-                strict_user_mode=strict_user_mode,
-            )
-        return _auto_signature_role(anchor=anchor, grammar=grammar), (), None
-    if _has_series_visual_signature_profile_id(series_visual_signature_profile_id):
-        return requested_role, (), None
-
-    return _signature_role_requires_ip_profile_resolution(
-        requested_role=requested_role,
-        strict_user_mode=strict_user_mode,
-    )
-
-
-def _signature_role_requires_ip_profile_resolution(
-    *,
-    requested_role: SeriesVisualSignatureRole,
-    strict_user_mode: bool,
-) -> tuple[SeriesVisualSignatureRole, tuple[str, ...], str | None]:
-    warning = (
-        f"Series visual signature role {requested_role.value} requires series_visual_signature_profile_id; "
-        "repaired to none."
-    )
-    if strict_user_mode:
-        raise ArticleConcretizationResolutionConflict("signature_role_requires_ip_profile", warning)
-    return SeriesVisualSignatureRole.NONE, (warning,), "signature_role_requires_ip_profile"
-
-
-def _auto_signature_role(
-    *,
-    anchor: CognitiveAnchorKind,
-    grammar: ExplanationDiagramGrammar,
-) -> SeriesVisualSignatureRole:
-    if grammar in {
-        ExplanationDiagramGrammar.PROCESS_FLOW,
-        ExplanationDiagramGrammar.DECISION_TREE,
-        ExplanationDiagramGrammar.STATE_MACHINE,
-    }:
-        return SeriesVisualSignatureRole.OPERATOR
-    return AUTO_SIGNATURE_ROLE_BY_ANCHOR.get(anchor, SeriesVisualSignatureRole.SILENT_WITNESS)
-
-
-def _legacy_series_visual_signature_strategy_warnings(
-    *,
-    request: ArticleConcretizationRequest,
     series_visual_signature_strategy: Any,
 ) -> tuple[str, ...]:
+    warnings: list[str] = []
     if request.series_visual_signature_role is not SeriesVisualSignatureRole.NONE:
-        return ()
+        warnings.append(
+            "article-level series_visual_signature_role is deprecated and ignored; "
+            "canonical V4.5 final projection owns role resolution."
+        )
+    if str(series_visual_signature_profile_id or "").strip():
+        warnings.append(
+            "article-level series_visual_signature_profile_id is deprecated and ignored; "
+            "canonical V4.5 final projection owns profile resolution."
+        )
     strategy = _series_visual_signature_strategy_text(series_visual_signature_strategy)
-    if not strategy or strategy in {"auto", "none"}:
-        return ()
-    return (
-        "series_visual_signature_strategy is legacy when article_concretization is enabled "
-        f"and series_visual_signature_role is none: {strategy}.",
-    )
+    if strategy and strategy not in {"auto", "none"}:
+        warnings.append(
+            "article-level series_visual_signature_strategy is deprecated and ignored; "
+            "canonical V4.5 final projection owns visual-signature strategy."
+        )
+    return tuple(warnings)
 
 
 def _series_visual_signature_strategy_text(value: Any) -> str | None:
@@ -517,10 +464,16 @@ def _source_allows_label(
     needle = label.casefold()
     if not needle:
         return False
-    source_terms = {term.casefold() for term in _source_terms(frame_plan=frame_plan)}
+    source_terms = {
+        term.casefold()
+        for term in _source_terms(frame_plan=frame_plan)
+    }
     if needle in source_terms:
         return True
-    return any(_quote_contains_label(text, label) for text in _source_texts(frame_plan=frame_plan))
+    return any(
+        _quote_contains_label(text, label)
+        for text in _source_texts(frame_plan=frame_plan)
+    )
 
 
 def _source_terms(
@@ -566,7 +519,10 @@ def _contains_ascii_token_sequence(quote: str, label: str) -> bool:
 
 
 def _ascii_tokens(text: str) -> list[str]:
-    return [match.group(0).casefold() for match in re.finditer(r"[A-Za-z0-9]+", text)]
+    return [
+        match.group(0).casefold()
+        for match in re.finditer(r"[A-Za-z0-9]+", text)
+    ]
 
 
 def _extend_unique(target: list[str], values: Sequence[Any]) -> None:
@@ -592,12 +548,7 @@ def _diagram_aspect_ratio(value: Any, field_name: str) -> DiagramAspectRatio:
     raise ValueError(f"{field_name} must be a valid DiagramAspectRatio")
 
 
-def _has_series_visual_signature_profile_id(value: str | None) -> bool:
-    return bool(str(value or "").strip())
-
-
 __all__ = [
-    "AUTO_SIGNATURE_ROLE_BY_ANCHOR",
     "COMPATIBLE_GRAMMARS_BY_ANCHOR",
     "DEFAULT_ANCHOR_BY_LENS",
     "DEFAULT_GRAMMAR_BY_ANCHOR",
