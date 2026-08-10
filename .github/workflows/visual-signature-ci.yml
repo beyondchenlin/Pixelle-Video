@@ -1,0 +1,103 @@
+name: Visual Signature CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+    paths:
+      - "pixelle_video/models/series_visual_signature.py"
+      - "pixelle_video/models/series_visual_signature_request.py"
+      - "pixelle_video/services/series_visual_signature_*.py"
+      - "pixelle_video/services/article_concretization_prompt_compiler.py"
+      - "pixelle_video/services/provider_z_image_adapter.py"
+      - "tests/architecture/test_no_legacy_ip_runtime.py"
+      - "tests/models/test_series_visual_signature.py"
+      - "tests/models/test_series_visual_signature_request.py"
+      - "tests/services/test_series_visual_signature_*.py"
+      - "tests/services/test_article_concretization_prompt_compiler.py"
+      - "tests/services/test_provider_z_image_adapter.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/visual-signature-ci.yml"
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - "pixelle_video/models/series_visual_signature.py"
+      - "pixelle_video/models/series_visual_signature_request.py"
+      - "pixelle_video/services/series_visual_signature_*.py"
+      - "pixelle_video/services/article_concretization_prompt_compiler.py"
+      - "pixelle_video/services/provider_z_image_adapter.py"
+      - "tests/architecture/test_no_legacy_ip_runtime.py"
+      - "tests/models/test_series_visual_signature.py"
+      - "tests/models/test_series_visual_signature_request.py"
+      - "tests/services/test_series_visual_signature_*.py"
+      - "tests/services/test_article_concretization_prompt_compiler.py"
+      - "tests/services/test_provider_z_image_adapter.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/visual-signature-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visual-signature-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Compile visual signature modules
+        run: |
+          python -m py_compile \
+            pixelle_video/models/series_visual_signature.py \
+            pixelle_video/models/series_visual_signature_request.py \
+            pixelle_video/services/series_visual_signature_contract_builder.py \
+            pixelle_video/services/series_visual_signature_planning_service.py \
+            pixelle_video/services/article_concretization_prompt_compiler.py \
+            pixelle_video/services/provider_z_image_adapter.py
+
+      - name: Run visual signature tests
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest -q \
+            tests/architecture/test_no_legacy_ip_runtime.py \
+            tests/models/test_series_visual_signature.py \
+            tests/models/test_series_visual_signature_request.py \
+            tests/services/test_series_visual_signature_contract_builder.py \
+            tests/services/test_series_visual_signature_planning_service.py \
+            tests/services/test_article_concretization_prompt_compiler.py \
+            tests/services/test_provider_z_image_adapter.py
+
+      - name: Ruff visual signature scope
+        run: |
+          python -m ruff check \
+            pixelle_video/models/series_visual_signature.py \
+            pixelle_video/models/series_visual_signature_request.py \
+            pixelle_video/services/series_visual_signature_contract_builder.py \
+            pixelle_video/services/series_visual_signature_planning_service.py \
+            pixelle_video/services/article_concretization_prompt_compiler.py \
+            pixelle_video/services/provider_z_image_adapter.py \
+            tests/architecture/test_no_legacy_ip_runtime.py \
+            tests/models/test_series_visual_signature.py \
+            tests/services/test_series_visual_signature_contract_builder.py \
+            tests/services/test_article_concretization_prompt_compiler.py \
+            tests/services/test_provider_z_image_adapter.py
