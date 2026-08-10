@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal
 
+from pixelle_video.models.series_visual_signature import (
+    SeriesVisualSignatureContract,
+    SeriesVisualSignatureRole,
+)
 from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, VisibleTextPolicy
 
 JSONPrimitive = str | int | float | bool | None
@@ -97,18 +101,6 @@ class ExplanationDiagramGrammar(str, Enum):
     EVIDENCE_MAP = "evidence_map"
 
 
-class SeriesVisualSignatureRole(str, Enum):
-    NONE = "none"
-    AUTO = "auto"
-    CORE_ACTOR = "core_actor"
-    SILENT_WITNESS = "silent_witness"
-    OPERATOR = "operator"
-    GUIDE = "guide"
-    OBSTACLE = "obstacle"
-    CONTAINER = "container"
-    BACKGROUND_MARK = "background_mark"
-
-
 class DiagramRenderStyle(str, Enum):
     AUTO = "auto"
     XIAOHEI_HANDDRAWN = "xiaohei_handdrawn"
@@ -146,11 +138,7 @@ class ArticleConcretizationRequest:
     diagram_user_intent_hint: Any = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "enabled",
-            _bool_value(self.enabled, "enabled"),
-        )
+        object.__setattr__(self, "enabled", _bool_value(self.enabled, "enabled"))
         object.__setattr__(
             self,
             "cognitive_anchor_kind",
@@ -469,21 +457,9 @@ class ArticleConcretizationResolution:
             "approved_labels",
             _normalize_string_tuple(self.approved_labels, "approved_labels"),
         )
-        object.__setattr__(
-            self,
-            "warnings",
-            _normalize_string_tuple(self.warnings, "warnings"),
-        )
-        object.__setattr__(
-            self,
-            "errors",
-            _normalize_string_tuple(self.errors, "errors"),
-        )
-        object.__setattr__(
-            self,
-            "fallback_used",
-            _bool_value(self.fallback_used, "fallback_used"),
-        )
+        object.__setattr__(self, "warnings", _normalize_string_tuple(self.warnings, "warnings"))
+        object.__setattr__(self, "errors", _normalize_string_tuple(self.errors, "errors"))
+        object.__setattr__(self, "fallback_used", _bool_value(self.fallback_used, "fallback_used"))
         object.__setattr__(
             self,
             "fallback_reason",
@@ -529,22 +505,10 @@ class CognitiveAnchorPlan:
         object.__setattr__(
             self,
             "anchor_kind",
-            _required_enum_value(
-                self.anchor_kind,
-                CognitiveAnchorKind,
-                "anchor_kind",
-            ),
+            _required_enum_value(self.anchor_kind, CognitiveAnchorKind, "anchor_kind"),
         )
-        object.__setattr__(
-            self,
-            "anchor_claim",
-            _require_text(self.anchor_claim, "anchor_claim"),
-        )
-        object.__setattr__(
-            self,
-            "anchor_question",
-            _require_text(self.anchor_question, "anchor_question"),
-        )
+        object.__setattr__(self, "anchor_claim", _require_text(self.anchor_claim, "anchor_claim"))
+        object.__setattr__(self, "anchor_question", _require_text(self.anchor_question, "anchor_question"))
         object.__setattr__(
             self,
             "source_evidence_ids",
@@ -560,16 +524,12 @@ class CognitiveAnchorPlan:
             "required_subjects",
             _normalize_contract_text_tuple(self.required_subjects, "required_subjects"),
         )
-        source_text_excerpt = _require_text(
-            self.source_text_excerpt,
-            "source_text_excerpt",
-        )
-        object.__setattr__(self, "source_text_excerpt", source_text_excerpt)
         object.__setattr__(
             self,
-            "confidence",
-            _zero_to_one_float(self.confidence, "confidence"),
+            "source_text_excerpt",
+            _require_text(self.source_text_excerpt, "source_text_excerpt"),
         )
+        object.__setattr__(self, "confidence", _zero_to_one_float(self.confidence, "confidence"))
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -599,34 +559,14 @@ class ExplanationDiagramBrief:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "brief_id", _require_text(self.brief_id, "brief_id"))
-        object.__setattr__(
-            self,
-            "grammar",
-            _required_enum_value(
-                self.grammar,
-                ExplanationDiagramGrammar,
-                "grammar",
-            ),
-        )
+        object.__setattr__(self, "grammar", _required_enum_value(self.grammar, ExplanationDiagramGrammar, "grammar"))
         object.__setattr__(
             self,
             "primary_visual_task",
-            _required_enum_value(
-                self.primary_visual_task,
-                PrimaryVisualTask,
-                "primary_visual_task",
-            ),
+            _required_enum_value(self.primary_visual_task, PrimaryVisualTask, "primary_visual_task"),
         )
-        object.__setattr__(
-            self,
-            "diagram_title",
-            _require_text(self.diagram_title, "diagram_title"),
-        )
-        object.__setattr__(
-            self,
-            "visual_metaphor",
-            _require_text(self.visual_metaphor, "visual_metaphor"),
-        )
+        object.__setattr__(self, "diagram_title", _require_text(self.diagram_title, "diagram_title"))
+        object.__setattr__(self, "visual_metaphor", _require_text(self.visual_metaphor, "visual_metaphor"))
         object.__setattr__(
             self,
             "composition_rules",
@@ -668,87 +608,6 @@ class ExplanationDiagramBrief:
 
 
 @dataclass(frozen=True)
-class SeriesVisualSignatureContract:
-    enabled: bool
-    role: SeriesVisualSignatureRole
-    identity_profile_id: str | None
-    participation_rule: str
-    replacement_policy: Literal[
-        "no_subject_replacement",
-        "background_only",
-        "may_lead_without_replacement",
-    ]
-    visual_weight: float
-    forbidden_behaviors: tuple[str, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "enabled", _bool_value(self.enabled, "enabled"))
-        object.__setattr__(
-            self,
-            "role",
-            _strict_enum_value(
-                self.role,
-                SeriesVisualSignatureRole,
-                SeriesVisualSignatureRole.NONE,
-                "role",
-            ),
-        )
-        object.__setattr__(
-            self,
-            "identity_profile_id",
-            _optional_text(self.identity_profile_id),
-        )
-        object.__setattr__(
-            self,
-            "participation_rule",
-            _require_text(self.participation_rule, "participation_rule"),
-        )
-        object.__setattr__(
-            self,
-            "replacement_policy",
-            _literal_value(
-                self.replacement_policy,
-                {
-                    "no_subject_replacement",
-                    "background_only",
-                    "may_lead_without_replacement",
-                },
-                "replacement_policy",
-            ),
-        )
-        object.__setattr__(
-            self,
-            "visual_weight",
-            _zero_to_one_float(self.visual_weight, "visual_weight"),
-        )
-        _validate_signature_enabled_state(
-            self.enabled,
-            self.role,
-            self.identity_profile_id,
-            self.visual_weight,
-        )
-        object.__setattr__(
-            self,
-            "forbidden_behaviors",
-            _normalize_contract_text_tuple(
-                self.forbidden_behaviors,
-                "forbidden_behaviors",
-            ),
-        )
-
-    def to_dict(self) -> dict[str, JSONValue]:
-        return {
-            "enabled": self.enabled,
-            "role": self.role.value,
-            "identity_profile_id": self.identity_profile_id,
-            "participation_rule": self.participation_rule,
-            "replacement_policy": self.replacement_policy,
-            "visual_weight": self.visual_weight,
-            "forbidden_behaviors": list(self.forbidden_behaviors),
-        }
-
-
-@dataclass(frozen=True)
 class DiagramRenderContract:
     render_style: DiagramRenderStyle
     canvas_aspect_ratio: DiagramAspectRatio
@@ -758,23 +617,11 @@ class DiagramRenderContract:
     negative_style_rules: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "render_style",
-            _required_enum_value(
-                self.render_style,
-                DiagramRenderStyle,
-                "render_style",
-            ),
-        )
+        object.__setattr__(self, "render_style", _required_enum_value(self.render_style, DiagramRenderStyle, "render_style"))
         object.__setattr__(
             self,
             "canvas_aspect_ratio",
-            _required_enum_value(
-                self.canvas_aspect_ratio,
-                DiagramAspectRatio,
-                "canvas_aspect_ratio",
-            ),
+            _required_enum_value(self.canvas_aspect_ratio, DiagramAspectRatio, "canvas_aspect_ratio"),
         )
         object.__setattr__(
             self,
@@ -785,27 +632,16 @@ class DiagramRenderContract:
                 "diagram_panel_aspect_ratio",
             ),
         )
-        object.__setattr__(
-            self,
-            "panel_inside_canvas",
-            _bool_value(self.panel_inside_canvas, "panel_inside_canvas"),
-        )
+        object.__setattr__(self, "panel_inside_canvas", _bool_value(self.panel_inside_canvas, "panel_inside_canvas"))
         object.__setattr__(
             self,
             "style_rules",
-            _normalize_contract_text_tuple(
-                self.style_rules,
-                "style_rules",
-                require_non_empty=True,
-            ),
+            _normalize_contract_text_tuple(self.style_rules, "style_rules", require_non_empty=True),
         )
         object.__setattr__(
             self,
             "negative_style_rules",
-            _normalize_contract_text_tuple(
-                self.negative_style_rules,
-                "negative_style_rules",
-            ),
+            _normalize_contract_text_tuple(self.negative_style_rules, "negative_style_rules"),
         )
         _validate_xiaohei_surface_style_rules(
             self.render_style,
@@ -847,9 +683,7 @@ class ArticleConcretizationPlan:
         if not isinstance(self.diagram, ExplanationDiagramBrief):
             raise TypeError("diagram must be an ExplanationDiagramBrief")
         if not isinstance(self.series_signature, SeriesVisualSignatureContract):
-            raise TypeError(
-                "series_signature must be a SeriesVisualSignatureContract"
-            )
+            raise TypeError("series_signature must be a SeriesVisualSignatureContract")
         if not isinstance(self.render, DiagramRenderContract):
             raise TypeError("render must be a DiagramRenderContract")
 
@@ -866,10 +700,7 @@ class ArticleConcretizationPlan:
         }
 
 
-def _merged_enabled_value(
-    flat: Mapping[str, Any],
-    nested: Mapping[str, Any] | None,
-) -> Any:
+def _merged_enabled_value(flat: Mapping[str, Any], nested: Mapping[str, Any] | None) -> Any:
     if nested is not None:
         nested_value = _enabled_alias_value(nested, _MISSING)
         if nested_value is not _MISSING:
@@ -883,12 +714,7 @@ def _enabled_alias_value(source: Mapping[str, Any], default: Any) -> Any:
     return source.get("article_concretization_enabled", default)
 
 
-def _strict_enum_value(
-    value: Any,
-    enum_cls: type[Enum],
-    default: Any,
-    field_name: str,
-) -> Any:
+def _strict_enum_value(value: Any, enum_cls: type[Enum], default: Any, field_name: str) -> Any:
     if isinstance(value, enum_cls):
         return value
     if value is None:
@@ -902,11 +728,7 @@ def _strict_enum_value(
     raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
 
 
-def _required_enum_value(
-    value: Any,
-    enum_cls: type[Enum],
-    field_name: str,
-) -> Any:
+def _required_enum_value(value: Any, enum_cls: type[Enum], field_name: str) -> Any:
     if isinstance(value, enum_cls):
         return value
     text = _text_value(value)
@@ -947,11 +769,6 @@ def _require_text(value: Any, field_name: str) -> str:
     if not text:
         raise ValueError(f"{field_name} must not be empty")
     return text
-
-
-def _optional_text(value: Any) -> str | None:
-    text = _text_value(value)
-    return text or None
 
 
 def _literal_value(value: Any, allowed_values: set[str], field_name: str) -> str:
@@ -1075,26 +892,6 @@ def _normalize_xiaohei_rule_text(rule: str) -> str:
     text = str(rule.value if isinstance(rule, Enum) else rule).lower()
     text = re.sub(r"[^a-z0-9]+", " ", text)
     return " ".join(text.split())
-
-
-def _validate_signature_enabled_state(
-    enabled: bool,
-    role: SeriesVisualSignatureRole,
-    identity_profile_id: str | None,
-    visual_weight: float,
-) -> None:
-    if enabled:
-        if role in {SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO}:
-            raise ValueError("role must not be none or auto when enabled is true")
-        if identity_profile_id is None:
-            raise ValueError("identity_profile_id is required when enabled is true")
-        return
-    if role is not SeriesVisualSignatureRole.NONE:
-        raise ValueError("role must be none when enabled is false")
-    if identity_profile_id is not None:
-        raise ValueError("identity_profile_id must be empty when enabled is false")
-    if visual_weight != 0:
-        raise ValueError("visual_weight must be 0 when enabled is false")
 
 
 def _zero_to_one_float(value: Any, field_name: str) -> float:
