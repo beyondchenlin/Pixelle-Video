@@ -28,12 +28,12 @@ def assert_series_visual_signature_final_prompt(
             "final visual prompt gate failed: positive prompt is empty"
         )
 
-    for subject in required_subjects:
+    for subject_index, subject in enumerate(required_subjects):
         token = normalize_prompt_text(subject)
         if token and not prompt_contains_term(positive, token):
             raise SeriesVisualSignatureFinalPromptGateError(
-                "final visual prompt gate failed: required subject missing from positive prompt: "
-                f"{token}"
+                "final visual prompt gate failed: required subject missing from positive prompt "
+                f"at index {subject_index}"
             )
 
     if signature.enabled:
@@ -46,11 +46,11 @@ def assert_series_visual_signature_final_prompt(
             raise SeriesVisualSignatureFinalPromptGateError(
                 "final visual prompt gate failed: visual signature display name missing"
             )
-        for trait in profile.identity_traits:
+        for trait_index, trait in enumerate(profile.identity_traits):
             if not prompt_contains_term(positive, trait):
                 raise SeriesVisualSignatureFinalPromptGateError(
-                    "final visual prompt gate failed: visual signature identity trait missing: "
-                    f"{trait}"
+                    "final visual prompt gate failed: visual signature identity trait missing "
+                    f"at index {trait_index}"
                 )
         for forbidden in ("sticker", "logo", "watermark"):
             if forbidden not in negative:
