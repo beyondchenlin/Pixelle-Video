@@ -5,8 +5,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pixelle_video.models.series_visual_signature import (
+    SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION,
     SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION,
+    SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS,
     SeriesVisualSignatureRequest,
+    is_supported_series_visual_signature_pipeline_version,
 )
 from pixelle_video.models.series_visual_signature_identity import (
     SeriesVisualSignatureParticipationMode,
@@ -23,13 +26,6 @@ from pixelle_video.models.series_visual_signature_strategy import (
 from pixelle_video.models.visual_expression import VisualExpressionMode
 from pixelle_video.utils.bool_parsing import coerce_bool
 
-SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION = "v4_expression"
-SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS = frozenset(
-    {
-        SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION,
-        SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION,
-    }
-)
 SERIES_VISUAL_SIGNATURE_CONTROL_OPTION_KEYS = frozenset(
     {
         "series_visual_signature_enabled",
@@ -65,7 +61,8 @@ class SeriesVisualSignatureControlsContract:
 
     It validates legacy/product controls and produces the canonical
     ``models.series_visual_signature.SeriesVisualSignatureRequest``. This module
-    intentionally does not define a second request runtime type.
+    intentionally does not define a second request runtime type or a second set
+    of pipeline-version facts.
     """
 
     enabled: bool = False
@@ -161,10 +158,6 @@ def _normalize_optional_string(value: Any) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
-
-
-def is_supported_series_visual_signature_pipeline_version(value: Any) -> bool:
-    return str(value or "").strip() in SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS
 
 
 SeriesVisualSignatureRequestContract = SeriesVisualSignatureControlsContract
