@@ -72,12 +72,14 @@ class SeriesVisualSignatureContractBuilder:
             normalized_request.role,
             context=role_context,
         )
+        role_limit = _ROLE_MAX_AREA_RATIO[role]
         requested_area = normalized_request.max_area_ratio
-        max_area_ratio = (
-            requested_area
-            if requested_area is not None
-            else _ROLE_MAX_AREA_RATIO[role]
-        )
+        if requested_area is not None and requested_area > role_limit:
+            raise ValueError(
+                "series_visual_signature_max_area_ratio exceeds the semantic limit for "
+                f"role {role.value}: requested={requested_area}, max={role_limit}"
+            )
+        max_area_ratio = requested_area if requested_area is not None else role_limit
         return SeriesVisualSignatureContract(
             enabled=True,
             role=role,
