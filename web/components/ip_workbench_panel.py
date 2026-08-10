@@ -11,7 +11,7 @@ from pixelle_video.platform_context import (
     first_explicit_text,
 )
 from web.i18n import tr
-from web.utils.streamlit_helpers import first_text, list_of_dicts, find_item, text_list
+from web.utils.streamlit_helpers import find_item, first_text, list_of_dicts, text_list
 
 Translate = Callable[..., str]
 

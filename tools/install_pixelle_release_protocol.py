@@ -58,7 +58,7 @@ def install_pixelle_plugin(custom_nodes: Path) -> bool:
         return True
     except OSError as e:
         print(f"  ✗ 符号链接创建失败: {e}")
-        print(f"    请手动创建符号链接:")
+        print("    请手动创建符号链接:")
         if os.name == 'nt':
             print(f'    New-Item -ItemType Junction -Path "{plugin_link}" -Target "{PIXELLE_PLUGIN}"')
         else:

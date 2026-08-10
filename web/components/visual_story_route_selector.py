@@ -7,7 +7,7 @@ from typing import Any
 import streamlit as st
 
 from web.i18n import tr
-from web.utils.streamlit_helpers import first_text, safe_rerun
+from web.utils.streamlit_helpers import first_text
 
 Translate = Callable[..., str]
 

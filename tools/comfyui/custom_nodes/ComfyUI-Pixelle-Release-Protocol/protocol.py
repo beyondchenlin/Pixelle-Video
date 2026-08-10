@@ -15,9 +15,9 @@ import sys
 import torch
 
 try:
-    from typing import Any, List, Tuple, Type, Dict
+    from typing import Dict, List, Tuple, Type
 except ImportError:
-    from typing import Any, List
+    from typing import List
     Tuple = tuple
     Type = type
     Dict = dict

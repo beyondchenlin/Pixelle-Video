@@ -20,8 +20,8 @@ import typing
 from collections.abc import Callable, Mapping
 from typing import Any, TypeVar
 
-from pydantic import BaseModel
 import streamlit as st
+from pydantic import BaseModel
 
 T = TypeVar("T")
 
