@@ -165,6 +165,8 @@ def _required_subjects_clause(required_subjects: Sequence[str]) -> str:
 
 def _diagram_clause(diagram: Mapping[str, Any]) -> str:
     grammar = str(diagram.get("grammar") or "single_explanation_image")
+    if grammar == "plain_scene":
+        return "Preserve the base scene action, composition, and subject hierarchy"
     if grammar == "relationship_map":
         return "Show an unlabeled relationship map with nodes, distance, and clean connection lines"
     if grammar == "process_flow":
@@ -180,6 +182,8 @@ def _diagram_clause(diagram: Mapping[str, Any]) -> str:
 
 def _style_clause(render: Mapping[str, Any]) -> str:
     style = str(render.get("render_style") or "auto")
+    if style == "preserve_base":
+        return "Preserve the base scene visual style, camera, lighting, and surface treatment"
     if style == "xiaohei_handdrawn":
         return "White background, flat monochrome hand-drawn line art, simple black marker lines, low detail, clean composition"
     if style == "clean_vector":
