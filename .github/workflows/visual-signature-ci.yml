@@ -11,6 +11,7 @@ on:
       - "pixelle_video/services/series_visual_signature_*.py"
       - "pixelle_video/services/article_concretization_prompt_compiler.py"
       - "pixelle_video/services/provider_z_image_adapter.py"
+      - "pixelle_video/services/image_prompt_composer.py"
       - "tests/architecture/test_no_legacy_ip_runtime.py"
       - "tests/models/test_series_visual_signature.py"
       - "tests/models/test_series_visual_signature_request.py"
@@ -30,6 +31,7 @@ on:
       - "pixelle_video/services/series_visual_signature_*.py"
       - "pixelle_video/services/article_concretization_prompt_compiler.py"
       - "pixelle_video/services/provider_z_image_adapter.py"
+      - "pixelle_video/services/image_prompt_composer.py"
       - "tests/architecture/test_no_legacy_ip_runtime.py"
       - "tests/models/test_series_visual_signature.py"
       - "tests/models/test_series_visual_signature_request.py"
@@ -73,8 +75,10 @@ jobs:
             pixelle_video/services/series_visual_signature_planning_service.py \
             pixelle_video/services/series_visual_signature_role_resolver.py \
             pixelle_video/services/series_visual_signature_final_prompt_gate.py \
+            pixelle_video/services/series_visual_signature_shadow_comparison.py \
             pixelle_video/services/article_concretization_prompt_compiler.py \
-            pixelle_video/services/provider_z_image_adapter.py
+            pixelle_video/services/provider_z_image_adapter.py \
+            pixelle_video/services/image_prompt_composer.py
 
       - name: Run visual signature tests
         env:
@@ -84,8 +88,7 @@ jobs:
             tests/architecture/test_no_legacy_ip_runtime.py \
             tests/models/test_series_visual_signature.py \
             tests/models/test_series_visual_signature_request.py \
-            tests/services/test_series_visual_signature_contract_builder.py \
-            tests/services/test_series_visual_signature_planning_service.py \
+            tests/services/test_series_visual_signature_*.py \
             tests/services/test_article_concretization_prompt_compiler.py \
             tests/services/test_provider_z_image_adapter.py
 
@@ -98,12 +101,13 @@ jobs:
             pixelle_video/services/series_visual_signature_planning_service.py \
             pixelle_video/services/series_visual_signature_role_resolver.py \
             pixelle_video/services/series_visual_signature_final_prompt_gate.py \
+            pixelle_video/services/series_visual_signature_shadow_comparison.py \
             pixelle_video/services/article_concretization_prompt_compiler.py \
             pixelle_video/services/provider_z_image_adapter.py \
+            pixelle_video/services/image_prompt_composer.py \
             tests/architecture/test_no_legacy_ip_runtime.py \
             tests/models/test_series_visual_signature.py \
             tests/models/test_series_visual_signature_request.py \
-            tests/services/test_series_visual_signature_contract_builder.py \
-            tests/services/test_series_visual_signature_planning_service.py \
+            tests/services/test_series_visual_signature_*.py \
             tests/services/test_article_concretization_prompt_compiler.py \
             tests/services/test_provider_z_image_adapter.py
