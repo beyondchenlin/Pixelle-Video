@@ -47,14 +47,16 @@ class SeriesVisualSignatureContractBuilder:
         )
         if not normalized_request.enabled:
             return SeriesVisualSignatureContract.disabled()
+        if normalized_request.profile_id is None:
+            raise ValueError(
+                "enabled series visual signature requires series_visual_signature_profile_id"
+            )
 
-        normalized_request.validate()
         normalized_profile = self._normalize_profile(profile)
         if normalized_profile is None:
-            profile_id = normalized_request.profile_id or "<missing>"
             raise ValueError(
                 "enabled series visual signature profile could not be resolved: "
-                f"{profile_id}"
+                f"{normalized_request.profile_id}"
             )
         if normalized_profile.profile_id != normalized_request.profile_id:
             raise ValueError(
@@ -99,9 +101,9 @@ class SeriesVisualSignatureContractBuilder:
         return None
 
     def _resolve_role(self, role: SeriesVisualSignatureRole) -> SeriesVisualSignatureRole:
-        # ``none`` used to leak in from article-concretization defaults even when
-        # the global visual signature switch was enabled. The global enabled flag
-        # owns presence; an unset/none role therefore means automatic role choice.
+        # The global enabled flag owns presence. A missing/none role can leak from
+        # article-concretization defaults, so it resolves through the automatic
+        # role path rather than silently disabling the signature.
         if role in {SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO}:
             return SeriesVisualSignatureRole.GUIDE
         return role
