@@ -38,6 +38,8 @@ ALLOWLIST_PARTS = (
     "tests/architecture/test_no_legacy_ip_runtime.py",
     "docs/migration/",
 )
+CANONICAL_SIGNATURE_REQUEST_MODULE = "pixelle_video/models/series_visual_signature.py"
+SIGNATURE_REQUEST_ADAPTER_MODULE = "pixelle_video/models/series_visual_signature_request.py"
 
 
 def test_legacy_runtime_files_are_physically_removed() -> None:
@@ -72,6 +74,36 @@ def test_runtime_python_does_not_import_deprecated_modules() -> None:
                 if any(token in node.module for token in FORBIDDEN_TOKENS):
                     violations.append(f"{relative}:{node.module}")
     assert violations == []
+
+
+def test_series_visual_signature_request_has_one_runtime_class_definition() -> None:
+    definitions: list[str] = []
+    for relative in _runtime_files():
+        if not relative.endswith(".py"):
+            continue
+        tree = ast.parse((ROOT / relative).read_text(encoding="utf-8-sig"), filename=relative)
+        if any(
+            isinstance(node, ast.ClassDef) and node.name == "SeriesVisualSignatureRequest"
+            for node in ast.walk(tree)
+        ):
+            definitions.append(relative)
+
+    assert definitions == [CANONICAL_SIGNATURE_REQUEST_MODULE]
+
+
+def test_legacy_request_module_is_adapter_not_second_runtime_model() -> None:
+    adapter_path = ROOT / SIGNATURE_REQUEST_ADAPTER_MODULE
+    tree = ast.parse(adapter_path.read_text(encoding="utf-8-sig"), filename=str(adapter_path))
+    assert not any(
+        isinstance(node, ast.ClassDef) and node.name == "SeriesVisualSignatureRequest"
+        for node in ast.walk(tree)
+    )
+    assert any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "pixelle_video.models.series_visual_signature"
+        and any(alias.name == "SeriesVisualSignatureRequest" for alias in node.names)
+        for node in ast.walk(tree)
+    )
 
 
 def _runtime_files() -> list[str]:
