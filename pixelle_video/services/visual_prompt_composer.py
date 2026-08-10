@@ -9,8 +9,10 @@ from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.prompt_context import PromptContextEnvelope
-from pixelle_video.models.series_visual_signature import SeriesVisualSignatureRequest
-from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
+from pixelle_video.models.series_visual_signature import (
+    SeriesVisualSignatureRequest,
+    VisualSignatureProfileSnapshot,
+)
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
@@ -75,6 +77,14 @@ _CONTENT_ROUTE_KEYS = (
 
 @dataclass
 class VisualPromptComposer:
+    """Canonical visual prompt boundary.
+
+    This core service accepts one recurring-identity request type only. Historical
+    product controls are normalized by ``ImagePromptComposer`` before reaching
+    this service. Base scene generation is always signature-free; canonical V4.5
+    projection is the only place recurring identity may enter final prompts.
+    """
+
     async def compose(
         self,
         *,
@@ -106,22 +116,10 @@ class VisualPromptComposer:
         frame_overrides: Optional[list[dict[str, Any]]] = None,
         text_rendering: Optional[Mapping[str, Any]] = None,
         native_prompt_hints_by_frame: Optional[Mapping[int, Sequence[NativePromptHint | str]]] = None,
-        series_visual_signature_enabled: bool = False,
         ip_profile=None,
-        series_visual_signature_expression_mode: str | None = None,
-        series_visual_signature_structure_mode: str | None = None,
-        series_visual_signature_participation_mode: str | None = None,
         series_visual_signature_request: SeriesVisualSignatureRequest | None = None,
-        series_visual_signature_profile: SeriesVisualSignatureProfile | None = None,
-        series_visual_signature_mode: str | None = None,
-        series_visual_signature_consistency_mode: str | None = None,
-        series_visual_signature_presentation_mode: str | None = None,
-        series_visual_signature_enforcement: str | None = None,
-        series_visual_signature_fallback_enabled: bool | None = None,
-        series_visual_signature_fallback_mode: str | None = None,
-        series_visual_signature_min_visibility: str | None = None,
+        series_visual_signature_profile_snapshot: VisualSignatureProfileSnapshot | None = None,
         article_concretization_plans: Sequence[ArticleConcretizationPlan] = (),
-        scene_casts_by_frame=None,
         visual_story_context: Optional[Mapping[str, Any]] = None,
         stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
         upstream_llm_trace_refs: Optional[Sequence[Mapping[str, str]]] = None,
@@ -130,11 +128,15 @@ class VisualPromptComposer:
     ) -> StyledImagePromptBatch:
         reference_patch = current_reference_image_visual_story_context_patch()
         ip_profile = merge_ip_profile_from_reference_patch(ip_profile, reference_patch)
-        resolved_signature_request = _resolve_signature_request(
-            request=series_visual_signature_request,
-            enabled_fallback=series_visual_signature_enabled,
-            ip_profile=ip_profile,
+        resolved_signature_request = (
+            series_visual_signature_request
+            if series_visual_signature_request is not None
+            else SeriesVisualSignatureRequest.disabled()
         )
+        if not isinstance(resolved_signature_request, SeriesVisualSignatureRequest):
+            raise TypeError(
+                "series_visual_signature_request must be the canonical SeriesVisualSignatureRequest"
+            )
         signature_enabled = resolved_signature_request.enabled
 
         if reference_patch:
@@ -231,11 +233,16 @@ class VisualPromptComposer:
 
         planning_snapshot = dict(batch.planning_snapshot or {})
         if signature_enabled:
-            profile_snapshot = SeriesVisualSignatureProfileSnapshotBuilder().build(
-                request=resolved_signature_request,
-                ip_profile=ip_profile,
-                legacy_profile=series_visual_signature_profile,
-            )
+            profile_snapshot = series_visual_signature_profile_snapshot
+            if profile_snapshot is None:
+                profile_snapshot = SeriesVisualSignatureProfileSnapshotBuilder().build(
+                    request=resolved_signature_request,
+                    ip_profile=ip_profile,
+                )
+            elif profile_snapshot.profile_id != resolved_signature_request.profile_id:
+                raise ValueError(
+                    "series_visual_signature_profile_snapshot must match canonical request profile_id"
+                )
             briefs = dict(
                 planning_snapshot.get("base_visual_briefs_by_frame") or {}
             )
@@ -281,7 +288,7 @@ class VisualPromptComposer:
                     "contract_id": frame.contract.contract_id,
                     "role": frame.signature.role.value,
                     "max_area_ratio": frame.signature.max_area_ratio,
-                    "required_subjects": list(frame.required_subjects),
+                    "required_subject_count": len(frame.required_subjects),
                 }
                 for frame in projection.frames
             }
@@ -345,37 +352,13 @@ class VisualPromptComposer:
         )
 
 
-def _resolve_signature_request(
-    *,
-    request: SeriesVisualSignatureRequest | None,
-    enabled_fallback: bool,
-    ip_profile: Any,
-) -> SeriesVisualSignatureRequest:
-    if request is not None:
-        return request
-    if not enabled_fallback:
-        return SeriesVisualSignatureRequest.disabled()
-    return SeriesVisualSignatureRequest.from_mapping(
-        {
-            "series_visual_signature_enabled": True,
-            "series_visual_signature_profile_id": getattr(
-                ip_profile,
-                "series_visual_signature_profile_id",
-                None,
-            ),
-            "series_visual_signature_role": "auto",
-        }
-    )
-
-
 def _content_only_visual_story_context(
     visual_story_context: Optional[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Project visual-story context onto content facts only.
 
-    The upstream visual-story engine still exposes legacy recurring-IP fields.
-    This boundary is deliberately whitelist-based so newly-added IP fields cannot
-    silently leak into the signature-free base prompt in future releases.
+    This boundary is whitelist-based so compatibility-only identity fields can
+    never leak into the signature-free base prompt.
     """
 
     source = dict(visual_story_context or {})
