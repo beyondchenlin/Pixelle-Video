@@ -26,6 +26,46 @@ from pixelle_video.services.series_visual_signature_contract_builder import (
 )
 
 
+class SeriesVisualSignatureProjectionError(RuntimeError):
+    """Fail-closed frame projection error with bounded operational metadata."""
+
+    def __init__(
+        self,
+        *,
+        failed_frame_id: str,
+        failed_frame_index: int,
+        metrics: SeriesVisualSignatureProjectionMetrics,
+        cause: Exception,
+        budget: SeriesVisualSignatureProjectionBudget,
+        audit_policy: SeriesVisualSignatureProjectionAuditPolicy,
+    ) -> None:
+        self.failed_frame_id = failed_frame_id
+        self.failed_frame_index = failed_frame_index
+        self.metrics = metrics
+        self.reason_code = _projection_reason_code(cause)
+        self.exception_type = type(cause).__name__
+        self.budget = budget
+        self.audit_policy = audit_policy
+        super().__init__(
+            "visual signature projection failed "
+            f"at frame {failed_frame_id} ({failed_frame_index}): {self.reason_code}"
+        )
+
+    def audit_dict(self) -> dict[str, Any]:
+        payload = {
+            "schema_version": self.audit_policy.schema_version,
+            "status": "failed",
+            "audit_policy": self.audit_policy.to_dict(),
+            **self.metrics.to_dict(),
+            "failed_frame_id": self.failed_frame_id,
+            "failed_frame_index": self.failed_frame_index,
+            "reason_code": self.reason_code,
+            "exception_type": self.exception_type,
+        }
+        self.budget.assert_audit_size(payload)
+        return payload
+
+
 @dataclass(frozen=True)
 class SeriesVisualSignatureFrameProjection:
     frame_id: str
@@ -72,9 +112,11 @@ class SeriesVisualSignatureProjectionBatch:
 
     @property
     def metrics(self) -> SeriesVisualSignatureProjectionMetrics:
+        count = len(self.frames)
         return SeriesVisualSignatureProjectionMetrics(
             expected_frame_count=self.expected_frame_count,
-            projected_frame_count=len(self.frames),
+            attempted_frame_count=count,
+            projected_frame_count=count,
             unique_frame_count=len({frame.frame_id for frame in self.frames}),
         )
 
@@ -82,6 +124,7 @@ class SeriesVisualSignatureProjectionBatch:
         metrics = self.metrics
         payload = {
             "schema_version": self.audit_policy.schema_version,
+            "status": "passed",
             "audit_policy": self.audit_policy.to_dict(),
             **metrics.to_dict(),
             "frames": [frame.audit_dict() for frame in self.frames],
@@ -141,23 +184,40 @@ class SeriesVisualSignatureProjectionService:
             raise ValueError("article concretization plans must have unique frame ids")
         briefs = dict(base_visual_briefs_by_frame or {})
 
-        # Projection is atomic at batch-observability level: if any frame fails,
-        # this method raises and no successful batch/audit object is returned.
-        frames = tuple(
-            self.project_frame(
-                frame_id=frame_id,
-                base_prompt=str(base_prompts[index] or ""),
-                frame_context=frame_contexts[index],
-                request=request,
-                profile=profile,
-                article_plan=plans_by_frame.get(frame_id),
-                base_visual_brief=briefs.get(frame_id),
-                base_negative_prompt=base_negative_prompts[index],
-            )
-            for index, frame_id in enumerate(frame_ids)
-        )
+        frames: list[SeriesVisualSignatureFrameProjection] = []
+        for index, frame_id in enumerate(frame_ids):
+            try:
+                frame = self.project_frame(
+                    frame_id=frame_id,
+                    base_prompt=str(base_prompts[index] or ""),
+                    frame_context=frame_contexts[index],
+                    request=request,
+                    profile=profile,
+                    article_plan=plans_by_frame.get(frame_id),
+                    base_visual_brief=briefs.get(frame_id),
+                    base_negative_prompt=base_negative_prompts[index],
+                )
+            except SeriesVisualSignatureProjectionError:
+                raise
+            except Exception as exc:
+                metrics = SeriesVisualSignatureProjectionMetrics(
+                    expected_frame_count=count,
+                    attempted_frame_count=index + 1,
+                    projected_frame_count=len(frames),
+                    unique_frame_count=len({item.frame_id for item in frames}),
+                )
+                raise SeriesVisualSignatureProjectionError(
+                    failed_frame_id=str(frame_id),
+                    failed_frame_index=index,
+                    metrics=metrics,
+                    cause=exc,
+                    budget=self.budget,
+                    audit_policy=self.audit_policy,
+                ) from exc
+            frames.append(frame)
+
         batch = SeriesVisualSignatureProjectionBatch(
-            frames=frames,
+            frames=tuple(frames),
             expected_frame_count=count,
             budget=self.budget,
             audit_policy=self.audit_policy,
@@ -259,9 +319,6 @@ def _projection_context(
         anchor = article_plan.anchor.to_dict()
         anchor["required_subjects"] = list(required_subjects)
         diagram = article_plan.diagram.to_dict()
-        # The production base prompt already contains route, style, camera, text,
-        # and reference-image decisions. Preserve it as the visual scene instead
-        # of regenerating a second competing scene description.
         diagram["visual_metaphor"] = base_prompt
         return (
             {
@@ -370,8 +427,24 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _projection_reason_code(cause: Exception) -> str:
+    message = str(cause).casefold()
+    if "structured required subjects" in message:
+        return "missing_required_subjects"
+    if "runtime budget" in message or "persistence budget" in message:
+        return "projection_budget_exceeded"
+    if "protected visual prompt semantics exceed" in message:
+        return "protected_prompt_budget_exceeded"
+    if "profile" in message or "identity" in message:
+        return "identity_contract_invalid"
+    if "final" in message and "gate" in message:
+        return "final_prompt_gate_failed"
+    return "frame_projection_failed"
+
+
 __all__ = [
     "SeriesVisualSignatureFrameProjection",
     "SeriesVisualSignatureProjectionBatch",
+    "SeriesVisualSignatureProjectionError",
     "SeriesVisualSignatureProjectionService",
 ]
