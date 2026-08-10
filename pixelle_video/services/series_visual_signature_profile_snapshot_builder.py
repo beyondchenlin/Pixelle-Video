@@ -4,10 +4,31 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pixelle_video.models.series_visual_signature import (
+    MAX_TRAIT_CHARS,
     SeriesVisualSignatureRequest,
     VisualSignatureProfileSnapshot,
 )
 from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
+
+_INSTRUCTION_LIKE_TRAIT_TERMS = (
+    "ignore previous",
+    "ignore all",
+    "system message",
+    "system prompt",
+    "assistant message",
+    "user message",
+    "developer message",
+    "follow these instructions",
+    "follow my instructions",
+    "must render",
+    "must show",
+    "must include",
+    "should render",
+    "should show",
+    "do not follow",
+    "override instructions",
+    "jailbreak",
+)
 
 
 class SeriesVisualSignatureProfileSnapshotBuilder:
@@ -26,7 +47,9 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
         legacy_profile: SeriesVisualSignatureProfile | None = None,
     ) -> VisualSignatureProfileSnapshot:
         if not request.enabled:
-            raise ValueError("disabled series visual signature does not require a profile snapshot")
+            raise ValueError(
+                "disabled series visual signature does not require a profile snapshot"
+            )
         if request.profile_id is None:
             raise ValueError("enabled series visual signature requires profile_id")
 
@@ -55,10 +78,12 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
         if not display_name:
             raise ValueError("resolved IPProfile must provide a display name")
 
-        identity_traits = _first_non_empty_sequence(
-            getattr(ip_profile, "identity_lock", ()),
-            getattr(ip_profile, "minimal_traits", ()),
-            getattr(ip_profile, "identity_anchors", ()),
+        identity_traits = _validated_identity_traits(
+            _first_non_empty_sequence(
+                getattr(ip_profile, "identity_lock", ()),
+                getattr(ip_profile, "minimal_traits", ()),
+                getattr(ip_profile, "identity_anchors", ()),
+            )
         )
         if not identity_traits:
             raise ValueError(
@@ -89,9 +114,11 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
                 "resolved SeriesVisualSignatureProfile does not match request profile_id: "
                 f"requested={request.profile_id}, resolved={profile.profile_id}"
             )
-        identity_traits = _dedupe(
-            profile.identity_contract.required_identity_traits
-            or profile.identity_kernel
+        identity_traits = _validated_identity_traits(
+            _dedupe(
+                profile.identity_contract.required_identity_traits
+                or profile.identity_kernel
+            )
         )
         if not identity_traits:
             raise ValueError("resolved legacy profile has no explicit identity traits")
@@ -103,6 +130,26 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             forbidden_traits=(),
             source_asset_ids=tuple(profile.reference_assets),
         )
+
+
+def _validated_identity_traits(values: Sequence[str]) -> tuple[str, ...]:
+    result = _dedupe(values)
+    for trait in result:
+        if len(trait) > MAX_TRAIT_CHARS:
+            raise ValueError(
+                f"visual signature identity trait exceeds {MAX_TRAIT_CHARS} characters: {trait}"
+            )
+        lowered = trait.casefold()
+        if any(term in lowered for term in _INSTRUCTION_LIKE_TRAIT_TERMS):
+            raise ValueError(
+                "visual signature identity traits must be visual noun phrases, not model instructions: "
+                f"{trait}"
+            )
+        if "\n" in trait or ";" in trait or "；" in trait:
+            raise ValueError(
+                "visual signature identity traits must be short visual noun phrases"
+            )
+    return result
 
 
 def _first_non_empty_sequence(*values: Any) -> tuple[str, ...]:
@@ -119,10 +166,23 @@ def _safe_forbidden_traits(values: Any) -> tuple[str, ...]:
     result: list[str] = []
     for value in _sequence(values):
         text = _text(value)
-        if not text or len(text) > 64:
+        if not text or len(text) > MAX_TRAIT_CHARS:
             continue
         lowered = text.casefold()
-        if any(token in lowered for token in ("do ", "don't", "must ", "should ", "never ", "always ", "prompt")):
+        if any(
+            token in lowered
+            for token in (
+                "do ",
+                "don't",
+                "must ",
+                "should ",
+                "never ",
+                "always ",
+                "prompt",
+                "instruction",
+                "system message",
+            )
+        ):
             continue
         result.append(text)
     return _dedupe(result)
