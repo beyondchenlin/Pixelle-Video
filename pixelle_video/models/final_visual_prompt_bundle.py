@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 
@@ -80,8 +81,10 @@ def _text_tuple(field_name: str, values: Sequence[Any]) -> tuple[str, ...]:
 
 def _freeze_json(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return tuple(sorted((str(key), _freeze_json(child)) for key, child in value.items()))
-    if isinstance(value, list | tuple):
+        return MappingProxyType(
+            {str(key): _freeze_json(child) for key, child in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
         return tuple(_freeze_json(child) for child in value)
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
@@ -91,14 +94,9 @@ def _freeze_json(value: Any) -> Any:
 
 
 def _thaw_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_json(child) for key, child in value.items()}
     if isinstance(value, tuple):
-        if all(
-            isinstance(item, tuple)
-            and len(item) == 2
-            and isinstance(item[0], str)
-            for item in value
-        ):
-            return {key: _thaw_json(child) for key, child in value}
         return [_thaw_json(child) for child in value]
     return value
 
