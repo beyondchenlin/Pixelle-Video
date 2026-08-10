@@ -70,6 +70,21 @@ def test_profile_rejects_prompt_paragraph_fields_and_instruction_traits() -> Non
         )
 
 
+def test_profile_validation_error_does_not_echo_protected_trait_text() -> None:
+    protected_trait = "private logo trait 938475"
+
+    with pytest.raises(ValueError) as exc_info:
+        VisualSignatureProfileSnapshot(
+            profile_id="dog_1",
+            display_name="Dog",
+            identity_traits=[protected_trait],
+        )
+
+    assert "prompt instruction language" in str(exc_info.value)
+    assert "index 0" in str(exc_info.value)
+    assert protected_trait not in str(exc_info.value)
+
+
 def test_contract_serializes_new_field_names_only() -> None:
     profile = VisualSignatureProfileSnapshot(
         profile_id="dog_1",
