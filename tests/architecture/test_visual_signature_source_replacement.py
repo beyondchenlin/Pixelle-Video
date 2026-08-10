@@ -11,9 +11,49 @@ REMOVED_LEGACY_PROMPT_TEMPLATES = (
     "pixelle_video/prompts/templates/frame_ip_fusion.md",
     "pixelle_video/prompts/templates/frame_ip_fusion_batch.md",
 )
+ARTICLE_MODEL = ROOT / "pixelle_video/models/article_concretization.py"
 ARTICLE_RESOLUTION = ROOT / "pixelle_video/services/article_concretization_resolution.py"
+VISUAL_STORY_MODEL = ROOT / "pixelle_video/models/visual_story_engine.py"
+VISUAL_STORY_SERVICE = ROOT / "pixelle_video/services/visual_story_engine.py"
+VISUAL_PROMPT_COMPOSER = ROOT / "pixelle_video/services/visual_prompt_composer.py"
+IMAGE_PROMPT_COMPOSER = ROOT / "pixelle_video/services/image_prompt_composer.py"
+PROJECTION_POLICY = ROOT / "pixelle_video/models/series_visual_signature_projection_policy.py"
 VISUAL_STORY_PROMPT_MODULE = ROOT / "pixelle_video/prompts/visual_story_engine.py"
 VISUAL_STORY_EXECUTION_PROMPT_MODULE = ROOT / "pixelle_video/prompts/visual_story_execution.py"
+
+LEGACY_CORE_SIGNATURE_ARGUMENTS = {
+    "series_visual_signature_enabled",
+    "series_visual_signature_expression_mode",
+    "series_visual_signature_structure_mode",
+    "series_visual_signature_participation_mode",
+    "series_visual_signature_mode",
+    "series_visual_signature_consistency_mode",
+    "series_visual_signature_presentation_mode",
+    "series_visual_signature_enforcement",
+    "series_visual_signature_fallback_enabled",
+    "series_visual_signature_fallback_mode",
+    "series_visual_signature_min_visibility",
+    "series_visual_signature_profile",
+    "scene_casts_by_frame",
+}
+
+
+def _parse(path: Path) -> ast.Module:
+    return ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+
+
+def _class(tree: ast.Module, name: str) -> ast.ClassDef:
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            return node
+    raise AssertionError(f"missing class {name}")
+
+
+def _method(class_node: ast.ClassDef, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
+    for node in class_node.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return node
+    raise AssertionError(f"missing method {class_node.name}.{name}")
 
 
 def test_legacy_ip_prompt_templates_are_physically_removed() -> None:
@@ -22,10 +62,7 @@ def test_legacy_ip_prompt_templates_are_physically_removed() -> None:
 
 
 def test_visual_story_prompt_module_exposes_content_route_analysis_only() -> None:
-    tree = ast.parse(
-        VISUAL_STORY_PROMPT_MODULE.read_text(encoding="utf-8-sig"),
-        filename=str(VISUAL_STORY_PROMPT_MODULE),
-    )
+    tree = _parse(VISUAL_STORY_PROMPT_MODULE)
     functions = {
         node.name
         for node in tree.body
@@ -35,10 +72,7 @@ def test_visual_story_prompt_module_exposes_content_route_analysis_only() -> Non
 
 
 def test_visual_story_execution_prompt_module_exposes_content_frame_planning_only() -> None:
-    tree = ast.parse(
-        VISUAL_STORY_EXECUTION_PROMPT_MODULE.read_text(encoding="utf-8-sig"),
-        filename=str(VISUAL_STORY_EXECUTION_PROMPT_MODULE),
-    )
+    tree = _parse(VISUAL_STORY_EXECUTION_PROMPT_MODULE)
     functions = {
         node.name
         for node in tree.body
@@ -48,10 +82,7 @@ def test_visual_story_execution_prompt_module_exposes_content_frame_planning_onl
 
 
 def test_article_concretization_cannot_decide_visual_signature_role() -> None:
-    tree = ast.parse(
-        ARTICLE_RESOLUTION.read_text(encoding="utf-8-sig"),
-        filename=str(ARTICLE_RESOLUTION),
-    )
+    tree = _parse(ARTICLE_RESOLUTION)
     function_names = {
         node.name
         for node in ast.walk(tree)
@@ -80,3 +111,85 @@ def test_article_resolution_only_emits_none_compatibility_role() -> None:
     assert "effective_signature_role=SeriesVisualSignatureRole.NONE" in text
     for role in ("OPERATOR", "GUIDE", "SILENT_WITNESS", "CORE_ACTOR"):
         assert f"SeriesVisualSignatureRole.{role}" not in text
+
+
+def test_article_model_reexports_but_does_not_define_signature_runtime_types() -> None:
+    tree = _parse(ARTICLE_MODEL)
+    locally_defined = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert "SeriesVisualSignatureRole" not in locally_defined
+    assert "SeriesVisualSignatureContract" not in locally_defined
+
+    text = ARTICLE_MODEL.read_text(encoding="utf-8-sig")
+    assert "from pixelle_video.models.series_visual_signature import" in text
+
+
+def test_visual_route_score_cannot_read_external_final_or_ip_compatibility() -> None:
+    tree = _parse(VISUAL_STORY_MODEL)
+    score_class = _class(tree, "VisualRouteScores")
+    computed_final = _method(score_class, "computed_final")
+    self_attributes = {
+        node.attr
+        for node in ast.walk(computed_final)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+    }
+    assert "final" not in self_attributes
+    assert "ip_compatibility" not in self_attributes
+    assert {
+        "content_fit",
+        "memorability",
+        "channel_consistency",
+        "production_reliability",
+        "risk",
+    }.issubset(self_attributes)
+
+
+def test_visual_story_service_has_no_second_content_score_formula() -> None:
+    tree = _parse(VISUAL_STORY_SERVICE)
+    function_names = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "_content_route_score" not in function_names
+
+
+def test_canonical_visual_prompt_composer_has_no_legacy_signature_controls() -> None:
+    tree = _parse(VISUAL_PROMPT_COMPOSER)
+    composer = _class(tree, "VisualPromptComposer")
+    compose = _method(composer, "compose")
+    argument_names = {
+        argument.arg
+        for argument in (*compose.args.args, *compose.args.kwonlyargs)
+    }
+    assert argument_names.isdisjoint(LEGACY_CORE_SIGNATURE_ARGUMENTS)
+    assert "series_visual_signature_request" in argument_names
+    assert "series_visual_signature_profile_snapshot" in argument_names
+
+
+def test_legacy_image_prompt_composer_is_adapter_not_second_prompt_runtime() -> None:
+    tree = _parse(IMAGE_PROMPT_COMPOSER)
+    classes = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert classes == {"ImagePromptComposer"}
+    text = IMAGE_PROMPT_COMPOSER.read_text(encoding="utf-8-sig")
+    assert "VisualPromptComposer().compose" in text
+    assert "generate_styled_image_prompt_batch" not in text
+    assert "SeriesVisualSignatureProjectionService" not in text
+
+
+def test_projection_policy_forbids_raw_observability_payloads() -> None:
+    text = PROJECTION_POLICY.read_text(encoding="utf-8-sig")
+    assert 'payload_class: str = "bounded_hash_count_only"' in text
+    assert 'retention_owner: str = "planning_snapshot_lifecycle"' in text
+    assert 'raw_prompt_retention: str = "forbidden"' in text
+    assert 'raw_subject_retention: str = "forbidden"' in text
+    assert 'raw_identity_trait_retention: str = "forbidden"' in text
