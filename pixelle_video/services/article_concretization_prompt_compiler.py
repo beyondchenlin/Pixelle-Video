@@ -17,7 +17,6 @@ from pixelle_video.services.visible_text_prompt_rewriter import (
 )
 
 _MAX_POSITIVE_PROMPT_CHARS = 1000
-_MAX_REQUIRED_SUBJECT_CHARS = 72
 
 
 class ArticleConcretizationPromptCompiler:
@@ -156,14 +155,10 @@ def _required_subjects(value: Any) -> tuple[str, ...]:
 def _required_subjects_clause(required_subjects: Sequence[str]) -> str:
     if not required_subjects:
         return ""
-    compact_subjects = [
-        _shorten(subject, _MAX_REQUIRED_SUBJECT_CHARS)
-        for subject in required_subjects
-        if str(subject).strip()
-    ]
+    subjects = [str(subject).strip() for subject in required_subjects if str(subject).strip()]
     return (
         "Required source subjects stay visible and primary: "
-        + ", ".join(compact_subjects)
+        + ", ".join(subjects)
         + ". Do not replace, merge, hide, or transform them into the recurring visual identity."
     )
 
