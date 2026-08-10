@@ -90,6 +90,7 @@ def test_shadow_candidate_passes_without_mutating_production_prompt() -> None:
     assert report.candidate_pass_rate == 1.0
     assert report.frame_results[0].production_prompt == production_prompt
     assert report.frame_results[0].candidate_prompt != production_prompt
+    assert report.frame_results[0].candidate_source_kind == "article_concretization_plan"
     assert "worker" in report.frame_results[0].candidate_prompt
     assert "machine" in report.frame_results[0].candidate_prompt
     assert "Dalmatian" in report.frame_results[0].candidate_prompt
@@ -97,6 +98,35 @@ def test_shadow_candidate_passes_without_mutating_production_prompt() -> None:
     assert report.frame_results[0].production_identity_terms_present["Dalmatian"] is False
     assert report.frame_results[0].final_gate_passed is True
     assert report.frame_results[0].provider_projection_passed is True
+
+
+def test_shadow_non_article_frame_uses_storyboard_context() -> None:
+    production_prompt = "worker demonstrates the assembly machine on a factory floor"
+    report = build_series_visual_signature_shadow_report(
+        production_prompts=[production_prompt],
+        frame_ids=["frame-1"],
+        article_concretization_plans=[],
+        request=_request(),
+        legacy_profile=_profile(),
+        fallback_frame_contexts={
+            "frame-1": {
+                "frame_id": "frame-1",
+                "frame_source_text": "A worker demonstrates a machine.",
+                "visual_goal": "show the factory process",
+                "primary_subject": "worker",
+                "secondary_subjects": ["assembly machine"],
+            }
+        },
+    )
+
+    result = report.frame_results[0]
+    assert report.ready_for_cutover is True
+    assert result.candidate_source_kind == "storyboard_frame_context"
+    assert result.production_prompt == production_prompt
+    assert production_prompt in result.candidate_prompt
+    assert "worker" in result.candidate_prompt
+    assert "assembly machine" in result.candidate_prompt
+    assert "Dalmatian" in result.candidate_prompt
 
 
 def test_shadow_requires_full_same_frame_coverage_before_cutover() -> None:
@@ -112,7 +142,7 @@ def test_shadow_requires_full_same_frame_coverage_before_cutover() -> None:
     assert report.coverage_rate == 0.5
     assert report.failed_frame_count == 1
     assert report.frame_results[1].status == "blocked"
-    assert "same frame" in report.frame_results[1].candidate_error
+    assert "same-frame" in report.frame_results[1].candidate_error
 
 
 def test_shadow_profile_failure_is_observed_not_raised() -> None:
