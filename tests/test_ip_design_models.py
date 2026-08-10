@@ -297,25 +297,17 @@ def test_package_init_exports_all_model_symbols():
     from web.ip_design import __all__ as pkg_all
     from web.ip_design import models as _models
 
+    assert len(_models.__all__) > 0, (
+        "models.__all__ is empty — the assertions below would pass vacuously"
+    )
+
     for name in _models.__all__:
         cls = getattr(_models, name)
         assert name in pkg_all, (
             f"{name} is in models.__all__ but missing from web.ip_design.__all__"
         )
-        imported = __import__("web.ip_design", fromlist=[name])
-        resolved = getattr(imported, name)
+        resolved = getattr(__import__("web.ip_design", fromlist=[name]), name)
         assert resolved is cls, (
             f"web.ip_design.{name} is {resolved!r}, expected {cls!r} "
             f"(likely missing from explicit import in web/ip_design/__init__.py)"
         )
-
-
-def test_package_init_star_import_includes_all_public_symbols():
-    from web.ip_design import __all__ as pkg_all
-    from web.ip_design import models as _models
-
-    model_names_in_pkg = set(_models.__all__) & set(pkg_all)
-    assert model_names_in_pkg == set(_models.__all__), (
-        f"web.ip_design.__all__ does not cover all models.__all__; "
-        f"missing: {set(_models.__all__) - model_names_in_pkg}"
-    )
