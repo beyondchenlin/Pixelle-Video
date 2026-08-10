@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any
 
 
@@ -36,18 +35,14 @@ class FinalImagePromptBundle:
             "locked_constraints",
             _text_tuple("locked_constraints", self.locked_constraints),
         )
-        object.__setattr__(
-            self,
-            "metadata",
-            MappingProxyType(dict(self.metadata or {})),
-        )
+        object.__setattr__(self, "metadata", _freeze_json(dict(self.metadata or {})))
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "positive_prompt": self.positive_prompt,
             "negative_prompt": self.negative_prompt,
             "locked_constraints": list(self.locked_constraints),
-            "metadata": dict(self.metadata),
+            "metadata": _thaw_json(self.metadata),
         }
 
 
@@ -81,6 +76,31 @@ def _text_tuple(field_name: str, values: Sequence[Any]) -> tuple[str, ...]:
         seen.add(key)
         result.append(text)
     return tuple(result)
+
+
+def _freeze_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return tuple(sorted((str(key), _freeze_json(child)) for key, child in value.items()))
+    if isinstance(value, list | tuple):
+        return tuple(_freeze_json(child) for child in value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    raise ValueError(
+        f"FinalImagePromptBundle metadata must be JSON-compatible, got {type(value).__name__}"
+    )
+
+
+def _thaw_json(value: Any) -> Any:
+    if isinstance(value, tuple):
+        if all(
+            isinstance(item, tuple)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            for item in value
+        ):
+            return {key: _thaw_json(child) for key, child in value}
+        return [_thaw_json(child) for child in value]
+    return value
 
 
 __all__ = ["FinalImagePromptBundle"]
