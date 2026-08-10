@@ -5,7 +5,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Any, Literal
+from typing import Any
 
 from pixelle_video.models.content_bound_ip import IPParticipationMechanism
 from pixelle_video.models.ip_duty import (
