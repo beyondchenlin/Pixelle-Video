@@ -139,11 +139,10 @@ class VideoService:
             params[key] = val
         return params
 
-    @staticmethod
-    def _encode_run(build_output, *, quiet=False):
-        params = VideoService._h264_encode_params()
+    def _encode_run(self, build_output, *, quiet=False):
+        params = self._h264_encode_params()
         try:
-            extra = {"capture_stdout": True, "capture_stderr": True}
+            extra: dict[str, bool] = {"capture_stdout": True, "capture_stderr": True}
             if quiet:
                 extra["quiet"] = True
             build_output(**params).run(**extra)

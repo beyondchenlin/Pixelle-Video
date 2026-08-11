@@ -149,15 +149,16 @@ class TestFfmpegH264Preset:
 
 
 class TestFfmpegH264EncodeKwargs:
-    def test_nvenc_adds_vbr_params(self):
+    def test_nvenc_uses_vbr_cq_mode(self):
         params = ffmpeg_h264_encode_kwargs("h264_nvenc")
         assert params["rc"] == "vbr"
         assert params["cq"] == 23
         assert params["b_ref_mode"] == "middle"
 
-    def test_av1_nvenc_not_in_h264_whitelist(self):
-        params = ffmpeg_h264_encode_kwargs("av1_nvenc")
-        assert params == {}
+    def test_qsv_uses_vbr_cq_mode(self):
+        params = ffmpeg_h264_encode_kwargs("h264_qsv")
+        assert params["rc"] == "vbr"
+        assert params["cq"] == 23
 
     def test_libx264_adds_no_extra_params(self):
         assert ffmpeg_h264_encode_kwargs("libx264") == {}
