@@ -1,0 +1,35 @@
+name: Codex video pipeline correctness patch
+
+on:
+  push:
+    branches:
+      - codex/video-pipeline-correctness
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/video-pipeline-correctness
+          fetch-depth: 0
+      - name: Apply fixes
+        run: python tools/codex_patch_video_pipeline_correctness.py
+      - name: Syntax check
+        run: |
+          python -m py_compile pixelle_video/services/video.py
+          python -m py_compile pixelle_video/pipelines/standard.py
+      - name: Commit fixes
+        shell: bash
+        run: |
+          rm .github/workflows/codex-video-pipeline-correctness-patch.yml
+          rm tools/codex_patch_video_pipeline_correctness.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: preserve requested audio and renderer GPU configuration"
+          git push origin HEAD:codex/video-pipeline-correctness
