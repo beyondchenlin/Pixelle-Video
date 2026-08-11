@@ -6,7 +6,6 @@ from pathlib import Path
 
 from pixelle_video.services.video import VideoService
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
