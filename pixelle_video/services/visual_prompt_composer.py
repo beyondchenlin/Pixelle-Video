@@ -82,9 +82,10 @@ class VisualPromptComposer:
     This core service accepts one recurring-identity request type only. Historical
     product controls are normalized by ``ImagePromptComposer`` before reaching
     this service. When recurring identity is enabled, raw Asset Bible identity is
-    first validated into one canonical runtime snapshot. The LLM may then weave
-    that validated identity into the scene, while canonical V4.5 projection owns
-    the final subject/identity contract and repairs only missing protected facts.
+    first validated into one canonical runtime snapshot. The validated snapshot
+    is carried to the LLM only as frame context; every legacy signature-generator
+    control remains hard-disabled. Canonical V4.5 projection then owns the final
+    subject/identity contract and repairs only missing protected facts.
     """
 
     async def compose(
@@ -178,10 +179,20 @@ class VisualPromptComposer:
             prompt_contexts,
             visual_story_context,
         )
+        if signature_enabled:
+            if profile_snapshot is None:
+                raise RuntimeError(
+                    "enabled visual signature must have a prevalidated canonical profile snapshot"
+                )
+            prompt_contexts = _attach_canonical_visual_identity_context(
+                prompt_contexts,
+                request=resolved_signature_request,
+                profile=profile_snapshot,
+            )
 
-        # Identity-bearing LLM calls are permitted only after the canonical runtime
-        # snapshot above has validated the profile. Projection later reuses the same
-        # snapshot instead of rebuilding identity after model execution.
+        # Legacy identity-generator controls remain hard-disabled. The only
+        # identity-bearing input visible to the LLM is the prevalidated canonical
+        # frame context above; legacy appearance/anchor planners are not activated.
         batch = await generate_styled_image_prompt_batch(
             llm_service=llm_service,
             narrations=[
@@ -212,9 +223,20 @@ class VisualPromptComposer:
             frame_overrides=normalized_overrides,
             text_rendering=project_prompt_text_rendering_request(text_rendering),
             native_prompt_hints_by_frame=native_prompt_hints_by_frame,
-            series_visual_signature_enabled=signature_enabled,
-            ip_profile=ip_profile if signature_enabled else None,
-            series_visual_signature_request=resolved_signature_request if signature_enabled else None,
+            series_visual_signature_enabled=False,
+            ip_profile=None,
+            series_visual_signature_expression_mode=None,
+            series_visual_signature_structure_mode=None,
+            series_visual_signature_participation_mode=None,
+            series_visual_signature_request=None,
+            series_visual_signature_profile=None,
+            series_visual_signature_mode=None,
+            series_visual_signature_consistency_mode=None,
+            series_visual_signature_presentation_mode=None,
+            series_visual_signature_enforcement=None,
+            series_visual_signature_fallback_enabled=None,
+            series_visual_signature_fallback_mode=None,
+            series_visual_signature_min_visibility=None,
             scene_casts_by_frame=None,
             stage_callback=stage_callback,
             upstream_llm_trace_refs=upstream_llm_trace_refs,
@@ -355,6 +377,47 @@ class VisualPromptComposer:
             prompt_plan_bundle=prompt_plan_bundle,
             rendered_prompts=batch.rendered_prompts,
         )
+
+
+def _attach_canonical_visual_identity_context(
+    prompt_contexts: PromptContextEnvelope,
+    *,
+    request: SeriesVisualSignatureRequest,
+    profile: VisualSignatureProfileSnapshot,
+) -> PromptContextEnvelope:
+    """Expose only validated identity facts to LLM prompt context.
+
+    This is data, not a second runtime policy. The canonical request and profile
+    remain the single sources used later by the V4.5 contract builder and gate.
+    """
+
+    if not request.enabled:
+        return prompt_contexts
+    if request.profile_id != profile.profile_id:
+        raise ValueError(
+            "canonical visual identity context requires matching request/profile ids"
+        )
+    requested_role = (
+        request.role.value
+        if request.role is not None
+        else "auto"
+    )
+    identity = {
+        "profile_id": profile.profile_id,
+        "display_name": profile.display_name,
+        "identity_traits": list(profile.identity_traits),
+        "requested_role": requested_role,
+    }
+    return PromptContextEnvelope(
+        plan_context=prompt_contexts.plan_context,
+        frame_contexts=[
+            {
+                **dict(context),
+                "canonical_visual_identity": dict(identity),
+            }
+            for context in prompt_contexts.frame_contexts
+        ],
+    )
 
 
 def _content_only_visual_story_context(
