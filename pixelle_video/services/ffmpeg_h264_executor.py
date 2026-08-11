@@ -15,7 +15,6 @@ from pixelle_video.utils.ffmpeg_encoder import (
     resolve_ffmpeg_h264_encoder,
 )
 
-
 CommandBuilder = Callable[[tuple[str, ...]], Sequence[str]]
 OutputBuilder = Callable[..., Any]
 
