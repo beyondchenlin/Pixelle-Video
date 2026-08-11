@@ -10,6 +10,7 @@ from pixelle_video.models.series_visual_signature import (
 )
 from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
 
+_MAX_IDENTITY_NAME_CHARS = 128
 _IDENTITY_TRAIT_FIELDS = (
     "identity_lock",
     "minimal_traits",
@@ -146,6 +147,7 @@ def validate_series_visual_signature_identity_name(value: Any) -> str:
     text = _validated_identity_phrase(
         value,
         field_label="visual signature display name",
+        max_chars=_MAX_IDENTITY_NAME_CHARS,
     )
     if not text:
         raise ValueError("resolved IPProfile must provide a display name")
@@ -155,7 +157,7 @@ def validate_series_visual_signature_identity_name(value: Any) -> str:
 def select_series_visual_signature_identity_traits(source: Any) -> tuple[str, ...]:
     for field_name in _IDENTITY_TRAIT_FIELDS:
         values = _read_field(source, field_name)
-        if _has_non_empty_text(values):
+        if _has_identity_candidate(values):
             return validate_series_visual_signature_identity_traits(values)
     return ()
 
@@ -165,10 +167,11 @@ def validate_series_visual_signature_identity_traits(
 ) -> tuple[str, ...]:
     result: list[str] = []
     seen: set[str] = set()
-    for index, value in enumerate(_sequence(values)):
+    for index, value in enumerate(_identity_sequence(values)):
         text = _validated_identity_phrase(
             value,
             field_label=f"visual signature identity trait at index {index}",
+            max_chars=MAX_TRAIT_CHARS,
         )
         if not text:
             continue
@@ -180,8 +183,15 @@ def validate_series_visual_signature_identity_traits(
     return tuple(result)
 
 
-def _validated_identity_phrase(value: Any, *, field_label: str) -> str:
-    raw = str(value or "").strip()
+def _validated_identity_phrase(
+    value: Any,
+    *,
+    field_label: str,
+    max_chars: int,
+) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_label} must be a string")
+    raw = value.strip()
     if not raw:
         return ""
     if "\n" in raw or "\r" in raw or ";" in raw or "；" in raw:
@@ -189,10 +199,8 @@ def _validated_identity_phrase(value: Any, *, field_label: str) -> str:
             f"{field_label} must be a short visual noun phrase without line breaks or instructions"
         )
     text = _text(raw)
-    if len(text) > MAX_TRAIT_CHARS:
-        raise ValueError(
-            f"{field_label} exceeds {MAX_TRAIT_CHARS} characters"
-        )
+    if len(text) > max_chars:
+        raise ValueError(f"{field_label} exceeds {max_chars} characters")
     lowered = text.casefold()
     if any(term.casefold() in lowered for term in _INSTRUCTION_LIKE_IDENTITY_TERMS):
         raise ValueError(
@@ -201,8 +209,24 @@ def _validated_identity_phrase(value: Any, *, field_label: str) -> str:
     return text
 
 
-def _has_non_empty_text(value: Any) -> bool:
-    return any(str(item or "").strip() for item in _sequence(value))
+def _has_identity_candidate(value: Any) -> bool:
+    for item in _identity_sequence(value):
+        if isinstance(item, str):
+            if item.strip():
+                return True
+        elif item is not None:
+            return True
+    return False
+
+
+def _identity_sequence(value: Any) -> tuple[Any, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, Sequence):
+        return tuple(value)
+    return (value,)
 
 
 def _safe_forbidden_traits(values: Any) -> tuple[str, ...]:
@@ -257,7 +281,7 @@ def _sequence(value: Any) -> tuple[Any, ...]:
         return (value,)
     if isinstance(value, Sequence):
         return tuple(value)
-    return (value,)
+    return ()
 
 
 def _dedupe(value: Any) -> tuple[str, ...]:
