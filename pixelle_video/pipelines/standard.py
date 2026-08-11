@@ -3679,7 +3679,6 @@ class StandardPipeline(LinearVideoPipeline):
             fps=config.video_fps,
             expected_duration=master_audio_duration,
             expect_audio=bool(master_audio_path),
-            use_gpu=True,
         )
 
         storyboard.final_video_path = final_video_path
