@@ -38,8 +38,9 @@ from loguru import logger
 
 from pixelle_video.services.font_resolver import FontResolver
 from pixelle_video.utils.ffmpeg_encoder import (
-    ffmpeg_h264_encode_kwargs,
-    ffmpeg_h264_preset,
+    disable_ffmpeg_h264_encoder,
+    ffmpeg_h264_fallback_kwargs,
+    ffmpeg_h264_output_kwargs,
     resolve_ffmpeg_h264_encoder,
 )
 from pixelle_video.utils.os_util import (
@@ -129,15 +130,7 @@ class VideoService:
 
     @staticmethod
     def _h264_encode_params() -> dict[str, object]:
-        vcodec = resolve_ffmpeg_h264_encoder()
-        params: dict[str, object] = {
-            "vcodec": vcodec,
-            "preset": ffmpeg_h264_preset(vcodec),
-            "crf": 23,
-        }
-        for key, val in ffmpeg_h264_encode_kwargs(vcodec).items():
-            params[key] = val
-        return params
+        return ffmpeg_h264_output_kwargs(resolve_ffmpeg_h264_encoder())
 
     def _encode_run(self, build_output, *, quiet=False):
         params = self._h264_encode_params()
@@ -146,15 +139,28 @@ class VideoService:
             if quiet:
                 extra["quiet"] = True
             build_output(**params).run(**extra)
-        except ffmpeg.Error:
-            vcodec = params.get("vcodec")
+        except ffmpeg.Error as exc:
+            vcodec = str(params.get("vcodec") or "")
             if vcodec == "libx264":
                 raise
-            logger.warning("GPU encoder {} failed, retrying with CPU libx264", vcodec)
+            stderr = getattr(exc, "stderr", None)
+            if isinstance(stderr, bytes):
+                reason = stderr.decode("utf-8", errors="replace")
+            else:
+                reason = str(stderr or exc)
+            reason = " ".join(reason.strip().split())[-400:]
+            disable_ffmpeg_h264_encoder(
+                vcodec,
+                reason=reason or "runtime encode failure",
+            )
+            logger.warning(
+                "Hardware encoder {} failed and was disabled; retrying with CPU libx264",
+                vcodec,
+            )
             extra = {"capture_stdout": True, "capture_stderr": True}
             if quiet:
                 extra["quiet"] = True
-            build_output(vcodec="libx264", preset="medium", crf=23).run(**extra)
+            build_output(**ffmpeg_h264_fallback_kwargs()).run(**extra)
 
     def concat_videos(
         self,
