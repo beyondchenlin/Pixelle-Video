@@ -9,6 +9,7 @@ from PIL import Image
 
 from pixelle_video.models.element_animation import ElementAnimationManifest
 from pixelle_video.services.element_animation_presets import sample_transform
+from pixelle_video.utils.ffmpeg_encoder import resolve_ffmpeg_h264_encoder
 from pixelle_video.utils.os_util import get_temp_path
 
 
@@ -82,7 +83,8 @@ class PythonElementAnimationRenderer:
             if manifest.audio_path and Path(manifest.audio_path).exists():
                 command.extend(["-i", manifest.audio_path])
 
-            command.extend(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            vcodec = resolve_ffmpeg_h264_encoder()
+            command.extend(["-c:v", vcodec, "-pix_fmt", "yuv420p"])
             if manifest.audio_path and Path(manifest.audio_path).exists():
                 command.extend(["-c:a", "aac"])
             command.extend(["-t", str(manifest.timeline.duration)])

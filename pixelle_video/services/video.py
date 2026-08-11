@@ -37,6 +37,11 @@ import ffmpeg
 from loguru import logger
 
 from pixelle_video.services.font_resolver import FontResolver
+from pixelle_video.utils.ffmpeg_encoder import (
+    ffmpeg_h264_encode_kwargs,
+    ffmpeg_h264_preset,
+    resolve_ffmpeg_h264_encoder,
+)
 from pixelle_video.utils.os_util import (
     get_resource_path,
     get_temp_path,
@@ -121,6 +126,36 @@ class VideoService:
                 return
             check_ffmpeg()
             self._ffmpeg_checked = True
+
+    @staticmethod
+    def _h264_encode_params() -> dict[str, object]:
+        vcodec = resolve_ffmpeg_h264_encoder()
+        params: dict[str, object] = {
+            "vcodec": vcodec,
+            "preset": ffmpeg_h264_preset(vcodec),
+            "crf": 23,
+        }
+        for key, val in ffmpeg_h264_encode_kwargs(vcodec).items():
+            params[key] = val
+        return params
+
+    @staticmethod
+    def _encode_run(build_output, *, quiet=False):
+        params = VideoService._h264_encode_params()
+        try:
+            extra = {"capture_stdout": True, "capture_stderr": True}
+            if quiet:
+                extra["quiet"] = True
+            build_output(**params).run(**extra)
+        except ffmpeg.Error:
+            vcodec = params.get("vcodec")
+            if vcodec == "libx264":
+                raise
+            logger.warning("GPU encoder {} failed, retrying with CPU libx264", vcodec)
+            extra = {"capture_stdout": True, "capture_stderr": True}
+            if quiet:
+                extra["quiet"] = True
+            build_output(vcodec="libx264", preset="medium", crf=23).run(**extra)
 
     def concat_videos(
         self,
@@ -579,74 +614,68 @@ class VideoService:
 
         if not video_has_audio:
             logger.info("Video has no audio stream, adding audio track")
-            # Video is silent, just add the audio
-            try:
-                (
+
+            def _make_silent_output(**kw):
+                return (
                     ffmpeg.output(
                         video_stream,
                         audio_stream,
                         output,
-                        vcodec="libx264",  # Re-encode video if padded
                         acodec="aac",
                         audio_bitrate="192k",
+                        **kw,
                     )
                     .overwrite_output()
-                    .run(capture_stdout=True, capture_stderr=True)
                 )
 
-                logger.success(f"Audio added to silent video: {output}")
-                return output
-            except ffmpeg.Error as e:
-                error_msg = e.stderr.decode() if e.stderr else str(e)
-                logger.error(f"FFmpeg error adding audio to silent video: {error_msg}")
-                raise RuntimeError(f"Failed to add audio to video: {error_msg}")
+            self._encode_run(_make_silent_output)
+            logger.success(f"Audio added to silent video: {output}")
+            return output
 
         # Video has audio, proceed with merging
         logger.info(f"Merging audio with video (replace={replace_audio})")
 
-        try:
-            if replace_audio:
-                # Replace audio: use only new audio, ignore original
-                (
+        if replace_audio:
+
+            def _make_replace_output(**kw):
+                return (
                     ffmpeg.output(
                         video_stream,
                         audio_stream,
                         output,
-                        vcodec="libx264",  # Re-encode video if padded
                         acodec="aac",
                         audio_bitrate="192k",
+                        **kw,
                     )
                     .overwrite_output()
-                    .run(capture_stdout=True, capture_stderr=True)
-                )
-            else:
-                # Mix audio: combine original and new audio
-                mixed_audio = ffmpeg.filter(
-                    [input_video.audio.filter("volume", video_volume), audio_stream],
-                    "amix",
-                    inputs=2,
-                    duration="longest",  # Use longest audio
                 )
 
-                (
+            self._encode_run(_make_replace_output)
+        else:
+            mixed_audio = ffmpeg.filter(
+                [input_video.audio.filter("volume", video_volume), audio_stream],
+                "amix",
+                inputs=2,
+                duration="longest",
+            )
+
+            def _make_mix_output(**kw):
+                return (
                     ffmpeg.output(
                         video_stream,
                         mixed_audio,
                         output,
-                        vcodec="libx264",  # Re-encode video if padded
                         acodec="aac",
                         audio_bitrate="192k",
+                        **kw,
                     )
                     .overwrite_output()
-                    .run(capture_stdout=True, capture_stderr=True)
                 )
 
-            logger.success(f"Audio merged successfully: {output}")
-            return output
-        except ffmpeg.Error as e:
-            error_msg = e.stderr.decode() if e.stderr else str(e)
-            logger.error(f"FFmpeg merge error: {error_msg}")
-            raise RuntimeError(f"Failed to merge audio and video: {error_msg}")
+            self._encode_run(_make_mix_output)
+
+        logger.success(f"Audio merged successfully: {output}")
+        return output
 
     def overlay_image_on_video(
         self, video: str, overlay_image: str, output: str, scale_mode: str = "contain"
@@ -800,23 +829,23 @@ class VideoService:
 
             # Combine image and audio
             # Drive both streams to the same snapped duration.
-            (
-                ffmpeg.output(
-                    input_image.video,
-                    audio_stream,
-                    output,
-                    vframes=target_frame_count,
-                    vcodec="libx264",
-                    acodec="aac",
-                    pix_fmt="yuv420p",
-                    audio_bitrate="192k",
-                    preset="medium",
-                    crf=23,
-                    **{"b:v": "2M"},  # Video bitrate
+            def _make_output(**kw):
+                return (
+                    ffmpeg.output(
+                        input_image.video,
+                        audio_stream,
+                        output,
+                        vframes=target_frame_count,
+                        acodec="aac",
+                        pix_fmt="yuv420p",
+                        audio_bitrate="192k",
+                        **{"b:v": "2M"},
+                        **kw,
+                    )
+                    .overwrite_output()
                 )
-                .overwrite_output()
-                .run(capture_stdout=True, capture_stderr=True)
-            )
+
+            self._encode_run(_make_output)
 
             logger.success(
                 f"Video created from image: {output} "
@@ -1143,22 +1172,20 @@ class VideoService:
             video_stream = input_video.video
 
             if pad_strategy == "freeze":
-                # Freeze last frame using tpad filter
                 video_stream = video_stream.filter(
                     "tpad",
                     stop_mode="clone",
                     stop_duration=_ffmpeg_duration(pad_duration),
                 )
 
-                # Output with re-encoding (tpad requires it)
-                (
-                    ffmpeg.output(video_stream, output, vcodec="libx264", preset="fast", crf=23)
-                    .overwrite_output()
-                    .run(capture_stdout=True, capture_stderr=True, quiet=True)
-                )
-            else:  # black
-                # Generate black frames for padding duration
-                # Get video properties
+                def _make_freeze_output(**kw):
+                    return (
+                        ffmpeg.output(video_stream, output, **kw)
+                        .overwrite_output()
+                    )
+
+                self._encode_run(_make_freeze_output, quiet=True)
+            else:
                 probe = ffmpeg.probe(video)
                 video_info = next(s for s in probe["streams"] if s["codec_type"] == "video")
                 width = int(video_info["width"])
@@ -1167,21 +1194,21 @@ class VideoService:
                 fps_num, fps_den = map(int, fps_str.split("/"))
                 fps = fps_num / fps_den if fps_den != 0 else 30
 
-                # Create black video for padding
                 black_input = ffmpeg.input(
                     f"color=c=black:s={width}x{height}:r={fps}",
                     f="lavfi",
                     t=_ffmpeg_duration(pad_duration),
                 )
 
-                # Concatenate original video with black padding
                 video_stream = ffmpeg.concat(video_stream, black_input.video, v=1, a=0)
 
-                (
-                    ffmpeg.output(video_stream, output, vcodec="libx264", preset="fast", crf=23)
-                    .overwrite_output()
-                    .run(capture_stdout=True, capture_stderr=True, quiet=True)
-                )
+                def _make_black_output(**kw):
+                    return (
+                        ffmpeg.output(video_stream, output, **kw)
+                        .overwrite_output()
+                    )
+
+                self._encode_run(_make_black_output, quiet=True)
 
             return output
         except ffmpeg.Error as e:

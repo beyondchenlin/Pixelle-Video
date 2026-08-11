@@ -18,6 +18,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Optional
 
+from loguru import logger
+
 _SAFE_MANIFEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _REMOTE_SCRIPT_RE = re.compile(
     r"<script\b[^>]*\bsrc\s*=\s*(['\"])\s*https?://",
@@ -79,6 +81,7 @@ class HyperFramesRenderer:
         template_root: Optional[str] = None,
         runtime_root: Optional[str] = None,
         render_timeout_seconds: Optional[float] = None,
+        use_gpu: Optional[bool] = None,
     ) -> None:
         repo_root = Path(__file__).resolve().parents[2]
 
@@ -100,6 +103,23 @@ class HyperFramesRenderer:
             else repo_root / "resources" / "hyperframes" / "runtime"
         )
         self.render_timeout_seconds = render_timeout_seconds
+        self.use_gpu = self._resolve_use_gpu(use_gpu)
+
+    @staticmethod
+    def _resolve_use_gpu(explicit: Optional[bool]) -> bool:
+        if explicit is not None:
+            return explicit
+        env_value = os.environ.get("PIXELLE_HYPERFRAMES_USE_GPU", "").strip().lower()
+        if env_value in ("0", "false", "no", "off"):
+            return False
+        if env_value in ("1", "true", "yes", "on"):
+            return True
+        if env_value:
+            logger.warning(
+                "Unrecognized PIXELLE_HYPERFRAMES_USE_GPU value {!r}, defaulting to True",
+                env_value,
+            )
+        return True
 
     def render(
         self,
@@ -111,6 +131,7 @@ class HyperFramesRenderer:
         fps: Optional[int] = None,
         expected_duration: Optional[float] = None,
         expect_audio: bool = False,
+        use_gpu: Optional[bool] = None,
     ) -> str:
         request = self._prepare_render_request(
             project_dir,
@@ -120,6 +141,7 @@ class HyperFramesRenderer:
             fps=fps,
             expected_duration=expected_duration,
             expect_audio=expect_audio,
+            use_gpu=use_gpu,
         )
         returncode = self._run_bridge_sync(request)
         return self._finalize_render(request, returncode)
@@ -134,6 +156,7 @@ class HyperFramesRenderer:
         fps: Optional[int] = None,
         expected_duration: Optional[float] = None,
         expect_audio: bool = False,
+        use_gpu: Optional[bool] = None,
     ) -> str:
         """Render without blocking the service event loop.
 
@@ -148,6 +171,7 @@ class HyperFramesRenderer:
             fps=fps,
             expected_duration=expected_duration,
             expect_audio=expect_audio,
+            use_gpu=use_gpu,
         )
         returncode = await self._run_bridge_async(request)
         return await asyncio.to_thread(self._finalize_render, request, returncode)
@@ -162,6 +186,7 @@ class HyperFramesRenderer:
         fps: Optional[int],
         expected_duration: Optional[float],
         expect_audio: bool,
+        use_gpu: Optional[bool] = None,
     ) -> _RenderRequest:
         self._validate_render_contract(
             width=width,
@@ -169,6 +194,8 @@ class HyperFramesRenderer:
             fps=fps,
             expected_duration=expected_duration,
         )
+        resolved_use_gpu = use_gpu if use_gpu is not None else self.use_gpu
+
         project_path = Path(project_dir).resolve()
         if not project_path.is_dir():
             raise FileNotFoundError(f"HyperFrames project directory not found: {project_path}")
@@ -203,6 +230,8 @@ class HyperFramesRenderer:
             "--output-path",
             str(resolved_output_path),
         ]
+        if resolved_use_gpu:
+            command.append("--use-gpu")
         if fps is not None:
             command.extend(("--fps", str(int(fps))))
 

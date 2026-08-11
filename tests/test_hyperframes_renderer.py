@@ -99,6 +99,7 @@ def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_p
         str(project_dir),
         "--output-path",
         str(expected_output),
+        "--use-gpu",
     ]
     assert captured["cwd"] == str(project_dir)
     assert (project_dir / "index.html").read_text(encoding="utf-8") == "<!doctype html><title>template</title>"
@@ -435,3 +436,41 @@ async def test_initialize_wires_hyperframes_project_service_to_pixelle_root(monk
 
     expected_project_dir = pixelle_root / "output" / "task-demo" / "hyperframes"
     assert core.hyperframes_project_service.get_project_dir("task-demo") == expected_project_dir
+
+
+def test_render_respects_use_gpu_false_from_constructor(monkeypatch, tmp_path):
+    project_dir = tmp_path / "output" / "task-gpu-false" / "hyperframes"
+    compositions_dir = project_dir / "compositions"
+    compositions_dir.mkdir(parents=True)
+    _write_manifest(project_dir, task_id="task-gpu-false")
+    (project_dir / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    (compositions_dir / "captions.html").write_text("<div></div>", encoding="utf-8")
+
+    renderer = HyperFramesRenderer(use_gpu=False)
+    captured: dict[str, object] = {}
+    expected_output = project_dir / "renders" / "task-gpu-false.mp4"
+    _stub_successful_bridge(monkeypatch, renderer, expected_output, captured)
+
+    renderer.render(str(project_dir))
+    assert "--use-gpu" not in captured["command"]
+
+
+def test_render_use_gpu_param_overrides_constructor(monkeypatch, tmp_path):
+    project_dir = tmp_path / "output" / "task-gpu-override" / "hyperframes"
+    compositions_dir = project_dir / "compositions"
+    compositions_dir.mkdir(parents=True)
+    _write_manifest(project_dir, task_id="task-gpu-override")
+    (project_dir / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    (compositions_dir / "captions.html").write_text("<div></div>", encoding="utf-8")
+
+    renderer = HyperFramesRenderer(use_gpu=False)
+    captured: dict[str, object] = {}
+    _stub_successful_bridge(
+        monkeypatch,
+        renderer,
+        project_dir / "renders" / "task-gpu-override.mp4",
+        captured,
+    )
+
+    renderer.render(str(project_dir), use_gpu=True)
+    assert "--use-gpu" in captured["command"]

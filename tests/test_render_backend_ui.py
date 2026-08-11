@@ -2,8 +2,8 @@ from web.components import style_config
 from web.utils import render_backend_ui, tts_audio_strategy_ui, tts_split_mode_ui, tts_ui
 
 
-def test_render_backend_default_is_hyperframes_compiled():
-    assert render_backend_ui.get_render_backend_default(None) == "hyperframes_compiled"
+def test_render_backend_default_is_ffmpeg_manifest():
+    assert render_backend_ui.get_render_backend_default(None) == "ffmpeg_manifest"
 
 
 def test_tts_audio_strategy_default_is_master_track():

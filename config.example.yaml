@@ -210,7 +210,8 @@ render:
   # Options:
   #   - legacy: existing non-HyperFrames rendering path
   #   - hyperframes_compiled: new compiled HyperFrames rendering path
-  backend: hyperframes_compiled
+  #   - ffmpeg_manifest: pure FFmpeg assembly (fastest, no extra deps)
+  backend: ffmpeg_manifest
   timing:
     tts_batching_mode: paragraph
     tts_audio_strategy: master_track
