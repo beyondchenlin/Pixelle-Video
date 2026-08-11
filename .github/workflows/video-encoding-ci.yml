@@ -41,6 +41,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  ruff-import-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Ruff
+        run: python -m pip install "ruff==0.16.2"
+
+      - name: Print exact import diff
+        run: python -m ruff check --fix --diff pixelle_video/services/video_encoder_executor.py || true
+
   python-video-encoding-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -110,7 +129,7 @@ jobs:
               files+=("$candidate")
             fi
           done
-          python -m ruff check --diff "${files[@]}"
+          python -m ruff check "${files[@]}"
 
   hyperframes-bridge-tests:
     runs-on: ubuntu-latest
