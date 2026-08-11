@@ -7,7 +7,10 @@ from pixelle_video.architecture.legacy_signature_field_guard import (
     reject_deprecated_signature_fields,
 )
 from pixelle_video.models.final_visual_prompt_bundle import FinalVisualPromptBundle
-from pixelle_video.models.series_visual_signature import SeriesVisualSignatureContract
+from pixelle_video.models.series_visual_signature import (
+    SERIES_VISUAL_SIGNATURE_NATURAL_ROLE_MAP,
+    SeriesVisualSignatureContract,
+)
 from pixelle_video.models.z_image_prompt_bundle import ZImagePromptBundle
 from pixelle_video.services.series_visual_signature_final_prompt_gate import (
     assert_series_visual_signature_final_prompt,
@@ -225,15 +228,9 @@ def _signature_clause(signature: SeriesVisualSignatureContract) -> str:
 
 
 def _natural_signature_role(role: str) -> str:
-    return {
-        "core_actor": "a functional actor that performs the frame action",
-        "silent_witness": "a quiet witness beside the evidence or event structure",
-        "operator": "a small operator demonstrating the mechanism",
-        "guide": "a guide that points out the path or key structure",
-        "obstacle": "a symbolic obstacle inside the metaphor",
-        "container": "a small carrier for the structure or concept",
-        "background_mark": "a material mark on a real in-scene surface",
-    }.get(str(role or ""), "a scene-bound participant")
+    return SERIES_VISUAL_SIGNATURE_NATURAL_ROLE_MAP.get(
+        str(role or ""), "a scene-bound participant"
+    )
 
 
 def _compose_budgeted_prompt(

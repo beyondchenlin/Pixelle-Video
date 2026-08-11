@@ -29,6 +29,16 @@ class SignatureReplacementPolicy(str, Enum):
     BACKGROUND_ONLY = "background_only"
 
 
+SERIES_VISUAL_SIGNATURE_NATURAL_ROLE_MAP: dict[str, str] = {
+    "core_actor": "a functional actor that performs the frame action",
+    "silent_witness": "a quiet witness beside the evidence or event structure",
+    "operator": "a small operator demonstrating the mechanism",
+    "guide": "a guide that points out the path or key structure",
+    "obstacle": "a symbolic obstacle inside the metaphor",
+    "container": "a small carrier for the structure or concept",
+    "background_mark": "a material mark on a real in-scene surface",
+}
+
 MAX_TRAIT_CHARS = 64
 SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION = "v4_expression"
 SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION = "v4_2_identity_contract"

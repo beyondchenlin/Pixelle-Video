@@ -55,6 +55,7 @@ from pixelle_video.models.prompt_context import (
     normalize_prompt_contexts,
     slice_prompt_contexts,
 )
+from pixelle_video.models.series_visual_signature import SERIES_VISUAL_SIGNATURE_NATURAL_ROLE_MAP
 from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
 from pixelle_video.models.series_visual_signature_request import SeriesVisualSignatureRequest
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
@@ -1446,7 +1447,12 @@ async def generate_styled_image_prompt_batch(
             resolved_series_visual_signature_profile = SeriesVisualSignatureProfileBuilder().build(ip_profile)
         if resolved_series_visual_signature_profile is not None:
             _sv_display_name = resolved_series_visual_signature_profile.display_name
-            _sv_identity_traits = ", ".join(resolved_series_visual_signature_profile.identity_traits)
+            _sv_identity_traits = ", ".join(
+                _derive_identity_traits_for_llm_prompt(
+                    ip_profile,
+                    resolved_series_visual_signature_profile,
+                )
+            )
             _sv_role_description = _signature_role_description(
                 resolved_series_visual_signature_request,
                 resolved_series_visual_signature_profile,
@@ -2324,27 +2330,58 @@ async def generate_video_prompts(
     return batch_result.outputs
 
 
+def _derive_identity_traits_for_llm_prompt(
+    ip_profile: Any,
+    fallback_profile: SeriesVisualSignatureProfile,
+) -> tuple[str, ...]:
+    if ip_profile is not None:
+        for attr in ("identity_lock", "minimal_traits", "identity_anchors"):
+            value = getattr(ip_profile, attr, None)
+            if value:
+                if isinstance(value, str):
+                    text = value.strip()
+                    if text:
+                        return (text,)
+                if isinstance(value, (tuple, list)) and not isinstance(value, (bytes, bytearray)):
+                    deduped = _dedupe_identity_traits(value)
+                    if deduped:
+                        return deduped
+    return (
+        fallback_profile.identity_contract.required_identity_traits
+        or fallback_profile.identity_kernel
+    )
+
+
+def _dedupe_identity_traits(values: Any) -> tuple[str, ...]:
+    result: list[str] = []
+    seen: set[str] = set()
+    items = values if isinstance(values, (tuple, list)) and not isinstance(values, (str, bytes)) else (values,)
+    for item in items:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return tuple(result)
+
+
 def _signature_role_description(
     request: SeriesVisualSignatureRequest,
     profile: SeriesVisualSignatureProfile,
 ) -> str:
     role_text = str(request.role.value if request.role is not None else "auto")
     display_name = profile.display_name or ""
-    traits = ", ".join(profile.identity_traits)
-    role_map = {
-        "core_actor": "a functional actor that performs the frame action",
-        "silent_witness": "a quiet witness beside the evidence or event structure",
-        "operator": "a small operator demonstrating the mechanism",
-        "guide": "a guide that points out the path or key structure",
-        "obstacle": "a symbolic obstacle inside the metaphor",
-        "container": "a small carrier for the structure or concept",
-        "background_mark": "a material mark on a real in-scene surface",
-    }
+    traits = ", ".join(
+        profile.identity_contract.required_identity_traits or profile.identity_kernel
+    )
     default_desc = "a scene-bound participant"
     parts = [display_name] if display_name else []
     parts.append("appears in the scene")
     parts.append(f"recognizable by: {traits}" if traits else "")
-    role_desc = role_map.get(role_text, default_desc)
+    role_desc = SERIES_VISUAL_SIGNATURE_NATURAL_ROLE_MAP.get(role_text, default_desc)
     parts.append(f"acting as: {role_desc}")
     return "; ".join(p for p in parts if p)
 

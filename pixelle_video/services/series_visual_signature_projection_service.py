@@ -202,6 +202,7 @@ class SeriesVisualSignatureProjectionService:
                         base_prompt=base_prompt,
                         base_negative_prompt=base_negative_prompts[index],
                         profile=profile,
+                        request=request,
                     )
                 else:
                     frame = self.project_frame(
@@ -326,6 +327,7 @@ class SeriesVisualSignatureProjectionService:
         base_prompt: str,
         base_negative_prompt: str | None = None,
         profile: VisualSignatureProfileSnapshot,
+        request: SeriesVisualSignatureRequest,
     ) -> SeriesVisualSignatureFrameProjection:
         """Validate and pass through a prompt that already contains IP identity.
 
@@ -333,6 +335,12 @@ class SeriesVisualSignatureProjectionService:
         description. We add anti-watermark negative protections, run the final
         prompt gate, and return the LLM prompt unchanged.
         """
+
+        if profile.profile_id != request.profile_id:
+            raise ValueError(
+                "visual signature pass-through requires profile and request profile_id to match; "
+                f"profile has {profile.profile_id!r}, request has {request.profile_id!r}"
+            )
 
         negative_parts: list[str] = (
             [p.strip() for p in str(base_negative_prompt or "").split(",") if p.strip()]
@@ -394,48 +402,6 @@ class SeriesVisualSignatureProjectionService:
             signature=signature,
             required_subjects=(),
         )
-
-    def _compile_pass_through_frame(
-        self,
-        *,
-        frame_id: str,
-        base_prompt: str,
-        base_negative_prompt: str | None = None,
-    ) -> SeriesVisualSignatureFrameProjection:
-        """Compile a pass-through frame via the standard compiler pipeline
-        when no required subjects are defined, preserving the base prompt
-        with disabled signature contract semantics.
-        """
-
-        disabled_signature = SeriesVisualSignatureContract.disabled()
-        contract = FinalVisualPromptContractV45(
-            contract_id=f"v45:{frame_id}",
-            frame_id=frame_id,
-            primary_visual_task="cognitive_explanation",
-            required_subjects=(),
-            article_concretization={
-                "diagram": {
-                    "grammar": "plain_scene",
-                    "visual_metaphor": base_prompt,
-                },
-            },
-            series_visual_signature=disabled_signature,
-            diagram_render={"render_style": "preserve_base"},
-            visible_text_policy="preserve_base",
-            projected_prompt_parts=(),
-        )
-        bundle = FinalVisualPromptCompiler().compile(
-            final_contract=contract,
-            base_negative_prompt=base_negative_prompt,
-        )
-        return SeriesVisualSignatureFrameProjection(
-            frame_id=frame_id,
-            bundle=bundle,
-            contract=contract,
-            signature=disabled_signature,
-            required_subjects=(),
-        )
-
 
 def _projection_context(
     *,
