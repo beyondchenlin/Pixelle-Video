@@ -48,8 +48,7 @@ All final image prompt strings must be written in English.
 
 When a frame contains `visual_story_ip_fusion_plan` or `content_bound_ip_presence_plan`:
 
-- Do not insert the concrete recurring IP identity at this base stage unless the downstream identity projection explicitly provides it.
-- Design the base scene around the frame's `cognitive_anchor`, `physical_metaphor`, `scene_arena`, and `ip_action_affordance`.
+- Design the base scene around the frame's `cognitive_anchor`, `physical_metaphor`, `scene_arena`, and `ip_action_affordance`. If the recurring visual identity is explicitly enabled, weave it into these scene elements as a real participant.
 - Create a natural body-scale action slot where the recurring identity can later participate through content action:
   - a machine handle to pull
   - a bridge, node, or pipe to support or connect

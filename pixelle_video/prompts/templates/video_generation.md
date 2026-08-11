@@ -62,7 +62,7 @@ All final video prompt strings must be written in English.
 - Atmosphere: dynamic, energetic, peaceful, dramatic, mysterious
 - Lighting: lighting changes, shadows moving, sunlight streaming
 
-#<!-- if series_visual_signature_enabled -->
+<!-- if series_visual_signature_enabled -->
 # Recurring Visual Identity
 
 The scene must include one recurring visual identity character woven naturally into the video:

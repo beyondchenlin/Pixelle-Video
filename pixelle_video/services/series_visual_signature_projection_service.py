@@ -12,6 +12,7 @@ from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureContract,
     SeriesVisualSignatureRequest,
     SeriesVisualSignatureRole,
+    SignatureReplacementPolicy,
     VisualSignatureProfileSnapshot,
 )
 from pixelle_video.models.series_visual_signature_projection_policy import (
@@ -24,6 +25,9 @@ from pixelle_video.models.series_visual_signature_projection_policy import (
 from pixelle_video.services.final_visual_prompt_compiler import FinalVisualPromptCompiler
 from pixelle_video.services.series_visual_signature_contract_builder import (
     SeriesVisualSignatureContractBuilder,
+)
+from pixelle_video.services.series_visual_signature_final_prompt_gate import (
+    assert_series_visual_signature_final_prompt,
 )
 from pixelle_video.services.series_visual_signature_prompt_presence import (
     prompt_contains_term,
@@ -323,20 +327,44 @@ class SeriesVisualSignatureProjectionService:
         base_negative_prompt: str | None = None,
         profile: VisualSignatureProfileSnapshot,
     ) -> SeriesVisualSignatureFrameProjection:
-        """Pass through a prompt that already contains all IP identity traits.
+        """Validate and pass through a prompt that already contains IP identity.
 
         The LLM has already woven the recurring visual identity into the scene
-        description. We create a minimal enabled contract for audit purposes and
-        run the final prompt gate, but preserve the LLM-generated prompt text.
+        description. We add anti-watermark negative protections, run the final
+        prompt gate, and return the LLM prompt unchanged.
         """
+
+        negative_parts: list[str] = (
+            [p.strip() for p in str(base_negative_prompt or "").split(",") if p.strip()]
+            if base_negative_prompt
+            else []
+        )
+        negative_parts.extend(
+            (
+                "recurring visual signature rendered as a photorealistic mascot",
+                "recurring visual signature rendered as a sticker overlay",
+                "recurring visual signature rendered as a logo overlay",
+                "recurring visual signature rendered as a watermark",
+                "duplicate recurring visual signature instances",
+            )
+        )
+        negative_prompt = ", ".join(_dedupe(negative_parts))
 
         signature = SeriesVisualSignatureContract(
             enabled=True,
             role=SeriesVisualSignatureRole.SILENT_WITNESS,
             profile=profile,
+            replacement_policy=SignatureReplacementPolicy.NO_SUBJECT_REPLACEMENT,
             max_area_ratio=0.16,
             participation_rule="LLM-integrated; no template injection needed.",
             forbidden_behaviors=(),
+        )
+        assert_series_visual_signature_final_prompt(
+            positive_prompt=base_prompt,
+            negative_prompt=negative_prompt,
+            required_subjects=(),
+            signature=signature,
+            visible_text_policy="preserve_base",
         )
         contract = FinalVisualPromptContractV45(
             contract_id=f"v45:{frame_id}",
@@ -354,9 +382,10 @@ class SeriesVisualSignatureProjectionService:
             visible_text_policy="preserve_base",
             projected_prompt_parts=(),
         )
-        bundle = FinalVisualPromptCompiler().compile(
-            final_contract=contract,
-            base_negative_prompt=base_negative_prompt,
+        bundle = FinalVisualPromptBundle(
+            positive_prompt=base_prompt,
+            negative_prompt=negative_prompt,
+            locked_constraints=(),
         )
         return SeriesVisualSignatureFrameProjection(
             frame_id=frame_id,
