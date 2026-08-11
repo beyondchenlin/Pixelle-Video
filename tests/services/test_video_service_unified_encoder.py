@@ -67,8 +67,11 @@ def test_filter_concat_injects_silence_for_missing_audio(monkeypatch) -> None:
     assert result == "out.mp4"
     command = " ".join(compiled_commands[0])
     assert "anullsrc=channel_layout=stereo:sample_rate=48000" in command
-    assert "concat=n=2" in command
-    assert "-c:v libx264" in command
+    assert "concat=" in command
+    assert "n=2" in command
+    assert "v=1" in command
+    assert "a=1" in command
+    assert "-vcodec libx264" in command or "-c:v libx264" in command
 
 
 def test_overlay_preserves_source_audio_and_uses_encoder_boundary(monkeypatch) -> None:
@@ -101,8 +104,8 @@ def test_overlay_preserves_source_audio_and_uses_encoder_boundary(monkeypatch) -
 
     assert result == "out.mp4"
     command = " ".join(compiled_commands[0])
-    assert "-c:a copy" in command
-    assert "-c:v libx264" in command
+    assert "-acodec copy" in command or "-c:a copy" in command
+    assert "-vcodec libx264" in command or "-c:v libx264" in command
     assert "overlay" in command
 
 
