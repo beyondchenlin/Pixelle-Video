@@ -14,6 +14,7 @@ from pixelle_video.services.analysis_trace_artifacts import (
     write_analysis_workflow_trace_context,
 )
 from pixelle_video.services.comfy_base_service import ComfyBaseService
+from pixelle_video.services.comfyui_backend_manager import ComfyUIBackendState
 from pixelle_video.services.generation_coordinator import (
     GenerationCoordinator,
     build_generation_fingerprint,
@@ -3909,6 +3910,25 @@ async def test_local_comfyui_workflow_session_fails_when_task_release_is_not_con
     ]
 
 
+def _install_pixelle_owned_comfyui_backend(monkeypatch, core):
+    class _PixelleOwnedBackend:
+        management_mode = "auto"
+
+        async def inspect_state(self, *, reason):
+            return ComfyUIBackendState(
+                ownership="pixelle",
+                listener_present=True,
+                pid_file_present=True,
+                payload={},
+            )
+
+    monkeypatch.setattr(
+        core,
+        "_get_comfyui_backend_controller",
+        lambda backend_role="default": _PixelleOwnedBackend(),
+    )
+
+
 @pytest.mark.asyncio
 async def test_release_comfyui_after_local_workflow_releases_models_after_batch(monkeypatch):
     events = []
@@ -3920,6 +3940,7 @@ async def test_release_comfyui_after_local_workflow_releases_models_after_batch(
         return True
 
     monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    _install_pixelle_owned_comfyui_backend(monkeypatch, core)
     core._restart_comfyui_backend_role = _restart
 
     assert await core.release_comfyui_after_local_workflow() is True
@@ -4029,6 +4050,7 @@ async def test_release_comfyui_after_local_workflow_logs_managed_restart_result(
         return True
 
     monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    _install_pixelle_owned_comfyui_backend(monkeypatch, core)
     core._restart_comfyui_backend_role = _restart
 
     assert await core.release_comfyui_after_local_workflow() is True
@@ -4079,6 +4101,7 @@ async def test_release_comfyui_after_index_tts2_workflow_fails_when_restart_is_n
         return False
 
     monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    _install_pixelle_owned_comfyui_backend(monkeypatch, core)
     core._restart_comfyui_backend_role = _restart
 
     with pytest.raises(RuntimeError, match="memory release was not confirmed"):
@@ -4122,6 +4145,7 @@ async def test_release_comfyui_after_index_tts2_workflow_restarts_backend_when_e
         return True
 
     monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    _install_pixelle_owned_comfyui_backend(monkeypatch, core)
     core._restart_comfyui_backend_role = _restart
 
     assert await core.release_comfyui_after_index_tts2_workflow(
