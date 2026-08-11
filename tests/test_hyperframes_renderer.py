@@ -455,6 +455,26 @@ def test_render_respects_use_gpu_false_from_constructor(monkeypatch, tmp_path):
     assert "--use-gpu" not in captured["command"]
 
 
+def test_render_respects_environment_gpu_kill_switch(monkeypatch, tmp_path):
+    project_dir = tmp_path / "output" / "task-gpu-env-false" / "hyperframes"
+    compositions_dir = project_dir / "compositions"
+    compositions_dir.mkdir(parents=True)
+    _write_manifest(project_dir, task_id="task-gpu-env-false")
+    (project_dir / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    (compositions_dir / "captions.html").write_text("<div></div>", encoding="utf-8")
+    monkeypatch.setenv("PIXELLE_HYPERFRAMES_USE_GPU", "false")
+
+    renderer = HyperFramesRenderer()
+    captured: dict[str, object] = {}
+    expected_output = project_dir / "renders" / "task-gpu-env-false.mp4"
+    _stub_successful_bridge(monkeypatch, renderer, expected_output, captured)
+
+    renderer.render(str(project_dir))
+
+    assert renderer.use_gpu is False
+    assert "--use-gpu" not in captured["command"]
+
+
 def test_render_use_gpu_param_overrides_constructor(monkeypatch, tmp_path):
     project_dir = tmp_path / "output" / "task-gpu-override" / "hyperframes"
     compositions_dir = project_dir / "compositions"
