@@ -6,7 +6,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test tests/render.test.mjs"
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@hyperframes/producer": "0.4.44",

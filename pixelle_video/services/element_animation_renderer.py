@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -9,11 +8,14 @@ from PIL import Image
 
 from pixelle_video.models.element_animation import ElementAnimationManifest
 from pixelle_video.services.element_animation_presets import sample_transform
-from pixelle_video.utils.ffmpeg_encoder import resolve_ffmpeg_h264_encoder
+from pixelle_video.services.video_encoder_executor import UnifiedVideoEncoder
 from pixelle_video.utils.os_util import get_temp_path
 
 
 class PythonElementAnimationRenderer:
+    def __init__(self, *, video_encoder: UnifiedVideoEncoder | None = None) -> None:
+        self.video_encoder = video_encoder or UnifiedVideoEncoder()
+
     def render_frame(
         self,
         manifest: ElementAnimationManifest,
@@ -72,25 +74,18 @@ class PythonElementAnimationRenderer:
                 frame = self.render_frame(manifest, time=frame_time)
                 frame.save(Path(temp_dir) / f"frame_{frame_index:06d}.png")
 
-            command = [
-                "ffmpeg",
-                "-y",
-                "-framerate",
-                str(manifest.timeline.fps),
-                "-i",
-                str(frame_pattern),
-            ]
-            if manifest.audio_path and Path(manifest.audio_path).exists():
-                command.extend(["-i", manifest.audio_path])
-
-            vcodec = resolve_ffmpeg_h264_encoder()
-            command.extend(["-c:v", vcodec, "-pix_fmt", "yuv420p"])
-            if manifest.audio_path and Path(manifest.audio_path).exists():
-                command.extend(["-c:a", "aac"])
-            command.extend(["-t", str(manifest.timeline.duration)])
-            command.append(str(output))
-
-            subprocess.run(command, check=True)
+            audio_path = (
+                manifest.audio_path
+                if manifest.audio_path and Path(manifest.audio_path).exists()
+                else None
+            )
+            self.video_encoder.encode_png_sequence(
+                frame_pattern=frame_pattern,
+                fps=manifest.timeline.fps,
+                output_path=output,
+                duration=manifest.timeline.duration,
+                audio_path=audio_path,
+            )
 
         return output_path
 
