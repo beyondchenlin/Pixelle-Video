@@ -11,8 +11,6 @@ from pixelle_video.models.final_visual_prompt_contract_v45 import FinalVisualPro
 from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureContract,
     SeriesVisualSignatureRequest,
-    SeriesVisualSignatureRole,
-    SignatureReplacementPolicy,
     VisualSignatureProfileSnapshot,
 )
 from pixelle_video.models.series_visual_signature_projection_policy import (
@@ -143,7 +141,14 @@ class SeriesVisualSignatureProjectionBatch:
 
 @dataclass(frozen=True)
 class SeriesVisualSignatureProjectionService:
-    """Single production source for V4.5 visual-signature prompt projection."""
+    """Single production source for V4.5 visual-signature prompt projection.
+
+    Every frame first receives one complete subject/identity contract. A prompt
+    that already carries the canonical identity may preserve its LLM-authored
+    scene text, but preservation is only a text optimization: it never bypasses
+    required subjects, role resolution, area limits, negative protections, or the
+    final prompt gate.
+    """
 
     budget: SeriesVisualSignatureProjectionBudget = (
         DEFAULT_SERIES_VISUAL_SIGNATURE_PROJECTION_BUDGET
@@ -194,27 +199,17 @@ class SeriesVisualSignatureProjectionService:
 
         frames: list[SeriesVisualSignatureFrameProjection] = []
         for index, frame_id in enumerate(frame_ids):
-            base_prompt = str(base_prompts[index] or "")
             try:
-                if _ip_already_in_prompt(base_prompt, profile):
-                    frame = self._project_pass_through(
-                        frame_id=frame_id,
-                        base_prompt=base_prompt,
-                        base_negative_prompt=base_negative_prompts[index],
-                        profile=profile,
-                        request=request,
-                    )
-                else:
-                    frame = self.project_frame(
-                        frame_id=frame_id,
-                        base_prompt=base_prompt,
-                        frame_context=frame_contexts[index],
-                        request=request,
-                        profile=profile,
-                        article_plan=plans_by_frame.get(frame_id),
-                        base_visual_brief=briefs.get(frame_id),
-                        base_negative_prompt=base_negative_prompts[index],
-                    )
+                frame = self.project_frame(
+                    frame_id=frame_id,
+                    base_prompt=str(base_prompts[index] or ""),
+                    frame_context=frame_contexts[index],
+                    request=request,
+                    profile=profile,
+                    article_plan=plans_by_frame.get(frame_id),
+                    base_visual_brief=briefs.get(frame_id),
+                    base_negative_prompt=base_negative_prompts[index],
+                )
             except SeriesVisualSignatureProjectionError:
                 raise
             except Exception as exc:
@@ -245,7 +240,6 @@ class SeriesVisualSignatureProjectionService:
                 "visual signature projection produced incomplete batch coverage; "
                 "partial projection must not be published"
             )
-        # Validate persistence size before returning the production batch.
         batch.audit_dict()
         return batch
 
@@ -266,7 +260,7 @@ class SeriesVisualSignatureProjectionService:
         if not frame_id:
             raise ValueError("visual signature projection requires frame_id")
         if not base_prompt:
-            raise ValueError("visual signature projection requires a signature-free base prompt")
+            raise ValueError("visual signature projection requires a non-empty visual prompt")
         if not request.enabled:
             raise ValueError("visual signature projection requires an enabled request")
 
@@ -308,6 +302,18 @@ class SeriesVisualSignatureProjectionService:
             visible_text_policy=visible_text_policy,
             projected_prompt_parts=(),
         )
+
+        if _identity_traits_present(base_prompt, profile):
+            return self._project_preserving_prompt(
+                frame_id=frame_id,
+                base_prompt=base_prompt,
+                base_negative_prompt=base_negative_prompt,
+                contract=contract,
+                signature=signature,
+                required_subjects=required_subjects,
+                visible_text_policy=visible_text_policy,
+            )
+
         bundle = FinalVisualPromptCompiler().compile(
             final_contract=contract,
             base_negative_prompt=base_negative_prompt,
@@ -320,88 +326,83 @@ class SeriesVisualSignatureProjectionService:
             required_subjects=required_subjects,
         )
 
-    def _project_pass_through(
+    def _project_preserving_prompt(
         self,
         *,
         frame_id: str,
         base_prompt: str,
-        base_negative_prompt: str | None = None,
-        profile: VisualSignatureProfileSnapshot,
-        request: SeriesVisualSignatureRequest,
+        base_negative_prompt: str | None,
+        contract: FinalVisualPromptContractV45,
+        signature: SeriesVisualSignatureContract,
+        required_subjects: Sequence[str],
+        visible_text_policy: str,
     ) -> SeriesVisualSignatureFrameProjection:
-        """Validate and pass through a prompt that already contains IP identity.
+        """Preserve LLM scene prose while repairing only missing contract facts."""
 
-        The LLM has already woven the recurring visual identity into the scene
-        description. We add anti-watermark negative protections, run the final
-        prompt gate, and return the LLM prompt unchanged.
-        """
+        profile = signature.profile
+        if profile is None:
+            raise ValueError("enabled visual signature preservation requires a profile")
 
-        if profile.profile_id != request.profile_id:
-            raise ValueError(
-                "visual signature pass-through requires profile and request profile_id to match; "
-                f"profile has {profile.profile_id!r}, request has {request.profile_id!r}"
+        positive_prompt = base_prompt
+        repair_parts: list[str] = []
+        if not prompt_contains_term(positive_prompt, profile.display_name):
+            repair_parts.append(
+                f"{profile.display_name} remains visibly recognizable in the scene"
             )
+        for subject in required_subjects:
+            if not prompt_contains_term(positive_prompt, subject):
+                repair_parts.append(f"The scene clearly shows {subject}")
+        if repair_parts:
+            positive_prompt = ". ".join((positive_prompt, *repair_parts))
 
-        negative_parts: list[str] = (
-            [p.strip() for p in str(base_negative_prompt or "").split(",") if p.strip()]
-            if base_negative_prompt
-            else []
-        )
-        negative_parts.extend(
-            (
-                "recurring visual signature rendered as a photorealistic mascot",
-                "recurring visual signature rendered as a sticker overlay",
-                "recurring visual signature rendered as a logo overlay",
-                "recurring visual signature rendered as a watermark",
-                "duplicate recurring visual signature instances",
-            )
-        )
-        negative_prompt = ", ".join(_dedupe(negative_parts))
-
-        signature = SeriesVisualSignatureContract(
-            enabled=True,
-            role=SeriesVisualSignatureRole.SILENT_WITNESS,
-            profile=profile,
-            replacement_policy=SignatureReplacementPolicy.NO_SUBJECT_REPLACEMENT,
-            max_area_ratio=0.16,
-            participation_rule="LLM-integrated; no template injection needed.",
-            forbidden_behaviors=(),
+        negative_prompt = _preserving_negative_prompt(
+            base_negative_prompt=base_negative_prompt,
+            visible_text_policy=visible_text_policy,
         )
         assert_series_visual_signature_final_prompt(
-            positive_prompt=base_prompt,
+            positive_prompt=positive_prompt,
             negative_prompt=negative_prompt,
-            required_subjects=(),
+            required_subjects=required_subjects,
             signature=signature,
-            visible_text_policy="preserve_base",
-        )
-        contract = FinalVisualPromptContractV45(
-            contract_id=f"v45:{frame_id}",
-            frame_id=frame_id,
-            primary_visual_task="pass_through",
-            required_subjects=(),
-            article_concretization={
-                "diagram": {
-                    "grammar": "preserve_base",
-                    "visual_metaphor": base_prompt,
-                },
-            },
-            series_visual_signature=signature,
-            diagram_render={"render_style": "preserve_base"},
-            visible_text_policy="preserve_base",
-            projected_prompt_parts=(),
+            visible_text_policy=visible_text_policy,
         )
         bundle = FinalVisualPromptBundle(
-            positive_prompt=base_prompt,
+            positive_prompt=positive_prompt,
             negative_prompt=negative_prompt,
-            locked_constraints=(),
+            locked_constraints=("canonical_v45_contract",),
         )
         return SeriesVisualSignatureFrameProjection(
             frame_id=frame_id,
             bundle=bundle,
             contract=contract,
             signature=signature,
-            required_subjects=(),
+            required_subjects=tuple(required_subjects),
         )
+
+
+def _preserving_negative_prompt(
+    *,
+    base_negative_prompt: str | None,
+    visible_text_policy: str,
+) -> str:
+    negative_parts: list[str] = (
+        [p.strip() for p in str(base_negative_prompt or "").split(",") if p.strip()]
+        if base_negative_prompt
+        else []
+    )
+    negative_parts.extend(
+        (
+            "recurring visual signature rendered as a photorealistic mascot",
+            "recurring visual signature rendered as a sticker overlay",
+            "recurring visual signature rendered as a logo overlay",
+            "recurring visual signature rendered as a watermark",
+            "duplicate recurring visual signature instances",
+        )
+    )
+    if str(visible_text_policy or "").strip() == "no_visible_text":
+        negative_parts.append("readable text")
+    return ", ".join(_dedupe(negative_parts))
+
 
 def _projection_context(
     *,
@@ -456,7 +457,7 @@ def _projection_context(
                 "primary_visual_task": task,
                 "visual_metaphor": base_prompt,
             },
-            "projection_source_kind": "signature_free_base_prompt",
+            "projection_source_kind": "identity_aware_visual_prompt",
         },
         {"render_style": "preserve_base"},
         visible_text_policy,
@@ -505,7 +506,7 @@ def _dedupe(values: Sequence[Any]) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _ip_already_in_prompt(
+def _identity_traits_present(
     prompt: str,
     profile: VisualSignatureProfileSnapshot,
 ) -> bool:
