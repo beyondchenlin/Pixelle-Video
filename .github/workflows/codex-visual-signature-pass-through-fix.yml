@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - codex/visual-signature-single-owner-v45
+  pull_request:
+    branches:
+      - dev
 
 permissions:
   contents: write
