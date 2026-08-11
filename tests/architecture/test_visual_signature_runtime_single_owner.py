@@ -13,7 +13,6 @@ from pixelle_video.utils.content_generators import (
     _resolve_visual_signature_prompt_ownership,
 )
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
