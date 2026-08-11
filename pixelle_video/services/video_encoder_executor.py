@@ -11,10 +11,10 @@ import ffmpeg
 from loguru import logger
 
 from pixelle_video.utils.ffmpeg_encoder import (
-    H264EncoderBackend,
     available_h264_backends,
     ffmpeg_h264_fallback_kwargs,
     get_h264_backend,
+    H264EncoderBackend,
 )
 
 
