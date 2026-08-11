@@ -1,0 +1,33 @@
+name: Codex visual signature contract test migration
+
+on:
+  push:
+    branches:
+      - codex/visual-signature-runtime-single-owner
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/visual-signature-runtime-single-owner
+          fetch-depth: 0
+      - name: Apply canonical contract test migration
+        run: python tools/codex_patch_visual_signature_single_owner_contract_tests.py
+      - name: Syntax check
+        run: python -m py_compile tests/services/test_series_visual_signature_image_prompt_composer.py
+      - name: Commit migrated tests
+        shell: bash
+        run: |
+          rm .github/workflows/codex-visual-signature-contract-test-migration.yml
+          rm tools/codex_patch_visual_signature_single_owner_contract_tests.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "test: migrate composer assertions to canonical visual signature context"
+          git push origin HEAD:codex/visual-signature-runtime-single-owner
