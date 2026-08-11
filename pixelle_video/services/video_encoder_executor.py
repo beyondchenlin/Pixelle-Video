@@ -17,7 +17,6 @@ from pixelle_video.utils.ffmpeg_encoder import (
     get_h264_backend,
 )
 
-
 _DISABLED_HARDWARE_CODECS: set[str] = set()
 _DISABLED_HARDWARE_CODECS_LOCK = threading.Lock()
 
