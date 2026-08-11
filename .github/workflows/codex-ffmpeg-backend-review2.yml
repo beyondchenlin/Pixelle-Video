@@ -1,0 +1,35 @@
+name: Codex FFmpeg backend review2
+
+on:
+  push:
+    branches:
+      - codex/ffmpeg-h264-backend-capability
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/ffmpeg-h264-backend-capability
+          fetch-depth: 0
+      - name: Apply review2 guard
+        run: python tools/codex_patch_ffmpeg_backend_review2.py
+      - name: Syntax check
+        run: |
+          python -m py_compile pixelle_video/utils/ffmpeg_encoder.py
+          python -m py_compile tests/test_ffmpeg_encoder.py
+      - name: Commit review2 guard
+        shell: bash
+        run: |
+          rm .github/workflows/codex-ffmpeg-backend-review2.yml
+          rm tools/codex_patch_ffmpeg_backend_review2.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: keep VAAPI behind hardware-frame executor boundary"
+          git push origin HEAD:codex/ffmpeg-h264-backend-capability
