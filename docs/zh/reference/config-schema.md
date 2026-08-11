@@ -15,9 +15,6 @@ llm:
 comfyui:
   comfyui_url: "http://127.0.0.1:8188"
   backend_management_mode: "auto"
-  pre_generation_cleanup_mode: "force"
-  pre_generation_cleanup_timeout_seconds: 20
-  model_cleanup_mode: "comfyui_and_extensions"
   comfyui_api_key: ""  # ComfyUI API 密钥（可选）
   runninghub_api_key: ""
   runninghub_concurrent_limit: 1  # 并发限制 (1-10)
@@ -53,16 +50,10 @@ template:
 ### 基础配置
 
 - `comfyui_url`: 本地 ComfyUI 地址（默认 `http://127.0.0.1:8188`）
-- `backend_management_mode`: Pixelle 托管 ComfyUI 后端的监管策略。`"auto"` 只会托管 `127.0.0.1:8000` 上的本地 Pixelle 后端，`"required"` 会在无法执行崩溃恢复重启时失败，`"disabled"` 永不启动或停止 ComfyUI。
-- `pre_generation_cleanup_mode`: 本地生成批次前的清理策略
-  - `"force"`：中断并清空繁忙队列，等待 ComfyUI 恢复空闲后再开始 Pixelle 生成
-  - `"conservative"`：不强制干预现有队列
-  - 这里只做队列清理，不会在每张图片生成前卸载模型
-- `pre_generation_cleanup_timeout_seconds`: 强制清理时等待 ComfyUI 队列恢复空闲的秒数；超时后会快速失败并提示队列可能卡住
-- `model_cleanup_mode`：Pixelle 本地工作流阶段边界和显式恢复路径使用的模型显存释放范围。`comfyui` 会在标准阶段调用 ComfyUI `/free`，IndexTTS2 TTS 仍必须调用 Pixelle 管理的插件清理端点。`comfyui_and_extensions` 是本地独占 ComfyUI 的推荐默认值，因为它同时覆盖 ComfyUI 标准模型和 Pixelle 管理的插件缓存。
+- `backend_management_mode`: ComfyUI 生命周期策略。`"auto"` 优先复用健康的现有后端，只在地址不可用且配置允许时启动新进程；`"required"` 只接受由 Pixelle 启动并拥有的进程；`"disabled"` 只连接外部后端，永不启动、停止或重启 ComfyUI。
 - `comfyui_api_key`: ComfyUI API 密钥（可选，用于 [Comfy Platform](https://platform.comfy.org/profile/api-keys)）
 
-Pixelle 假设配置的自托管 ComfyUI 实例由 Pixelle 独占。Pixelle 不会在本地图片批次的每张图生成前调用 `/free`；批次内会保持 GGUF 和相关模型热加载，避免每帧重复卸载和重载。图片/GGUF 阶段正常结束后，Pixelle 会释放 ComfyUI 标准模型，并额外调用补丁端点 `/pixelle/gguf/free` 释放 GGUF 扩展缓存。IndexTTS2 TTS 阶段结束后，Pixelle 会释放 ComfyUI 标准模型，并额外调用补丁端点 `/pixelle/indextts2/free` 释放插件私有缓存。本地 IndexTTS2 工作流会在执行前预检无副作用的 `/pixelle/indextts2/health` 端点，让缺少插件补丁的问题提前失败，同时不会卸载热加载模型。若阶段边界释放未确认成功，Pixelle 会让任务失败，而不是带着上一阶段模型继续进入下一阶段。IndexTTS2 工作流的 OOM 恢复也会在重试前释放插件缓存。若自托管工作流因为托管后端崩溃而丢失 HTTP 连接，Pixelle 会重启托管后端并重试该工作流一次。
+Pixelle 在提交本地工作流前通过 `/system_stats` 验证后端健康，并只观察共享队列，不中断或清空其他客户端任务。对 Pixelle 自己启动的进程，`restart_after_batch: true` 可以在阶段边界重启并释放显存；对外部启动并被复用的进程，Pixelle 不执行停止、重启或全局队列清理。图片和语音任务仍提交到同一队列，因此可以在现有 ComfyUI 界面查看生成过程和历史记录。严格依赖阶段重启释放显存的部署应使用 `backend_management_mode: "required"`。
 
 任务运行日志会写入结构化的 `local_media_batch` start/end 事件，包含耗时毫秒数和帧数量；也会写入 `comfyui_memory_release` 事件。ComfyUI `/free` 释放会在 `/system_stats` 可用时记录释放前后的显存快照；IndexTTS2 释放响应中如果包含 CUDA allocated/reserved 的 before/after 快照，也会保存在日志字段里。
 

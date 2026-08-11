@@ -62,6 +62,7 @@ logs\comfyui\
 - 监听地址：`127.0.0.1:8000`
 - 后端 PID 文件：`_runtime\comfyui\comfyui-backend.pid`
 - 启动器 PID 文件：`_runtime\comfyui\comfyui-backend.launcher.pid`
+- 所有权凭证：`_runtime\comfyui\comfyui-backend.owner.json`
 
 ## 配置覆盖
 
@@ -83,4 +84,6 @@ $env:PIXELLE_COMFYUI_PORT = '8000'
 
 如果 `8000` 已被非托管进程占用，`start_backend.ps1` 会拒绝启动新的 ComfyUI 后端，而不是自动漂移到其他端口。
 
-`stop_backend.ps1` 会优先使用上面的 PID 文件。若 PID 文件缺失、非法、陈旧或指向其他进程，但端口监听进程的命令行仍匹配当前配置的 ComfyUI 根目录和数据目录，它会安全停止这个匹配的后端，并在下次启动时重新建立干净的托管状态；对同端口上的无关进程仍会拒绝停止。
+`stop_backend.ps1` 只会停止同时满足进程号、进程创建时间和当前配置三重校验的后端。PID 文件缺失、非法、陈旧、缺少所有权凭证或指向其他进程时只清理无效记录，绝不根据命令行相似性终止监听进程。这样既能防止 Windows 复用进程号造成误杀，也能安全复用由 ComfyUI Desktop 或其他管理器启动的同一后端。
+
+从不含所有权凭证的旧版本升级时，现有进程按外部进程处理。`auto` 模式会继续复用，`required` 模式需要先手动关闭旧进程，再由当前版本启动一次以生成新凭证。

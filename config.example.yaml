@@ -112,14 +112,14 @@ comfyui:
   # Global ComfyUI settings
   comfyui_url: http://127.0.0.1:8000  # ComfyUI server URL (required for selfhost workflows)
   executor_type: null  # Optional override: null=auto (recommended HTTP default), websocket only for explicit opt-in
-  backend_management_mode: auto  # auto manages Pixelle-managed backends; required=fail if restart unavailable; disabled=never start/stop ComfyUI
-  # Memory release is handled by managed backend restart, controlled per-profile
-  # by restart_after_batch. Set to false to keep models hot in GPU for fast
-  # follow-up requests. Set to true if your GPU/CPU memory cannot hold all model sets at once.
+  backend_management_mode: auto  # auto=reuse healthy existing or start missing; required=Pixelle ownership only; disabled=external only
+  # Memory release is handled by restart_after_batch only for a process Pixelle
+  # actually started. Existing external backends are reused without restart/stop.
+  # Set to false to keep models hot in GPU for fast follow-up requests.
   #
   # Managed single-backend profile (image and TTS share one process):
-  #   managed: true               # Let Pixelle manage this ComfyUI backend process
-  #   restart_after_batch: true   # Restart after every workflow batch to release memory
+  #   managed: true               # Allow Pixelle to start the backend when absent
+  #   restart_after_batch: true   # Restart after a batch only when Pixelle owns it
   #   python_exe: ""              # Path to Python interpreter for managed backends
   #   comfyui_root: ""            # Path to ComfyUI installation for managed backends
   backends:

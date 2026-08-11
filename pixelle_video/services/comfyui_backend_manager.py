@@ -8,12 +8,13 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from loguru import logger
 
 from pixelle_video.config.schema import ComfyUIBackendProfile
+from pixelle_video.services.comfyui_maintenance import ComfyUIMaintenanceClient
 
 
 @dataclass(frozen=True)
@@ -25,8 +26,31 @@ class ComfyUIBackendCommandResult:
     payload: dict[str, Any]
 
 
-class ManagedComfyUIBackend:
-    """Runs the Pixelle-managed ComfyUI backend scripts behind a small async API."""
+ComfyUIBackendOwnership = Literal["pixelle", "external", "absent", "unknown"]
+
+
+@dataclass(frozen=True)
+class ComfyUIBackendState:
+    ownership: ComfyUIBackendOwnership
+    listener_present: bool
+    pid_file_present: bool
+    payload: dict[str, Any]
+
+    @property
+    def owned_by_pixelle(self) -> bool:
+        return self.ownership == "pixelle"
+
+
+@dataclass(frozen=True)
+class ComfyUIBackendReadyResult:
+    ownership: ComfyUIBackendOwnership
+    started: bool
+    reused_existing: bool
+    health: dict[str, Any]
+
+
+class ComfyUIBackendController:
+    """Connects to existing ComfyUI or manages a process Pixelle actually owns."""
 
     def __init__(
         self,
@@ -39,6 +63,7 @@ class ManagedComfyUIBackend:
         management_mode: str = "auto",
         ready_timeout_seconds: int = 90,
         command_timeout_seconds: int | None = None,
+        maintenance_client: ComfyUIMaintenanceClient | None = None,
     ) -> None:
         self.repo_root = (Path(repo_root) if repo_root else Path.cwd()).resolve()
         self.working_directory = (
@@ -52,6 +77,9 @@ class ManagedComfyUIBackend:
         self.management_mode = (management_mode or "auto").strip().lower()
         self.ready_timeout_seconds = ready_timeout_seconds
         self.command_timeout_seconds = command_timeout_seconds
+        self.maintenance_client = maintenance_client or ComfyUIMaintenanceClient(
+            self.comfyui_url
+        )
 
     @property
     def scripts_dir(self) -> Path:
@@ -78,8 +106,168 @@ class ManagedComfyUIBackend:
             and port != 8188
         )
 
+    def can_inspect_local_process(self) -> bool:
+        parsed = urlparse(self.comfyui_url)
+        host = (parsed.hostname or "").lower()
+        return bool(
+            host in {"127.0.0.1", "localhost", "::1"}
+            and self._resolved_port() is not None
+            and self._management_runtime_available()
+            and (self.scripts_dir / "check_backend.ps1").exists()
+        )
+
     def _management_runtime_available(self) -> bool:
         return os.name == "nt" and shutil.which("powershell") is not None
+
+    async def inspect_state(self, *, reason: str) -> ComfyUIBackendState:
+        if not self.can_inspect_local_process():
+            return ComfyUIBackendState(
+                ownership="unknown",
+                listener_present=False,
+                pid_file_present=False,
+                payload={"reason": "local_process_inspection_unavailable"},
+            )
+
+        result = await self.check(reason=reason)
+        payload = result.payload or {}
+        listener_present = bool(payload.get("listener_present"))
+        pid_file_present = bool(payload.get("pid_file_present"))
+        if listener_present and payload.get("listener_is_managed_backend"):
+            ownership: ComfyUIBackendOwnership = "pixelle"
+        elif listener_present:
+            ownership = "external"
+        else:
+            ownership = "absent"
+        return ComfyUIBackendState(
+            ownership=ownership,
+            listener_present=listener_present,
+            pid_file_present=pid_file_present,
+            payload=payload,
+        )
+
+    async def ensure_ready(self, *, reason: str) -> ComfyUIBackendReadyResult:
+        health, health_error = await self._probe_backend_safely()
+        if health is not None:
+            ownership: ComfyUIBackendOwnership = "unknown"
+            if self.management_mode == "required":
+                state = await self.inspect_state(reason=f"{reason}:strict-ownership-check")
+                if not state.owned_by_pixelle:
+                    raise RuntimeError(
+                        "ComfyUI backend management is required, but the healthy backend at "
+                        f"{self.comfyui_url} is not owned by Pixelle"
+                    )
+                ownership = "pixelle"
+            elif self.management_mode == "disabled" or not self.profile.managed:
+                ownership = "external"
+            logger.info(
+                "Reusing healthy existing ComfyUI backend without changing its process "
+                f"lifecycle at {self.comfyui_url} ({reason})"
+            )
+            return ComfyUIBackendReadyResult(
+                ownership=ownership,
+                started=False,
+                reused_existing=True,
+                health=health,
+            )
+
+        if not self.can_manage():
+            detail = health_error or "health probe failed"
+            raise RuntimeError(
+                f"ComfyUI backend at {self.comfyui_url} is unavailable and Pixelle "
+                f"is not allowed to start it: {detail}"
+            )
+
+        state, state_error = await self._inspect_state_safely(
+            reason=f"{reason}:unhealthy-listener-check"
+        )
+        if state is not None and state.listener_present:
+            if not state.owned_by_pixelle and state.pid_file_present:
+                await self.stop(reason=f"{reason}:clean-owned-orphan")
+            try:
+                recovered_health = await self._wait_for_backend_health(
+                    timeout_seconds=min(max(1, self.ready_timeout_seconds), 10)
+                )
+            except TimeoutError as exc:
+                if not state.owned_by_pixelle:
+                    raise RuntimeError(
+                        f"Port for ComfyUI backend {self.comfyui_url} is already occupied "
+                        "by a process Pixelle does not own, and the ComfyUI API health "
+                        f"check failed: {health_error or exc}"
+                    ) from exc
+                logger.warning(
+                    "Restarting an API-unhealthy ComfyUI backend whose process ownership "
+                    f"was verified ({reason})"
+                )
+                await self.stop(reason=f"{reason}:api-unhealthy")
+            else:
+                if self.management_mode == "required" and not state.owned_by_pixelle:
+                    raise RuntimeError(
+                        "ComfyUI backend management is required, but the backend that "
+                        f"became healthy at {self.comfyui_url} is not owned by Pixelle"
+                    )
+                return ComfyUIBackendReadyResult(
+                    ownership=state.ownership,
+                    started=False,
+                    reused_existing=True,
+                    health=recovered_health,
+                )
+        elif state is not None and state.pid_file_present:
+            await self.stop(reason=f"{reason}:clean-stale-owned-process")
+        elif state is None:
+            logger.warning(
+                "Could not inspect local ComfyUI process ownership before startup; "
+                "the start script will enforce listener and ownership safety: "
+                f"{state_error}"
+            )
+
+        try:
+            start_result = await self.start(reason=reason)
+        except RuntimeError:
+            # Close the check/start race without taking ownership of the process that won it.
+            raced_health, _ = await self._probe_backend_safely()
+            if raced_health is None or self.management_mode == "required":
+                raise
+            logger.info(
+                "Reusing healthy ComfyUI backend that became ready during startup "
+                f"at {self.comfyui_url} ({reason})"
+            )
+            return ComfyUIBackendReadyResult(
+                ownership="unknown",
+                started=False,
+                reused_existing=True,
+                health=raced_health,
+            )
+
+        try:
+            health = await self._wait_for_backend_health()
+        except Exception:
+            await self._cleanup_after_start_failure(
+                reason=f"{reason}:failed-health-check"
+            )
+            raise
+
+        if self.management_mode == "required":
+            try:
+                state = await self.inspect_state(reason=f"{reason}:started-backend")
+            except Exception:
+                await self._cleanup_after_start_failure(
+                    reason=f"{reason}:failed-ownership-check"
+                )
+                raise
+            if not state.owned_by_pixelle:
+                await self._cleanup_after_start_failure(
+                    reason=f"{reason}:unconfirmed-ownership"
+                )
+                raise RuntimeError(
+                    "ComfyUI backend started but Pixelle ownership could not be confirmed: "
+                    f"{state.payload}"
+                )
+        return ComfyUIBackendReadyResult(
+            ownership="pixelle",
+            started=bool(start_result.payload.get("started")),
+            reused_existing=bool(start_result.payload.get("already_running")),
+            health=health,
+        )
 
     async def restart(self, *, reason: str) -> bool:
         if not self.can_manage():
@@ -99,22 +287,26 @@ class ManagedComfyUIBackend:
             )
             return False
 
-        logger.warning(f"Restarting Pixelle-managed ComfyUI backend ({reason})")
-        try:
-            stop_result = await self.stop(reason=reason)
-        except RuntimeError as exc:
-            if self.management_mode == "required" or not _is_unmanaged_backend_stop_error(exc):
-                raise
-            logger.warning(
-                "Skipping Pixelle-managed ComfyUI backend restart because the running backend "
-                f"is not owned by Pixelle ({reason}): {exc}"
+        state = await self.inspect_state(reason=f"{reason}:restart-check")
+        if state.ownership in {"external", "unknown"}:
+            if state.ownership == "external" and state.pid_file_present:
+                await self.stop(reason=f"{reason}:clean-owned-orphan")
+            message = (
+                "Skipping ComfyUI backend restart because Pixelle ownership of the "
+                f"running process is not established ({reason})"
             )
+            if self.management_mode == "required":
+                raise RuntimeError(message)
+            logger.info(message)
             return False
 
-        if _backend_result_requires_manual_restart(stop_result):
+        logger.warning(f"Restarting Pixelle-owned ComfyUI backend ({reason})")
+        stop_result = await self.stop(reason=reason)
+
+        if not _backend_result_allows_restart(stop_result):
             message = (
-                "Pixelle-managed ComfyUI backend restart was skipped because the running backend "
-                f"is not owned by Pixelle ({reason}): {stop_result.payload}"
+                "Pixelle-managed ComfyUI backend restart was skipped because process stop "
+                f"was not confirmed ({reason}): {stop_result.payload}"
             )
             if self.management_mode == "required":
                 raise RuntimeError(message)
@@ -122,6 +314,7 @@ class ManagedComfyUIBackend:
             return False
 
         await self.start(reason=reason)
+        await self._wait_for_backend_health()
         return True
 
     async def start(self, *, reason: str) -> ComfyUIBackendCommandResult:
@@ -133,10 +326,95 @@ class ManagedComfyUIBackend:
         )
 
     async def stop(self, *, reason: str) -> ComfyUIBackendCommandResult:
+        state = await self.inspect_state(reason=f"{reason}:stop-check")
+        if state.ownership == "external" and state.pid_file_present:
+            return await self._run_script("stop_backend.ps1", "stop", reason=reason)
+        if state.ownership in {"external", "unknown"}:
+            logger.info(
+                "Skipping ComfyUI backend stop because Pixelle does not own the "
+                f"running process ({reason})"
+            )
+            return self._skipped_result(
+                "stop",
+                reason="external_backend_not_owned",
+                payload=state.payload,
+            )
+        if state.ownership == "absent" and not state.pid_file_present:
+            return self._skipped_result(
+                "stop",
+                reason="backend_absent",
+                payload=state.payload,
+            )
         return await self._run_script("stop_backend.ps1", "stop", reason=reason)
 
     async def check(self, *, reason: str) -> ComfyUIBackendCommandResult:
         return await self._run_script("check_backend.ps1", "check", reason=reason)
+
+    async def _probe_backend_safely(self) -> tuple[dict[str, Any] | None, str]:
+        try:
+            return await self.maintenance_client.probe_backend(), ""
+        except Exception as exc:
+            detail = str(exc).strip() or type(exc).__name__
+            return None, detail
+
+    async def _inspect_state_safely(
+        self, *, reason: str
+    ) -> tuple[ComfyUIBackendState | None, str]:
+        try:
+            return await self.inspect_state(reason=reason), ""
+        except Exception as exc:
+            detail = str(exc).strip() or type(exc).__name__
+            return None, detail
+
+    async def _cleanup_after_start_failure(self, *, reason: str) -> None:
+        try:
+            await self._run_script("stop_backend.ps1", "stop", reason=reason)
+        except Exception as stop_exc:
+            logger.warning(
+                "Failed to clean up a ComfyUI process after startup validation failed: "
+                f"{stop_exc}"
+            )
+
+    async def _wait_for_backend_health(
+        self, *, timeout_seconds: int | None = None
+    ) -> dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        timeout = max(
+            1,
+            self.ready_timeout_seconds if timeout_seconds is None else timeout_seconds,
+        )
+        deadline = loop.time() + timeout
+        last_error = "health probe failed"
+        while True:
+            health, last_error = await self._probe_backend_safely()
+            if health is not None:
+                return health
+            if loop.time() >= deadline:
+                raise TimeoutError(
+                    f"ComfyUI backend at {self.comfyui_url} did not become API-ready "
+                    f"within {timeout}s: {last_error}"
+                )
+            await asyncio.sleep(0.5)
+
+    def _skipped_result(
+        self,
+        action: str,
+        *,
+        reason: str,
+        payload: dict[str, Any] | None = None,
+    ) -> ComfyUIBackendCommandResult:
+        return ComfyUIBackendCommandResult(
+            action=action,
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={
+                **(payload or {}),
+                "stopped": False,
+                "skipped": True,
+                "reason": reason,
+            },
+        )
 
     async def _run_script(
         self,
@@ -315,18 +593,12 @@ class ManagedComfyUIBackend:
         return payload if isinstance(payload, dict) else {"raw_stdout": payload}
 
 
-def _backend_result_requires_manual_restart(result: ComfyUIBackendCommandResult) -> bool:
+def _backend_result_allows_restart(result: ComfyUIBackendCommandResult) -> bool:
     payload = result.payload or {}
-    return bool(
-        payload.get("requires_manual_restart")
-        or payload.get("manual_restart_required")
-    )
+    if payload.get("stopped"):
+        return True
+    return payload.get("reason") in {"backend_absent", "process_missing"}
 
 
-def _is_unmanaged_backend_stop_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return (
-        "not the pixelle-managed comfyui backend" in message
-        or "requires_manual_restart" in message
-        or "manual restart" in message
-    )
+# Backward-compatible import name for integrations that imported the old class.
+ManagedComfyUIBackend = ComfyUIBackendController

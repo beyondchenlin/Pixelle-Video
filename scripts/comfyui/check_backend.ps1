@@ -35,28 +35,35 @@ $config = Resolve-PixelleComfyUIBackendConfig `
 $listener = Get-BackendListener $config
 $managedPid = Read-BackendPid $config
 $launcherPid = Read-BackendLauncherPid $config
+if (-not $managedPid) {
+    $managedPid = Get-BackendOwnedProcessId $config 'backend'
+}
+if (-not $launcherPid) {
+    $launcherPid = Get-BackendOwnedProcessId $config 'launcher'
+}
 $pidFile = Get-BackendPidFile $config
 $launcherPidFile = Get-BackendLauncherPidFile $config
+$ownershipFile = Get-BackendOwnershipFile $config
 $pidFilePresent = Test-Path -LiteralPath $pidFile -PathType Leaf
 $launcherPidFilePresent = Test-Path -LiteralPath $launcherPidFile -PathType Leaf
+$ownershipFilePresent = Test-Path -LiteralPath $ownershipFile -PathType Leaf
 
 $listenerPid = $null
 $listenerProcessName = $null
-$listenerCommandLine = $null
+$listenerMatchesConfig = $false
 $listenerManaged = $false
 if ($listener) {
     $listenerPid = [int]$listener.OwningProcess
     $processInfo = Get-ProcessInfo $listenerPid
     if ($processInfo) {
         $listenerProcessName = $processInfo.Name
-        $listenerCommandLine = $processInfo.CommandLine
     }
     $listenerMatchesConfig = Test-ManagedComfyUIProcess $config $listenerPid
     $listenerManaged = [bool](
-        $listenerMatchesConfig -and (
-            -not $pidFilePresent -or
-            ($managedPid -and $managedPid -eq $listenerPid)
-        )
+        $listenerMatchesConfig -and
+        $managedPid -and
+        $managedPid -eq $listenerPid -and
+        (Test-BackendProcessOwnership $config $listenerPid 'backend')
     )
 }
 
@@ -66,7 +73,7 @@ $payload = [ordered]@{
     listener_present = [bool]$listener
     listener_pid = $listenerPid
     listener_process_name = $listenerProcessName
-    listener_command_line = $listenerCommandLine
+    listener_matches_profile = [bool]$listenerMatchesConfig
     listener_is_managed_backend = $listenerManaged
     pid_file_present = [bool]$pidFilePresent
     managed_pid = $managedPid
@@ -74,6 +81,8 @@ $payload = [ordered]@{
     launcher_pid_file_present = [bool]$launcherPidFilePresent
     launcher_pid = $launcherPid
     launcher_pid_file = $launcherPidFile
+    ownership_file_present = [bool]$ownershipFilePresent
+    ownership_file = $ownershipFile
 }
 $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
 

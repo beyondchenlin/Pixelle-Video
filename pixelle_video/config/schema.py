@@ -486,12 +486,19 @@ class ComfyUIBackendProfile(BaseModel):
     comfyui_root: Optional[str] = Field(default=None, description="ComfyUI application root directory")
     frontend_root: Optional[str] = Field(default=None, description="ComfyUI frontend root directory")
     extra_models_config: Optional[str] = Field(default=None, description="Extra model paths configuration file")
-    managed: bool = Field(default=True, description="Whether Pixelle manages this backend process")
+    managed: bool = Field(
+        default=True,
+        description=(
+            "Whether Pixelle may start a missing local backend. A healthy process "
+            "that Pixelle did not start remains externally owned and is never stopped."
+        ),
+    )
     restart_after_batch: bool = Field(
         default=False,
         description=(
             "Restart this backend after every workflow completion and at pipeline "
-            "stage boundaries. Set to False to keep models loaded in GPU for fast "
+            "stage boundaries when the running process is owned by Pixelle. External "
+            "backends are preserved. Set to False to keep models loaded in GPU for fast "
             "follow-up requests — the default for single-backend-per-workflow-type "
             "setups where the GPU has enough VRAM for all model sets."
         ),
@@ -569,10 +576,10 @@ class ComfyUIConfig(BaseModel):
     backend_management_mode: Literal["auto", "required", "disabled"] = Field(
         default="auto",
         description=(
-            "Controls Pixelle-managed ComfyUI backend supervision. 'auto' uses "
-            "the local managed backend when the configured URL points at localhost; "
-            "'required' fails if managed restart is unavailable; 'disabled' never "
-            "starts or stops ComfyUI."
+            "Controls ComfyUI lifecycle ownership. 'auto' reuses a healthy existing "
+            "backend and starts one only when the endpoint is unavailable; 'required' "
+            "accepts only a Pixelle-owned manageable process; 'disabled' only connects "
+            "to an externally managed backend and never starts or stops ComfyUI."
         ),
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")

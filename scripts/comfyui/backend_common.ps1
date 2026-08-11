@@ -110,6 +110,11 @@ function Get-BackendLauncherPidFile {
     return (Join-Path $Config.RuntimeDir 'comfyui-backend.launcher.pid')
 }
 
+function Get-BackendOwnershipFile {
+    param([hashtable]$Config)
+    return (Join-Path $Config.RuntimeDir 'comfyui-backend.owner.json')
+}
+
 function Get-BackendStdoutLog {
     param([hashtable]$Config)
     return (Join-Path $Config.LogsDir 'comfyui-backend.stdout.log')
@@ -167,6 +172,7 @@ function Add-BackendProfilePayloadFields {
     $Payload['database_url'] = $Config.DatabaseUrl
     $Payload['pid_file'] = Get-BackendPidFile $Config
     $Payload['launcher_pid_file'] = Get-BackendLauncherPidFile $Config
+    $Payload['ownership_file'] = Get-BackendOwnershipFile $Config
     $Payload['stdout_log'] = Get-BackendStdoutLog $Config
     $Payload['stderr_log'] = Get-BackendStderrLog $Config
     return $Payload
@@ -350,39 +356,188 @@ function Test-ManagedComfyUIProcess {
     return Test-ManagedComfyUICommandLine $Config $commandLine
 }
 
-function Stop-ManagedComfyUIProcess {
+function Stop-BackendOwnedComfyUIProcess {
     param(
         [hashtable]$Config,
-        [int]$ProcessId
+        [int]$ProcessId,
+        [ValidateSet('backend', 'launcher')]
+        [string]$Role
     )
 
     if ($ProcessId -le 0) {
         return $false
     }
-    if (-not (Test-ManagedComfyUIProcess $Config $ProcessId)) {
+    if (-not (Test-ManagedComfyUIProcess $Config $ProcessId) -or
+        -not (Test-BackendProcessOwnership $Config $ProcessId $Role)) {
         return $false
     }
 
     Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
-    return $true
+    $deadline = (Get-Date).AddSeconds(5)
+    do {
+        if (-not (Get-ProcessInfo $ProcessId)) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 100
+    } while ((Get-Date) -lt $deadline)
+    return $false
 }
 
-function Stop-ManagedComfyUIProcessesForConfig {
+function Stop-ProcessTreeOwnedByLaunch {
+    param([int]$RootProcessId)
+
+    if ($RootProcessId -le 0) {
+        return
+    }
+
+    $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $descendants = New-Object System.Collections.Generic.List[int]
+    $frontier = New-Object System.Collections.Generic.Queue[int]
+    $frontier.Enqueue($RootProcessId)
+    while ($frontier.Count -gt 0) {
+        $parentId = $frontier.Dequeue()
+        foreach ($child in $processes | Where-Object { [int]$_.ParentProcessId -eq $parentId }) {
+            $childId = [int]$child.ProcessId
+            if (-not $descendants.Contains($childId)) {
+                [void]$descendants.Add($childId)
+                $frontier.Enqueue($childId)
+            }
+        }
+    }
+
+    Stop-Process -Id $RootProcessId -Force -ErrorAction SilentlyContinue
+    for ($index = $descendants.Count - 1; $index -ge 0; $index -= 1) {
+        Stop-Process -Id $descendants[$index] -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-ProcessCreationIdentity {
+    param([int]$ProcessId)
+
+    $processInfo = Get-ProcessInfo $ProcessId
+    if (-not $processInfo -or -not $processInfo.CreationDate) {
+        return $null
+    }
+    return ([DateTime]$processInfo.CreationDate).ToUniversalTime().ToString('o')
+}
+
+function Write-BackendOwnershipRecord {
+    param(
+        [hashtable]$Config,
+        [int]$BackendPid,
+        [int]$LauncherPid
+    )
+
+    $backendCreation = Get-ProcessCreationIdentity $BackendPid
+    $launcherCreation = Get-ProcessCreationIdentity $LauncherPid
+    if (-not $backendCreation -or -not $launcherCreation) {
+        throw "Could not capture ComfyUI process creation identity for backend PID $BackendPid and launcher PID $LauncherPid."
+    }
+
+    $ownershipFile = Get-BackendOwnershipFile $Config
+    $temporaryFile = "$ownershipFile.$PID.tmp"
+    $record = [ordered]@{
+        version = 1
+        profile = $Config.ProfileName
+        host = $Config.HostAddress
+        port = $Config.Port
+        backend_pid = $BackendPid
+        backend_creation_time_utc = $backendCreation
+        launcher_pid = $LauncherPid
+        launcher_creation_time_utc = $launcherCreation
+    }
+    try {
+        $record | ConvertTo-Json -Depth 4 -Compress | Set-Content -LiteralPath $temporaryFile -Encoding UTF8
+        Move-Item -LiteralPath $temporaryFile -Destination $ownershipFile -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryFile -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryFile -Force
+        }
+    }
+}
+
+function Read-BackendOwnershipRecord {
     param([hashtable]$Config)
 
-    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object {
-            Test-ManagedComfyUICommandLine $Config ([string]$_.CommandLine)
-        } |
-        ForEach-Object {
-            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    $ownershipFile = Get-BackendOwnershipFile $Config
+    if (-not (Test-Path -LiteralPath $ownershipFile -PathType Leaf)) {
+        return $null
+    }
+    try {
+        return Get-Content -LiteralPath $ownershipFile -Raw | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-BackendProcessOwnership {
+    param(
+        [hashtable]$Config,
+        [int]$ProcessId,
+        [ValidateSet('backend', 'launcher')]
+        [string]$Role
+    )
+
+    try {
+        $record = Read-BackendOwnershipRecord $Config
+        if (-not $record -or [int]$record.version -ne 1) {
+            return $false
         }
+        if ([string]$record.profile -cne [string]$Config.ProfileName -or
+            [string]$record.host -cne [string]$Config.HostAddress -or
+            [int]$record.port -ne [int]$Config.Port) {
+            return $false
+        }
+
+        $recordedPid = if ($Role -eq 'backend') { [int]$record.backend_pid } else { [int]$record.launcher_pid }
+        $recordedCreation = if ($Role -eq 'backend') { [string]$record.backend_creation_time_utc } else { [string]$record.launcher_creation_time_utc }
+        if ($recordedPid -ne $ProcessId -or -not $recordedCreation) {
+            return $false
+        }
+
+        $currentCreation = Get-ProcessCreationIdentity $ProcessId
+        return [bool]($currentCreation -and $currentCreation -ceq $recordedCreation)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-BackendOwnedProcessId {
+    param(
+        [hashtable]$Config,
+        [ValidateSet('backend', 'launcher')]
+        [string]$Role
+    )
+
+    try {
+        $record = Read-BackendOwnershipRecord $Config
+        if (-not $record) {
+            return $null
+        }
+        $candidate = if ($Role -eq 'backend') { [int]$record.backend_pid } else { [int]$record.launcher_pid }
+        if ($candidate -le 0 -or
+            -not (Test-ManagedComfyUIProcess $Config $candidate) -or
+            -not (Test-BackendProcessOwnership $Config $candidate $Role)) {
+            return $null
+        }
+        return $candidate
+    }
+    catch {
+        return $null
+    }
 }
 
 function Remove-BackendPidFiles {
     param([hashtable]$Config)
 
-    foreach ($path in @((Get-BackendPidFile $Config), (Get-BackendLauncherPidFile $Config))) {
+    foreach ($path in @(
+        (Get-BackendPidFile $Config),
+        (Get-BackendLauncherPidFile $Config),
+        (Get-BackendOwnershipFile $Config)
+    )) {
         if (Test-Path -LiteralPath $path -PathType Leaf) {
             Remove-Item -LiteralPath $path -Force
         }

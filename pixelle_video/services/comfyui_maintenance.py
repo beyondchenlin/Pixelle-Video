@@ -131,6 +131,18 @@ class ComfyUIMemoryReleaseResult:
         }
 
 
+@dataclass(frozen=True)
+class ComfyUIQueueState:
+    """Non-destructive snapshot of the shared ComfyUI queue."""
+
+    running: int
+    pending: int
+
+    @property
+    def busy(self) -> bool:
+        return self.running > 0 or self.pending > 0
+
+
 class ComfyUIMaintenanceClient:
     """Small client for ComfyUI maintenance endpoints used before long renders."""
 
@@ -167,7 +179,43 @@ class ComfyUIMaintenanceClient:
         self.release_poll_interval = release_poll_interval
         self.release_request_timeout = release_request_timeout
 
-    async def cleanup_before_generation(self) -> None:
+    async def probe_backend(self) -> dict[str, Any]:
+        """Verify that the configured endpoint is a compatible ComfyUI server."""
+        response = await self._request(
+            "GET",
+            "/system_stats",
+            timeout=self.timeout,
+        )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise RuntimeError("ComfyUI /system_stats returned invalid JSON") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("system"), dict):
+            raise RuntimeError(
+                "ComfyUI /system_stats response is missing the required system object"
+            )
+        return payload
+
+    async def inspect_queue_before_generation(self) -> ComfyUIQueueState:
+        """Observe the shared queue without interrupting or deleting foreign work."""
+        queue = await self._get_queue()
+        running, pending = self._queue_counts(queue)
+        state = ComfyUIQueueState(running=running, pending=pending)
+        if state.busy:
+            logger.info(
+                "Preserving existing ComfyUI queue before generation "
+                f"(running={running}, pending={pending})"
+            )
+        else:
+            logger.info("ComfyUI queue is idle before generation")
+        return state
+
+    async def cleanup_before_generation(self) -> ComfyUIQueueState:
+        """Compatibility alias for the now non-destructive queue inspection."""
+        return await self.inspect_queue_before_generation()
+
+    async def force_cleanup(self) -> None:
+        """Explicit emergency operation that interrupts and clears the global queue."""
         await self._force_cleanup()
 
     async def _force_cleanup(self) -> None:

@@ -35,6 +35,49 @@ def run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]
     )
 
 
+def write_fake_backend_ownership(
+    *,
+    comfyui_root: Path,
+    data_root: Path,
+    extra_models_config: Path,
+    runtime_dir: Path,
+    port: int,
+    backend_pid: int,
+    launcher_pid: int,
+) -> None:
+    common_script = SCRIPT_DIR / "backend_common.ps1"
+    command = "\n".join(
+        [
+            f". '{ps_single_quote(common_script)}'",
+            "$config = Resolve-PixelleComfyUIBackendConfig "
+            f"-PythonExe '{ps_single_quote(sys.executable)}' "
+            f"-ComfyUIRoot '{ps_single_quote(comfyui_root)}' "
+            f"-DataRoot '{ps_single_quote(data_root)}' "
+            f"-ExtraModelsConfig '{ps_single_quote(extra_models_config)}' "
+            f"-RuntimeDir '{ps_single_quote(runtime_dir)}' "
+            "-HostAddress '127.0.0.1' "
+            f"-Port {port}",
+            f"Write-BackendOwnershipRecord $config {backend_pid} {launcher_pid}",
+        ]
+    )
+    result = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            command,
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def make_fake_comfyui(tmp_path: Path) -> tuple[Path, Path, Path]:
     comfyui_root = tmp_path / "ComfyUI"
     data_root = tmp_path / "ComfyUIData"
@@ -205,6 +248,49 @@ def wait_for_port(port: int) -> None:
         except OSError:
             time.sleep(0.1)
     raise AssertionError(f"Timed out waiting for port {port}")
+
+
+def windows_process_is_running(process_id: int) -> bool:
+    result = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-Command",
+            f"if (Get-Process -Id {process_id} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def stop_process_for_test(process_id: int) -> None:
+    result = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-Command",
+            f"Stop-Process -Id {process_id} -Force -ErrorAction Stop",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def wait_for_process_exit(process_id: int) -> None:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if not windows_process_is_running(process_id):
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"Timed out waiting for process {process_id} to exit")
 
 
 def kill_fake_comfyui_processes(comfyui_root: Path) -> None:
@@ -710,14 +796,14 @@ def test_stop_backend_without_pid_file_is_safe_noop(tmp_path: Path) -> None:
     assert payload["stderr_log"] == str(logs_dir / "comfyui-backend.stderr.log")
 
 
-def test_stop_backend_stops_matching_listener_without_pid_file(tmp_path: Path) -> None:
+def test_stop_backend_preserves_matching_listener_without_pid_file(tmp_path: Path) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     write_fake_listening_main_py(comfyui_root)
     runtime_dir = tmp_path / "runtime"
     port = reserve_free_port()
 
     try:
-        start_fake_listening_comfyui(comfyui_root, data_root, port)
+        process = start_fake_listening_comfyui(comfyui_root, data_root, port)
         result = run_fake_backend_stop(
             comfyui_root=comfyui_root,
             data_root=data_root,
@@ -728,20 +814,11 @@ def test_stop_backend_stops_matching_listener_without_pid_file(tmp_path: Path) -
 
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        assert payload["stopped"] is True
-        assert payload["pid"] is None
+        assert payload["stopped"] is False
         assert isinstance(payload["listener_pid"], int)
         assert payload["listener_pid"] > 0
-        assert payload["stopped_listener"] is True
-        assert payload["reason"] == "matching_listener_without_pid_file"
-
-        assert_fake_backend_listener_absent(
-            comfyui_root=comfyui_root,
-            data_root=data_root,
-            extra_models_config=extra_models_config,
-            runtime_dir=runtime_dir,
-            port=port,
-        )
+        assert payload["reason"] == "pid_file_missing"
+        assert process.poll() is None
     finally:
         kill_fake_comfyui_processes(comfyui_root)
 
@@ -774,7 +851,7 @@ def test_stop_backend_removes_invalid_pid_files(tmp_path: Path) -> None:
     assert not launcher_pid_file.exists()
 
 
-def test_stop_backend_stops_matching_listener_when_pid_file_is_invalid(
+def test_stop_backend_preserves_matching_listener_when_pid_file_is_invalid(
     tmp_path: Path,
 ) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
@@ -789,7 +866,7 @@ def test_stop_backend_stops_matching_listener_when_pid_file_is_invalid(
     port = reserve_free_port()
 
     try:
-        start_fake_listening_comfyui(comfyui_root, data_root, port)
+        process = start_fake_listening_comfyui(comfyui_root, data_root, port)
         result = run_fake_backend_stop(
             comfyui_root=comfyui_root,
             data_root=data_root,
@@ -800,22 +877,14 @@ def test_stop_backend_stops_matching_listener_when_pid_file_is_invalid(
 
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        assert payload["stopped"] is True
-        assert payload["reason"] == "pid_file_invalid_matching_listener"
-        assert payload["stopped_listener"] is True
-
-        assert_fake_backend_listener_absent(
-            comfyui_root=comfyui_root,
-            data_root=data_root,
-            extra_models_config=extra_models_config,
-            runtime_dir=runtime_dir,
-            port=port,
-        )
+        assert payload["stopped"] is False
+        assert payload["reason"] == "pid_file_invalid"
+        assert process.poll() is None
     finally:
         kill_fake_comfyui_processes(comfyui_root)
 
 
-def test_stop_backend_stops_matching_listener_when_pid_file_is_stale(
+def test_stop_backend_preserves_matching_listener_when_pid_file_is_stale(
     tmp_path: Path,
 ) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
@@ -826,7 +895,7 @@ def test_stop_backend_stops_matching_listener_when_pid_file_is_stale(
     port = reserve_free_port()
 
     try:
-        start_fake_listening_comfyui(comfyui_root, data_root, port)
+        process = start_fake_listening_comfyui(comfyui_root, data_root, port)
         result = run_fake_backend_stop(
             comfyui_root=comfyui_root,
             data_root=data_root,
@@ -837,23 +906,15 @@ def test_stop_backend_stops_matching_listener_when_pid_file_is_stale(
 
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        assert payload["stopped"] is True
-        assert payload["reason"] == "process_missing_matching_listener"
+        assert payload["stopped"] is False
+        assert payload["reason"] == "process_missing"
         assert payload["pid"] == 999999
-        assert payload["stopped_listener"] is True
-
-        assert_fake_backend_listener_absent(
-            comfyui_root=comfyui_root,
-            data_root=data_root,
-            extra_models_config=extra_models_config,
-            runtime_dir=runtime_dir,
-            port=port,
-        )
+        assert process.poll() is None
     finally:
         kill_fake_comfyui_processes(comfyui_root)
 
 
-def test_stop_backend_stops_matching_listener_when_pid_file_points_elsewhere(
+def test_stop_backend_preserves_matching_listener_when_pid_file_points_elsewhere(
     tmp_path: Path,
 ) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
@@ -867,7 +928,7 @@ def test_stop_backend_stops_matching_listener_when_pid_file_points_elsewhere(
     port = reserve_free_port()
 
     try:
-        start_fake_listening_comfyui(comfyui_root, data_root, port)
+        process = start_fake_listening_comfyui(comfyui_root, data_root, port)
         result = run_fake_backend_stop(
             comfyui_root=comfyui_root,
             data_root=data_root,
@@ -878,18 +939,10 @@ def test_stop_backend_stops_matching_listener_when_pid_file_points_elsewhere(
 
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        assert payload["stopped"] is True
-        assert payload["reason"] == "pid_file_unmanaged_matching_listener"
+        assert payload["stopped"] is False
+        assert payload["reason"] == "pid_file_points_to_unmanaged_process"
         assert payload["pid"] == os.getpid()
-        assert payload["stopped_listener"] is True
-
-        assert_fake_backend_listener_absent(
-            comfyui_root=comfyui_root,
-            data_root=data_root,
-            extra_models_config=extra_models_config,
-            runtime_dir=runtime_dir,
-            port=port,
-        )
+        assert process.poll() is None
     finally:
         kill_fake_comfyui_processes(comfyui_root)
 
@@ -931,7 +984,7 @@ def test_check_backend_reports_clear_port_without_side_effects(tmp_path: Path) -
     assert payload["stderr_log"] == str(logs_dir / "comfyui-backend.stderr.log")
 
 
-def test_check_backend_marks_matching_process_as_managed_without_pid_file(
+def test_check_backend_does_not_claim_matching_process_without_pid_file(
     tmp_path: Path,
 ) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
@@ -965,7 +1018,7 @@ def test_check_backend_marks_matching_process_as_managed_without_pid_file(
     payload = json.loads(result.stdout)
     assert payload["listener_present"] is True
     assert payload["pid_file_present"] is False
-    assert payload["listener_is_managed_backend"] is True
+    assert payload["listener_is_managed_backend"] is False
 
 
 def test_start_backend_tracks_listener_pid_when_launcher_spawns_child(tmp_path: Path) -> None:
@@ -1031,6 +1084,53 @@ def test_start_backend_tracks_listener_pid_when_launcher_spawns_child(tmp_path: 
         check_payload = json.loads(check.stdout)
         assert check_payload["listener_is_managed_backend"] is True
 
+        pid_file.unlink()
+        launch_pid_file.unlink()
+        recovered_check = run_powershell(
+            SCRIPT_DIR / "check_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+        )
+        assert recovered_check.returncode == 0, recovered_check.stderr
+        assert json.loads(recovered_check.stdout)["listener_is_managed_backend"] is True
+
+        idempotent_start = run_powershell(
+            SCRIPT_DIR / "start_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-LogsDir",
+            logs_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+        )
+        assert idempotent_start.returncode == 0, idempotent_start.stderr
+        assert json.loads(idempotent_start.stdout)["already_running"] is True
+        assert pid_file.exists()
+
         stop = run_powershell(
             SCRIPT_DIR / "stop_backend.ps1",
             "-Json",
@@ -1053,6 +1153,89 @@ def test_start_backend_tracks_listener_pid_when_launcher_spawns_child(tmp_path: 
         stop_payload = json.loads(stop.stdout)
         assert stop_payload["stopped"] is True
     finally:
+        kill_fake_comfyui_processes(comfyui_root)
+
+
+def test_stop_backend_stops_owned_launcher_after_listener_crashes(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_reexec_main_py(comfyui_root)
+    main_py = comfyui_root / "main.py"
+    main_py.write_text(
+        main_py.read_text(encoding="utf-8").replace("time.sleep(4)", "time.sleep(20)"),
+        encoding="utf-8",
+    )
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    port = reserve_free_port()
+    launcher_process = subprocess.Popen(
+        fake_listening_comfyui_command(comfyui_root, data_root, port)
+    )
+
+    try:
+        wait_for_port(port)
+        check = run_powershell(
+            SCRIPT_DIR / "check_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+        )
+        assert check.returncode == 0, check.stderr
+        listener_pid = json.loads(check.stdout)["listener_pid"]
+        launcher_pid = launcher_process.pid
+        assert listener_pid != launcher_pid
+        (runtime_dir / "comfyui-backend.pid").write_text(
+            str(listener_pid),
+            encoding="ascii",
+        )
+        (runtime_dir / "comfyui-backend.launcher.pid").write_text(
+            str(launcher_pid),
+            encoding="ascii",
+        )
+        write_fake_backend_ownership(
+            comfyui_root=comfyui_root,
+            data_root=data_root,
+            extra_models_config=extra_models_config,
+            runtime_dir=runtime_dir,
+            port=port,
+            backend_pid=listener_pid,
+            launcher_pid=launcher_pid,
+        )
+
+        stop_process_for_test(listener_pid)
+        wait_for_process_exit(listener_pid)
+        assert windows_process_is_running(launcher_pid)
+
+        stop = run_fake_backend_stop(
+            comfyui_root=comfyui_root,
+            data_root=data_root,
+            extra_models_config=extra_models_config,
+            runtime_dir=runtime_dir,
+            port=port,
+        )
+
+        assert stop.returncode == 0, stop.stderr
+        stop_payload = json.loads(stop.stdout)
+        assert stop_payload["stopped"] is True
+        assert stop_payload["reason"] == "process_missing"
+        assert stop_payload["stopped_launcher"] is True
+        wait_for_process_exit(launcher_pid)
+        assert not (runtime_dir / "comfyui-backend.owner.json").exists()
+    finally:
+        if launcher_process.poll() is None:
+            launcher_process.terminate()
+            launcher_process.wait(timeout=10)
         kill_fake_comfyui_processes(comfyui_root)
 
 
@@ -1149,7 +1332,9 @@ def test_start_backend_archives_existing_backend_logs_before_launch(tmp_path: Pa
         kill_fake_comfyui_processes(comfyui_root)
 
 
-def test_stop_backend_stops_listener_when_pid_file_points_to_launcher(tmp_path: Path) -> None:
+def test_stop_backend_preserves_legacy_pid_record_without_ownership_file(
+    tmp_path: Path,
+) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     write_fake_reexec_main_py(comfyui_root)
     runtime_dir = tmp_path / "runtime"
@@ -1200,8 +1385,9 @@ def test_stop_backend_stops_listener_when_pid_file_points_to_launcher(tmp_path: 
         )
         assert stop.returncode == 0, stop.stderr
         payload = json.loads(stop.stdout)
-        assert payload["stopped"] is True
-        assert payload["stopped_listener"] is True
+        assert payload["stopped"] is False
+        assert payload["reason"] == "ownership_record_missing_or_mismatch"
+        assert process.poll() is None
 
         check = run_powershell(
             SCRIPT_DIR / "check_backend.ps1",
@@ -1222,7 +1408,81 @@ def test_stop_backend_stops_listener_when_pid_file_points_to_launcher(tmp_path: 
             str(port),
         )
         assert check.returncode == 0, check.stderr
-        assert json.loads(check.stdout)["listener_present"] is False
+        assert json.loads(check.stdout)["listener_present"] is True
+    finally:
+        kill_fake_comfyui_processes(comfyui_root)
+
+
+def test_stop_backend_preserves_matching_pid_when_creation_time_changed(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_listening_main_py(comfyui_root)
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    port = reserve_free_port()
+    process = start_fake_listening_comfyui(comfyui_root, data_root, port)
+
+    try:
+        (runtime_dir / "comfyui-backend.pid").write_text(
+            str(process.pid),
+            encoding="ascii",
+        )
+        (runtime_dir / "comfyui-backend.launcher.pid").write_text(
+            str(process.pid),
+            encoding="ascii",
+        )
+        write_fake_backend_ownership(
+            comfyui_root=comfyui_root,
+            data_root=data_root,
+            extra_models_config=extra_models_config,
+            runtime_dir=runtime_dir,
+            port=port,
+            backend_pid=process.pid,
+            launcher_pid=process.pid,
+        )
+        ownership_file = runtime_dir / "comfyui-backend.owner.json"
+        ownership = json.loads(ownership_file.read_text(encoding="utf-8-sig"))
+        ownership["backend_creation_time_utc"] = "2000-01-01T00:00:00.0000000Z"
+        ownership_file.write_text(json.dumps(ownership), encoding="utf-8")
+
+        stop = run_fake_backend_stop(
+            comfyui_root=comfyui_root,
+            data_root=data_root,
+            extra_models_config=extra_models_config,
+            runtime_dir=runtime_dir,
+            port=port,
+        )
+
+        assert stop.returncode == 0, stop.stderr
+        payload = json.loads(stop.stdout)
+        assert payload["stopped"] is False
+        assert payload["reason"] == "ownership_record_missing_or_mismatch"
+        assert process.poll() is None
+
+        (runtime_dir / "comfyui-backend.pid").write_text(
+            str(process.pid),
+            encoding="ascii",
+        )
+        (runtime_dir / "comfyui-backend.launcher.pid").write_text(
+            str(process.pid),
+            encoding="ascii",
+        )
+        ownership_file.write_text("{}", encoding="utf-8")
+
+        malformed_stop = run_fake_backend_stop(
+            comfyui_root=comfyui_root,
+            data_root=data_root,
+            extra_models_config=extra_models_config,
+            runtime_dir=runtime_dir,
+            port=port,
+        )
+
+        assert malformed_stop.returncode == 0, malformed_stop.stderr
+        assert json.loads(malformed_stop.stdout)["reason"] == (
+            "ownership_record_missing_or_mismatch"
+        )
+        assert process.poll() is None
     finally:
         kill_fake_comfyui_processes(comfyui_root)
 
@@ -1295,9 +1555,8 @@ def test_stop_backend_does_not_kill_unmanaged_parent_launcher(tmp_path: Path) ->
 
         assert stop.returncode == 0, stop.stderr
         payload = json.loads(stop.stdout)
-        assert payload["stopped"] is True
-        assert payload["stopped_listener"] is True
-        assert payload["stopped_launcher"] is False
+        assert payload["stopped"] is False
+        assert payload["reason"] == "ownership_record_missing_or_mismatch"
         assert launcher.poll() is None
     finally:
         launcher.terminate()
@@ -1307,6 +1566,77 @@ def test_stop_backend_does_not_kill_unmanaged_parent_launcher(tmp_path: Path) ->
             launcher.kill()
             launcher.wait(timeout=10)
         kill_fake_comfyui_processes(comfyui_root)
+
+
+def test_stop_backend_cleans_owned_orphan_and_preserves_external_listener(
+    tmp_path: Path,
+) -> None:
+    owned_dir = tmp_path / "owned"
+    external_dir = tmp_path / "external"
+    owned_dir.mkdir()
+    external_dir.mkdir()
+    owned_root, owned_data, owned_models = make_fake_comfyui(owned_dir)
+    external_root, external_data, _ = make_fake_comfyui(external_dir)
+    write_fake_hanging_main_py(owned_root)
+    write_fake_listening_main_py(external_root)
+    runtime_dir = owned_dir / "runtime"
+    runtime_dir.mkdir()
+    port = reserve_free_port()
+    owned_process = subprocess.Popen(
+        fake_listening_comfyui_command(owned_root, owned_data, port)
+    )
+    external_process = None
+
+    try:
+        (runtime_dir / "comfyui-backend.pid").write_text(
+            str(owned_process.pid),
+            encoding="ascii",
+        )
+        (runtime_dir / "comfyui-backend.launcher.pid").write_text(
+            str(owned_process.pid),
+            encoding="ascii",
+        )
+        write_fake_backend_ownership(
+            comfyui_root=owned_root,
+            data_root=owned_data,
+            extra_models_config=owned_models,
+            runtime_dir=runtime_dir,
+            port=port,
+            backend_pid=owned_process.pid,
+            launcher_pid=owned_process.pid,
+        )
+        external_process = start_fake_listening_comfyui(
+            external_root,
+            external_data,
+            port,
+        )
+
+        stop = run_fake_backend_stop(
+            comfyui_root=owned_root,
+            data_root=owned_data,
+            extra_models_config=owned_models,
+            runtime_dir=runtime_dir,
+            port=port,
+        )
+
+        assert stop.returncode == 0, stop.stderr
+        payload = json.loads(stop.stdout)
+        assert payload["stopped"] is True
+        assert payload["reason"] == "owned_process_stopped_external_listener_preserved"
+        assert payload["preserved_external_listener"] is True
+        owned_process.wait(timeout=10)
+        assert external_process.poll() is None
+        assert not (runtime_dir / "comfyui-backend.pid").exists()
+        assert not (runtime_dir / "comfyui-backend.owner.json").exists()
+    finally:
+        if owned_process.poll() is None:
+            owned_process.terminate()
+            owned_process.wait(timeout=10)
+        if external_process is not None and external_process.poll() is None:
+            external_process.terminate()
+            external_process.wait(timeout=10)
+        kill_fake_comfyui_processes(owned_root)
+        kill_fake_comfyui_processes(external_root)
 
 
 def test_stop_backend_clears_unmanaged_stale_pid_without_listener(tmp_path: Path) -> None:
@@ -1332,7 +1662,7 @@ def test_stop_backend_clears_unmanaged_stale_pid_without_listener(tmp_path: Path
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["stopped"] is False
-    assert payload["reason"] == "pid_file_points_to_unmanaged_process_without_listener"
+    assert payload["reason"] == "pid_file_points_to_unmanaged_process"
     assert not pid_file.exists()
     assert not launcher_pid_file.exists()
 

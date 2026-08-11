@@ -548,6 +548,103 @@ async def test_core_stop_idle_managed_comfyui_backends_uses_recent_roles_when_av
 
 
 @pytest.mark.asyncio
+async def test_core_stop_idle_backends_preserves_external_process_and_executor():
+    close_calls = []
+
+    class _Backend:
+        def can_manage(self):
+            return True
+
+        async def stop(self, *, reason):
+            return SimpleNamespace(
+                payload={
+                    "stopped": False,
+                    "skipped": True,
+                    "reason": "external_backend_not_owned",
+                }
+            )
+
+    class _Registry:
+        config = SimpleNamespace(
+            workflow_routing=SimpleNamespace(
+                image="default",
+                tts="default",
+                default="default",
+            ),
+            backends={"default": SimpleNamespace(url="http://127.0.0.1:8000")},
+        )
+
+        def profile(self, role):
+            return self.config.backends[role]
+
+        def managed_backend(self, role):
+            return _Backend()
+
+    core = PixelleVideoCore()
+    core._get_comfyui_backend_registry = lambda: _Registry()
+    core._recent_local_comfyui_backend_roles = {"default": None}
+
+    async def _close_comfykit_instance(role=None):
+        close_calls.append(role)
+
+    core._close_comfykit_instance = _close_comfykit_instance
+
+    stopped = await core._stop_idle_managed_comfyui_backends(reason="test")
+
+    assert stopped == []
+    assert close_calls == []
+    assert core._recent_local_comfyui_backend_roles == {}
+
+
+@pytest.mark.asyncio
+async def test_core_stop_idle_backends_cleans_orphan_without_closing_external_executor():
+    close_calls = []
+
+    class _Backend:
+        def can_manage(self):
+            return True
+
+        async def stop(self, *, reason):
+            return SimpleNamespace(
+                payload={
+                    "stopped": True,
+                    "preserved_external_listener": True,
+                }
+            )
+
+    class _Registry:
+        config = SimpleNamespace(
+            workflow_routing=SimpleNamespace(
+                image="default",
+                tts="default",
+                default="default",
+            ),
+            backends={"default": SimpleNamespace(url="http://127.0.0.1:8000")},
+        )
+
+        def profile(self, role):
+            return self.config.backends[role]
+
+        def managed_backend(self, role):
+            return _Backend()
+
+    core = PixelleVideoCore()
+    core._get_comfyui_backend_registry = lambda: _Registry()
+    core._recent_local_comfyui_backend_roles = {"default": None}
+
+    async def _close_comfykit_instance(role=None):
+        close_calls.append(role)
+
+    core._close_comfykit_instance = _close_comfykit_instance
+
+    stopped = await core._stop_idle_managed_comfyui_backends(reason="test")
+
+    assert stopped == []
+    assert close_calls == []
+    assert core._recent_local_comfyui_backend_roles == {}
+
+
+@pytest.mark.asyncio
 async def test_core_generate_video_normalizes_storyboard_contract_for_standard_pipeline():
     captured = {}
 
@@ -3832,6 +3929,75 @@ async def test_release_comfyui_after_local_workflow_releases_models_after_batch(
 
 
 @pytest.mark.asyncio
+async def test_release_comfyui_after_local_workflow_preserves_external_backend(monkeypatch):
+    core = PixelleVideoCore()
+
+    class _ExternalBackend:
+        management_mode = "auto"
+
+        async def inspect_state(self, *, reason):
+            return SimpleNamespace(ownership="external", pid_file_present=False)
+
+    async def fail_restart(backend_role, reason):
+        raise AssertionError(f"external backend must not restart: {backend_role} {reason}")
+
+    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    monkeypatch.setattr(
+        core,
+        "_get_comfyui_backend_controller",
+        lambda backend_role="default": _ExternalBackend(),
+    )
+    monkeypatch.setattr(core, "_restart_comfyui_backend_role", fail_restart)
+
+    assert await core.release_comfyui_after_local_workflow() is True
+
+
+@pytest.mark.asyncio
+async def test_release_preserves_backend_when_auto_ownership_inspection_fails(monkeypatch):
+    core = PixelleVideoCore()
+
+    class _UninspectableBackend:
+        management_mode = "auto"
+
+        async def inspect_state(self, *, reason):
+            raise PermissionError(f"process inspection denied: {reason}")
+
+    async def fail_restart(backend_role, reason):
+        raise AssertionError(f"unverified backend must not restart: {backend_role} {reason}")
+
+    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    monkeypatch.setattr(
+        core,
+        "_get_comfyui_backend_controller",
+        lambda backend_role="default": _UninspectableBackend(),
+    )
+    monkeypatch.setattr(core, "_restart_comfyui_backend_role", fail_restart)
+
+    assert await core.release_comfyui_after_local_workflow() is True
+
+
+@pytest.mark.asyncio
+async def test_release_fails_when_required_ownership_inspection_fails(monkeypatch):
+    core = PixelleVideoCore()
+
+    class _UninspectableBackend:
+        management_mode = "required"
+
+        async def inspect_state(self, *, reason):
+            raise PermissionError(f"process inspection denied: {reason}")
+
+    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    monkeypatch.setattr(
+        core,
+        "_get_comfyui_backend_controller",
+        lambda backend_role="default": _UninspectableBackend(),
+    )
+
+    with pytest.raises(RuntimeError, match="strict backend management is required"):
+        await core.release_comfyui_after_local_workflow()
+
+
+@pytest.mark.asyncio
 async def test_release_comfyui_after_local_workflow_logs_managed_restart_result(monkeypatch):
     log_events = []
 
@@ -4030,7 +4196,7 @@ async def test_index_tts2_release_preflight_runs_in_comfyui_cleanup_mode(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_prepare_comfyui_for_local_workflow_starts_backend_then_cleans_queue(monkeypatch):
+async def test_prepare_comfyui_for_local_workflow_ensures_backend_then_inspects_queue(monkeypatch):
     events = []
 
     class _Client:
@@ -4045,8 +4211,8 @@ async def test_prepare_comfyui_for_local_workflow_starts_backend_then_cleans_que
         ):
             events.append(("client", base_url, api_key, idle_wait_timeout))
 
-        async def cleanup_before_generation(self):
-            events.append(("cleanup",))
+        async def inspect_queue_before_generation(self):
+            events.append(("inspect_queue",))
 
         async def free_memory_with_extensions(
             self,
@@ -4086,7 +4252,7 @@ async def test_prepare_comfyui_for_local_workflow_starts_backend_then_cleans_que
     assert events == [
         ("ensure_backend", "default", "pre-workflow"),
         ("client", "http://127.0.0.1:8000", "secret", 20.0),
-        ("cleanup",),
+        ("inspect_queue",),
     ]
 
 

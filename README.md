@@ -419,12 +419,12 @@ Copy-Item .\config.example.yaml .\config.yaml
 | `data_root` | Pixelle 专用输入、输出、用户数据目录 | 建议与其他 ComfyUI 实例隔离 |
 | `shared_base_path` | 多个工作流共享的模型与自定义节点根目录 | 必须与 `data_root` 分开配置；通常是 `data_root` 的父目录 |
 | `database_url` | Pixelle 专用 ComfyUI 数据库 | 应指向 `data_root/user/comfyui.db` |
-| `runtime_dir` | 托管进程 PID 文件目录 | 使用项目内独立目录 |
+| `runtime_dir` | 托管进程号与所有权凭证目录 | 使用项目内独立目录 |
 | `logs_dir` | 后端日志目录 | 使用项目内独立目录 |
 
 `runtime_dir` 和 `logs_dir` 等相对路径以 `--config` 指定的配置文件所在目录为基准，不以脚本安装目录或当前工作树为基准。这样从其他目录执行管理命令时，进程状态和日志仍归属于同一个项目。
 
-`backend_management_mode: auto`、`managed: true` 和本机地址同时满足时，Pixelle 才会自动启动、停止和重启该后端。远程 ComfyUI、RunningHub 或其他云端工作流不会触发本地后端启动。
+`backend_management_mode: auto` 会优先健康检查并复用配置地址上已经运行的 ComfyUI；只有地址不可用、`managed: true` 且本机支持托管时，Pixelle 才启动新进程。复用的外部进程不会被 Pixelle 停止或重启。`required` 只接受 Pixelle 拥有的进程；`disabled` 只连接外部进程。远程 ComfyUI、RunningHub 或其他云端工作流不会触发本地后端启动。
 
 ##### 4. 推荐启动方式：先预启动后端，再启动项目
 
@@ -451,7 +451,7 @@ uv run python -m scripts.comfyui.backend_cli check
 uv run python -m scripts.comfyui.backend_cli stop
 ```
 
-启动脚本是幂等的：托管后端已经在 `8000` 端口运行时，脚本会报告 `already_running`，不会再创建第二个实例。
+启动脚本是幂等的：Pixelle 拥有的托管后端已经在 `8000` 端口运行时，脚本会报告 `already_running`，不会再创建第二个实例。该底层脚本不会接管外部进程；日常生成入口会在调用脚本前完成健康检查并安全复用兼容的外部 ComfyUI。
 
 确认后端启动后，再启动 Pixelle：
 
@@ -477,12 +477,13 @@ uv run python -m scripts.comfyui.backend_cli stop
 随后在 Web UI 提交本地图片或 TTS 任务。任务执行前，Pixelle 会：
 
 1. 等待同一后端上正在进行的重启结束。
-2. 检查 `8000` 端口和托管进程状态。
-3. 后端未运行时调用 `scripts\comfyui\start_backend.ps1`。
-4. 等待后端开始监听，再清理生成前残留状态。
-5. 把图片或 TTS 工作流提交给同一个 `default` 后端。
+2. 通过 `/system_stats` 验证配置地址确实是健康的 ComfyUI，而不是只判断端口被占用。
+3. 健康后端已经运行时直接复用；后端不可用且允许托管时才调用 `scripts\comfyui\start_backend.ps1`。
+4. 新进程必须通过接口健康检查后才接收工作流。
+5. 只观察现有队列，不中断运行任务，也不清空其他客户端的等待任务。
+6. 把图片或 TTS 工作流提交给同一个 `default` 后端。
 
-如果后端已经运行，Pixelle 会直接复用它。自动启动失败时，当前生成任务会明确失败并在日志中记录原因，不会静默切换到未知端口或创建第二个实例。
+如果兼容后端已经运行，Pixelle 会直接复用它；生成记录仍出现在同一个 ComfyUI 队列和历史中。端口被非 ComfyUI 服务占用、健康契约不完整或自动启动失败时，当前生成任务会明确失败并记录原因，不会静默切换端口或创建第二个实例。
 
 ##### 6. 任务完成后的自动重启
 
@@ -492,7 +493,7 @@ uv run python -m scripts.comfyui.backend_cli stop
 restart_after_batch: true
 ```
 
-这表示每批本地工作流完成后，Pixelle 会重启共享 ComfyUI，以释放 GPU 显存和 CPU 内存。重启期间，新任务会等待后端重新就绪。因此看到 ComfyUI 的进程 PID 在任务后变化属于正常行为，并不代表服务崩溃。
+这表示每批本地工作流完成后，Pixelle 会重启自己启动并拥有的 ComfyUI，以释放 GPU 显存和 CPU 内存。外部启动并被复用的 ComfyUI 不会被重启、停止或清空队列。重启期间，新任务会等待后端重新就绪。因此只有 Pixelle 托管进程的 PID 在任务后变化属于正常行为。
 
 如果显存充足并且更重视连续任务速度，可以改为：
 
@@ -544,7 +545,7 @@ Windows 用户也可以双击：
 scripts\comfyui\check_backend.bat
 ```
 
-输出中应当包含 `127.0.0.1:8000` 和 `managed=True`。也可以直接执行健康检查：
+输出中应当包含 `127.0.0.1:8000`。Pixelle 自己启动的进程显示 `managed=True`，安全复用的外部进程显示 `managed=False`。也可以直接执行健康检查：
 
 ```powershell
 Invoke-RestMethod 'http://127.0.0.1:8000/system_stats'
@@ -567,7 +568,7 @@ Windows 用户也可以双击：
 scripts\comfyui\stop_backend.bat
 ```
 
-停止脚本只会停止命令行、端口、数据目录和 PID 记录均匹配的 Pixelle 托管进程。`8000` 端口属于其他程序时，脚本会拒绝误杀该进程。
+停止脚本只会停止进程号、进程创建时间、命令行、端口和数据目录均匹配所有权凭证的 Pixelle 托管进程。即使外部进程的命令行和目录完全相同，只要没有 Pixelle 创建的有效所有权凭证，脚本也不会终止它。
 
 停止 Web UI 和 Pixelle API 时，在 `start_web.bat` 所在终端按 `Ctrl+C` 或关闭该终端。监督器会同时清理两个受管子进程。手动分开启动时，在各自终端中按 `Ctrl+C`。
 
@@ -581,6 +582,7 @@ scripts\comfyui\stop_backend.bat
 | 错误日志 | `logs/comfyui/comfyui-backend.stderr.log` |
 | 后端 PID | `_runtime/comfyui/comfyui-backend.pid` |
 | 启动器 PID | `_runtime/comfyui/comfyui-backend.launcher.pid` |
+| 进程所有权凭证 | `_runtime/comfyui/comfyui-backend.owner.json` |
 | 图片与音频输出 | 配置的 `data_root/output` |
 | ComfyUI 用户数据和数据库 | 配置的 `data_root/user` |
 | HyperFrames 桥接标准输出 | 每个任务的 `hyperframes/logs/hyperframes_bridge.stdout.log` |
@@ -593,12 +595,13 @@ scripts\comfyui\stop_backend.bat
 | 现象 | 原因 | 处理方式 |
 | ---- | ---- | ---- |
 | `-File` 参数指向的脚本不存在 | 当前目录不是项目根目录 | 执行 `Test-Path .\start_web.bat`，再进入真正的仓库目录 |
-| `8000` 已被占用 | ComfyUI Desktop 或其他进程正在监听 | 先运行检查脚本；关闭冲突进程，不要同时启动两个 ComfyUI |
+| `8000` 已被占用 | ComfyUI Desktop 或其他进程正在监听 | 健康兼容的 ComfyUI 会被直接复用；非 ComfyUI 服务会被拒绝并明确报错 |
 | 启动后 90 秒仍未监听 | Python、ComfyUI 路径、依赖或自定义节点加载失败 | 查看 `logs/comfyui/comfyui-backend.stderr.log` |
 | Web UI 能打开但操作失败 | 手动分开启动时 Pixelle API 未启动 | 使用 `start_web.bat` 统一监督，或检查 `/health` |
 | 启动器报告端口已占用 | 旧进程或其他程序正在监听目标端口 | 关闭占用进程，或同时修改 `PIXELLE_API_PORT` / `PIXELLE_WEB_PORT` |
 | 图片或语音节点不存在 | 更新后自定义节点未安装、被禁用或导入失败 | 查看 ComfyUI 启动日志并修复对应节点依赖 |
-| 任务结束后进程 PID 变化 | `restart_after_batch: true` 正在释放内存 | 无需处理，等待后端重新就绪 |
+| 任务结束后进程 PID 变化 | Pixelle 拥有的进程启用了 `restart_after_batch: true` | 无需处理，等待后端重新就绪；外部进程不会被重启 |
+| 升级后 `required` 拒绝旧托管进程 | 旧版本没有进程创建时间所有权凭证 | 手动关闭旧进程，再由当前版本启动一次；`auto` 会安全复用但不会接管旧进程 |
 | 云端工作流没有启动本地 ComfyUI | 云端执行不使用本地后端 | 这是正常行为；只有 `selfhost` 本地工作流使用 `8000` |
 
 旧式双后端入口保留为升级兼容转发，图片与语音仍只通过同一个共享后端运行，不会创建第二个实例。

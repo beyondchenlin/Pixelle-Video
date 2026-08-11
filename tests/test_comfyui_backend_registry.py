@@ -153,17 +153,17 @@ async def test_core_maintenance_path_uses_registry_client_factory(monkeypatch):
     core = PixelleVideoCore()
 
     class _Client:
-        async def cleanup_before_generation(self):
-            calls.append(("cleanup",))
+        async def inspect_queue_before_generation(self):
+            calls.append(("inspect_queue",))
 
     class _Backend:
-        def can_manage(self):
-            calls.append(("can_manage",))
-            return True
-
-        async def start(self, *, reason):
-            calls.append(("start", reason))
-            return SimpleNamespace(payload={"already_running": True})
+        async def ensure_ready(self, *, reason):
+            calls.append(("ensure_ready", reason))
+            return SimpleNamespace(
+                started=False,
+                reused_existing=True,
+                ownership="external",
+            )
 
     class _Registry:
         def managed_backend(self, role):
@@ -180,8 +180,7 @@ async def test_core_maintenance_path_uses_registry_client_factory(monkeypatch):
 
     assert calls == [
         ("managed", "default"),
-        ("can_manage",),
-        ("start", "pre-workflow"),
+        ("ensure_ready", "pre-workflow"),
         ("registry", "default"),
-        ("cleanup",),
+        ("inspect_queue",),
     ]
