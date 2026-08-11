@@ -50,7 +50,7 @@ from pixelle_video.services.analysis_trace_artifacts import (
     write_analysis_workflow_result_artifact,
 )
 from pixelle_video.services.audio_edit_service import AudioEditService
-from pixelle_video.services.comfyui_backend_manager import ManagedComfyUIBackend
+from pixelle_video.services.comfyui_backend_manager import ComfyUIBackendController
 from pixelle_video.services.comfyui_backend_registry import ComfyUIBackendRegistry
 from pixelle_video.services.comfyui_errors import (
     looks_like_backend_connection_loss,
@@ -1536,7 +1536,7 @@ class PixelleVideoCore:
                     )
             self._comfyui_restart_tasks.pop(role, None)
 
-        self._mark_local_comfyui_released(backend_role=role)
+        self._settle_local_comfyui_release_request(backend_role=role)
         task = asyncio.create_task(
             self._scheduled_backend_restart(role, reason)
         )
@@ -1574,7 +1574,7 @@ class PixelleVideoCore:
             if self._comfyui_restart_tasks.get(role) is task and task.done():
                 self._comfyui_restart_tasks.pop(role, None)
 
-    async def _ensure_comfyui_backend_started(
+    async def _ensure_comfyui_backend_ready(
         self,
         backend_role: str,
         *,
@@ -1583,30 +1583,38 @@ class PixelleVideoCore:
         role = self._normalize_comfyui_backend_role(backend_role)
         await self.await_comfyui_backend_ready(role)
         backend = self._get_managed_comfyui_backend(role)
-        if backend is None or not backend.can_manage():
-            return
+        if backend is None:
+            raise RuntimeError(f"ComfyUI backend profile '{role}' has no configured endpoint")
 
         try:
-            result = await backend.start(reason=reason)
+            result = await backend.ensure_ready(reason=reason)
         except Exception as e:
             detail = str(e).strip() or repr(e) or type(e).__name__
             raise RuntimeError(
-                f"ComfyUI backend '{role}' could not be started before local "
+                f"ComfyUI backend '{role}' could not be prepared before local "
                 f"workflow ({type(e).__name__}): {detail}"
             ) from e
 
-        payload = result.payload or {}
-        if payload.get("started"):
+        if result.started:
             logger.info(
-                f"Pixelle-managed ComfyUI backend '{role}' started before local workflow; "
+                f"Pixelle-owned ComfyUI backend '{role}' started before local workflow; "
                 "closing stale ComfyKit executors"
             )
             await self._close_comfykit_instance(role)
-        elif payload.get("already_running"):
+        elif result.reused_existing:
             logger.debug(
-                f"Pixelle-managed ComfyUI backend '{role}' is already running "
-                "before local workflow"
+                f"ComfyUI backend '{role}' is already ready before local workflow; "
+                f"ownership={result.ownership}"
             )
+
+    async def _ensure_comfyui_backend_started(
+        self,
+        backend_role: str,
+        *,
+        reason: str,
+    ) -> None:
+        """Backward-compatible alias for callers using the old lifecycle name."""
+        await self._ensure_comfyui_backend_ready(backend_role, reason=reason)
     
     def _compute_comfykit_config_hash(self, config: dict) -> str:
         """
@@ -1974,7 +1982,10 @@ class PixelleVideoCore:
                 continue
             endpoint = self._comfyui_backend_endpoint_key(profile.url)
 
-            backend = registry.managed_backend(normalized_role)
+            controller_factory = getattr(registry, "backend_controller", None)
+            if not callable(controller_factory):
+                controller_factory = registry.managed_backend
+            backend = controller_factory(normalized_role)
             if backend is None or not backend.can_manage():
                 continue
             if endpoint in seen_endpoints:
@@ -2001,12 +2012,27 @@ class PixelleVideoCore:
                     continue
 
                 payload = result.payload or {}
-                if payload.get("requires_manual_restart"):
+                if payload.get("preserved_external_listener"):
+                    if payload.get("stopped"):
+                        logger.info(
+                            "Cleaned a Pixelle-owned orphan process while preserving the "
+                            f"external ComfyUI listener for role '{normalized_role}'"
+                        )
+                        processed_roles.add(normalized_role)
+                    else:
+                        logger.warning(
+                            "Pixelle-owned orphan cleanup was not confirmed; the external "
+                            f"ComfyUI listener remains preserved for role '{normalized_role}'"
+                        )
+                    continue
+                if not payload.get("stopped"):
                     logger.warning(
-                        "Skipping Pixelle-managed ComfyUI backend stop after "
-                        f"generation for role '{normalized_role}'; backend is not "
-                        f"owned by Pixelle: {payload}"
+                        "Skipping ComfyUI backend stop after generation for role "
+                        f"'{normalized_role}'; Pixelle does not own a running backend: "
+                        f"{payload}"
                     )
+                    if payload.get("reason") == "external_backend_not_owned":
+                        processed_roles.add(normalized_role)
                     continue
 
                 processed_roles.add(normalized_role)
@@ -2102,11 +2128,11 @@ class PixelleVideoCore:
             return
 
         try:
-            await client.cleanup_before_generation()
+            await client.inspect_queue_before_generation()
         except Exception as e:
             detail = str(e).strip() or repr(e) or type(e).__name__
             raise RuntimeError(
-                "ComfyUI pre-workflow cleanup failed "
+                "ComfyUI pre-workflow queue inspection failed "
                 f"({type(e).__name__}): {detail}"
             ) from e
 
@@ -2117,16 +2143,26 @@ class PixelleVideoCore:
             return "auto"
         return mode
 
-    def _get_managed_comfyui_backend(
+    def _get_comfyui_backend_controller(
         self,
         backend_role: str = "default",
-    ) -> ManagedComfyUIBackend | None:
+    ) -> ComfyUIBackendController | None:
         role = self._normalize_comfyui_backend_role(backend_role)
         registry = self._get_comfyui_backend_registry()
         try:
+            controller_factory = getattr(registry, "backend_controller", None)
+            if callable(controller_factory):
+                return controller_factory(role)
             return registry.managed_backend(role)
         except ValueError:
             return None
+
+    def _get_managed_comfyui_backend(
+        self,
+        backend_role: str = "default",
+    ) -> ComfyUIBackendController | None:
+        """Backward-compatible alias for the runtime ownership-aware controller."""
+        return self._get_comfyui_backend_controller(backend_role)
 
     def _restart_after_batch_for_role(self, backend_role: str) -> bool:
         role = self._normalize_comfyui_backend_role(backend_role)
@@ -2149,6 +2185,60 @@ class PixelleVideoCore:
             )
             await self._close_comfykit_instance(role)
         return restarted
+
+    async def _preserve_external_comfyui_backend(
+        self,
+        backend_role: str,
+        *,
+        reason: str,
+    ) -> bool:
+        """Return True when lifecycle ownership belongs to another process manager."""
+        role = self._normalize_comfyui_backend_role(backend_role)
+        backend = self._get_comfyui_backend_controller(role)
+        if backend is None:
+            return True
+        management_mode = str(getattr(backend, "management_mode", "auto")).lower()
+        try:
+            state = await backend.inspect_state(reason=reason)
+        except Exception as exc:
+            if management_mode == "required":
+                raise RuntimeError(
+                    "ComfyUI process ownership could not be verified while strict backend "
+                    f"management is required for role '{role}': {exc}"
+                ) from exc
+            logger.warning(
+                "Preserving the ComfyUI backend because process ownership inspection "
+                f"failed; role='{role}', reason='{reason}', error='{exc}'"
+            )
+            return True
+        if state.ownership not in {"external", "unknown"}:
+            return False
+        if management_mode == "required":
+            raise RuntimeError(
+                "ComfyUI lifecycle control is required, but Pixelle does not own the "
+                f"running backend for role '{role}'"
+            )
+        if state.ownership == "external" and bool(
+            getattr(state, "pid_file_present", False)
+        ):
+            try:
+                cleanup = await backend.stop(reason=f"{reason}:clean-owned-orphan")
+            except Exception as exc:
+                logger.warning(
+                    "Could not clean a separately recorded Pixelle-owned ComfyUI process; "
+                    f"the external listener remains untouched for role '{role}': {exc}"
+                )
+            else:
+                if cleanup.payload.get("stopped"):
+                    logger.info(
+                        "Stopped a separately recorded Pixelle-owned ComfyUI process while "
+                        f"preserving the external listener for role '{role}'"
+                    )
+        logger.info(
+            "Preserving externally managed ComfyUI backend without restart or stop; "
+            f"role='{role}', reason='{reason}', ownership='{state.ownership}'"
+        )
+        return True
 
     async def restart_managed_comfyui_backend(
         self,
@@ -2286,7 +2376,14 @@ class PixelleVideoCore:
                 f"[MEMORY_RELEASE] Skipping ComfyUI backend restart for '{backend_role}' "
                 f"(extensions: {extensions}) — restart_after_batch=False, keeping backend alive"
             )
-            self._mark_local_comfyui_released(backend_role=backend_role)
+            self._settle_local_comfyui_release_request(backend_role=backend_role)
+            return True
+
+        if await self._preserve_external_comfyui_backend(
+            backend_role,
+            reason=f"{context} memory release",
+        ):
+            self._settle_local_comfyui_release_request(backend_role=backend_role)
             return True
 
         logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' (extensions: {extensions}) to release GPU memory...")
@@ -2304,7 +2401,7 @@ class PixelleVideoCore:
                     f"ComfyUI {context} memory release was not confirmed for "
                     f"backend '{backend_role}'"
                 )
-            self._mark_local_comfyui_released(backend_role=backend_role)
+            self._settle_local_comfyui_release_request(backend_role=backend_role)
             return True
         except Exception as e:
             logger.error(f"[MEMORY_RELEASE] Failed to restart ComfyUI backend '{backend_role}': {e}")
@@ -2328,7 +2425,14 @@ class PixelleVideoCore:
                 f"[MEMORY_RELEASE] Skipping ComfyUI backend restart for '{backend_role}' "
                 "(post-workflow) — restart_after_batch=False, keeping backend alive"
             )
-            self._mark_local_comfyui_released(backend_role=backend_role)
+            self._settle_local_comfyui_release_request(backend_role=backend_role)
+            return True
+
+        if await self._preserve_external_comfyui_backend(
+            backend_role,
+            reason="post-workflow memory release",
+        ):
+            self._settle_local_comfyui_release_request(backend_role=backend_role)
             return True
 
         logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' (post-workflow) to release GPU memory...")
@@ -2346,7 +2450,7 @@ class PixelleVideoCore:
                     "ComfyUI post-workflow memory release was not confirmed "
                     f"for backend '{backend_role}'"
                 )
-            self._mark_local_comfyui_released(backend_role=backend_role)
+            self._settle_local_comfyui_release_request(backend_role=backend_role)
             return True
         except Exception as e:
             logger.error(f"[MEMORY_RELEASE] Failed to restart ComfyUI backend '{backend_role}': {e}")
@@ -2369,7 +2473,14 @@ class PixelleVideoCore:
                 f"[MEMORY_RELEASE] Skipping ComfyUI backend restart for '{backend_role}' "
                 "(post-task) — restart_after_batch=False, keeping backend alive"
             )
-            self._mark_local_comfyui_released(backend_role=backend_role)
+            self._settle_local_comfyui_release_request(backend_role=backend_role)
+            return True
+
+        if await self._preserve_external_comfyui_backend(
+            backend_role,
+            reason="post-task memory release",
+        ):
+            self._settle_local_comfyui_release_request(backend_role=backend_role)
             return True
 
         async with self._local_comfyui_accelerator_operation(
@@ -2388,7 +2499,7 @@ class PixelleVideoCore:
                             "ComfyUI post-task memory release was not confirmed "
                             f"for backend '{backend_role}'"
                         )
-                    self._mark_local_comfyui_released(backend_role=backend_role)
+                    self._settle_local_comfyui_release_request(backend_role=backend_role)
                     return True
                 except Exception as e:
                     logger.error(f"[MEMORY_RELEASE] Failed to restart ComfyUI backend '{backend_role}': {e}")
@@ -2426,7 +2537,10 @@ class PixelleVideoCore:
             missing_endpoint=missing_endpoint,
         )
 
-    def _mark_local_comfyui_released(self, *, backend_role: str = "default") -> None:
+    def _settle_local_comfyui_release_request(
+        self, *, backend_role: str = "default"
+    ) -> None:
+        """Clear pending lifecycle work without claiming that memory was released."""
         scope = self._local_comfyui_task_scope.get()
         if scope is not None:
             role_state = scope.state_for(
@@ -2434,6 +2548,10 @@ class PixelleVideoCore:
             )
             role_state.pending_memory_release = False
             role_state.pending_extensions.clear()
+
+    def _mark_local_comfyui_released(self, *, backend_role: str = "default") -> None:
+        """Backward-compatible alias for the former lifecycle method name."""
+        self._settle_local_comfyui_release_request(backend_role=backend_role)
 
     def _workflow_extensions(self, workflow_input: Any) -> tuple[ComfyUIExtensionName, ...]:
         extensions: list[ComfyUIExtensionName] = []
@@ -2575,7 +2693,7 @@ class PixelleVideoCore:
                 backend_role=role
             )
             if released:
-                self._mark_local_comfyui_released(backend_role=role)
+                self._settle_local_comfyui_release_request(backend_role=role)
             return released
         if extensions == ("indextts2",):
             released = await self.release_comfyui_after_index_tts2_workflow(
@@ -2584,7 +2702,7 @@ class PixelleVideoCore:
                 missing_endpoint=missing_endpoint,
             )
             if released:
-                self._mark_local_comfyui_released(backend_role=role)
+                self._settle_local_comfyui_release_request(backend_role=role)
             return released
         if len(extensions) == 1:
             suffix = _EXTENSION_RELEASE_CONTEXTS[extensions[0]]
@@ -2599,7 +2717,7 @@ class PixelleVideoCore:
             missing_endpoint=missing_endpoint,
         )
         if released:
-            self._mark_local_comfyui_released(backend_role=role)
+            self._settle_local_comfyui_release_request(backend_role=role)
         return released
 
     async def _release_local_comfyui_after_workflow_session(
@@ -2629,7 +2747,9 @@ class PixelleVideoCore:
                         missing_endpoint=session.missing_endpoint,
                     )
                     if released:
-                        self._mark_local_comfyui_released(backend_role=session.backend_role)
+                        self._settle_local_comfyui_release_request(
+                            backend_role=session.backend_role
+                        )
                 except Exception:
                     scope = self._local_comfyui_task_scope.get()
                     if scope is not None:

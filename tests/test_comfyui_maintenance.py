@@ -95,19 +95,20 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
 
 
 @pytest.mark.asyncio
-async def test_force_cleanup_is_noop_when_queue_is_idle():
+async def test_pre_generation_queue_inspection_is_non_destructive_when_idle():
     transport = _RecordingTransport()
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
 
-    await client.cleanup_before_generation()
+    state = await client.cleanup_before_generation()
 
+    assert state.busy is False
     assert transport.calls == [
         ("GET", "/queue", None),
     ]
 
 
 @pytest.mark.asyncio
-async def test_force_cleanup_interrupts_busy_queue_and_waits_for_idle():
+async def test_pre_generation_queue_inspection_preserves_busy_foreign_queue():
     transport = _RecordingTransport(
         queue_payloads=[
             {"queue_running": [["running"]], "queue_pending": [["pending"]]},
@@ -116,12 +117,12 @@ async def test_force_cleanup_interrupts_busy_queue_and_waits_for_idle():
     )
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
 
-    await client.cleanup_before_generation()
+    state = await client.inspect_queue_before_generation()
 
+    assert state.running == 1
+    assert state.pending == 1
+    assert state.busy is True
     assert transport.calls == [
-        ("GET", "/queue", None),
-        ("POST", "/interrupt", {}),
-        ("POST", "/queue", {"clear": True}),
         ("GET", "/queue", None),
     ]
 
@@ -143,7 +144,7 @@ async def test_force_cleanup_times_out_when_queue_never_goes_idle(monkeypatch):
     monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
 
     with pytest.raises(TimeoutError, match="Timed out waiting for ComfyUI queue to become idle"):
-        await client.cleanup_before_generation()
+        await client.force_cleanup()
 
     assert transport.calls[:3] == [
         ("GET", "/queue", None),
@@ -152,6 +153,52 @@ async def test_force_cleanup_times_out_when_queue_never_goes_idle(monkeypatch):
     ]
     assert len(transport.calls) > 3
     assert all(call[:2] == ("GET", "/queue") for call in transport.calls[3:])
+
+
+@pytest.mark.asyncio
+async def test_probe_backend_requires_comfyui_system_contract():
+    healthy_transport = _RecordingTransport(
+        system_stats_payloads=[{"system": {"comfyui_version": "0.31.0"}, "devices": []}]
+    )
+    healthy_client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=healthy_transport,
+    )
+
+    health = await healthy_client.probe_backend()
+
+    assert health["system"]["comfyui_version"] == "0.31.0"
+
+    incompatible_client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=_RecordingTransport(system_stats_payloads=[{"devices": []}]),
+    )
+    with pytest.raises(RuntimeError, match="required system object"):
+        await incompatible_client.probe_backend()
+
+
+@pytest.mark.asyncio
+async def test_probe_backend_uses_normal_request_timeout_not_snapshot_timeout():
+    calls = []
+
+    class _Client(ComfyUIMaintenanceClient):
+        async def _request(self, method, path, **kwargs):
+            calls.append((method, path, kwargs.get("timeout")))
+            return httpx.Response(
+                200,
+                json={"system": {"comfyui_version": "0.31.0"}},
+                request=httpx.Request(method, f"http://127.0.0.1:8000{path}"),
+            )
+
+    client = _Client(
+        "http://127.0.0.1:8000",
+        timeout=7.5,
+        system_stats_timeout=0.25,
+    )
+
+    await client.probe_backend()
+
+    assert calls == [("GET", "/system_stats", 7.5)]
 
 
 @pytest.mark.asyncio

@@ -35,50 +35,19 @@ $config = Resolve-PixelleComfyUIBackendConfig `
 $pidFile = Get-BackendPidFile $config
 $launcherPidFile = Get-BackendLauncherPidFile $config
 $listener = Get-BackendListener $config
-$script:StoppedMatchingBackendListener = $false
-
-function Stop-MatchingBackendListenerForReason {
-    param(
-        [object]$Listener,
-        [string]$Reason,
-        [Nullable[int]]$ManagedPid = $null,
-        [Nullable[int]]$LauncherPid = $null
-    )
-
-    $listenerPid = $null
-    $script:StoppedMatchingBackendListener = $false
-    if ($Listener) {
-        $listenerPid = [int]$Listener.OwningProcess
-        if (Test-ManagedComfyUIProcess $config $listenerPid) {
-            Stop-ManagedComfyUIProcess $config $listenerPid | Out-Null
-            Remove-BackendPidFiles $config
-            $payload = [ordered]@{
-                stopped = $true
-                reason = $Reason
-                pid = $ManagedPid
-                listener_pid = $listenerPid
-                stopped_listener = $true
-                launcher_pid = $LauncherPid
-                stopped_launcher = $false
-                pid_file = $pidFile
-                launcher_pid_file = $launcherPidFile
-            }
-            $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
-            Write-BackendMessage -Json:$Json -Payload $payload -Message "Stopped matching ComfyUI backend listener PID $listenerPid ($Reason)."
-            $script:StoppedMatchingBackendListener = $true
-            return
-        }
-    }
+$managedPid = Read-BackendPid $config
+$launcherPid = Read-BackendLauncherPid $config
+if (-not $managedPid) {
+    $managedPid = Get-BackendOwnedProcessId $config 'backend'
+}
+if (-not $launcherPid) {
+    $launcherPid = Get-BackendOwnedProcessId $config 'launcher'
 }
 
-if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf)) {
+if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf) -and -not $managedPid) {
     $listenerPid = $null
     if ($listener) {
         $listenerPid = [int]$listener.OwningProcess
-        Stop-MatchingBackendListenerForReason -Listener $listener -Reason 'matching_listener_without_pid_file'
-        if ($script:StoppedMatchingBackendListener) {
-            exit 0
-        }
     }
 
     $payload = [ordered]@{
@@ -93,14 +62,19 @@ if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf)) {
     exit 0
 }
 
-$managedPid = Read-BackendPid $config
-$launcherPid = Read-BackendLauncherPid $config
+$launcherInfo = $null
+$launcherIsManagedBackend = $false
+if ($launcherPid -and $launcherPid -ne $managedPid) {
+    $launcherInfo = Get-ProcessInfo $launcherPid
+    if ($launcherInfo) {
+        $launcherIsManagedBackend = [bool](
+            (Test-ManagedComfyUIProcess $config $launcherPid) -and
+            (Test-BackendProcessOwnership $config $launcherPid 'launcher')
+        )
+    }
+}
 if (-not $managedPid) {
     Remove-BackendPidFiles $config
-    Stop-MatchingBackendListenerForReason -Listener $listener -Reason 'pid_file_invalid_matching_listener' -LauncherPid $launcherPid
-    if ($script:StoppedMatchingBackendListener) {
-        exit 0
-    }
     $payload = [ordered]@{
         stopped = $false
         reason = 'pid_file_invalid'
@@ -114,58 +88,67 @@ if (-not $managedPid) {
 
 $processInfo = Get-ProcessInfo $managedPid
 if (-not $processInfo) {
-    Remove-BackendPidFiles $config
-    Stop-MatchingBackendListenerForReason -Listener $listener -Reason 'process_missing_matching_listener' -ManagedPid $managedPid -LauncherPid $launcherPid
-    if ($script:StoppedMatchingBackendListener) {
-        exit 0
+    $stoppedLauncher = $false
+    $launcherStopFailed = $false
+    if ($launcherIsManagedBackend) {
+        $stoppedLauncher = Stop-BackendOwnedComfyUIProcess $config $launcherPid 'launcher'
+        $launcherStopFailed = -not $stoppedLauncher
+    }
+    if (-not $launcherStopFailed) {
+        Remove-BackendPidFiles $config
+    }
+    $missingReason = 'process_missing'
+    if ($launcherStopFailed) {
+        $missingReason = 'launcher_stop_failed'
     }
     $payload = [ordered]@{
-        stopped = $false
-        reason = 'process_missing'
+        stopped = [bool]$stoppedLauncher
+        reason = $missingReason
         pid = $managedPid
+        launcher_pid = $launcherPid
+        stopped_launcher = $stoppedLauncher
+        pid_file = $pidFile
+        launcher_pid_file = $launcherPidFile
+    }
+    $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
+    Write-BackendMessage -Json:$Json -Payload $payload -Message "ComfyUI backend PID $managedPid is no longer running; reconciled its recorded launcher."
+    exit 0
+}
+
+if (-not (Test-ManagedComfyUIProcess $config $managedPid)) {
+    $listenerPid = if ($listener) { [int]$listener.OwningProcess } else { $null }
+    Remove-BackendPidFiles $config
+    $payload = [ordered]@{
+        stopped = $false
+        reason = 'pid_file_points_to_unmanaged_process'
+        requires_manual_restart = [bool]$listener
+        pid = $managedPid
+        listener_pid = $listenerPid
         launcher_pid = $launcherPid
         pid_file = $pidFile
         launcher_pid_file = $launcherPidFile
     }
     $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
-    Write-BackendMessage -Json:$Json -Payload $payload -Message "ComfyUI backend PID $managedPid is no longer running. Removed stale PID file."
+    Write-BackendMessage -Json:$Json -Payload $payload -Message "Removed stale PID files without stopping unmanaged PID $managedPid."
     exit 0
 }
 
-$launcherInfo = $null
-$launcherIsManagedBackend = $false
-if ($launcherPid -and $launcherPid -ne $managedPid) {
-    $launcherInfo = Get-ProcessInfo $launcherPid
-    if ($launcherInfo) {
-        $launcherIsManagedBackend = Test-ManagedComfyUIProcess $config $launcherPid
+if (-not (Test-BackendProcessOwnership $config $managedPid 'backend')) {
+    $listenerPid = if ($listener) { [int]$listener.OwningProcess } else { $null }
+    Remove-BackendPidFiles $config
+    $payload = [ordered]@{
+        stopped = $false
+        reason = 'ownership_record_missing_or_mismatch'
+        requires_manual_restart = [bool]$listener
+        pid = $managedPid
+        listener_pid = $listenerPid
+        launcher_pid = $launcherPid
+        pid_file = $pidFile
+        launcher_pid_file = $launcherPidFile
     }
-}
-
-if (-not (Test-ManagedComfyUIProcess $config $managedPid)) {
-    if ($listener) {
-        $listenerPid = [int]$listener.OwningProcess
-        if ($listenerPid -ne $managedPid) {
-            Stop-MatchingBackendListenerForReason -Listener $listener -Reason 'pid_file_unmanaged_matching_listener' -ManagedPid $managedPid -LauncherPid $launcherPid
-            if ($script:StoppedMatchingBackendListener) {
-                exit 0
-            }
-        }
-    }
-    if (-not $listener) {
-        Remove-BackendPidFiles $config
-        $payload = [ordered]@{
-            stopped = $false
-            reason = 'pid_file_points_to_unmanaged_process_without_listener'
-            pid = $managedPid
-            launcher_pid = $launcherPid
-            pid_file = $pidFile
-            launcher_pid_file = $launcherPidFile
-        }
-        $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
-        Write-BackendMessage -Json:$Json -Payload $payload -Message "Removed stale ComfyUI backend PID file pointing to unmanaged PID $managedPid."
-        exit 0
-    }
-    throw "PID file points to PID $managedPid, but that process is not the Pixelle-managed ComfyUI backend. Refusing to stop it. Command line: $($processInfo.CommandLine)"
+    $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
+    Write-BackendMessage -Json:$Json -Payload $payload -Message "Removed legacy or mismatched ownership files without stopping PID $managedPid."
+    exit 0
 }
 
 $listenerPid = $null
@@ -173,33 +156,42 @@ $stoppedListener = $false
 if ($listener) {
     $listenerPid = [int]$listener.OwningProcess
     if ($listenerPid -ne $managedPid) {
-        if (-not (Test-ManagedComfyUIProcess $config $listenerPid)) {
-            $listenerInfo = Get-ProcessInfo $listenerPid
-            $listenerCommandLine = if ($listenerInfo) { $listenerInfo.CommandLine } else { 'unknown' }
-            Remove-BackendPidFiles $config
-            $payload = [ordered]@{
-                stopped = $false
-                reason = 'listener_owned_by_unmanaged_process'
-                requires_manual_restart = $true
-                pid = $managedPid
-                listener_pid = $listenerPid
-                launcher_pid = $launcherPid
-                pid_file = $pidFile
-                launcher_pid_file = $launcherPidFile
-                command_line = $listenerCommandLine
-            }
-            $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
-            Write-BackendMessage -Json:$Json -Payload $payload -Message "Port $($config.HostAddress):$($config.Port) is owned by unmanaged PID $listenerPid. Skipped automatic stop."
-            exit 0
+        $stoppedBackend = Stop-BackendOwnedComfyUIProcess $config $managedPid 'backend'
+        $stoppedLauncher = $false
+        if ($launcherPid -and $launcherPid -ne $managedPid -and $launcherInfo -and $launcherIsManagedBackend) {
+            $stoppedLauncher = Stop-BackendOwnedComfyUIProcess $config $launcherPid 'launcher'
         }
-        Stop-ManagedComfyUIProcess $config $listenerPid | Out-Null
-        $stoppedListener = $true
+        $launcherStopConfirmed = -not $launcherIsManagedBackend -or $stoppedLauncher
+        $stopConfirmed = $stoppedBackend -and $launcherStopConfirmed
+        if ($stopConfirmed) {
+            Remove-BackendPidFiles $config
+        }
+        $stopReason = 'owned_process_stop_failed'
+        if ($stopConfirmed) {
+            $stopReason = 'owned_process_stopped_external_listener_preserved'
+        }
+        $payload = [ordered]@{
+            stopped = $stopConfirmed
+            reason = $stopReason
+            requires_manual_restart = $true
+            preserved_external_listener = $true
+            pid = $managedPid
+            listener_pid = $listenerPid
+            stopped_listener = $false
+            launcher_pid = $launcherPid
+            stopped_launcher = $stoppedLauncher
+            pid_file = $pidFile
+            launcher_pid_file = $launcherPidFile
+        }
+        $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
+        Write-BackendMessage -Json:$Json -Payload $payload -Message "Reconciled Pixelle-owned PID $managedPid and preserved the independently owned listener PID $listenerPid."
+        exit 0
     }
 }
 
-Stop-ManagedComfyUIProcess $config $managedPid | Out-Null
+$stoppedBackend = Stop-BackendOwnedComfyUIProcess $config $managedPid 'backend'
 if ($listenerPid -and $listenerPid -eq $managedPid) {
-    $stoppedListener = $true
+    $stoppedListener = $stoppedBackend
 }
 
 $stoppedLauncher = $false
@@ -209,16 +201,24 @@ if ($launcherPid -and $launcherPid -ne $managedPid) {
     }
     if ($launcherInfo) {
         if ($launcherIsManagedBackend) {
-            Stop-ManagedComfyUIProcess $config $launcherPid | Out-Null
-            $stoppedLauncher = $true
+            $stoppedLauncher = Stop-BackendOwnedComfyUIProcess $config $launcherPid 'launcher'
         }
     }
 }
 
-Remove-BackendPidFiles $config
+$launcherStopConfirmed = -not $launcherIsManagedBackend -or $stoppedLauncher
+$stopConfirmed = $stoppedBackend -and $launcherStopConfirmed
+if ($stopConfirmed) {
+    Remove-BackendPidFiles $config
+}
+$stopReason = 'owned_process_stop_failed'
+if ($stopConfirmed) {
+    $stopReason = 'owned_process_stopped'
+}
 
 $payload = [ordered]@{
-    stopped = $true
+    stopped = $stopConfirmed
+    reason = $stopReason
     pid = $managedPid
     listener_pid = $listenerPid
     stopped_listener = $stoppedListener
@@ -228,4 +228,4 @@ $payload = [ordered]@{
     launcher_pid_file = $launcherPidFile
 }
 $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
-Write-BackendMessage -Json:$Json -Payload $payload -Message "Stopped Pixelle-managed ComfyUI backend PID $managedPid."
+Write-BackendMessage -Json:$Json -Payload $payload -Message "Reconciled Pixelle-managed ComfyUI backend PID $managedPid; stopped=$stopConfirmed."

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from pixelle_video.config.schema import ComfyUIBackendProfile, ComfyUIConfig
-from pixelle_video.services.comfyui_backend_manager import ManagedComfyUIBackend
+from pixelle_video.services.comfyui_backend_manager import ComfyUIBackendController
 from pixelle_video.services.comfyui_maintenance import ComfyUIMaintenanceClient
 
 
@@ -73,17 +73,22 @@ class ComfyUIBackendRegistry:
             idle_wait_timeout=20.0,
         )
 
-    def managed_backend(self, role: str) -> ManagedComfyUIBackend | None:
+    def backend_controller(self, role: str) -> ComfyUIBackendController | None:
         normalized_role = self._normalize_role(role)
         profile = self.profile(role)
         if not profile.url:
             return None
-        return ManagedComfyUIBackend(
+        return ComfyUIBackendController(
             repo_root=self.repo_root,
             profile_name=normalized_role,
             profile=profile,
             management_mode=self.config.backend_management_mode,
+            maintenance_client=self.maintenance_client(normalized_role),
         )
+
+    def managed_backend(self, role: str) -> ComfyUIBackendController | None:
+        """Backward-compatible alias; ownership is determined from runtime state."""
+        return self.backend_controller(role)
 
     def _is_selfhost_image_workflow(self, workflow_key: Any) -> bool:
         return self._is_selfhost_workflow(workflow_key) and self._workflow_filename(

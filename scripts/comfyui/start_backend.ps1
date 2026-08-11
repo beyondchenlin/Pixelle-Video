@@ -41,15 +41,29 @@ $listener = Get-BackendListener $config
 $pidFile = Get-BackendPidFile $config
 $launcherPidFile = Get-BackendLauncherPidFile $config
 $managedPid = Read-BackendPid $config
+if (-not $managedPid) {
+    $managedPid = Get-BackendOwnedProcessId $config 'backend'
+}
 
 if ($listener) {
     $ownerPid = [int]$listener.OwningProcess
-    if ($managedPid -and $managedPid -eq $ownerPid -and (Test-ManagedComfyUIProcess $config $ownerPid)) {
+    if ($managedPid -and
+        $managedPid -eq $ownerPid -and
+        (Test-ManagedComfyUIProcess $config $ownerPid) -and
+        (Test-BackendProcessOwnership $config $ownerPid 'backend')) {
+        $existingLauncherPid = Read-BackendLauncherPid $config
+        if (-not $existingLauncherPid) {
+            $existingLauncherPid = Get-BackendOwnedProcessId $config 'launcher'
+        }
+        Set-Content -LiteralPath $pidFile -Value ([string]$ownerPid) -Encoding ASCII
+        if ($existingLauncherPid) {
+            Set-Content -LiteralPath $launcherPidFile -Value ([string]$existingLauncherPid) -Encoding ASCII
+        }
         $payload = [ordered]@{
             started = $false
             already_running = $true
             pid = $ownerPid
-            launched_pid = Read-BackendLauncherPid $config
+            launched_pid = $existingLauncherPid
             host = $config.HostAddress
             port = $config.Port
             pid_file = $pidFile
@@ -62,8 +76,7 @@ if ($listener) {
 
     $processInfo = Get-ProcessInfo $ownerPid
     $processName = if ($processInfo) { $processInfo.Name } else { 'unknown' }
-    $commandLine = if ($processInfo) { $processInfo.CommandLine } else { 'unknown' }
-    throw "Port $($config.HostAddress):$($config.Port) is already in use by PID $ownerPid ($processName). Refusing to start another ComfyUI backend. Command line: $commandLine"
+    throw "Port $($config.HostAddress):$($config.Port) is already in use by PID $ownerPid ($processName). Refusing to start another ComfyUI backend."
 }
 
 if ($DryRun) {
@@ -117,11 +130,12 @@ finally {
     }
 }
 
-Set-Content -LiteralPath $pidFile -Value ([string]$process.Id) -Encoding ASCII
-Set-Content -LiteralPath $launcherPidFile -Value ([string]$process.Id) -Encoding ASCII
-
 $started = $false
 try {
+    Set-Content -LiteralPath $pidFile -Value ([string]$process.Id) -Encoding ASCII
+    Set-Content -LiteralPath $launcherPidFile -Value ([string]$process.Id) -Encoding ASCII
+    Write-BackendOwnershipRecord $config $process.Id $process.Id
+
     $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
     do {
         Start-Sleep -Milliseconds 500
@@ -129,12 +143,11 @@ try {
         if ($listener) {
             $listenerPid = [int]$listener.OwningProcess
             if (-not (Test-ManagedComfyUIProcess $config $listenerPid)) {
-                $processInfo = Get-ProcessInfo $listenerPid
-                $commandLine = if ($processInfo) { $processInfo.CommandLine } else { 'unknown' }
-                throw "Port $($config.HostAddress):$($config.Port) became occupied by PID $listenerPid, but it is not this ComfyUI backend. Command line: $commandLine"
+                throw "Port $($config.HostAddress):$($config.Port) became occupied by PID $listenerPid, but it is not the process started by this operation."
             }
 
             Set-Content -LiteralPath $pidFile -Value ([string]$listenerPid) -Encoding ASCII
+            Write-BackendOwnershipRecord $config $listenerPid $process.Id
             $started = $true
             $payload = [ordered]@{
                 started = $true
@@ -159,7 +172,7 @@ try {
 }
 catch {
     if (-not $started) {
-        Stop-ManagedComfyUIProcessesForConfig $config
+        Stop-ProcessTreeOwnedByLaunch $process.Id
         Remove-BackendPidFiles $config
     }
     throw

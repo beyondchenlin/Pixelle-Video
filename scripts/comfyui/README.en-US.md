@@ -62,6 +62,7 @@ logs\comfyui\
 - Host/port: `127.0.0.1:8000`
 - Backend PID file: `_runtime\comfyui\comfyui-backend.pid`
 - Launcher PID file: `_runtime\comfyui\comfyui-backend.launcher.pid`
+- Ownership record: `_runtime\comfyui\comfyui-backend.owner.json`
 
 ## Overrides
 
@@ -83,4 +84,6 @@ The legacy `start_image_backend.bat`, `start_tts_backend.bat`, and matching chec
 
 If port `8000` is already occupied by an unmanaged process, `start_backend.ps1` refuses to start another backend instead of drifting to a new port.
 
-`stop_backend.ps1` primarily uses the PID files above. If the PID files are missing, invalid, stale, or point to a different process, but the port listener still matches the configured ComfyUI root and data root, it safely stops that matching backend and recreates a clean managed state on the next start. It still refuses to stop unrelated processes on the same port.
+`stop_backend.ps1` stops a backend only when its PID, process creation time, and configured process identity all match the ownership record. Missing, invalid, stale, legacy, or unrelated records are cleaned without terminating the listener. This prevents PID reuse mistakes, and a backend started by ComfyUI Desktop or another process manager is never taken over based on command-line similarity.
+
+After upgrading from a version without ownership records, an existing process is treated as external. `auto` mode continues to reuse it; `required` mode needs that legacy process to be closed once so the current version can start it and create a record.

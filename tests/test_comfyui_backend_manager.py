@@ -4,7 +4,37 @@ from pathlib import Path
 import pytest
 
 from pixelle_video.config.schema import ComfyUIBackendProfile
-from pixelle_video.services.comfyui_backend_manager import ManagedComfyUIBackend
+from pixelle_video.services.comfyui_backend_manager import (
+    ComfyUIBackendCommandResult,
+    ComfyUIBackendState,
+    ManagedComfyUIBackend,
+)
+
+
+class _ProbeClient:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = 0
+
+    async def probe_backend(self):
+        self.calls += 1
+        outcome = self.outcomes.pop(0) if self.outcomes else {"system": {}}
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def _state(ownership, *, listener=True, pid_file=False):
+    return ComfyUIBackendState(
+        ownership=ownership,
+        listener_present=listener,
+        pid_file_present=pid_file,
+        payload={
+            "listener_present": listener,
+            "listener_is_managed_backend": ownership == "pixelle",
+            "pid_file_present": pid_file,
+        },
+    )
 
 
 def test_managed_backend_auto_mode_only_manages_local_pixelle_port(monkeypatch):
@@ -278,6 +308,400 @@ async def test_managed_backend_script_timeout_reports_context(monkeypatch, tmp_p
         "pixelle_video.services.comfyui_backend_manager.subprocess.run",
         fake_run,
     )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("pixelle", pid_file=True)),
+    )
 
     with pytest.raises(RuntimeError, match="ComfyUI backend stop command timed out"):
         await backend.stop(reason="test-stop")
+
+
+async def _async_result(value):
+    return value
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_reuses_healthy_external_backend_without_starting(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+        maintenance_client=_ProbeClient([{"system": {"comfyui_version": "0.31.0"}}]),
+    )
+    async def fail_inspection(*, reason):
+        raise AssertionError(f"healthy auto mode must not inspect processes: {reason}")
+
+    async def fail_start(*, reason):
+        raise AssertionError(f"external backend must not be started: {reason}")
+
+    monkeypatch.setattr(backend, "start", fail_start)
+    monkeypatch.setattr(backend, "inspect_state", fail_inspection)
+
+    result = await backend.ensure_ready(reason="pre-workflow")
+
+    assert result.ownership == "unknown"
+    assert result.started is False
+    assert result.reused_existing is True
+
+
+@pytest.mark.asyncio
+async def test_disabled_mode_reuses_healthy_backend_as_external(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="disabled",
+        maintenance_client=_ProbeClient([{"system": {"comfyui_version": "0.31.0"}}]),
+    )
+
+    async def fail_lifecycle(*, reason):
+        raise AssertionError(f"disabled mode must not inspect or start: {reason}")
+
+    monkeypatch.setattr(backend, "inspect_state", fail_lifecycle)
+    monkeypatch.setattr(backend, "start", fail_lifecycle)
+
+    result = await backend.ensure_ready(reason="pre-workflow")
+
+    assert result.ownership == "external"
+    assert result.reused_existing is True
+
+
+@pytest.mark.asyncio
+async def test_required_mode_refuses_healthy_external_backend(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="required",
+        maintenance_client=_ProbeClient([{"system": {"comfyui_version": "0.31.0"}}]),
+    )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("external")),
+    )
+
+    with pytest.raises(RuntimeError, match="not owned by Pixelle"):
+        await backend.ensure_ready(reason="pre-workflow")
+
+
+@pytest.mark.asyncio
+async def test_required_mode_cleans_started_process_when_ownership_is_unconfirmed(
+    monkeypatch,
+):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="required",
+        maintenance_client=_ProbeClient(
+            [ConnectionError("not running"), {"system": {"comfyui_version": "0.31.0"}}]
+        ),
+    )
+    monkeypatch.setattr(backend, "_management_runtime_available", lambda: True)
+    states = iter(
+        [
+            _state("absent", listener=False),
+            _state("external", listener=True),
+        ]
+    )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(next(states)),
+    )
+
+    async def start(*, reason):
+        return ComfyUIBackendCommandResult(
+            action="start",
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={"started": True},
+        )
+
+    cleanup_calls = []
+
+    async def run_script(script_name, action, *, reason, extra_args=None):
+        cleanup_calls.append((script_name, action, reason, extra_args))
+        return ComfyUIBackendCommandResult(
+            action="stop",
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={"stopped": True},
+        )
+
+    monkeypatch.setattr(backend, "start", start)
+    monkeypatch.setattr(backend, "_run_script", run_script)
+
+    with pytest.raises(RuntimeError, match="ownership could not be confirmed"):
+        await backend.ensure_ready(reason="pre-workflow")
+
+    assert cleanup_calls == [
+        (
+            "stop_backend.ps1",
+            "stop",
+            "pre-workflow:unconfirmed-ownership",
+            None,
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_starts_absent_backend_and_confirms_api_health(monkeypatch):
+    probe = _ProbeClient(
+        [
+            ConnectionError("not running"),
+            {"system": {"comfyui_version": "0.31.0"}},
+        ]
+    )
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+        maintenance_client=probe,
+    )
+    monkeypatch.setattr(backend, "_management_runtime_available", lambda: True)
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("absent", listener=False)),
+    )
+
+    async def start(*, reason):
+        return ComfyUIBackendCommandResult(
+            action="start",
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={"started": True},
+        )
+
+    monkeypatch.setattr(backend, "start", start)
+
+    result = await backend.ensure_ready(reason="pre-workflow")
+
+    assert result.ownership == "pixelle"
+    assert result.started is True
+    assert probe.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_cleans_recorded_orphan_before_starting(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+        maintenance_client=_ProbeClient(
+            [ConnectionError("not running"), {"system": {"comfyui_version": "0.31.0"}}]
+        ),
+    )
+    monkeypatch.setattr(backend, "_management_runtime_available", lambda: True)
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(
+            _state("absent", listener=False, pid_file=True)
+        ),
+    )
+    events = []
+
+    async def stop(*, reason):
+        events.append(("stop", reason))
+        return ComfyUIBackendCommandResult(
+            action="stop",
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={"stopped": True},
+        )
+
+    async def start(*, reason):
+        events.append(("start", reason))
+        return ComfyUIBackendCommandResult(
+            action="start",
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={"started": True},
+        )
+
+    monkeypatch.setattr(backend, "stop", stop)
+    monkeypatch.setattr(backend, "start", start)
+
+    result = await backend.ensure_ready(reason="pre-workflow")
+
+    assert result.started is True
+    assert events == [
+        ("stop", "pre-workflow:clean-stale-owned-process"),
+        ("start", "pre-workflow"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_waits_for_existing_listener_to_recover(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+        maintenance_client=_ProbeClient(
+            [ConnectionError("temporarily busy"), {"system": {"comfyui_version": "0.31.0"}}]
+        ),
+    )
+    monkeypatch.setattr(backend, "_management_runtime_available", lambda: True)
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("external")),
+    )
+
+    async def fail_start(*, reason):
+        raise AssertionError(f"an occupied listener must not trigger startup: {reason}")
+
+    monkeypatch.setattr(backend, "start", fail_start)
+
+    result = await backend.ensure_ready(reason="pre-workflow")
+
+    assert result.ownership == "external"
+    assert result.reused_existing is True
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_refuses_to_start_over_unhealthy_external_listener(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+        maintenance_client=_ProbeClient([ConnectionError("incompatible endpoint")]),
+    )
+    monkeypatch.setattr(backend, "_management_runtime_available", lambda: True)
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("external")),
+    )
+
+    async def fail_health_wait(*, timeout_seconds=None):
+        raise TimeoutError(f"not healthy after {timeout_seconds}s")
+
+    async def fail_start(*, reason):
+        raise AssertionError(f"external listener must not trigger startup: {reason}")
+
+    monkeypatch.setattr(backend, "_wait_for_backend_health", fail_health_wait)
+    monkeypatch.setattr(backend, "start", fail_start)
+
+    with pytest.raises(RuntimeError, match="already occupied.*does not own"):
+        await backend.ensure_ready(reason="pre-workflow")
+
+
+@pytest.mark.asyncio
+async def test_stop_preserves_external_backend(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+    )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("external")),
+    )
+
+    result = await backend.stop(reason="resource-release")
+
+    assert result.payload["stopped"] is False
+    assert result.payload["reason"] == "external_backend_not_owned"
+
+
+@pytest.mark.asyncio
+async def test_stop_cleans_owned_record_without_touching_external_listener(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+    )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("external", pid_file=True)),
+    )
+    calls = []
+
+    async def run_script(script_name, action, *, reason, extra_args=None):
+        calls.append((script_name, action, reason, extra_args))
+        return ComfyUIBackendCommandResult(
+            action="stop",
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={
+                "stopped": True,
+                "preserved_external_listener": True,
+            },
+        )
+
+    monkeypatch.setattr(backend, "_run_script", run_script)
+
+    result = await backend.stop(reason="shutdown")
+
+    assert result.payload["stopped"] is True
+    assert result.payload["preserved_external_listener"] is True
+    assert calls == [("stop_backend.ps1", "stop", "shutdown", None)]
+
+
+@pytest.mark.asyncio
+async def test_restart_skips_when_process_ownership_is_unknown(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+    )
+    monkeypatch.setattr(backend, "can_manage", lambda: True)
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("unknown", listener=False)),
+    )
+
+    async def fail_lifecycle(*, reason):
+        raise AssertionError(f"unknown ownership must not mutate lifecycle: {reason}")
+
+    monkeypatch.setattr(backend, "stop", fail_lifecycle)
+    monkeypatch.setattr(backend, "start", fail_lifecycle)
+
+    assert await backend.restart(reason="memory-release") is False
+
+
+@pytest.mark.asyncio
+async def test_restart_does_not_start_when_stop_is_unconfirmed(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+    )
+    monkeypatch.setattr(backend, "can_manage", lambda: True)
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("pixelle", pid_file=True)),
+    )
+
+    async def stop(*, reason):
+        return ComfyUIBackendCommandResult(
+            action="stop",
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={
+                "stopped": False,
+                "reason": "ownership_record_missing_or_mismatch",
+            },
+        )
+
+    async def fail_start(*, reason):
+        raise AssertionError(f"unconfirmed stop must not be followed by start: {reason}")
+
+    monkeypatch.setattr(backend, "stop", stop)
+    monkeypatch.setattr(backend, "start", fail_start)
+
+    assert await backend.restart(reason="memory-release") is False
