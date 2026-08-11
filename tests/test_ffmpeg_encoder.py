@@ -247,3 +247,11 @@ def test_gpu_count_returns_count_from_output(monkeypatch) -> None:
     )
 
     assert encoder.gpu_count() == 2
+
+
+
+def test_legacy_compatibility_helpers_cannot_bypass_vaapi_hardware_frame_guard() -> None:
+    with pytest.raises(ValueError, match="hardware-frame executor"):
+        encoder.ffmpeg_h264_preset("h264_vaapi")
+    with pytest.raises(ValueError, match="hardware-frame upload"):
+        encoder.ffmpeg_h264_encode_kwargs("h264_vaapi")

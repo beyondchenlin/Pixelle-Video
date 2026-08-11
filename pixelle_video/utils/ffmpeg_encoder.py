@@ -260,17 +260,21 @@ def ffmpeg_h264_output_kwargs(vcodec: str) -> dict[str, object]:
 
 
 def ffmpeg_h264_preset(vcodec: str) -> str:
-    """Compatibility helper for callers that only need the family preset."""
+    """Compatibility helper limited to simple software-frame output paths."""
 
     backend = ffmpeg_h264_backend(vcodec)
+    if not backend.supports_simple_software_frame_output:
+        raise ValueError(
+            f"{vcodec} requires a hardware-frame executor and has no simple preset contract"
+        )
     return backend.preset or ""
 
 
 def ffmpeg_h264_encode_kwargs(vcodec: str) -> dict[str, object]:
-    """Compatibility helper returning family-specific non-base options."""
+    """Compatibility helper limited to simple software-frame output paths."""
 
     backend = ffmpeg_h264_backend(vcodec)
-    params = backend.output_kwargs()
+    params = ffmpeg_h264_output_kwargs(vcodec)
     params.pop("vcodec", None)
     params.pop("preset", None)
     if backend.family == "cpu":
