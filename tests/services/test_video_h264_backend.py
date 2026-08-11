@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ffmpeg
+import pytest
 
 from pixelle_video.services import video as video_module
 from pixelle_video.services.video import VideoService
@@ -29,7 +30,7 @@ def test_video_service_uses_family_specific_backend_kwargs(monkeypatch) -> None:
     }
 
 
-def test_video_service_disables_failed_hardware_and_retries_cpu(monkeypatch) -> None:
+def test_video_service_disables_hardware_only_after_cpu_fallback_succeeds(monkeypatch) -> None:
     service = VideoService()
     monkeypatch.setattr(
         service,
@@ -93,6 +94,47 @@ def test_video_service_disables_failed_hardware_and_retries_cpu(monkeypatch) -> 
     ]
 
 
+def test_video_service_does_not_disable_hardware_when_cpu_fallback_also_fails(
+    monkeypatch,
+) -> None:
+    service = VideoService()
+    monkeypatch.setattr(
+        service,
+        "_h264_encode_params",
+        lambda: {"vcodec": "h264_nvenc", "preset": "p4", "cq": 23},
+    )
+    monkeypatch.setattr(
+        video_module,
+        "ffmpeg_h264_fallback_kwargs",
+        lambda: {"vcodec": "libx264", "preset": "medium", "crf": 23},
+    )
+
+    disabled: list[str] = []
+    monkeypatch.setattr(
+        video_module,
+        "disable_ffmpeg_h264_encoder",
+        lambda name, *, reason: disabled.append(name),
+    )
+
+    class FailingOutput:
+        def __init__(self, vcodec: str) -> None:
+            self.vcodec = vcodec
+
+        def run(self, **kwargs):
+            raise ffmpeg.Error(
+                "ffmpeg",
+                b"",
+                f"shared input/filter failure using {self.vcodec}".encode(),
+            )
+
+    with pytest.raises(ffmpeg.Error, match="ffmpeg error"):
+        service._encode_run(
+            lambda **params: FailingOutput(str(params["vcodec"]))
+        )
+
+    assert disabled == []
+
+
 def test_video_service_does_not_hide_cpu_encoder_failure(monkeypatch) -> None:
     service = VideoService()
     monkeypatch.setattr(
@@ -112,11 +154,7 @@ def test_video_service_does_not_hide_cpu_encoder_failure(monkeypatch) -> None:
         def run(self, **kwargs):
             raise ffmpeg.Error("ffmpeg", b"", b"software encode failed")
 
-    try:
+    with pytest.raises(ffmpeg.Error):
         service._encode_run(lambda **params: FailingOutput())
-    except ffmpeg.Error:
-        pass
-    else:
-        raise AssertionError("CPU encoder failure must propagate")
 
     assert disabled == []
