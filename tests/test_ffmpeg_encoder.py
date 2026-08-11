@@ -4,6 +4,7 @@ import subprocess
 
 import pytest
 
+from pixelle_video.utils import ffmpeg_encoder as encoder_module
 from pixelle_video.utils.ffmpeg_encoder import (
     _probe_nvidia_gpu_count,
     clear_ffmpeg_encoder_probe_cache,
@@ -92,6 +93,47 @@ class TestBackendContracts:
             clear_ffmpeg_encoder_probe_cache()
 
 
+class TestRuntimeProbeCommands:
+    def test_nvenc_probe_uses_only_nvenc_runtime_options(self):
+        command = get_h264_backend("h264_nvenc").probe_command()
+        assert command is not None
+        text = " ".join(command)
+        assert "-frames:v 1" in text
+        assert "-preset p4" in text
+        assert "-rc vbr" in text
+        assert "-cq 23" in text
+        assert "-b_ref_mode middle" in text
+        assert "global_quality" not in text
+        assert "hwupload" not in text
+
+    def test_qsv_probe_uses_qsv_quality_without_nvenc_options(self):
+        command = get_h264_backend("h264_qsv").probe_command()
+        assert command is not None
+        text = " ".join(command)
+        assert "-frames:v 1" in text
+        assert "-preset medium" in text
+        assert "-global_quality 23" in text
+        assert " -cq " not in f" {text} "
+        assert "b_ref_mode" not in text
+        assert "-preset p4" not in text
+
+    def test_vaapi_probe_requires_device_and_hwupload(self, monkeypatch):
+        monkeypatch.setattr(
+            encoder_module,
+            "_resolve_vaapi_device",
+            lambda: "/dev/dri/renderD999",
+        )
+        command = get_h264_backend("h264_vaapi").probe_command()
+        assert command is not None
+        text = " ".join(command)
+        assert "-vaapi_device /dev/dri/renderD999" in text
+        assert "format=nv12,hwupload" in text
+        assert "-frames:v 1" in text
+        assert "-qp 23" in text
+        assert "-preset p4" not in text
+        assert "b_ref_mode" not in text
+
+
 class TestRuntimeProbeSelection:
     def test_compiled_encoder_that_cannot_encode_is_not_selected(self, monkeypatch):
         monkeypatch.delenv("PIXELLE_FFMPEG_H264_ENCODER", raising=False)
@@ -140,8 +182,6 @@ class TestRuntimeProbeSelection:
             assert backend.output_kwargs()["preset"] == "medium"
             assert "cq" not in backend.output_kwargs()
             assert has_gpu_encoder() is True
-            # Legacy ffmpeg-python call sites cannot yet express the complete
-            # QSV execution contract; they stay on CPU until the unified executor.
             assert resolve_ffmpeg_h264_encoder() == "libx264"
         finally:
             clear_ffmpeg_encoder_probe_cache()
