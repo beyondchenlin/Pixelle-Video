@@ -84,6 +84,28 @@ def test_generation_readiness_still_rejects_profile_without_explicit_identity_te
         ensure_ip_profile_ready_for_generation(profile)
 
 
+def test_generation_readiness_rejects_non_string_identity_trait_instead_of_stringifying_it() -> None:
+    profile = _profile(identity_lock=(123,))
+
+    with pytest.raises(ValueError, match=IP_GENERATION_IDENTITY_VALIDATION_ERROR):
+        ensure_ip_profile_ready_for_generation(profile)
+
+
+def test_generation_readiness_rejects_non_string_display_name() -> None:
+    profile = _profile(name=123)
+
+    with pytest.raises(ValueError, match=IP_GENERATION_IDENTITY_VALIDATION_ERROR):
+        ensure_ip_profile_ready_for_generation(profile)
+
+
+def test_display_name_has_separate_compatibility_limit_from_identity_traits() -> None:
+    long_but_reasonable_name = "D" * 100
+
+    assert validate_series_visual_signature_identity_name(long_but_reasonable_name) == (
+        long_but_reasonable_name
+    )
+
+
 def test_canonical_identity_validators_dedupe_only_after_validation() -> None:
     assert validate_series_visual_signature_identity_name("  Dalmatian  ") == "Dalmatian"
     assert validate_series_visual_signature_identity_traits(
