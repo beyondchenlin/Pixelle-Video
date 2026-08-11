@@ -118,7 +118,7 @@ new_method = '''    def _project_pass_through(
 text = text[:method_start] + new_method + text[method_end:]
 
 presence_start = text.index("def _ip_already_in_prompt(\n")
-presence_end = text.index("\ndef _first_text(\n", presence_start)
+presence_end = text.index("def _first_text(", presence_start)
 new_presence = '''def _prompt_satisfies_pass_through_contract(
     prompt: str,
     profile: VisualSignatureProfileSnapshot,
@@ -145,6 +145,8 @@ def _identity_already_in_prompt(
         prompt_contains_term(prompt, trait)
         for trait in profile.identity_traits
     )
+
+
 '''
 text = text[:presence_start] + new_presence + text[presence_end:]
 service_path.write_text(text, encoding="utf-8")
