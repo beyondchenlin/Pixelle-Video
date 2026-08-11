@@ -28,6 +28,8 @@ from loguru import logger
 from pixelle_video.services.video_encoder_executor import UnifiedVideoEncoder
 from pixelle_video.services.video_operations import (
     VideoService as _VideoOperations,
+)
+from pixelle_video.services.video_operations import (
     _ffmpeg_duration,
     check_ffmpeg,
 )
