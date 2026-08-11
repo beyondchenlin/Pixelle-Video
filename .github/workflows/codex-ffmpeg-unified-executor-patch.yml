@@ -1,0 +1,36 @@
+name: Codex FFmpeg unified executor patch
+
+on:
+  push:
+    branches:
+      - codex/ffmpeg-unified-reencode-executor
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/ffmpeg-unified-reencode-executor
+          fetch-depth: 0
+      - name: Apply unified executor routing
+        run: python tools/codex_patch_ffmpeg_unified_executor.py
+      - name: Syntax check
+        run: |
+          python -m py_compile pixelle_video/services/ffmpeg_h264_executor.py
+          python -m py_compile pixelle_video/services/video.py
+          python -m py_compile pixelle_video/services/element_animation_renderer.py
+      - name: Commit routing
+        shell: bash
+        run: |
+          rm .github/workflows/codex-ffmpeg-unified-executor-patch.yml
+          rm tools/codex_patch_ffmpeg_unified_executor.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: route re-encode paths through shared H264 executor"
+          git push origin HEAD:codex/ffmpeg-unified-reencode-executor
