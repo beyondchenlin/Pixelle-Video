@@ -11,8 +11,8 @@ from pixelle_video.utils import ffmpeg_encoder as encoder
 def _reset_encoder_state(monkeypatch):
     monkeypatch.delenv("PIXELLE_FFMPEG_H264_ENCODER", raising=False)
     monkeypatch.delenv("PIXELLE_FFMPEG_VAAPI_DEVICE", raising=False)
-    encoder.clear_ffmpeg_h264_encoder_caches()
-    yield
+    # Clear before each test. The monkeypatch fixture restores replaced probe
+    # callables after the test, so the next test starts from real cached functions.
     encoder.clear_ffmpeg_h264_encoder_caches()
 
 
