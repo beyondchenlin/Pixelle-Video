@@ -1013,10 +1013,10 @@ async def test_core_execute_index_tts2_oom_recovery_releases_plugin_cache_in_com
         def __init__(self, base_url, *, api_key=None):
             calls.append(("client", base_url, api_key))
 
-        async def free_memory_with_extensions(
+        async def free_memory_with_extensions_when_idle(
             self,
-            intensity="high",
             *,
+            intensity="high",
             extensions=("indextts2",),
             missing_endpoint="optional",
         ):
@@ -1025,7 +1025,7 @@ async def test_core_execute_index_tts2_oom_recovery_releases_plugin_cache_in_com
             )
             return True
 
-        async def free_memory(self, intensity="high"):
+        async def free_memory_when_idle(self, *, intensity="high"):
             raise AssertionError("IndexTTS2 OOM recovery must clean plugin caches")
 
     monkeypatch.setattr(
@@ -4281,14 +4281,16 @@ async def test_prepare_comfyui_for_local_workflow_ensures_backend_then_inspects_
 
 
 @pytest.mark.asyncio
-async def test_force_release_comfyui_memory_uses_comfyui_only_mode_high_intensity(monkeypatch):
+async def test_force_release_comfyui_memory_waits_for_idle_queue_in_comfyui_only_mode(
+    monkeypatch,
+):
     events = []
 
     class _Client:
         def __init__(self, base_url, *, api_key=None):
             events.append(("client", base_url, api_key))
 
-        async def free_memory(self, intensity="high"):
+        async def free_memory_when_idle(self, *, intensity="high"):
             events.append(("force_release", intensity))
             return True
 
@@ -4318,17 +4320,19 @@ async def test_force_release_comfyui_memory_uses_comfyui_only_mode_high_intensit
 
 
 @pytest.mark.asyncio
-async def test_force_release_comfyui_memory_uses_required_extension_endpoint(monkeypatch):
+async def test_force_release_comfyui_memory_waits_for_idle_queue_with_extensions(
+    monkeypatch,
+):
     events = []
 
     class _Client:
         def __init__(self, base_url, *, api_key=None):
             events.append(("client", base_url, api_key))
 
-        async def free_memory_with_extensions(
+        async def free_memory_with_extensions_when_idle(
             self,
-            intensity="high",
             *,
+            intensity="high",
             extensions=("indextts2",),
             missing_endpoint="optional",
         ):

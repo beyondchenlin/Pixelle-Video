@@ -30,10 +30,22 @@ _EXTENSION_HEALTH_ENDPOINTS: dict[ComfyUIExtensionName, str] = {
     "gguf": "/pixelle/gguf/health",
     "omnivoice": "/pixelle/omnivoice/health",
 }
+_UNIFIED_RELEASE_HEALTH_ENDPOINT = "/pixelle/health"
+_UNIFIED_RELEASE_ENDPOINT = "/pixelle/free"
+_UNIFIED_TARGETED_RELEASE_CONTRACT_REVISION = 1
 _EXTENSION_PATCH_INSTRUCTIONS: dict[ComfyUIExtensionName, str] = {
-    "indextts2": "Run tools/patch_indextts2_plugin.py against ComfyUI-Index-TTS, then restart ComfyUI.",
-    "gguf": "Run tools/patch_gguf_plugin.py against ComfyUI-GGUF, then restart ComfyUI.",
-    "omnivoice": "Run tools/patch_omnivoice_plugin.py against ComfyUI-OmniVoice, then restart ComfyUI.",
+    "indextts2": (
+        "Install or update ComfyUI-Pixelle-Release-Protocol with "
+        "tools/install_pixelle_release_protocol.py, then restart ComfyUI."
+    ),
+    "gguf": (
+        "Install or update ComfyUI-Pixelle-Release-Protocol with "
+        "tools/install_pixelle_release_protocol.py, then restart ComfyUI."
+    ),
+    "omnivoice": (
+        "Install or update ComfyUI-Pixelle-Release-Protocol with "
+        "tools/install_pixelle_release_protocol.py, then restart ComfyUI."
+    ),
 }
 _EXTENSION_MIN_CONTRACT_REVISIONS: dict[ComfyUIExtensionName, int] = {
     "gguf": 2,
@@ -158,6 +170,7 @@ class ComfyUIMaintenanceClient:
         release_settle_timeout: float = 30.0,
         release_poll_interval: float = _RELEASE_SETTLE_POLL_INTERVAL_SECONDS,
         release_request_timeout: float = 60.0,
+        extension_preflight_timeout: float = 15.0,
     ) -> None:
         if idle_wait_timeout <= 0:
             raise ValueError("idle_wait_timeout must be positive")
@@ -169,6 +182,8 @@ class ComfyUIMaintenanceClient:
             raise ValueError("release_poll_interval must be positive")
         if release_request_timeout <= 0:
             raise ValueError("release_request_timeout must be positive")
+        if extension_preflight_timeout <= 0:
+            raise ValueError("extension_preflight_timeout must be positive")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
@@ -178,6 +193,7 @@ class ComfyUIMaintenanceClient:
         self.release_settle_timeout = release_settle_timeout
         self.release_poll_interval = release_poll_interval
         self.release_request_timeout = release_request_timeout
+        self.extension_preflight_timeout = extension_preflight_timeout
 
     async def probe_backend(self) -> dict[str, Any]:
         """Verify that the configured endpoint is a compatible ComfyUI server."""
@@ -339,59 +355,236 @@ class ComfyUIMaintenanceClient:
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
         missing_endpoint: ComfyUIExtensionMissingEndpointMode = "required",
     ) -> tuple[ComfyUIExtensionReleaseResult, ...]:
+        unified_discovery = await self._get_unified_extension_capabilities()
+        unified_capabilities = unified_discovery[1] if unified_discovery else None
         results: list[ComfyUIExtensionReleaseResult] = []
         for extension in extensions:
-            endpoint = _EXTENSION_HEALTH_ENDPOINTS[extension]
-            try:
-                response = await self._request("GET", endpoint)
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 404:
-                    message = (
-                        f"ComfyUI extension health endpoint {endpoint} is missing. "
-                        f"{_EXTENSION_PATCH_INSTRUCTIONS[extension]}"
-                    )
-                    if missing_endpoint == "optional":
-                        logger.warning(message)
-                        results.append(
-                            ComfyUIExtensionReleaseResult(
-                                extension=extension,
-                                endpoint=endpoint,
-                                released=False,
-                                missing_endpoint=True,
-                                message=message,
-                            )
-                        )
-                        continue
-                    raise RuntimeError(message) from exc
-                raise
+            unified_result = self._preflight_result_from_unified_capabilities(
+                extension,
+                unified_capabilities,
+            )
+            if unified_result is not None:
+                results.append(unified_result)
+                continue
 
-            payload = response.json()
-            data = payload if isinstance(payload, dict) else {}
-            if self._parse_protocol_version(data) != 2:
-                message = (
-                    f"ComfyUI extension health endpoint {endpoint} does not expose "
-                    f"Pixelle release protocol v2. {_EXTENSION_PATCH_INSTRUCTIONS[extension]}"
-                )
-                raise RuntimeError(message)
-            self._ensure_extension_contract_revision(extension, endpoint, data)
             results.append(
-                ComfyUIExtensionReleaseResult(
-                    extension=extension,
-                    endpoint=endpoint,
-                    released=False,
-                    safe_to_continue=self._is_extension_safe_to_continue(extension, data),
-                    protocol_version=self._parse_protocol_version(data),
-                    contract_revision=self._parse_contract_revision(data),
-                    response=data,
+                await self._preflight_legacy_extension_health_endpoint(
+                    extension,
+                    missing_endpoint=missing_endpoint,
                 )
             )
         return tuple(results)
+
+    async def _get_unified_extension_capabilities(
+        self,
+    ) -> tuple[int | None, dict[str, Any]] | None:
+        try:
+            response = await self._request(
+                "GET",
+                _UNIFIED_RELEASE_HEALTH_ENDPOINT,
+                timeout=self.extension_preflight_timeout,
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        if not isinstance(payload, dict) or self._parse_protocol_version(payload) != 2:
+            return None
+        capabilities = payload.get("extensions")
+        if not isinstance(capabilities, dict):
+            return None
+        normalized_capabilities: dict[str, Any] = {}
+        for extension, capability in capabilities.items():
+            if not isinstance(capability, dict):
+                continue
+            normalized_capability = dict(capability)
+            normalized_capability.setdefault("protocol_version", 2)
+            normalized_capabilities[str(extension)] = normalized_capability
+        return self._parse_contract_revision(payload), normalized_capabilities
+
+    def _preflight_result_from_unified_capabilities(
+        self,
+        extension: ComfyUIExtensionName,
+        capabilities: dict[str, Any] | None,
+    ) -> ComfyUIExtensionReleaseResult | None:
+        if capabilities is None:
+            return None
+        capability = capabilities.get(extension)
+        if not isinstance(capability, dict) or not bool(capability.get("ok")):
+            return None
+
+        release_endpoint = str(
+            capability.get("release_endpoint") or capability.get("endpoint") or ""
+        ).strip()
+        if release_endpoint not in {
+            _UNIFIED_RELEASE_ENDPOINT,
+            _EXTENSION_RELEASE_ENDPOINTS[extension],
+        }:
+            return None
+
+        protocol_version = self._parse_protocol_version(capability)
+        if protocol_version != 2:
+            return None
+        contract_revision = self._parse_contract_revision(capability)
+        minimum_revision = _EXTENSION_MIN_CONTRACT_REVISIONS.get(extension)
+        if minimum_revision is not None and (
+            contract_revision is None or contract_revision < minimum_revision
+        ):
+            return None
+
+        return ComfyUIExtensionReleaseResult(
+            extension=extension,
+            endpoint=_UNIFIED_RELEASE_HEALTH_ENDPOINT,
+            released=False,
+            safe_to_continue=bool(capability.get("safe_to_continue", True)),
+            protocol_version=protocol_version,
+            contract_revision=contract_revision,
+            response=capability,
+        )
+
+    async def _preflight_legacy_extension_health_endpoint(
+        self,
+        extension: ComfyUIExtensionName,
+        *,
+        missing_endpoint: ComfyUIExtensionMissingEndpointMode,
+    ) -> ComfyUIExtensionReleaseResult:
+        endpoint = _EXTENSION_HEALTH_ENDPOINTS[extension]
+        try:
+            response = await self._request(
+                "GET",
+                endpoint,
+                timeout=self.extension_preflight_timeout,
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                message = (
+                    f"ComfyUI extension health endpoint {endpoint} is missing. "
+                    f"{_EXTENSION_PATCH_INSTRUCTIONS[extension]}"
+                )
+                if missing_endpoint == "optional":
+                    logger.warning(message)
+                    return ComfyUIExtensionReleaseResult(
+                        extension=extension,
+                        endpoint=endpoint,
+                        released=False,
+                        missing_endpoint=True,
+                        message=message,
+                    )
+                raise RuntimeError(message) from exc
+            raise
+
+        payload = response.json()
+        data = payload if isinstance(payload, dict) else {}
+        if self._parse_protocol_version(data) != 2:
+            message = (
+                f"ComfyUI extension health endpoint {endpoint} does not expose "
+                f"Pixelle release protocol v2. {_EXTENSION_PATCH_INSTRUCTIONS[extension]}"
+            )
+            raise RuntimeError(message)
+        self._ensure_extension_contract_revision(extension, endpoint, data)
+        return ComfyUIExtensionReleaseResult(
+            extension=extension,
+            endpoint=endpoint,
+            released=False,
+            safe_to_continue=self._is_extension_safe_to_continue(extension, data),
+            protocol_version=self._parse_protocol_version(data),
+            contract_revision=self._parse_contract_revision(data),
+            response=data,
+        )
 
     async def free_extension_models(
         self,
         *,
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
         missing_endpoint: ComfyUIExtensionMissingEndpointMode = "optional",
+    ) -> tuple[ComfyUIExtensionReleaseResult, ...]:
+        unified_discovery = await self._get_unified_extension_capabilities()
+        if self._supports_unified_targeted_release(unified_discovery, extensions):
+            try:
+                return await self._free_extension_models_via_unified_endpoint(extensions)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 404:
+                    raise
+
+        return await self._free_extension_models_via_legacy_endpoints(
+            extensions,
+            missing_endpoint=missing_endpoint,
+        )
+
+    def _supports_unified_targeted_release(
+        self,
+        discovery: tuple[int | None, dict[str, Any]] | None,
+        extensions: tuple[ComfyUIExtensionName, ...],
+    ) -> bool:
+        if discovery is None:
+            return False
+        contract_revision, capabilities = discovery
+        if (
+            contract_revision is None
+            or contract_revision < _UNIFIED_TARGETED_RELEASE_CONTRACT_REVISION
+        ):
+            return False
+        for extension in extensions:
+            capability = capabilities.get(extension)
+            if not isinstance(capability, dict) or not bool(capability.get("ok")):
+                return False
+            if self._parse_protocol_version(capability) != 2:
+                return False
+            if capability.get("release_endpoint") != _UNIFIED_RELEASE_ENDPOINT:
+                return False
+            minimum_revision = _EXTENSION_MIN_CONTRACT_REVISIONS.get(extension)
+            extension_revision = self._parse_contract_revision(capability)
+            if minimum_revision is not None and (
+                extension_revision is None or extension_revision < minimum_revision
+            ):
+                return False
+        return True
+
+    async def _free_extension_models_via_unified_endpoint(
+        self,
+        extensions: tuple[ComfyUIExtensionName, ...],
+    ) -> tuple[ComfyUIExtensionReleaseResult, ...]:
+        response = await self._request(
+            "POST",
+            _UNIFIED_RELEASE_ENDPOINT,
+            json={"extensions": list(extensions)},
+            timeout=self.release_request_timeout,
+        )
+        payload = response.json()
+        data = payload if isinstance(payload, dict) else {}
+        raw_results = data.get("results")
+        if not isinstance(raw_results, dict):
+            raise RuntimeError(
+                "ComfyUI unified extension cleanup response is missing the results object"
+            )
+
+        results = []
+        for extension in extensions:
+            extension_data = raw_results.get(extension)
+            if not isinstance(extension_data, dict):
+                raise RuntimeError(
+                    "ComfyUI unified extension cleanup response is missing "
+                    f"the '{extension}' result"
+                )
+            results.append(
+                self._extension_release_result_from_payload(
+                    extension,
+                    _UNIFIED_RELEASE_ENDPOINT,
+                    extension_data,
+                )
+            )
+        return tuple(results)
+
+    async def _free_extension_models_via_legacy_endpoints(
+        self,
+        extensions: tuple[ComfyUIExtensionName, ...],
+        *,
+        missing_endpoint: ComfyUIExtensionMissingEndpointMode,
     ) -> tuple[ComfyUIExtensionReleaseResult, ...]:
         results: list[ComfyUIExtensionReleaseResult] = []
         for extension in extensions:
@@ -424,24 +617,31 @@ class ComfyUIMaintenanceClient:
                     raise RuntimeError(message) from exc
                 raise
 
-            payload = response.json()
-            data = payload if isinstance(payload, dict) else {}
-            protocol_version = self._parse_protocol_version(data)
-            released = bool(data.get("released"))
-            contract_revision = self._parse_contract_revision(data)
-            safe_to_continue = self._is_extension_safe_to_continue(extension, data)
             results.append(
-                ComfyUIExtensionReleaseResult(
+                self._extension_release_result_from_payload(
                     extension=extension,
                     endpoint=endpoint,
-                    released=released,
-                    safe_to_continue=safe_to_continue,
-                    protocol_version=protocol_version,
-                    contract_revision=contract_revision,
-                    response=data,
+                    data=response.json(),
                 )
             )
         return tuple(results)
+
+    def _extension_release_result_from_payload(
+        self,
+        extension: ComfyUIExtensionName,
+        endpoint: str,
+        data: Any,
+    ) -> ComfyUIExtensionReleaseResult:
+        payload = data if isinstance(data, dict) else {}
+        return ComfyUIExtensionReleaseResult(
+            extension=extension,
+            endpoint=endpoint,
+            released=bool(payload.get("released")),
+            safe_to_continue=self._is_extension_safe_to_continue(extension, payload),
+            protocol_version=self._parse_protocol_version(payload),
+            contract_revision=self._parse_contract_revision(payload),
+            response=payload,
+        )
 
     async def free_extension_models_when_idle(
         self,
@@ -766,6 +966,7 @@ class ComfyUIMaintenanceClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
+        requested_timeout = kwargs.get("timeout", self.timeout)
         timeout = httpx.Timeout(self.timeout, connect=min(self.timeout, 2.0))
         async with httpx.AsyncClient(
             base_url=self.base_url,
@@ -776,9 +977,14 @@ class ComfyUIMaintenanceClient:
             try:
                 response = await client.request(method, path, **kwargs)
             except httpx.TimeoutException as exc:
+                timeout_display = (
+                    f"{requested_timeout:g}"
+                    if isinstance(requested_timeout, (int, float))
+                    else str(requested_timeout)
+                )
                 raise TimeoutError(
                     f"ComfyUI {method} {self.base_url}{path} timed out "
-                    f"after {self.timeout:g}s"
+                    f"after {timeout_display}s"
                 ) from exc
             except httpx.RequestError as exc:
                 detail = str(exc).strip() or repr(exc) or type(exc).__name__
