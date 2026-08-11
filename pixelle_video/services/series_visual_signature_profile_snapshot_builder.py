@@ -108,13 +108,17 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             _read_field(ip_profile, "forbidden_elements"),
         )
         source_asset_ids = _source_asset_ids(_read_field(ip_profile, "metadata"))
-        return VisualSignatureProfileSnapshot(
+        snapshot = VisualSignatureProfileSnapshot(
             profile_id=profile_id,
             display_name=display_name,
             identity_traits=identity_traits,
             style_safe_traits=(),
             forbidden_traits=forbidden_traits,
             source_asset_ids=source_asset_ids,
+        )
+        return validate_series_visual_signature_profile_snapshot(
+            snapshot,
+            expected_profile_id=request.profile_id,
         )
 
     def _from_legacy_profile(
@@ -133,7 +137,7 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
         )
         if not identity_traits:
             raise ValueError("resolved legacy profile has no explicit identity traits")
-        return VisualSignatureProfileSnapshot(
+        snapshot = VisualSignatureProfileSnapshot(
             profile_id=profile.profile_id,
             display_name=display_name,
             identity_traits=identity_traits,
@@ -141,6 +145,49 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             forbidden_traits=(),
             source_asset_ids=tuple(profile.reference_assets),
         )
+        return validate_series_visual_signature_profile_snapshot(
+            snapshot,
+            expected_profile_id=request.profile_id,
+        )
+
+
+def validate_series_visual_signature_profile_snapshot(
+    snapshot: Any,
+    *,
+    expected_profile_id: str | None = None,
+) -> VisualSignatureProfileSnapshot:
+    """Re-authenticate a canonical snapshot before crossing an LLM trust boundary.
+
+    A caller-provided ``VisualSignatureProfileSnapshot`` is structurally valid,
+    but its constructor intentionally does not carry the complete Asset Bible
+    instruction-language policy. Re-run the canonical identity validators here
+    so externally constructed snapshots cannot bypass the generation trust gate.
+    """
+
+    if not isinstance(snapshot, VisualSignatureProfileSnapshot):
+        raise TypeError(
+            "visual signature profile snapshot must use the canonical snapshot type"
+        )
+    if expected_profile_id is not None and snapshot.profile_id != expected_profile_id:
+        raise ValueError(
+            "visual signature profile snapshot must match expected profile_id"
+        )
+
+    display_name = validate_series_visual_signature_identity_name(snapshot.display_name)
+    identity_traits = validate_series_visual_signature_identity_traits(
+        snapshot.identity_traits
+    )
+    if not identity_traits:
+        raise ValueError("visual signature profile snapshot has no identity traits")
+
+    return VisualSignatureProfileSnapshot(
+        profile_id=snapshot.profile_id,
+        display_name=display_name,
+        identity_traits=identity_traits,
+        style_safe_traits=tuple(snapshot.style_safe_traits),
+        forbidden_traits=tuple(snapshot.forbidden_traits),
+        source_asset_ids=tuple(snapshot.source_asset_ids),
+    )
 
 
 def validate_series_visual_signature_identity_name(value: Any) -> str:
@@ -308,4 +355,5 @@ __all__ = [
     "select_series_visual_signature_identity_traits",
     "validate_series_visual_signature_identity_name",
     "validate_series_visual_signature_identity_traits",
+    "validate_series_visual_signature_profile_snapshot",
 ]
