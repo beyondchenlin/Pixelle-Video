@@ -55,7 +55,10 @@ from pixelle_video.models.prompt_context import (
     normalize_prompt_contexts,
     slice_prompt_contexts,
 )
-from pixelle_video.models.series_visual_signature import SERIES_VISUAL_SIGNATURE_NATURAL_ROLE_MAP
+from pixelle_video.models.series_visual_signature import (
+    SERIES_VISUAL_SIGNATURE_NATURAL_ROLE_MAP,
+    VisualSignatureProfileSnapshot,
+)
 from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
 from pixelle_video.models.series_visual_signature_request import SeriesVisualSignatureRequest
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
@@ -78,6 +81,9 @@ from pixelle_video.services.llm_trace_refs import (
 )
 from pixelle_video.services.series_visual_signature_profile_builder import (
     SeriesVisualSignatureProfileBuilder,
+)
+from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
+    validate_series_visual_signature_profile_snapshot,
 )
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.services.visual_prompt_planning_service import VisualPromptPlanningService
@@ -1413,6 +1419,8 @@ async def generate_styled_image_prompt_batch(
     series_visual_signature_fallback_enabled: bool | None = None,
     series_visual_signature_fallback_mode: str | None = None,
     series_visual_signature_min_visibility: str | None = None,
+    canonical_series_visual_signature_request: SeriesVisualSignatureRequest | None = None,
+    canonical_series_visual_signature_profile_snapshot: VisualSignatureProfileSnapshot | None = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
@@ -1434,12 +1442,35 @@ async def generate_styled_image_prompt_batch(
         profile_id=getattr(ip_profile, "series_visual_signature_profile_id", None),
         generation_world_hint=generation_world_hint,
     )
-    ip_prompt_chain_enabled = resolved_series_visual_signature_request.enabled
+    canonical_signature_request = (
+        canonical_series_visual_signature_request
+        if canonical_series_visual_signature_request is not None
+        else SeriesVisualSignatureRequest.disabled()
+    )
+    llm_visual_signature_enabled, ip_prompt_chain_enabled = (
+        _resolve_visual_signature_prompt_ownership(
+            legacy_request=resolved_series_visual_signature_request,
+            canonical_request=canonical_signature_request,
+            canonical_profile_snapshot=canonical_series_visual_signature_profile_snapshot,
+        )
+    )
     resolved_series_visual_signature_profile = series_visual_signature_profile
     _sv_display_name = ""
     _sv_identity_traits = ""
     _sv_role_description = ""
-    if ip_prompt_chain_enabled:
+    if canonical_signature_request.enabled:
+        canonical_profile = validate_series_visual_signature_profile_snapshot(
+            canonical_series_visual_signature_profile_snapshot,
+            expected_profile_id=canonical_signature_request.profile_id,
+        )
+        _sv_display_name = canonical_profile.display_name
+        _sv_identity_traits = ", ".join(canonical_profile.identity_traits)
+        _sv_role_description = _signature_role_description_from_identity(
+            canonical_signature_request,
+            display_name=canonical_profile.display_name,
+            identity_traits=canonical_profile.identity_traits,
+        )
+    elif ip_prompt_chain_enabled:
         if storyboard_plan is None:
             raise ValueError("storyboard_plan is required when series_visual_signature_enabled=True")
         ensure_ip_profile_ready_for_generation(ip_profile)
@@ -1709,8 +1740,9 @@ async def generate_styled_image_prompt_batch(
         generation_world_profile=generation_world_profile,
     )
 
-    # Base prompt generation is intentionally anchor-free. The recurring visual
-    # anchor is placed only after the subject-first base scene exists.
+    # Canonical V4.5 identity is already scene-integrated by the LLM from the
+    # validated snapshot. Legacy anchor planning remains downstream-only and is
+    # gated exclusively by ip_prompt_chain_enabled.
     style_context = None
     ip_adaptation_packages = []
     prompt_contexts_for_generation = _strip_ip_prompt_context_fields(normalized_prompt_contexts)
@@ -1758,7 +1790,7 @@ async def generate_styled_image_prompt_batch(
             stage_callback=stage_callback,
             trace_context=trace_context,
             trace_recorder=active_trace_recorder,
-            series_visual_signature_enabled=ip_prompt_chain_enabled,
+            series_visual_signature_enabled=llm_visual_signature_enabled,
             series_visual_signature_display_name=_sv_display_name,
             series_visual_signature_identity_traits=_sv_identity_traits,
             series_visual_signature_role_description=_sv_role_description,
@@ -1779,7 +1811,7 @@ async def generate_styled_image_prompt_batch(
             stage_callback=stage_callback,
             trace_context=trace_context,
             trace_recorder=active_trace_recorder,
-            series_visual_signature_enabled=ip_prompt_chain_enabled,
+            series_visual_signature_enabled=llm_visual_signature_enabled,
             series_visual_signature_display_name=_sv_display_name,
             series_visual_signature_identity_traits=_sv_identity_traits,
             series_visual_signature_role_description=_sv_role_description,
@@ -2368,15 +2400,66 @@ def _dedupe_identity_traits(values: Any) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _resolve_visual_signature_prompt_ownership(
+    *,
+    legacy_request: SeriesVisualSignatureRequest,
+    canonical_request: SeriesVisualSignatureRequest,
+    canonical_profile_snapshot: VisualSignatureProfileSnapshot | None,
+) -> tuple[bool, bool]:
+    if not isinstance(legacy_request, SeriesVisualSignatureRequest):
+        raise TypeError("legacy visual signature request must use the canonical request type")
+    if not isinstance(canonical_request, SeriesVisualSignatureRequest):
+        raise TypeError("canonical visual signature request must use the canonical request type")
+
+    legacy_enabled = legacy_request.enabled
+    canonical_enabled = canonical_request.enabled
+    if legacy_enabled and canonical_enabled:
+        raise ValueError(
+            "canonical visual signature context and legacy visual signature inputs are mutually exclusive"
+        )
+    if canonical_enabled:
+        if canonical_profile_snapshot is None:
+            raise ValueError(
+                "canonical visual signature request requires a validated profile snapshot"
+            )
+        if not isinstance(canonical_profile_snapshot, VisualSignatureProfileSnapshot):
+            raise TypeError(
+                "canonical visual signature profile snapshot must use the canonical snapshot type"
+            )
+        if canonical_profile_snapshot.profile_id != canonical_request.profile_id:
+            raise ValueError(
+                "canonical visual signature profile snapshot must match request profile_id"
+            )
+    elif canonical_profile_snapshot is not None:
+        raise ValueError(
+            "canonical visual signature profile snapshot requires an enabled canonical request"
+        )
+
+    return canonical_enabled or legacy_enabled, legacy_enabled
+
+
 def _signature_role_description(
     request: SeriesVisualSignatureRequest,
     profile: SeriesVisualSignatureProfile,
 ) -> str:
-    role_text = str(request.role.value if request.role is not None else "auto")
-    display_name = profile.display_name or ""
-    traits = ", ".join(
-        profile.identity_contract.required_identity_traits or profile.identity_kernel
+    return _signature_role_description_from_identity(
+        request,
+        display_name=profile.display_name,
+        identity_traits=(
+            profile.identity_contract.required_identity_traits
+            or profile.identity_kernel
+        ),
     )
+
+
+def _signature_role_description_from_identity(
+    request: SeriesVisualSignatureRequest,
+    *,
+    display_name: str,
+    identity_traits: Sequence[str],
+) -> str:
+    role_text = str(request.role.value if request.role is not None else "auto")
+    traits = ", ".join(str(item).strip() for item in identity_traits if str(item).strip())
     default_desc = "a scene-bound participant"
     parts = [display_name] if display_name else []
     parts.append("appears in the scene")
