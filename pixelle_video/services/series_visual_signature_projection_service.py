@@ -30,6 +30,9 @@ from pixelle_video.services.series_visual_signature_final_prompt_gate import (
 from pixelle_video.services.series_visual_signature_prompt_presence import (
     prompt_contains_term,
 )
+from pixelle_video.services.visible_text_prompt_rewriter import (
+    NO_VISIBLE_TEXT_NEGATIVE_PROMPT,
+)
 
 
 class SeriesVisualSignatureProjectionError(RuntimeError):
@@ -383,6 +386,10 @@ class SeriesVisualSignatureProjectionService:
                 "duplicate recurring visual signature instances",
             )
         )
+        if signature.profile is not None:
+            negative_parts.extend(signature.profile.forbidden_traits)
+        if visible_text_policy == "no_visible_text":
+            negative_parts.append(NO_VISIBLE_TEXT_NEGATIVE_PROMPT)
         negative_prompt = ", ".join(_dedupe(negative_parts))
 
         assert_series_visual_signature_final_prompt(

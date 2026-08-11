@@ -400,3 +400,33 @@ def test_identity_presence_requires_display_name_before_pass_through() -> None:
     assert "Dalmatian" in frame.bundle.positive_prompt
     assert frame.signature.role.value == "guide"
     assert frame.signature.max_area_ratio == pytest.approx(0.20)
+
+
+
+def test_pass_through_reuses_no_visible_text_and_forbidden_trait_protections() -> None:
+    request = _request(series_visual_signature_role="guide")
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=request,
+        ip_profile=_ip_profile(forbidden_elements=("blue fur",)),
+    )
+    llm_prompt = (
+        "A worker operates the machine while Dalmatian with black spots, black sunglasses, "
+        "red collar, and small round ears points at the process path"
+    )
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=[llm_prompt],
+        frame_ids=["frame-1"],
+        frame_contexts=[
+            {
+                "primary_subject": "worker",
+                "visible_text_policy": "no_visible_text",
+            }
+        ],
+        request=request,
+        profile=profile,
+    )
+
+    negative_prompt = result.frames[0].bundle.negative_prompt
+    assert "readable text" in negative_prompt
+    assert "blue fur" in negative_prompt
