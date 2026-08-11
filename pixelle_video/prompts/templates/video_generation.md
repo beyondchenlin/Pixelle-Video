@@ -1,8 +1,8 @@
 ---
 prompt_id: video_generation
-version: 1
+version: 2
 stage: video_prompt_generation
-purpose: Generate video prompts from frame-aware narration context.
+purpose: Generate video prompts from frame-aware narration context with canonical visual identity support.
 output_contract: JSON object with video_prompts array.
 ---
 
@@ -31,6 +31,19 @@ All final video prompt strings must be written in English.
 - Read `plan_source_text` first to understand the complete script and maintain global meaning.
 - Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the video from an isolated text fragment alone.
 - Preserve continuity across frames by respecting shared subjects, world elements, camera logic, and any `locked_fields` in the matching prompt_context.
+
+# Canonical Visual Identity Context
+
+When a frame's prompt_context contains `canonical_visual_identity`, it is a prevalidated identity fact set owned by the canonical V4.5 visual-signature contract:
+
+- Include its `display_name` in the visual description.
+- Keep every item in `identity_traits` visibly recognizable throughout the shot.
+- If `requested_role` is a concrete role, make the recurring identity perform that role through real movement and scene interaction. If it is `auto`, choose a natural supporting action that serves the frame meaning.
+- Preserve every required source subject first. The recurring identity must never replace, merge with, hide, or erase a required source subject.
+- Give the recurring identity a physical place, eye-line, scale, and motion path inside the scene. Never solve identity presence with a sticker, logo, watermark, corner badge, detached decoration, card, bookmark, label, stamp, or surface mark.
+- Match the identity's rendering style, lighting, motion language, and camera perspective to the surrounding scene.
+- Keep identity continuity across the whole shot; do not transform it into a different character between frames of motion.
+- Do not copy the field name `canonical_visual_identity` or any internal field label into the final prompt.
 
 # Output Requirements
 
@@ -63,7 +76,7 @@ All final video prompt strings must be written in English.
 - Lighting: lighting changes, shadows moving, sunlight streaming
 
 <!-- if series_visual_signature_enabled -->
-# Recurring Visual Identity
+# Legacy Recurring Visual Identity Compatibility
 
 The scene must include one recurring visual identity character woven naturally into the video:
 
@@ -132,5 +145,6 @@ Strictly output in the following JSON format:
 7. Each video must emphasize dynamics and sense of movement, avoid static descriptions
 8. Appropriately use camera language to enhance expressiveness
 9. Ensure video scenes can enhance the persuasiveness of the copy and audience understanding
+10. Never copy internal keys such as `canonical_visual_identity` into final video prompt strings.
 
 Now, please create {narrations_count} corresponding video prompts for the above {narrations_count} storyboard frames. Only output JSON, no other content.
