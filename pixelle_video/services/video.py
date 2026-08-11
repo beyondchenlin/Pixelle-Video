@@ -134,33 +134,41 @@ class VideoService:
 
     def _encode_run(self, build_output, *, quiet=False):
         params = self._h264_encode_params()
+        extra: dict[str, bool] = {"capture_stdout": True, "capture_stderr": True}
+        if quiet:
+            extra["quiet"] = True
         try:
-            extra: dict[str, bool] = {"capture_stdout": True, "capture_stderr": True}
-            if quiet:
-                extra["quiet"] = True
             build_output(**params).run(**extra)
-        except ffmpeg.Error as exc:
+        except ffmpeg.Error as hardware_exc:
             vcodec = str(params.get("vcodec") or "")
             if vcodec == "libx264":
                 raise
-            stderr = getattr(exc, "stderr", None)
+
+            logger.warning(
+                "Hardware encoder {} failed; validating the same task with CPU libx264",
+                vcodec,
+            )
+            try:
+                build_output(**ffmpeg_h264_fallback_kwargs()).run(**extra)
+            except ffmpeg.Error:
+                # The task itself is not proven valid. Do not poison the process-wide
+                # hardware capability cache for an input/filter/output failure.
+                raise
+
+            stderr = getattr(hardware_exc, "stderr", None)
             if isinstance(stderr, bytes):
                 reason = stderr.decode("utf-8", errors="replace")
             else:
-                reason = str(stderr or exc)
+                reason = str(stderr or hardware_exc)
             reason = " ".join(reason.strip().split())[-400:]
             disable_ffmpeg_h264_encoder(
                 vcodec,
-                reason=reason or "runtime encode failure",
+                reason=reason or "hardware-specific runtime encode failure",
             )
             logger.warning(
-                "Hardware encoder {} failed and was disabled; retrying with CPU libx264",
+                "CPU fallback succeeded; disabled hardware encoder {} for this process",
                 vcodec,
             )
-            extra = {"capture_stdout": True, "capture_stderr": True}
-            if quiet:
-                extra["quiet"] = True
-            build_output(**ffmpeg_h264_fallback_kwargs()).run(**extra)
 
     def concat_videos(
         self,
