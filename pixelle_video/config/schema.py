@@ -489,8 +489,10 @@ class ComfyUIBackendProfile(BaseModel):
     managed: bool = Field(
         default=True,
         description=(
-            "Whether Pixelle may start a missing local backend. A healthy process "
-            "that Pixelle did not start remains externally owned and is never stopped."
+            "Per-profile capability allowing Pixelle to start a missing headless local "
+            "backend only when global lifecycle management is explicitly auto or "
+            "required. A healthy process that Pixelle did not start remains externally "
+            "owned and is never stopped."
         ),
     )
     restart_after_batch: bool = Field(
@@ -574,12 +576,12 @@ class ComfyUIConfig(BaseModel):
         description="Optional ComfyUI executor override for selfhost workflows",
     )
     backend_management_mode: Literal["auto", "required", "disabled"] = Field(
-        default="auto",
+        default="disabled",
         description=(
-            "Controls ComfyUI lifecycle ownership. 'auto' reuses a healthy existing "
-            "backend and starts one only when the endpoint is unavailable; 'required' "
-            "accepts only a Pixelle-owned manageable process; 'disabled' only connects "
-            "to an externally managed backend and never starts or stops ComfyUI."
+            "Controls ComfyUI lifecycle ownership. 'disabled' is the safe default for "
+            "a visible, user-owned ComfyUI Desktop process; 'auto' reuses a healthy "
+            "existing backend and starts a headless one only when the endpoint is "
+            "unavailable; 'required' accepts only a Pixelle-owned headless process."
         ),
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")

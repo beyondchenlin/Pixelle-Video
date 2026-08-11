@@ -1,13 +1,29 @@
 # Pixelle ComfyUI Backend Scripts
 
-These scripts run a single Pixelle-managed ComfyUI backend for local `selfhost` workflows.
-After the backend starts, the ComfyUI GUI is still available in a browser:
+Pixelle defaults to externally managed Desktop mode: the user opens ComfyUI Desktop,
+then tests the connection in Pixelle settings. In this mode Pixelle never starts,
+hides, stops, or restarts the Desktop process, so its window, queue, and outputs remain
+visible.
+
+The scripts in this directory are only for an explicit headless-management deployment.
+They run one Pixelle-owned background process for local `selfhost` workflows. They do
+not create a ComfyUI Desktop window, although the browser UI remains available:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-Pixelle generation does not require ComfyUI Desktop to be open. Use ComfyUI Desktop for node installation, model management, and manual debugging; use this managed backend for Pixelle production generation.
+## Lifecycle Modes
+
+- Recommended Desktop mode: `backend_management_mode: disabled` and
+  `restart_after_batch: false`. Open Desktop first; Pixelle only probes and submits.
+  Disabled mode overrides each profile's `managed` value, so the Desktop process is
+  never started, stopped, or restarted by Pixelle.
+- Advanced headless mode: set `backend_management_mode` to `auto` or `required` and
+  explicitly set `managed: true`. Only this mode uses the start, stop, and restart scripts.
+
+A hidden backend and ComfyUI Desktop are different application forms. Removing the
+hidden-window flag only exposes a console; it does not turn the process into Desktop.
 
 ## Windows Double-Click Entry Points
 
@@ -45,7 +61,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\comfyui\start_backen
   -SharedBasePath 'E:\ComfyUIData'
 ```
 
-`start_backend.ps1` deliberately avoids `--log-stdout` and `--enable-manager`, and redirects stdout / stderr to:
+`start_backend.ps1` runs headlessly, deliberately avoids `--log-stdout` and
+`--enable-manager`, and redirects stdout / stderr to:
 
 ```text
 logs\comfyui\

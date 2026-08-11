@@ -347,6 +347,59 @@ async def test_auto_mode_reuses_healthy_external_backend_without_starting(monkey
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ownership", ("external", "pixelle"))
+async def test_auto_mode_captures_healthy_backend_ownership_when_restart_is_enabled(
+    monkeypatch,
+    ownership,
+):
+    profile = ComfyUIBackendProfile(
+        url="http://127.0.0.1:8000",
+        restart_after_batch=True,
+    )
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile=profile,
+        management_mode="auto",
+        maintenance_client=_ProbeClient([{"system": {"comfyui_version": "0.31.0"}}]),
+    )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state(ownership)),
+    )
+
+    result = await backend.ensure_ready(reason="pre-workflow")
+
+    assert result.ownership == ownership
+    assert result.started is False
+    assert result.reused_existing is True
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_keeps_healthy_backend_when_ownership_capture_fails(monkeypatch):
+    profile = ComfyUIBackendProfile(
+        url="http://127.0.0.1:8000",
+        restart_after_batch=True,
+    )
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile=profile,
+        management_mode="auto",
+        maintenance_client=_ProbeClient([{"system": {"comfyui_version": "0.31.0"}}]),
+    )
+
+    async def _fail_inspection(*, reason):
+        raise PermissionError(f"inspection denied: {reason}")
+
+    monkeypatch.setattr(backend, "inspect_state", _fail_inspection)
+
+    result = await backend.ensure_ready(reason="pre-workflow")
+
+    assert result.ownership == "unknown"
+    assert result.reused_existing is True
+
+
+@pytest.mark.asyncio
 async def test_disabled_mode_reuses_healthy_backend_as_external(monkeypatch):
     backend = ManagedComfyUIBackend(
         repo_root=Path.cwd(),
