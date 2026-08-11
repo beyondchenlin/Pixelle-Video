@@ -81,8 +81,10 @@ class VisualPromptComposer:
 
     This core service accepts one recurring-identity request type only. Historical
     product controls are normalized by ``ImagePromptComposer`` before reaching
-    this service. Base scene generation is always signature-free; canonical V4.5
-    projection is the only place recurring identity may enter final prompts.
+    this service. When recurring identity is enabled, raw Asset Bible identity is
+    first validated into one canonical runtime snapshot. The LLM may then weave
+    that validated identity into the scene, while canonical V4.5 projection owns
+    the final subject/identity contract and repairs only missing protected facts.
     """
 
     async def compose(
@@ -143,6 +145,19 @@ class VisualPromptComposer:
                 "series_visual_signature_profile_snapshot requires an enabled canonical request"
             )
 
+        profile_snapshot: VisualSignatureProfileSnapshot | None = None
+        if signature_enabled:
+            profile_snapshot = series_visual_signature_profile_snapshot
+            if profile_snapshot is None:
+                profile_snapshot = SeriesVisualSignatureProfileSnapshotBuilder().build(
+                    request=resolved_signature_request,
+                    ip_profile=ip_profile,
+                )
+            elif profile_snapshot.profile_id != resolved_signature_request.profile_id:
+                raise ValueError(
+                    "series_visual_signature_profile_snapshot must match canonical request profile_id"
+                )
+
         if reference_patch:
             visual_story_context = _merge_visual_story_context_patch(
                 visual_story_context,
@@ -164,9 +179,9 @@ class VisualPromptComposer:
             visual_story_context,
         )
 
-        # Base generation owns scene/style/camera/reference-image/text planning.
-        # When visual signature is enabled, LLM receives IP identity so it can
-        # naturally weave the recurring character into the scene description.
+        # Identity-bearing LLM calls are permitted only after the canonical runtime
+        # snapshot above has validated the profile. Projection later reuses the same
+        # snapshot instead of rebuilding identity after model execution.
         batch = await generate_styled_image_prompt_batch(
             llm_service=llm_service,
             narrations=[
@@ -227,15 +242,9 @@ class VisualPromptComposer:
 
         planning_snapshot = dict(batch.planning_snapshot or {})
         if signature_enabled:
-            profile_snapshot = series_visual_signature_profile_snapshot
             if profile_snapshot is None:
-                profile_snapshot = SeriesVisualSignatureProfileSnapshotBuilder().build(
-                    request=resolved_signature_request,
-                    ip_profile=ip_profile,
-                )
-            elif profile_snapshot.profile_id != resolved_signature_request.profile_id:
-                raise ValueError(
-                    "series_visual_signature_profile_snapshot must match canonical request profile_id"
+                raise RuntimeError(
+                    "enabled visual signature must have a prevalidated canonical profile snapshot"
                 )
             briefs = dict(
                 planning_snapshot.get("base_visual_briefs_by_frame") or {}
