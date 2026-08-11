@@ -82,6 +82,9 @@ from pixelle_video.services.llm_trace_refs import (
 from pixelle_video.services.series_visual_signature_profile_builder import (
     SeriesVisualSignatureProfileBuilder,
 )
+from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
+    validate_series_visual_signature_profile_snapshot,
+)
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.services.visual_prompt_planning_service import VisualPromptPlanningService
 from pixelle_video.services.visual_style_contract_resolver import VisualStyleContractResolver
@@ -1456,9 +1459,10 @@ async def generate_styled_image_prompt_batch(
     _sv_identity_traits = ""
     _sv_role_description = ""
     if canonical_signature_request.enabled:
-        canonical_profile = canonical_series_visual_signature_profile_snapshot
-        if canonical_profile is None:
-            raise RuntimeError("canonical visual signature routing lost its validated profile snapshot")
+        canonical_profile = validate_series_visual_signature_profile_snapshot(
+            canonical_series_visual_signature_profile_snapshot,
+            expected_profile_id=canonical_signature_request.profile_id,
+        )
         _sv_display_name = canonical_profile.display_name
         _sv_identity_traits = ", ".join(canonical_profile.identity_traits)
         _sv_role_description = _signature_role_description_from_identity(

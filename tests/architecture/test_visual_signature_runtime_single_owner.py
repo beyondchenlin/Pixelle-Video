@@ -184,3 +184,56 @@ def test_legacy_identity_planners_are_gated_only_by_legacy_projection_flag() -> 
     assert ast.unparse(keywords["series_visual_signature_request"]) == (
         "resolved_series_visual_signature_request if ip_prompt_chain_enabled else None"
     )
+
+
+
+def _function_node(path: Path, function_name: str) -> ast.AsyncFunctionDef | ast.FunctionDef:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name:
+            return node
+    raise AssertionError(f"function {function_name} not found")
+
+
+def _named_calls(function: ast.AST, name: str) -> list[ast.Call]:
+    result: list[ast.Call] = []
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name) and node.func.id == name:
+            result.append(node)
+    return result
+
+
+def test_composer_revalidates_snapshot_before_generator_call() -> None:
+    function = _function_node(
+        ROOT / "pixelle_video/services/visual_prompt_composer.py",
+        "compose",
+    )
+    validators = _named_calls(function, "validate_series_visual_signature_profile_snapshot")
+    generators = _named_calls(function, "generate_styled_image_prompt_batch")
+
+    assert len(validators) == 1
+    assert len(generators) == 1
+    assert validators[0].lineno < generators[0].lineno
+    keywords = {item.arg: item.value for item in validators[0].keywords if item.arg}
+    assert ast.unparse(keywords["expected_profile_id"]) == (
+        "resolved_signature_request.profile_id"
+    )
+
+
+def test_generic_generator_revalidates_canonical_snapshot_before_identity_use() -> None:
+    function = _function_node(
+        ROOT / "pixelle_video/utils/content_generators.py",
+        "generate_styled_image_prompt_batch",
+    )
+    validators = _named_calls(function, "validate_series_visual_signature_profile_snapshot")
+
+    assert len(validators) == 1
+    keywords = {item.arg: item.value for item in validators[0].keywords if item.arg}
+    assert ast.unparse(validators[0].args[0]) == (
+        "canonical_series_visual_signature_profile_snapshot"
+    )
+    assert ast.unparse(keywords["expected_profile_id"]) == (
+        "canonical_signature_request.profile_id"
+    )

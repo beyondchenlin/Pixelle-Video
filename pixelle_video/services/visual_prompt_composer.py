@@ -35,6 +35,7 @@ from pixelle_video.services.reference_image_visual_context_adapter import (
 )
 from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
     SeriesVisualSignatureProfileSnapshotBuilder,
+    validate_series_visual_signature_profile_snapshot,
 )
 from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureProjectionService,
@@ -171,10 +172,10 @@ class VisualPromptComposer:
                     request=resolved_signature_request,
                     ip_profile=ip_profile,
                 )
-            elif profile_snapshot.profile_id != resolved_signature_request.profile_id:
-                raise ValueError(
-                    "series_visual_signature_profile_snapshot must match canonical request profile_id"
-                )
+            profile_snapshot = validate_series_visual_signature_profile_snapshot(
+                profile_snapshot,
+                expected_profile_id=resolved_signature_request.profile_id,
+            )
 
         # Base generation owns scene/style/camera/reference-image/text planning.
         # When visual signature is enabled, LLM receives IP identity so it can
