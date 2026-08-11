@@ -200,6 +200,7 @@ class VisualPromptPlanningService:
             policy,
             visual_anchor_enabled=visual_anchor_enabled,
             anchor_profile=anchor_profile,
+            series_visual_signature_request=series_visual_signature_request,
         )
         active_anchor_profile = anchor_profile if _mandatory_ip_active(
             visual_anchor_enabled=visual_anchor_enabled,
@@ -315,11 +316,22 @@ def _projection_policy_for_request(
     *,
     visual_anchor_enabled: bool,
     anchor_profile: IPProfile | None,
+    series_visual_signature_request: Any | None = None,
 ) -> VisualSignaturePolicy:
     if _mandatory_ip_active(
         visual_anchor_enabled=visual_anchor_enabled,
         anchor_profile=anchor_profile,
     ):
+        if series_visual_signature_request is not None and getattr(
+            series_visual_signature_request, "enabled", False
+        ):
+            return replace(
+                policy,
+                coverage_mode="sparse",
+                suppress_allowed=True,
+                projection_failure="allow_anchor_free",
+                require_concrete_identity=False,
+            )
         return policy
     if not policy.requires_every_frame_signature:
         return policy
