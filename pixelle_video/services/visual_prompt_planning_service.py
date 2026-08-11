@@ -53,6 +53,7 @@ class VisualPromptPlanningResult:
     series_visual_signature_request: SeriesVisualSignatureRequest | None = None
     series_visual_signature_profile: SeriesVisualSignatureProfile | None = None
     series_visual_signature_fallback: Mapping[str, Any] | None = None
+    legacy_visual_anchor_disabled: bool = False
 
     def planning_snapshot(self) -> dict[str, Any]:
         snapshot = {
@@ -68,6 +69,12 @@ class VisualPromptPlanningResult:
             )
         if self.series_visual_signature_fallback:
             snapshot["series_visual_signature_fallback"] = dict(self.series_visual_signature_fallback)
+        if self.legacy_visual_anchor_disabled:
+            snapshot["legacy_visual_anchor_pipeline"] = {
+                "enabled": False,
+                "owner": "series_visual_signature_v45",
+                "reason": "canonical V4.5 visual signature owns identity projection",
+            }
         if self.visual_expression_decisions:
             snapshot["visual_expression_decision_by_frame"] = {decision.frame_id: decision.to_dict() for decision in self.visual_expression_decisions}
         if self.series_visual_signature_plans:
@@ -100,7 +107,15 @@ class VisualPromptPlanningResult:
 
 @dataclass(frozen=True)
 class VisualPromptPlanningService:
-    """Subject-first visual planning with resilient series-visual-signature routing."""
+    """Subject-first planning with one identity owner at a time.
+
+    Legacy visual-anchor planning remains available for legacy callers. Once a
+    canonical V4.5 visual-signature request is enabled, however, the legacy
+    anchor planners are disabled before any planning call. The generic provider
+    projector may still render the identity-neutral base brief, but it receives
+    neither an anchor profile nor an anchor placement plan and therefore cannot
+    mutate, remove, or append recurring identity content.
+    """
 
     async def plan_image_prompts(
         self,
@@ -149,6 +164,19 @@ class VisualPromptPlanningService:
                     }
                 )
         policy = policy_for_presentation_mode(policy, presentation_policy)
+
+        (
+            legacy_anchor_enabled,
+            legacy_anchor_profile,
+            legacy_anchor_packages,
+            legacy_visual_anchor_disabled,
+        ) = _legacy_anchor_inputs(
+            visual_anchor_enabled=visual_anchor_enabled,
+            anchor_profile=anchor_profile,
+            base_anchor_packages=base_anchor_packages,
+            series_visual_signature_request=series_visual_signature_request,
+        )
+
         base_visual_briefs = BaseVisualBriefPlanner().plan_batch(
             base_prompts=base_prompts,
             frame_contexts=frame_contexts,
@@ -159,12 +187,12 @@ class VisualPromptPlanningService:
         )
 
         visual_anchor_plans: tuple[VisualAnchorPlacementPlan, ...] = tuple()
-        if visual_anchor_enabled and anchor_profile is not None:
+        if legacy_anchor_enabled and legacy_anchor_profile is not None:
             if _should_use_deterministic_anchor_planning(
                 presentation_policy=presentation_policy,
                 role_strategy=role_strategy,
             ):
-                identity_kernel = build_visual_identity_kernel(anchor_profile)
+                identity_kernel = build_visual_identity_kernel(legacy_anchor_profile)
                 reasons = {
                     brief.frame_id: (
                         "soft deterministic anchor planning selected",
@@ -172,7 +200,7 @@ class VisualPromptPlanningService:
                     for brief in base_visual_briefs
                 }
                 visual_anchor_plans = VisualSignatureFallbackPlanner(
-                    anchor_profile=anchor_profile,
+                    anchor_profile=legacy_anchor_profile,
                     presentation_policy=presentation_policy,
                     identity_kernel=identity_kernel,
                     visual_signature_policy=policy,
@@ -189,8 +217,8 @@ class VisualPromptPlanningService:
                     presentation_policy=presentation_policy,
                 ).plan_batch(
                     base_visual_briefs=base_visual_briefs,
-                    anchor_profile=anchor_profile,
-                    base_packages=base_anchor_packages,
+                    anchor_profile=legacy_anchor_profile,
+                    base_packages=legacy_anchor_packages,
                     frame_contexts=frame_contexts,
                     frame_plans=frame_plans,
                     trace_context=trace_context,
@@ -198,13 +226,12 @@ class VisualPromptPlanningService:
                 )
         projection_policy = _projection_policy_for_request(
             policy,
-            visual_anchor_enabled=visual_anchor_enabled,
-            anchor_profile=anchor_profile,
-            series_visual_signature_request=series_visual_signature_request,
+            visual_anchor_enabled=legacy_anchor_enabled,
+            anchor_profile=legacy_anchor_profile,
         )
-        active_anchor_profile = anchor_profile if _mandatory_ip_active(
-            visual_anchor_enabled=visual_anchor_enabled,
-            anchor_profile=anchor_profile,
+        active_anchor_profile = legacy_anchor_profile if _mandatory_ip_active(
+            visual_anchor_enabled=legacy_anchor_enabled,
+            anchor_profile=legacy_anchor_profile,
         ) else None
         rendered_prompts = _project_prompts(
             base_visual_briefs=base_visual_briefs,
@@ -218,7 +245,7 @@ class VisualPromptPlanningService:
         )
         anchor_packages = _anchor_packages_from_plans(
             visual_anchor_plans=visual_anchor_plans,
-            base_anchor_packages=base_anchor_packages,
+            base_anchor_packages=legacy_anchor_packages,
         )
         fallback_ledger = fallback_ledger_from_plans(visual_anchor_plans) if visual_anchor_plans else None
         return VisualPromptPlanningResult(
@@ -229,6 +256,7 @@ class VisualPromptPlanningService:
             series_visual_signature_request=series_visual_signature_request,
             series_visual_signature_profile=series_visual_signature_profile,
             series_visual_signature_fallback=fallback_ledger if fallback_ledger and fallback_ledger.get("fallback_applied") else None,
+            legacy_visual_anchor_disabled=legacy_visual_anchor_disabled,
         )
 
 
@@ -284,6 +312,29 @@ def _anchor_packages_from_plans(
     return tuple(packages)
 
 
+def _legacy_anchor_inputs(
+    *,
+    visual_anchor_enabled: bool,
+    anchor_profile: IPProfile | None,
+    base_anchor_packages: Sequence[IPFrameAdaptationPackage],
+    series_visual_signature_request: SeriesVisualSignatureRequest | None,
+) -> tuple[bool, IPProfile | None, tuple[IPFrameAdaptationPackage, ...], bool]:
+    if _canonical_v45_enabled(series_visual_signature_request):
+        return False, None, (), True
+    return (
+        bool(visual_anchor_enabled),
+        anchor_profile,
+        tuple(base_anchor_packages),
+        False,
+    )
+
+
+def _canonical_v45_enabled(
+    request: SeriesVisualSignatureRequest | None,
+) -> bool:
+    return bool(request is not None and request.enabled)
+
+
 def _should_use_deterministic_anchor_planning(
     *,
     presentation_policy: SeriesVisualSignaturePresentationPolicy,
@@ -316,22 +367,11 @@ def _projection_policy_for_request(
     *,
     visual_anchor_enabled: bool,
     anchor_profile: IPProfile | None,
-    series_visual_signature_request: Any | None = None,
 ) -> VisualSignaturePolicy:
     if _mandatory_ip_active(
         visual_anchor_enabled=visual_anchor_enabled,
         anchor_profile=anchor_profile,
     ):
-        if series_visual_signature_request is not None and getattr(
-            series_visual_signature_request, "enabled", False
-        ):
-            return replace(
-                policy,
-                coverage_mode="sparse",
-                suppress_allowed=True,
-                projection_failure="allow_anchor_free",
-                require_concrete_identity=False,
-            )
         return policy
     if not policy.requires_every_frame_signature:
         return policy
