@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -9,11 +8,14 @@ from PIL import Image
 
 from pixelle_video.models.element_animation import ElementAnimationManifest
 from pixelle_video.services.element_animation_presets import sample_transform
-from pixelle_video.utils.ffmpeg_encoder import resolve_ffmpeg_h264_encoder
+from pixelle_video.services.ffmpeg_h264_executor import FfmpegH264Executor
 from pixelle_video.utils.os_util import get_temp_path
 
 
 class PythonElementAnimationRenderer:
+    def __init__(self, *, h264_executor: FfmpegH264Executor | None = None) -> None:
+        self._h264_executor = h264_executor or FfmpegH264Executor()
+
     def render_frame(
         self,
         manifest: ElementAnimationManifest,
@@ -72,25 +74,28 @@ class PythonElementAnimationRenderer:
                 frame = self.render_frame(manifest, time=frame_time)
                 frame.save(Path(temp_dir) / f"frame_{frame_index:06d}.png")
 
-            command = [
-                "ffmpeg",
-                "-y",
-                "-framerate",
-                str(manifest.timeline.fps),
-                "-i",
-                str(frame_pattern),
-            ]
-            if manifest.audio_path and Path(manifest.audio_path).exists():
-                command.extend(["-i", manifest.audio_path])
+            has_audio = bool(
+                manifest.audio_path and Path(manifest.audio_path).exists()
+            )
 
-            vcodec = resolve_ffmpeg_h264_encoder()
-            command.extend(["-c:v", vcodec, "-pix_fmt", "yuv420p"])
-            if manifest.audio_path and Path(manifest.audio_path).exists():
-                command.extend(["-c:a", "aac"])
-            command.extend(["-t", str(manifest.timeline.duration)])
-            command.append(str(output))
+            def _build_element_command(encode_args: tuple[str, ...]) -> list[str]:
+                command = [
+                    "ffmpeg",
+                    "-y",
+                    "-framerate",
+                    str(manifest.timeline.fps),
+                    "-i",
+                    str(frame_pattern),
+                ]
+                if has_audio:
+                    command.extend(["-i", str(manifest.audio_path)])
+                command.extend([*encode_args, "-pix_fmt", "yuv420p"])
+                if has_audio:
+                    command.extend(["-c:a", "aac"])
+                command.extend(["-t", str(manifest.timeline.duration), str(output)])
+                return command
 
-            subprocess.run(command, check=True)
+            self._h264_executor.run_command(_build_element_command)
 
         return output_path
 

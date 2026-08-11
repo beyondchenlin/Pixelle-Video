@@ -36,13 +36,8 @@ from typing import List, Literal, Optional
 import ffmpeg
 from loguru import logger
 
+from pixelle_video.services.ffmpeg_h264_executor import FfmpegH264Executor
 from pixelle_video.services.font_resolver import FontResolver
-from pixelle_video.utils.ffmpeg_encoder import (
-    disable_ffmpeg_h264_encoder,
-    ffmpeg_h264_fallback_kwargs,
-    ffmpeg_h264_output_kwargs,
-    resolve_ffmpeg_h264_encoder,
-)
 from pixelle_video.utils.os_util import (
     get_resource_path,
     get_temp_path,
@@ -118,6 +113,7 @@ class VideoService:
     def __init__(self) -> None:
         self._ffmpeg_checked = False
         self._ffmpeg_check_lock = threading.Lock()
+        self._h264_executor = FfmpegH264Executor()
 
     def _ensure_ffmpeg(self) -> None:
         if self._ffmpeg_checked:
@@ -128,47 +124,15 @@ class VideoService:
             check_ffmpeg()
             self._ffmpeg_checked = True
 
-    @staticmethod
-    def _h264_encode_params() -> dict[str, object]:
-        return ffmpeg_h264_output_kwargs(resolve_ffmpeg_h264_encoder())
+    def _h264_encode_params(self) -> dict[str, object]:
+        return self._h264_executor.selected_output_kwargs()
 
     def _encode_run(self, build_output, *, quiet=False):
-        params = self._h264_encode_params()
-        extra: dict[str, bool] = {"capture_stdout": True, "capture_stderr": True}
-        if quiet:
-            extra["quiet"] = True
-        try:
-            build_output(**params).run(**extra)
-        except ffmpeg.Error as hardware_exc:
-            vcodec = str(params.get("vcodec") or "")
-            if vcodec == "libx264":
-                raise
-
-            logger.warning(
-                "Hardware encoder {} failed; validating the same task with CPU libx264",
-                vcodec,
-            )
-            try:
-                build_output(**ffmpeg_h264_fallback_kwargs()).run(**extra)
-            except ffmpeg.Error:
-                # The task itself is not proven valid. Do not poison the process-wide
-                # hardware capability cache for an input/filter/output failure.
-                raise
-
-            stderr = getattr(hardware_exc, "stderr", None)
-            if isinstance(stderr, bytes):
-                reason = stderr.decode("utf-8", errors="replace")
-            else:
-                reason = str(stderr or hardware_exc)
-            reason = " ".join(reason.strip().split())[-400:]
-            disable_ffmpeg_h264_encoder(
-                vcodec,
-                reason=reason or "hardware-specific runtime encode failure",
-            )
-            logger.warning(
-                "CPU fallback succeeded; disabled hardware encoder {} for this process",
-                vcodec,
-            )
+        self._h264_executor.run_output(
+            build_output,
+            quiet=quiet,
+            selected_params=self._h264_encode_params(),
+        )
 
     def concat_videos(
         self,
@@ -283,12 +247,21 @@ class VideoService:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            (
-                ffmpeg.input(str(input_path))
-                .output(str(output_path), vf=ass_filter, acodec="copy")
-                .overwrite_output()
-                .run(capture_stdout=True, capture_stderr=True)
-            )
+            input_stream = ffmpeg.input(str(input_path))
+
+            def _make_subtitle_output(**kw):
+                return (
+                    input_stream.output(
+                        str(output_path),
+                        vf=ass_filter,
+                        acodec="copy",
+                        pix_fmt="yuv420p",
+                        **kw,
+                    )
+                    .overwrite_output()
+                )
+
+            self._encode_run(_make_subtitle_output)
             logger.success(f"ASS subtitles burned into video: {output_path}")
             return output
         except ffmpeg.Error as e:
@@ -392,44 +365,37 @@ class VideoService:
         """
         self._ensure_ffmpeg()
         try:
-            # Build filter_complex string manually
             n = len(videos)
-
-            # Build input stream labels: [0:v][0:a][1:v][1:a]...
             stream_spec = "".join([f"[{i}:v][{i}:a]" for i in range(n)])
             filter_complex = f"{stream_spec}concat=n={n}:v=1:a=1[v][a]"
 
-            # Build ffmpeg command
-            cmd = ["ffmpeg"]
-            for video in videos:
-                cmd.extend(["-i", video])
-            cmd.extend(
-                [
-                    "-filter_complex",
-                    filter_complex,
-                    "-map",
-                    "[v]",
-                    "-map",
-                    "[a]",
-                    "-y",  # Overwrite output
-                    output,
-                ]
-            )
+            def _build_concat_command(encode_args: tuple[str, ...]) -> list[str]:
+                command = ["ffmpeg"]
+                for video in videos:
+                    command.extend(["-i", video])
+                command.extend(
+                    [
+                        "-filter_complex",
+                        filter_complex,
+                        "-map",
+                        "[v]",
+                        "-map",
+                        "[a]",
+                        *encode_args,
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-y",
+                        output,
+                    ]
+                )
+                return command
 
-            # Run command
-            import subprocess
-
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
-
+            self._h264_executor.run_command(_build_concat_command)
             logger.success(f"Videos concatenated successfully: {output}")
             return output
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else str(e)
-            logger.error(f"FFmpeg concat filter error: {error_msg}")
-            raise RuntimeError(f"Failed to concatenate videos: {error_msg}")
         except Exception as e:
             logger.error(f"Concatenation error: {e}")
-            raise RuntimeError(f"Failed to concatenate videos: {e}")
+            raise RuntimeError(f"Failed to concatenate videos: {e}") from e
 
     def _get_video_duration(self, video: str) -> float:
         """Get video duration in seconds"""
@@ -755,18 +721,18 @@ class VideoService:
             # Overlay the transparent image on top of the scaled video
             output_stream = ffmpeg.overlay(scaled_video, input_overlay)
 
-            (
-                ffmpeg.output(
-                    output_stream,
-                    output,
-                    vcodec="libx264",
-                    pix_fmt="yuv420p",
-                    preset="medium",
-                    crf=23,
+            def _make_overlay_output(**kw):
+                return (
+                    ffmpeg.output(
+                        output_stream,
+                        output,
+                        pix_fmt="yuv420p",
+                        **kw,
+                    )
+                    .overwrite_output()
                 )
-                .overwrite_output()
-                .run(capture_stdout=True, capture_stderr=True)
-            )
+
+            self._encode_run(_make_overlay_output)
 
             logger.success(f"Image overlaid on video: {output}")
             return output
