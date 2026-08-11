@@ -110,7 +110,7 @@ jobs:
               files+=("$candidate")
             fi
           done
-          python -m ruff check "${files[@]}"
+          python -m ruff check --diff "${files[@]}"
 
   hyperframes-bridge-tests:
     runs-on: ubuntu-latest
