@@ -8,6 +8,7 @@ import { createRenderJob, executeRenderJob, resolveConfig } from "@hyperframes/p
 import puppeteer from "puppeteer";
 
 const SAFE_MANIFEST_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const FALSE_ENV_VALUES = new Set(["0", "false", "no", "off"]);
 
 function requireValue(flag, value) {
   if (value === undefined) {
@@ -117,6 +118,22 @@ function validateManifestIdentifier(fieldName, value) {
   return candidate;
 }
 
+function environmentValue(environment, name) {
+  const matchingKey = Object.keys(environment).find(
+    (candidate) => candidate.toLowerCase() === name.toLowerCase(),
+  );
+  return matchingKey ? environment[matchingKey] : undefined;
+}
+
+export function resolveGpuEnabled(options = {}, environment = process.env) {
+  const configured = environmentValue(environment, "PIXELLE_HYPERFRAMES_USE_GPU");
+  const normalized = typeof configured === "string" ? configured.trim().toLowerCase() : "";
+  if (FALSE_ENV_VALUES.has(normalized)) {
+    return false;
+  }
+  return options.useGpu ?? false;
+}
+
 function buildJobConfig(options, manifest) {
   const fps = requireIntegerInRange("fps", options.fps ?? manifest.fps ?? 30, 1, 120);
   const workers =
@@ -128,7 +145,7 @@ function buildJobConfig(options, manifest) {
     quality: requireChoice("quality", options.quality ?? "standard", ["draft", "standard", "high"]),
     format: requireChoice("format", options.format ?? "mp4", ["mp4", "webm", "mov"]),
     workers,
-    useGpu: options.useGpu ?? false,
+    useGpu: resolveGpuEnabled(options),
     hdr: options.hdr ?? false,
   };
 
@@ -147,13 +164,6 @@ function buildJobConfig(options, manifest) {
   }
 
   return jobConfig;
-}
-
-function environmentValue(environment, name) {
-  const matchingKey = Object.keys(environment).find(
-    (candidate) => candidate.toLowerCase() === name.toLowerCase(),
-  );
-  return matchingKey ? environment[matchingKey] : undefined;
 }
 
 function systemBrowserCandidates(platform, environment) {
