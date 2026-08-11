@@ -36,6 +36,11 @@ def render_video_prompt_prompt(
     style_profile: Optional[dict[str, Any]] = None,
     prompt_contexts: Optional[PromptContextInput] = None,
     prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
+    *,
+    series_visual_signature_enabled: bool = False,
+    series_visual_signature_display_name: str = "",
+    series_visual_signature_identity_traits: str = "",
+    series_visual_signature_role_description: str = "",
 ) -> RenderedPrompt:
     """
     Build video prompt generation prompt
@@ -74,6 +79,10 @@ def render_video_prompt_prompt(
             "max_words": max_words,
             "output_language_chinese": resolved_prompt_language == CHINESE_PROMPT_LANGUAGE,
             "output_language_english": resolved_prompt_language != CHINESE_PROMPT_LANGUAGE,
+            "series_visual_signature_enabled": series_visual_signature_enabled,
+            "series_visual_signature_display_name": series_visual_signature_display_name,
+            "series_visual_signature_identity_traits": series_visual_signature_identity_traits,
+            "series_visual_signature_role_description": series_visual_signature_role_description,
         },
     )
 

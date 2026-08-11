@@ -61,12 +61,28 @@ When a frame contains `visual_story_ip_fusion_plan` or `content_bound_ip_presenc
 - If no natural action slot exists, rewrite the physical metaphor so the identity can act inside the content scene later.
 - Serious or sensitive content must use a neutral explanation space such as an archive room, map table, model desk, evidence wall, or analytical diagram space. Do not put the recurring identity inside a literal disaster, crime, war, memorial, or real-person incident scene.
 
-# Base Image Boundary
+<!-- if series_visual_signature_enabled -->
+# Recurring Visual Identity
 
-- This stage generates the subject-first base image prompt only.
-- Do not add the concrete recurring channel mascot, IP character, or identity phrase unless it is the explicit source subject of the frame.
-- The recurring visual identity, if enabled, will be placed by a separate downstream visual_anchor_placement stage after this base scene is formed.
-- The final prompt string should be pure visual description, not a policy explanation.
+The scene must include one recurring visual identity character woven naturally into the image:
+
+- Display name: {series_visual_signature_display_name}
+- Identity traits (ALL must be visible and recognizable): {series_visual_signature_identity_traits}
+- Scene role: {series_visual_signature_role_description}
+
+Integration rules:
+- Weave this character into the scene action as a real in-scene participant — never as a sticker, logo, watermark, corner badge, or detached decoration.
+- The character physically interacts with scene elements appropriate to its role.
+- Keep the character scene-bound, subordinate to the main subject, and recognizable by every identity trait listed above.
+- Match the character's rendering style to the scene style; do not use photorealistic rendering unless the whole scene is photorealistic.
+- Do not let the character replace, merge with, or hide the main subjects of the frame.
+- If the scene is abstract or diagrammatic, the character may appear beside, within, or interacting with the diagram structure.
+<!-- endif -->
+
+# Output Purity
+
+- The final prompt string must be a pure visual description, not a policy explanation or internal instruction.
+- Do not output field names, JSON field names, parameter names, hex color codes, or English control-word explanations inside any final image prompt string.
 
 # Output Requirements
 

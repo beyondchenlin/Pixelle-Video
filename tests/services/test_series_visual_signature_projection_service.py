@@ -131,10 +131,12 @@ def test_projection_passes_through_when_no_required_subjects_exist() -> None:
     assert len(result.frames) == 1
     frame = result.frames[0]
     assert frame.required_subjects == ()
-    assert frame.signature.role.value == "none"
-    assert frame.signature.max_area_ratio == 0.0
-    assert frame.signature.enabled is False
+    assert frame.signature.role.value == "silent_witness"
+    assert frame.signature.max_area_ratio == pytest.approx(0.16)
+    assert frame.signature.enabled is True
     assert "abstract machinery" in frame.bundle.positive_prompt
+    for trait in profile.identity_traits:
+        assert trait in frame.bundle.positive_prompt
     assert frame.contract.contract_id == "v45:frame-1"
     assert frame.contract.series_visual_signature is not None
 
@@ -145,9 +147,9 @@ def test_projection_passes_through_when_no_required_subjects_exist() -> None:
     assert audit["all_frames_passed"] is True
     assert audit["failed_frame_count"] == 0
     frame_audit = audit["frames"][0]
-    assert frame_audit["signature_role"] == "none"
+    assert frame_audit["signature_role"] == "silent_witness"
     assert frame_audit["required_subject_count"] == 0
-    assert frame_audit["identity_trait_count"] == 0
+    assert frame_audit["identity_trait_count"] == 4
     assert "positive_prompt" not in frame_audit
     assert len(frame_audit["positive_prompt_sha256"]) == 64
     assert len(frame_audit["negative_prompt_sha256"]) == 64
@@ -179,7 +181,9 @@ def test_projection_passes_through_empty_subjects_in_mixed_batch() -> None:
 
     frame_without_subjects = result.frames[1]
     assert frame_without_subjects.required_subjects == ()
-    assert frame_without_subjects.signature.enabled is False
+    assert frame_without_subjects.signature.enabled is True
+    for trait in profile.identity_traits:
+        assert trait in frame_without_subjects.bundle.positive_prompt
     assert "empty scene" in frame_without_subjects.bundle.positive_prompt
 
     audit = result.audit_dict()
@@ -268,3 +272,54 @@ def test_projection_preserves_base_prompt_and_all_identity_traits() -> None:
     assert audit["projection_success_rate"] == 1.0
     assert "positive_prompt" not in audit["frames"][0]
     assert len(audit["frames"][0]["positive_prompt_sha256"]) == 64
+
+
+def test_projection_passes_through_when_llm_already_included_ip() -> None:
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=_request(),
+        ip_profile=_ip_profile(),
+    )
+
+    llm_prompt = (
+        "A Dalmatian with black spots and black sunglasses wearing a red collar "
+        "stands beside a timeline showing Musk's achievements"
+    )
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=[llm_prompt],
+        frame_ids=["frame-1"],
+        frame_contexts=[{}],
+        request=_request(),
+        profile=profile,
+    )
+
+    assert result.expected_frame_count == 1
+    frame = result.frames[0]
+    assert frame.signature.enabled is True
+    assert frame.signature.role.value == "silent_witness"
+    assert "timeline showing Musk" in frame.bundle.positive_prompt
+    assert "Dalmatian" in frame.bundle.positive_prompt
+
+
+def test_projection_fallback_injects_when_llm_missed_ip() -> None:
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=_request(),
+        ip_profile=_ip_profile(),
+    )
+
+    llm_prompt = "A timeline showing Musk's achievements from Tesla to SpaceX"
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=[llm_prompt],
+        frame_ids=["frame-1"],
+        frame_contexts=[{}],
+        request=_request(),
+        profile=profile,
+    )
+
+    assert result.expected_frame_count == 1
+    frame = result.frames[0]
+    assert frame.signature.enabled is True
+    for trait in profile.identity_traits:
+        assert trait in frame.bundle.positive_prompt
+    assert "timeline showing Musk" in frame.bundle.positive_prompt

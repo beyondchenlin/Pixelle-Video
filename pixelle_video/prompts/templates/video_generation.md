@@ -62,7 +62,25 @@ All final video prompt strings must be written in English.
 - Atmosphere: dynamic, energetic, peaceful, dramatic, mysterious
 - Lighting: lighting changes, shadows moving, sunlight streaming
 
-## Video and Copy Coordination Principles
+#<!-- if series_visual_signature_enabled -->
+# Recurring Visual Identity
+
+The scene must include one recurring visual identity character woven naturally into the video:
+
+- Display name: {series_visual_signature_display_name}
+- Identity traits (ALL must be visible and recognizable): {series_visual_signature_identity_traits}
+- Scene role: {series_visual_signature_role_description}
+
+Integration rules:
+- Weave this character into the scene action as a real in-scene participant — never as a sticker, logo, watermark, corner badge, or detached decoration.
+- The character physically interacts with scene elements appropriate to its role.
+- Keep the character scene-bound, subordinate to the main subject, and recognizable by every identity trait listed above.
+- Match the character's rendering style to the scene style; do not use photorealistic rendering unless the whole scene is photorealistic.
+- Do not let the character replace, merge with, or hide the main subjects of the frame.
+- If the scene is abstract or diagrammatic, the character may appear beside, within, or interacting with the diagram structure.
+<!-- endif -->
+
+# Video and Copy Coordination Principles
 - Videos should serve the copy, becoming a visual extension of the copy content
 - Avoid visual elements unrelated to or contradicting the copy content
 - Choose dynamic presentation methods that best enhance the persuasiveness of the copy

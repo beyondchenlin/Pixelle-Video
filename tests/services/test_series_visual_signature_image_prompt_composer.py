@@ -144,10 +144,10 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
         },
     )
 
-    assert captured_generation["series_visual_signature_enabled"] is False
-    assert captured_generation["series_visual_signature_request"] is None
-    assert captured_generation["series_visual_signature_profile"] is None
-    assert captured_generation["ip_profile"] is None
+    assert captured_generation["series_visual_signature_enabled"] is True
+    assert captured_generation["series_visual_signature_request"] is not None
+    assert captured_generation["series_visual_signature_request"].enabled is True
+    assert captured_generation["ip_profile"] is not None
     assert captured_generation["scene_casts_by_frame"] is None
     generation_context = captured_generation["prompt_contexts"].frame_contexts[0]
     assert "visual_story_ip_fusion_plan" not in generation_context
@@ -242,7 +242,7 @@ async def test_video_prompt_path_uses_same_canonical_visual_signature_projection
     )
 
     assert captured_generation["media_type"] == "video"
-    assert captured_generation["series_visual_signature_enabled"] is False
+    assert captured_generation["series_visual_signature_enabled"] is True
     assert "Dalmatian" in result.prompts[0]
     assert result.planning_snapshot[
         "series_visual_signature_projection_audit"

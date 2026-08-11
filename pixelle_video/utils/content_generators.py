@@ -1161,6 +1161,10 @@ async def generate_image_prompts(
     *,
     trace_context: LLMTraceContext | None = None,
     trace_recorder: LLMInteractionRecorder | None = None,
+    series_visual_signature_enabled: bool = False,
+    series_visual_signature_display_name: str = "",
+    series_visual_signature_identity_traits: str = "",
+    series_visual_signature_role_description: str = "",
 ) -> List[str]:
     """
     Generate image prompts from narrations (with batching and retry)
@@ -1249,6 +1253,10 @@ async def generate_image_prompts(
                 len(batch.items),
             ),
             prompt_language=prompt_language,
+            series_visual_signature_enabled=series_visual_signature_enabled,
+            series_visual_signature_display_name=series_visual_signature_display_name,
+            series_visual_signature_identity_traits=series_visual_signature_identity_traits,
+            series_visual_signature_role_description=series_visual_signature_role_description,
         )
 
         response: ImagePromptBatchResponse = await llm_service(
@@ -1425,19 +1433,24 @@ async def generate_styled_image_prompt_batch(
         profile_id=getattr(ip_profile, "series_visual_signature_profile_id", None),
         generation_world_hint=generation_world_hint,
     )
-    if resolved_series_visual_signature_request.enabled and media_type != "image":
-        raise ValueError(
-            "series_visual_signature_enabled currently requires image media prompts; "
-            "video media prompts do not run the content-bound IP projection chain"
-        )
-    ip_prompt_chain_enabled = resolved_series_visual_signature_request.enabled and media_type == "image"
+    ip_prompt_chain_enabled = resolved_series_visual_signature_request.enabled
     resolved_series_visual_signature_profile = series_visual_signature_profile
-    if ip_prompt_chain_enabled and storyboard_plan is None:
-        raise ValueError("storyboard_plan is required when series_visual_signature_enabled=True")
+    _sv_display_name = ""
+    _sv_identity_traits = ""
+    _sv_role_description = ""
     if ip_prompt_chain_enabled:
+        if storyboard_plan is None:
+            raise ValueError("storyboard_plan is required when series_visual_signature_enabled=True")
         ensure_ip_profile_ready_for_generation(ip_profile)
         if resolved_series_visual_signature_profile is None:
             resolved_series_visual_signature_profile = SeriesVisualSignatureProfileBuilder().build(ip_profile)
+        if resolved_series_visual_signature_profile is not None:
+            _sv_display_name = resolved_series_visual_signature_profile.display_name
+            _sv_identity_traits = ", ".join(resolved_series_visual_signature_profile.identity_traits)
+            _sv_role_description = _signature_role_description(
+                resolved_series_visual_signature_request,
+                resolved_series_visual_signature_profile,
+            )
     text_rendering_settings = build_text_rendering_settings(text_rendering)
     image_text_payload = (
         text_rendering.get("image_text")
@@ -1739,6 +1752,10 @@ async def generate_styled_image_prompt_batch(
             stage_callback=stage_callback,
             trace_context=trace_context,
             trace_recorder=active_trace_recorder,
+            series_visual_signature_enabled=ip_prompt_chain_enabled,
+            series_visual_signature_display_name=_sv_display_name,
+            series_visual_signature_identity_traits=_sv_identity_traits,
+            series_visual_signature_role_description=_sv_role_description,
         )
     else:
         base_prompts = await generate_image_prompts(
@@ -1756,6 +1773,10 @@ async def generate_styled_image_prompt_batch(
             stage_callback=stage_callback,
             trace_context=trace_context,
             trace_recorder=active_trace_recorder,
+            series_visual_signature_enabled=ip_prompt_chain_enabled,
+            series_visual_signature_display_name=_sv_display_name,
+            series_visual_signature_identity_traits=_sv_identity_traits,
+            series_visual_signature_role_description=_sv_role_description,
         )
 
     if trace_collector is not None:
@@ -2102,6 +2123,10 @@ async def generate_video_prompts(
     *,
     trace_context: LLMTraceContext | None = None,
     trace_recorder: LLMInteractionRecorder | None = None,
+    series_visual_signature_enabled: bool = False,
+    series_visual_signature_display_name: str = "",
+    series_visual_signature_identity_traits: str = "",
+    series_visual_signature_role_description: str = "",
 ) -> List[str]:
     """
     Generate video prompts from narrations (with batching and retry)
@@ -2155,6 +2180,10 @@ async def generate_video_prompts(
             style_profile=style_profile,
             prompt_contexts=_slice_prompt_contexts(normalized_prompt_contexts, 0, len(sample_items)),
             prompt_language=prompt_language,
+            series_visual_signature_enabled=series_visual_signature_enabled,
+            series_visual_signature_display_name=series_visual_signature_display_name,
+            series_visual_signature_identity_traits=series_visual_signature_identity_traits,
+            series_visual_signature_role_description=series_visual_signature_role_description,
         )
         est_tokens = estimate_input_tokens(sample_prompt.text)
         if est_tokens > _LLM_BATCH_SAFE_TOKENS:
@@ -2190,6 +2219,10 @@ async def generate_video_prompts(
                 len(batch.items),
             ),
             prompt_language=prompt_language,
+            series_visual_signature_enabled=series_visual_signature_enabled,
+            series_visual_signature_display_name=series_visual_signature_display_name,
+            series_visual_signature_identity_traits=series_visual_signature_identity_traits,
+            series_visual_signature_role_description=series_visual_signature_role_description,
         )
 
         response: VideoPromptBatchResponse = await llm_service(
@@ -2289,4 +2322,29 @@ async def generate_video_prompts(
         f"鉁?Generated {len(batch_result.outputs)} video prompts in {perf_counter() - start_time:.2f}s"
     )
     return batch_result.outputs
+
+
+def _signature_role_description(
+    request: SeriesVisualSignatureRequest,
+    profile: SeriesVisualSignatureProfile,
+) -> str:
+    role_text = str(request.role.value if request.role is not None else "auto")
+    display_name = profile.display_name or ""
+    traits = ", ".join(profile.identity_traits)
+    role_map = {
+        "core_actor": "a functional actor that performs the frame action",
+        "silent_witness": "a quiet witness beside the evidence or event structure",
+        "operator": "a small operator demonstrating the mechanism",
+        "guide": "a guide that points out the path or key structure",
+        "obstacle": "a symbolic obstacle inside the metaphor",
+        "container": "a small carrier for the structure or concept",
+        "background_mark": "a material mark on a real in-scene surface",
+    }
+    default_desc = "a scene-bound participant"
+    parts = [display_name] if display_name else []
+    parts.append("appears in the scene")
+    parts.append(f"recognizable by: {traits}" if traits else "")
+    role_desc = role_map.get(role_text, default_desc)
+    parts.append(f"acting as: {role_desc}")
+    return "; ".join(p for p in parts if p)
 

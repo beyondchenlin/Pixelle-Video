@@ -164,8 +164,9 @@ class VisualPromptComposer:
             visual_story_context,
         )
 
-        # Base generation owns scene/style/camera/reference-image/text planning only.
-        # Every legacy recurring-IP/signature input is disabled unconditionally.
+        # Base generation owns scene/style/camera/reference-image/text planning.
+        # When visual signature is enabled, LLM receives IP identity so it can
+        # naturally weave the recurring character into the scene description.
         batch = await generate_styled_image_prompt_batch(
             llm_service=llm_service,
             narrations=[
@@ -196,20 +197,9 @@ class VisualPromptComposer:
             frame_overrides=normalized_overrides,
             text_rendering=project_prompt_text_rendering_request(text_rendering),
             native_prompt_hints_by_frame=native_prompt_hints_by_frame,
-            series_visual_signature_enabled=False,
-            ip_profile=None,
-            series_visual_signature_expression_mode=None,
-            series_visual_signature_structure_mode=None,
-            series_visual_signature_participation_mode=None,
-            series_visual_signature_request=None,
-            series_visual_signature_profile=None,
-            series_visual_signature_mode=None,
-            series_visual_signature_consistency_mode=None,
-            series_visual_signature_presentation_mode=None,
-            series_visual_signature_enforcement=None,
-            series_visual_signature_fallback_enabled=None,
-            series_visual_signature_fallback_mode=None,
-            series_visual_signature_min_visibility=None,
+            series_visual_signature_enabled=signature_enabled,
+            ip_profile=ip_profile if signature_enabled else None,
+            series_visual_signature_request=resolved_signature_request if signature_enabled else None,
             scene_casts_by_frame=None,
             stage_callback=stage_callback,
             upstream_llm_trace_refs=upstream_llm_trace_refs,
