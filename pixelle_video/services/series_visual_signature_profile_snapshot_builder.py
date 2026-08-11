@@ -36,7 +36,9 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
 
     The Asset Bible/IPProfile remains the persisted source. This builder only
     selects explicit identity fields and never derives identity from a profile id,
-    display name, world hint, style hint, or free-form prompt paragraph.
+    display name, world hint, style hint, or free-form prompt paragraph. The
+    returned snapshot is also the trust boundary: every identity-bearing value
+    that may reach an LLM or final prompt must pass validation here first.
     """
 
     def build(
@@ -73,9 +75,7 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             raise ValueError(
                 "resolved IPProfile does not match request profile_id"
             )
-        display_name = _text(getattr(ip_profile, "name", None))
-        if not display_name:
-            raise ValueError("resolved IPProfile must provide a display name")
+        display_name = _validated_identity_name(getattr(ip_profile, "name", None))
 
         identity_traits = _validated_identity_traits(
             _first_non_empty_sequence(
@@ -112,6 +112,7 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             raise ValueError(
                 "resolved SeriesVisualSignatureProfile does not match request profile_id"
             )
+        display_name = _validated_identity_name(profile.display_name)
         identity_traits = _validated_identity_traits(
             _dedupe(
                 profile.identity_contract.required_identity_traits
@@ -122,12 +123,33 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             raise ValueError("resolved legacy profile has no explicit identity traits")
         return VisualSignatureProfileSnapshot(
             profile_id=profile.profile_id,
-            display_name=profile.display_name,
+            display_name=display_name,
             identity_traits=identity_traits,
             style_safe_traits=(),
             forbidden_traits=(),
             source_asset_ids=tuple(profile.reference_assets),
         )
+
+
+def _validated_identity_name(value: Any) -> str:
+    display_name = _text(value)
+    if not display_name:
+        raise ValueError("resolved visual identity must provide a display name")
+    if len(display_name) > MAX_TRAIT_CHARS:
+        raise ValueError(
+            "visual signature display name exceeds "
+            f"{MAX_TRAIT_CHARS} characters"
+        )
+    lowered = display_name.casefold()
+    if any(term in lowered for term in _INSTRUCTION_LIKE_TRAIT_TERMS):
+        raise ValueError(
+            "visual signature display name must be an identity noun phrase, not model instructions"
+        )
+    if "\n" in display_name or ";" in display_name or "；" in display_name:
+        raise ValueError(
+            "visual signature display name must be a short identity noun phrase"
+        )
+    return display_name
 
 
 def _validated_identity_traits(values: Sequence[str]) -> tuple[str, ...]:

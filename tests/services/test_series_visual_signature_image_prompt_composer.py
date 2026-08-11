@@ -144,12 +144,25 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
         },
     )
 
-    assert captured_generation["series_visual_signature_enabled"] is True
-    assert captured_generation["series_visual_signature_request"] is not None
-    assert captured_generation["series_visual_signature_request"].enabled is True
-    assert captured_generation["ip_profile"] is not None
+    # Canonical V4.5 keeps every legacy identity runtime input hard-disabled.
+    # Validated identity facts reach the LLM only through prompt_contexts.
+    assert captured_generation["series_visual_signature_enabled"] is False
+    assert captured_generation["series_visual_signature_request"] is None
+    assert captured_generation["series_visual_signature_profile"] is None
+    assert captured_generation["ip_profile"] is None
     assert captured_generation["scene_casts_by_frame"] is None
     generation_context = captured_generation["prompt_contexts"].frame_contexts[0]
+    assert generation_context["canonical_visual_identity"] == {
+        "profile_id": "dog_1",
+        "display_name": "Dalmatian",
+        "identity_traits": [
+            "black spots",
+            "black sunglasses",
+            "red collar",
+            "small round ears",
+        ],
+        "requested_role": "auto",
+    }
     assert "visual_story_ip_fusion_plan" not in generation_context
     context_text = str(generation_context)
     for forbidden in (
@@ -242,7 +255,12 @@ async def test_video_prompt_path_uses_same_canonical_visual_signature_projection
     )
 
     assert captured_generation["media_type"] == "video"
-    assert captured_generation["series_visual_signature_enabled"] is True
+    assert captured_generation["series_visual_signature_enabled"] is False
+    assert captured_generation["series_visual_signature_request"] is None
+    assert captured_generation["ip_profile"] is None
+    assert captured_generation["prompt_contexts"].frame_contexts[0][
+        "canonical_visual_identity"
+    ]["display_name"] == "Dalmatian"
     assert "Dalmatian" in result.prompts[0]
     assert result.planning_snapshot[
         "series_visual_signature_projection_audit"
