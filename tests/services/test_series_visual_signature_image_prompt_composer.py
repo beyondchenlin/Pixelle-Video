@@ -82,7 +82,7 @@ def test_image_prompt_composer_is_a_real_compatibility_adapter() -> None:
 
 
 @pytest.mark.asyncio
-async def test_canonical_prompt_composer_uses_signature_free_base_then_projection(
+async def test_canonical_prompt_composer_uses_validated_context_without_legacy_projection_inputs(
     monkeypatch,
 ) -> None:
     base_prompt = "worker beside assembly machine, neutral cinematic scene"
@@ -144,11 +144,26 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
         },
     )
 
-    assert captured_generation["series_visual_signature_enabled"] is True
-    assert captured_generation["series_visual_signature_request"] is not None
-    assert captured_generation["series_visual_signature_request"].enabled is True
-    assert captured_generation["ip_profile"] is not None
+    assert captured_generation["series_visual_signature_enabled"] is False
+    assert captured_generation["series_visual_signature_request"] is None
+    assert captured_generation["ip_profile"] is None
     assert captured_generation["scene_casts_by_frame"] is None
+    canonical_request = captured_generation["canonical_series_visual_signature_request"]
+    canonical_profile = captured_generation[
+        "canonical_series_visual_signature_profile_snapshot"
+    ]
+    assert canonical_request is not None
+    assert canonical_request.enabled is True
+    assert canonical_request.profile_id == "dog_1"
+    assert canonical_profile is not None
+    assert canonical_profile.profile_id == "dog_1"
+    assert canonical_profile.display_name == "Dalmatian"
+    assert canonical_profile.identity_traits == (
+        "black spots",
+        "black sunglasses",
+        "red collar",
+        "small round ears",
+    )
     generation_context = captured_generation["prompt_contexts"].frame_contexts[0]
     assert "visual_story_ip_fusion_plan" not in generation_context
     context_text = str(generation_context)
@@ -217,7 +232,7 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
 
 
 @pytest.mark.asyncio
-async def test_video_prompt_path_uses_same_canonical_visual_signature_projection(
+async def test_video_prompt_path_uses_same_canonical_context_without_legacy_projection(
     monkeypatch,
 ) -> None:
     captured_generation = {}
@@ -242,7 +257,17 @@ async def test_video_prompt_path_uses_same_canonical_visual_signature_projection
     )
 
     assert captured_generation["media_type"] == "video"
-    assert captured_generation["series_visual_signature_enabled"] is True
+    assert captured_generation["series_visual_signature_enabled"] is False
+    assert captured_generation["series_visual_signature_request"] is None
+    assert captured_generation["ip_profile"] is None
+    canonical_request = captured_generation["canonical_series_visual_signature_request"]
+    canonical_profile = captured_generation[
+        "canonical_series_visual_signature_profile_snapshot"
+    ]
+    assert canonical_request is not None
+    assert canonical_request.enabled is True
+    assert canonical_profile is not None
+    assert canonical_profile.profile_id == "dog_1"
     assert "Dalmatian" in result.prompts[0]
     assert result.planning_snapshot[
         "series_visual_signature_projection_audit"
