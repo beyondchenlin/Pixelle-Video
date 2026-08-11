@@ -159,6 +159,18 @@ class ComfyUIBackendController:
                 ownership = "pixelle"
             elif self.management_mode == "disabled" or not self.profile.managed:
                 ownership = "external"
+            elif self.profile.restart_after_batch:
+                state, state_error = await self._inspect_state_safely(
+                    reason=f"{reason}:capture-task-start-ownership"
+                )
+                if state is not None:
+                    ownership = state.ownership
+                elif state_error:
+                    logger.warning(
+                        "Could not capture ComfyUI task-start process ownership; "
+                        "cleanup will re-check and fail safe: "
+                        f"role='{self.profile_name}', error='{state_error}'"
+                    )
             logger.info(
                 "Reusing healthy existing ComfyUI backend without changing its process "
                 f"lifecycle at {self.comfyui_url} ({reason})"

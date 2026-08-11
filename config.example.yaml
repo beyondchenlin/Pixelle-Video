@@ -112,7 +112,7 @@ comfyui:
   # Global ComfyUI settings
   comfyui_url: http://127.0.0.1:8000  # ComfyUI server URL (required for selfhost workflows)
   executor_type: null  # Optional override: null=auto (recommended HTTP default), websocket only for explicit opt-in
-  backend_management_mode: auto  # auto=reuse healthy existing or start missing; required=Pixelle ownership only; disabled=external only
+  backend_management_mode: disabled  # recommended desktop mode: connect only; auto/required opt into a headless managed backend
   # Memory release is handled by restart_after_batch only for a process Pixelle
   # actually started. Existing external backends are reused without restart/stop.
   # Set to false to keep models hot in GPU for fast follow-up requests.
@@ -127,8 +127,8 @@ comfyui:
       url: http://127.0.0.1:8000
       python_exe: E:/ComfyUIData/.venv/Scripts/python.exe
       comfyui_root: E:/comfyui/resources/ComfyUI
-      managed: true
-      restart_after_batch: true
+      managed: true  # dormant while backend_management_mode is disabled; enables explicit auto/required mode
+      restart_after_batch: false
       data_root: E:/ComfyUIData/pixelle
       shared_base_path: E:/ComfyUIData
       runtime_dir: _runtime/comfyui

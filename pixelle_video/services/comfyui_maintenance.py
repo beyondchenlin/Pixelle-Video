@@ -67,6 +67,15 @@ _SYSTEM_VRAM_DEVICE_KEYS = (
 )
 
 
+def validate_comfyui_system_stats_payload(payload: Any) -> dict[str, Any]:
+    """Validate the minimal response contract shared by every ComfyUI probe."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("system"), dict):
+        raise RuntimeError(
+            "ComfyUI /system_stats response is missing the required system object"
+        )
+    return payload
+
+
 @dataclass(frozen=True)
 class ComfyUIExtensionReleaseResult:
     extension: str
@@ -206,11 +215,7 @@ class ComfyUIMaintenanceClient:
             payload = response.json()
         except ValueError as exc:
             raise RuntimeError("ComfyUI /system_stats returned invalid JSON") from exc
-        if not isinstance(payload, dict) or not isinstance(payload.get("system"), dict):
-            raise RuntimeError(
-                "ComfyUI /system_stats response is missing the required system object"
-            )
-        return payload
+        return validate_comfyui_system_stats_payload(payload)
 
     async def inspect_queue_before_generation(self) -> ComfyUIQueueState:
         """Observe the shared queue without interrupting or deleting foreign work."""

@@ -24,6 +24,21 @@ def test_comfyui_backend_readmes_are_split_by_language() -> None:
     assert "Double-click `.bat`" in english_text
 
 
+def test_comfyui_docs_and_example_default_to_user_owned_desktop_mode() -> None:
+    chinese_text = (SCRIPT_DIR / "README.zh-CN.md").read_text(encoding="utf-8")
+    english_text = (SCRIPT_DIR / "README.en-US.md").read_text(encoding="utf-8")
+    example_config = (REPO_ROOT / "config.example.yaml").read_text(encoding="utf-8")
+
+    assert "backend_management_mode: disabled" in chinese_text
+    assert "覆盖后端配置中的" in chinese_text
+    assert "ComfyUI Desktop" in chinese_text
+    assert "externally managed Desktop mode" in english_text
+    assert "explicit headless-management deployment" in english_text
+    assert "backend_management_mode: disabled" in example_config
+    assert "managed: true" in example_config
+    assert "restart_after_batch: false" in example_config
+
+
 def test_windows_batch_launchers_run_matching_powershell_scripts() -> None:
     for command_name in ("check_backend", "start_backend", "stop_backend"):
         batch_path = SCRIPT_DIR / f"{command_name}.bat"

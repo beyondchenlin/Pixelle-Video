@@ -262,6 +262,7 @@ async def test_restart_is_tracked_per_backend_role(monkeypatch):
         PixelleVideoConfig.model_validate(
             {
                 "comfyui": {
+                    "backend_management_mode": "auto",
                     "backends": {
                         "image": {
                             "url": "http://127.0.0.1:8001",
@@ -296,6 +297,7 @@ async def test_stage_restart_waits_for_scheduled_backend_restart(monkeypatch):
         PixelleVideoConfig.model_validate(
             {
                 "comfyui": {
+                    "backend_management_mode": "auto",
                     "backends": {
                         "image": {
                             "url": "http://127.0.0.1:8001",

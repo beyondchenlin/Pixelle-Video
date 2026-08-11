@@ -1,13 +1,27 @@
 # Pixelle ComfyUI 后端脚本
 
-这些脚本用于运行一个由 Pixelle 托管的单实例 ComfyUI 后端，供本地 `selfhost` 工作流使用。
-后端启动后仍然可以通过浏览器访问 GUI：
+Pixelle 默认采用桌面版外部连接模式：先由用户打开 ComfyUI Desktop，再在
+Pixelle 设置页测试连接。此模式下 Pixelle 不启动、不隐藏、不停止、不重启桌面版，
+用户可以持续看到桌面窗口、队列和生成内容。
+
+本目录脚本只用于显式选择无界面托管模式的部署。脚本运行一个由 Pixelle 拥有的
+单实例后台进程，供本地 `selfhost` 工作流使用；它不会创建 ComfyUI Desktop 窗口，
+但启动后仍然可以通过浏览器访问界面：
 
 ```text
 http://127.0.0.1:8000
 ```
 
-Pixelle 生成任务不需要打开 ComfyUI Desktop。建议把 ComfyUI Desktop 留给节点安装、模型管理和手工调试；Pixelle 生产生成使用这里的托管后端。
+## 生命周期模式
+
+- 推荐桌面版：`backend_management_mode: disabled`、`restart_after_batch: false`。
+  用户先打开桌面版，Pixelle 只检测连接和提交任务；此模式会覆盖后端配置中的
+  `managed` 值，确保不会启动、停止或重启桌面版。
+- 高级无界面托管：`backend_management_mode: auto` 或 `required`，并明确设置
+  `managed: true`。只有这个模式才会使用本目录的启动、停止和重启脚本。
+
+“隐藏后台”和“桌面版”不是同一个程序形态。删除脚本中的隐藏窗口参数只会显示
+命令行窗口，不会变成 ComfyUI Desktop，因此不要用这种方式模拟桌面模式。
 
 ## Windows 双击入口
 
@@ -45,7 +59,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\comfyui\start_backen
   -SharedBasePath 'E:\ComfyUIData'
 ```
 
-`start_backend.ps1` 会刻意避免传入 `--log-stdout` 和 `--enable-manager`，并将 stdout / stderr 重定向到：
+`start_backend.ps1` 会以无界面后台方式运行，刻意避免传入 `--log-stdout` 和
+`--enable-manager`，并将 stdout / stderr 重定向到：
 
 ```text
 logs\comfyui\

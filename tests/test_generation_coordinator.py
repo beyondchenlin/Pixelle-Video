@@ -745,6 +745,82 @@ async def test_core_execute_local_comfy_workflow_runs_cleanup_around_execute():
 
 
 @pytest.mark.asyncio
+async def test_core_preserves_successful_workflow_result_when_cleanup_fails():
+    calls = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            calls.append(("execute", workflow_input))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare(*, backend_role="default"):
+        calls.append(("prepare",))
+
+    async def _release(*, backend_role="default"):
+        calls.append(("release",))
+        raise RuntimeError("post-workflow release was not confirmed")
+
+    async def _get_kit(backend_role="default"):
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+
+    result = await core.execute_comfykit_workflow(
+        "workflows/selfhost/lifecycle.json",
+        {},
+        workflow_source="selfhost",
+    )
+
+    assert result.status == "completed"
+    assert calls == [
+        ("prepare",),
+        ("execute", "workflows/selfhost/lifecycle.json"),
+        ("release",),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_core_preserves_failed_result_and_logs_cleanup_as_secondary_failure():
+    cleanup_events = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            return SimpleNamespace(status="failed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare(*, backend_role="default"):
+        return None
+
+    async def _release(*, backend_role="default"):
+        raise RuntimeError("post-workflow release was not confirmed")
+
+    async def _get_kit(backend_role="default"):
+        return _Kit()
+
+    def _record_cleanup(**kwargs):
+        cleanup_events.append(kwargs)
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+    core._log_local_comfyui_cleanup_failure = _record_cleanup
+
+    result = await core.execute_comfykit_workflow(
+        "workflows/selfhost/lifecycle.json",
+        {},
+        workflow_source="selfhost",
+    )
+
+    assert result.status == "failed"
+    assert cleanup_events[0]["business_operation_failed"] is True
+
+
+@pytest.mark.asyncio
 async def test_core_execute_standalone_index_tts2_workflow_releases_models_after_execute(
     tmp_path,
 ):
@@ -3870,7 +3946,7 @@ async def test_local_comfyui_workflow_session_defers_release_to_task_exit_inside
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_workflow_session_fails_when_task_release_is_not_confirmed():
+async def test_local_comfyui_task_scope_preserves_success_when_release_is_not_confirmed():
     events = []
 
     class _Kit:
@@ -3894,20 +3970,92 @@ async def test_local_comfyui_workflow_session_fails_when_task_release_is_not_con
     core.release_comfyui_after_local_task = _release_task
     core._get_or_create_comfykit = _get_kit
 
-    with pytest.raises(RuntimeError, match="post-task"):
-        async with core.local_comfyui_task_scope():
-            async with core.local_comfyui_workflow_session(release_after_session=True):
-                await core.execute_comfykit_workflow(
-                    "image_batch.json",
-                    {},
-                    workflow_source="selfhost",
-                )
+    async with core.local_comfyui_task_scope():
+        async with core.local_comfyui_workflow_session(release_after_session=True):
+            result = await core.execute_comfykit_workflow(
+                "image_batch.json",
+                {},
+                workflow_source="selfhost",
+            )
 
+    assert result.status == "completed"
     assert events == [
         ("prepare",),
         ("execute", "image_batch.json"),
         ("task_release",),
     ]
+
+
+def test_restart_after_batch_requires_effective_lifecycle_management(monkeypatch):
+    core = PixelleVideoCore()
+    registry = SimpleNamespace(
+        profile=lambda role: SimpleNamespace(restart_after_batch=True)
+    )
+    controller = SimpleNamespace(can_manage=lambda: False)
+
+    monkeypatch.setattr(core, "_get_comfyui_backend_registry", lambda: registry)
+    monkeypatch.setattr(
+        core,
+        "_get_comfyui_backend_controller",
+        lambda backend_role="default": controller,
+    )
+
+    assert core._restart_after_batch_for_role("default") is False
+
+
+@pytest.mark.asyncio
+async def test_task_start_external_ownership_prevents_late_restart_inspection(monkeypatch):
+    core = PixelleVideoCore()
+
+    class _ExternalBackend:
+        management_mode = "auto"
+        profile = SimpleNamespace(managed=True)
+
+        async def inspect_state(self, *, reason):
+            raise AssertionError(f"task-start ownership must remain authoritative: {reason}")
+
+    monkeypatch.setattr(
+        core,
+        "_get_comfyui_backend_controller",
+        lambda backend_role="default": _ExternalBackend(),
+    )
+
+    async with core.local_comfyui_task_scope():
+        core._record_local_comfyui_backend_ownership("default", "external")
+        assert await core._preserve_external_comfyui_backend(
+            "default",
+            reason="post-task",
+        ) is True
+
+
+@pytest.mark.asyncio
+async def test_unknown_task_start_ownership_requires_live_pixelle_confirmation(monkeypatch):
+    core = PixelleVideoCore()
+
+    class _PixelleBackend:
+        management_mode = "auto"
+        profile = SimpleNamespace(managed=True)
+
+        async def inspect_state(self, *, reason):
+            return ComfyUIBackendState(
+                ownership="pixelle",
+                listener_present=True,
+                pid_file_present=True,
+                payload={"reason": reason},
+            )
+
+    monkeypatch.setattr(
+        core,
+        "_get_comfyui_backend_controller",
+        lambda backend_role="default": _PixelleBackend(),
+    )
+
+    async with core.local_comfyui_task_scope():
+        core._record_local_comfyui_backend_ownership("default", "unknown")
+        assert await core._preserve_external_comfyui_backend(
+            "default",
+            reason="post-task",
+        ) is False
 
 
 def _install_pixelle_owned_comfyui_backend(monkeypatch, core):

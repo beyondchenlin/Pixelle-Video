@@ -14,6 +14,8 @@
 System settings component for web UI
 """
 
+from urllib.parse import urlparse
+
 import streamlit as st
 
 from pixelle_video.config import config_manager
@@ -22,8 +24,37 @@ from pixelle_video.llm_presets import (
     get_preset,
     get_preset_names,
 )
+from pixelle_video.services.comfyui_maintenance import (
+    validate_comfyui_system_stats_payload,
+)
 from web.i18n import get_language, tr
 from web.utils.streamlit_helpers import safe_rerun
+
+
+def _probe_comfyui_connection(base_url: str, api_key: str | None = None) -> dict:
+    """Probe an existing ComfyUI endpoint without starting or mutating its process."""
+    import requests
+
+    normalized_url = str(base_url or "").strip().rstrip("/")
+    parsed = urlparse(normalized_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("ComfyUI URL must be an absolute HTTP or HTTPS URL")
+    if parsed.username or parsed.password:
+        raise ValueError("ComfyUI URL must not contain embedded credentials")
+    if parsed.query or parsed.fragment:
+        raise ValueError("ComfyUI URL must not contain a query string or fragment")
+
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    response = requests.get(
+        f"{normalized_url}/system_stats",
+        headers=headers,
+        timeout=(2, 5),
+        allow_redirects=False,
+    )
+    response.raise_for_status()
+    return validate_comfyui_system_stats_payload(response.json())
 
 
 def render_advanced_settings():
@@ -268,9 +299,9 @@ def _render_advanced_settings_form():
                     "http": "HTTP",
                 }
                 backend_management_labels = {
+                    "disabled": tr("settings.comfyui.backend_management_disabled"),
                     "auto": tr("settings.comfyui.backend_management_auto"),
                     "required": tr("settings.comfyui.backend_management_required"),
-                    "disabled": tr("settings.comfyui.backend_management_disabled"),
                 }
                 current_executor_type = comfyui_config.get("executor_type")
                 if current_executor_type in executor_labels:
@@ -279,10 +310,10 @@ def _render_advanced_settings_form():
                     default_executor_type = "auto"
                 current_backend_management_mode = comfyui_config.get(
                     "backend_management_mode",
-                    "auto",
+                    "disabled",
                 )
                 if current_backend_management_mode not in backend_management_labels:
-                    current_backend_management_mode = "auto"
+                    current_backend_management_mode = "disabled"
 
                 url_col, key_col, executor_col = st.columns(3)
                 with url_col:
@@ -329,12 +360,8 @@ def _render_advanced_settings_form():
                 # Test connection button
                 if st.button(tr("btn.test_connection"), key="test_comfyui", width="stretch"):
                     try:
-                        import requests
-                        response = requests.get(f"{comfyui_url}/system_stats", timeout=5)
-                        if response.status_code == 200:
-                            st.success(tr("status.connection_success"))
-                        else:
-                            st.error(tr("status.connection_failed"))
+                        _probe_comfyui_connection(comfyui_url, comfyui_api_key)
+                        st.success(tr("status.connection_success"))
                     except Exception as e:
                         st.error(f"{tr('status.connection_failed')}: {str(e)}")
                 
