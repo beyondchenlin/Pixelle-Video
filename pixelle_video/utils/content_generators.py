@@ -1736,8 +1736,9 @@ async def generate_styled_image_prompt_batch(
         generation_world_profile=generation_world_profile,
     )
 
-    # Base prompt generation is intentionally anchor-free. The recurring visual
-    # anchor is placed only after the subject-first base scene exists.
+    # Canonical V4.5 identity is already scene-integrated by the LLM from the
+    # validated snapshot. Legacy anchor planning remains downstream-only and is
+    # gated exclusively by ip_prompt_chain_enabled.
     style_context = None
     ip_adaptation_packages = []
     prompt_contexts_for_generation = _strip_ip_prompt_context_fields(normalized_prompt_contexts)
@@ -2416,6 +2417,10 @@ def _resolve_visual_signature_prompt_ownership(
         if canonical_profile_snapshot is None:
             raise ValueError(
                 "canonical visual signature request requires a validated profile snapshot"
+            )
+        if not isinstance(canonical_profile_snapshot, VisualSignatureProfileSnapshot):
+            raise TypeError(
+                "canonical visual signature profile snapshot must use the canonical snapshot type"
             )
         if canonical_profile_snapshot.profile_id != canonical_request.profile_id:
             raise ValueError(
