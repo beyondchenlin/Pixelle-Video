@@ -2305,13 +2305,13 @@ class PixelleVideoCore:
 
         try:
             if include_extensions:
-                result = await client.free_memory_with_extensions(
-                    "high",
+                result = await client.free_memory_with_extensions_when_idle(
+                    intensity="high",
                     extensions=extensions,
                     missing_endpoint="required",
                 )
             else:
-                result = await client.free_memory("high")
+                result = await client.free_memory_when_idle(intensity="high")
             self._log_comfyui_memory_release(
                 context=context,
                 result=result,

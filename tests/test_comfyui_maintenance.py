@@ -401,6 +401,7 @@ async def test_free_memory_with_extensions_calls_comfyui_free_then_indextts2_end
     assert result.extensions[0].released is True
     assert transport.calls == [
         ("GET", "/system_stats", None),
+        ("GET", "/pixelle/health", None),
         ("POST", "/pixelle/indextts2/free", {}),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
         ("GET", "/system_stats", None),
@@ -458,6 +459,8 @@ async def test_free_memory_with_extensions_accepts_extension_safe_to_continue_wh
                     },
                     request=request,
                 )
+            if request.url.path == "/pixelle/health":
+                return httpx.Response(200, request=request)
             return await super().handle_async_request(request)
 
     transport = _SafeExtensionTransport(system_stats_payloads=[unchanged_snapshot] * 10)
@@ -483,8 +486,9 @@ async def test_free_memory_with_extensions_accepts_extension_safe_to_continue_wh
     assert result.released is True
     assert result.safe_to_continue is True
     assert result.release_confirmation_reason == "extension_safe_to_continue"
-    assert transport.calls[:3] == [
+    assert transport.calls[:4] == [
         ("GET", "/system_stats", None),
+        ("GET", "/pixelle/health", None),
         ("POST", "/pixelle/indextts2/free", {}),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
     ]
@@ -536,6 +540,8 @@ async def test_free_memory_with_gguf_extension_accepts_safe_to_continue_when_vra
                     },
                     request=request,
                 )
+            if request.url.path == "/pixelle/health":
+                return httpx.Response(200, request=request)
             return await super().handle_async_request(request)
 
     transport = _SafeGGUFExtensionTransport(system_stats_payloads=[unchanged_snapshot] * 10)
@@ -562,8 +568,9 @@ async def test_free_memory_with_gguf_extension_accepts_safe_to_continue_when_vra
     assert result.released is True
     assert result.safe_to_continue is True
     assert result.release_confirmation_reason == "extension_safe_to_continue"
-    assert transport.calls[:3] == [
+    assert transport.calls[:4] == [
         ("GET", "/system_stats", None),
+        ("GET", "/pixelle/health", None),
         ("POST", "/pixelle/gguf/free", {}),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
     ]
@@ -1050,6 +1057,7 @@ async def test_free_memory_with_extensions_when_idle_checks_queue_before_release
     assert transport.calls == [
         ("GET", "/queue", None),
         ("GET", "/system_stats", None),
+        ("GET", "/pixelle/health", None),
         ("POST", "/pixelle/indextts2/free", {}),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
         ("GET", "/system_stats", None),
@@ -1098,7 +1106,7 @@ async def test_free_extension_models_treats_missing_optional_endpoint_as_warning
     assert results[0].extension == "indextts2"
     assert results[0].released is False
     assert results[0].missing_endpoint is True
-    assert "tools/patch_indextts2_plugin.py" in results[0].message
+    assert "tools/install_pixelle_release_protocol.py" in results[0].message
 
 
 @pytest.mark.asyncio
@@ -1123,7 +1131,7 @@ async def test_free_extension_models_raises_when_required_endpoint_is_missing():
 
 
 @pytest.mark.asyncio
-async def test_free_gguf_extension_models_missing_endpoint_points_to_gguf_patch_script():
+async def test_free_gguf_extension_models_missing_endpoint_points_to_protocol_installer():
     class _MissingEndpointTransport(_RecordingTransport):
         async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
             body = await request.aread()
@@ -1136,13 +1144,16 @@ async def test_free_gguf_extension_models_missing_endpoint_points_to_gguf_patch_
     transport = _MissingEndpointTransport()
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
 
-    with pytest.raises(RuntimeError, match="tools/patch_gguf_plugin.py"):
+    with pytest.raises(RuntimeError, match="tools/install_pixelle_release_protocol.py"):
         await client.free_extension_models(
             extensions=("gguf",),
             missing_endpoint="required",
         )
 
-    assert transport.calls == [("POST", "/pixelle/gguf/free", {})]
+    assert transport.calls == [
+        ("GET", "/pixelle/health", None),
+        ("POST", "/pixelle/gguf/free", {}),
+    ]
 
 
 @pytest.mark.asyncio
@@ -1159,14 +1170,17 @@ async def test_preflight_extension_release_endpoints_fails_fast_when_required_en
     transport = _MissingEndpointTransport()
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
 
-    with pytest.raises(RuntimeError, match="tools/patch_indextts2_plugin.py"):
+    with pytest.raises(RuntimeError, match="tools/install_pixelle_release_protocol.py"):
         await client.preflight_extension_release_endpoints(extensions=("indextts2",))
 
-    assert transport.calls == [("GET", "/pixelle/indextts2/health", None)]
+    assert transport.calls == [
+        ("GET", "/pixelle/health", None),
+        ("GET", "/pixelle/indextts2/health", None),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_preflight_gguf_extension_release_endpoints_points_to_gguf_patch_script():
+async def test_preflight_gguf_extension_release_endpoints_points_to_protocol_installer():
     class _MissingEndpointTransport(_RecordingTransport):
         async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
             body = await request.aread()
@@ -1179,10 +1193,13 @@ async def test_preflight_gguf_extension_release_endpoints_points_to_gguf_patch_s
     transport = _MissingEndpointTransport()
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
 
-    with pytest.raises(RuntimeError, match="tools/patch_gguf_plugin.py"):
+    with pytest.raises(RuntimeError, match="tools/install_pixelle_release_protocol.py"):
         await client.preflight_extension_release_endpoints(extensions=("gguf",))
 
-    assert transport.calls == [("GET", "/pixelle/gguf/health", None)]
+    assert transport.calls == [
+        ("GET", "/pixelle/health", None),
+        ("GET", "/pixelle/gguf/health", None),
+    ]
 
 
 @pytest.mark.asyncio
@@ -1211,7 +1228,10 @@ async def test_preflight_extension_release_endpoints_requires_protocol_v2():
     with pytest.raises(RuntimeError, match="release protocol v2"):
         await client.preflight_extension_release_endpoints(extensions=("indextts2",))
 
-    assert transport.calls == [("GET", "/pixelle/indextts2/health", None)]
+    assert transport.calls == [
+        ("GET", "/pixelle/health", None),
+        ("GET", "/pixelle/indextts2/health", None),
+    ]
 
 
 @pytest.mark.asyncio
@@ -1242,11 +1262,14 @@ async def test_preflight_gguf_extension_release_endpoints_requires_current_contr
     with pytest.raises(RuntimeError, match="contract revision"):
         await client.preflight_extension_release_endpoints(extensions=("gguf",))
 
-    assert transport.calls == [("GET", "/pixelle/gguf/health", None)]
+    assert transport.calls == [
+        ("GET", "/pixelle/health", None),
+        ("GET", "/pixelle/gguf/health", None),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_preflight_extension_release_endpoints_uses_side_effect_free_health_endpoint():
+async def test_preflight_legacy_fallback_uses_side_effect_free_health_endpoint():
     transport = _RecordingTransport()
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
 
@@ -1264,7 +1287,163 @@ async def test_preflight_extension_release_endpoints_uses_side_effect_free_healt
         "safe_to_continue": True,
         "residual_objects": [],
     }
-    assert transport.calls == [("GET", "/pixelle/indextts2/health", None)]
+    assert transport.calls == [
+        ("GET", "/pixelle/health", None),
+        ("GET", "/pixelle/indextts2/health", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_preflight_prefers_unified_capability_discovery_over_expensive_legacy_health():
+    class _UnifiedCapabilityTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/pixelle/health":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "extensions": {
+                            "omnivoice": {
+                                "ok": True,
+                                "endpoint": "/pixelle/omnivoice/free",
+                            }
+                        },
+                    },
+                    request=request,
+                )
+            raise AssertionError("legacy OmniVoice health endpoint must not be called")
+
+    transport = _UnifiedCapabilityTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    results = await client.preflight_extension_release_endpoints(
+        extensions=("omnivoice",)
+    )
+
+    assert results[0].extension == "omnivoice"
+    assert results[0].endpoint == "/pixelle/health"
+    assert results[0].protocol_version == 2
+    assert results[0].safe_to_continue is True
+    assert transport.calls == [("GET", "/pixelle/health", None)]
+
+
+@pytest.mark.asyncio
+async def test_preflight_falls_back_when_unified_capability_lacks_required_revision():
+    class _StaleUnifiedGGUFTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/pixelle/health":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "extensions": {
+                            "gguf": {
+                                "ok": True,
+                                "endpoint": "/pixelle/gguf/free",
+                            }
+                        },
+                    },
+                    request=request,
+                )
+            if request.url.path == "/pixelle/gguf/health":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "contract_revision": 2,
+                        "ok": True,
+                        "extension": "gguf",
+                        "release_endpoint": "/pixelle/gguf/free",
+                        "safe_to_continue": True,
+                    },
+                    request=request,
+                )
+            raise AssertionError(f"unexpected endpoint: {request.url.path}")
+
+    transport = _StaleUnifiedGGUFTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    results = await client.preflight_extension_release_endpoints(extensions=("gguf",))
+
+    assert results[0].endpoint == "/pixelle/gguf/health"
+    assert results[0].contract_revision == 2
+    assert transport.calls == [
+        ("GET", "/pixelle/health", None),
+        ("GET", "/pixelle/gguf/health", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_preflight_rejects_incompatible_unified_extension_protocol():
+    class _IncompatibleUnifiedTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/pixelle/health":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "extensions": {
+                            "omnivoice": {
+                                "protocol_version": 1,
+                                "ok": True,
+                                "endpoint": "/pixelle/omnivoice/free",
+                            }
+                        },
+                    },
+                    request=request,
+                )
+            if request.url.path == "/pixelle/omnivoice/health":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "ok": True,
+                        "extension": "omnivoice",
+                        "release_endpoint": "/pixelle/omnivoice/free",
+                        "safe_to_continue": True,
+                    },
+                    request=request,
+                )
+            raise AssertionError(f"unexpected endpoint: {request.url.path}")
+
+    transport = _IncompatibleUnifiedTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    results = await client.preflight_extension_release_endpoints(
+        extensions=("omnivoice",)
+    )
+
+    assert results[0].endpoint == "/pixelle/omnivoice/health"
+    assert results[0].protocol_version == 2
+    assert transport.calls == [
+        ("GET", "/pixelle/health", None),
+        ("GET", "/pixelle/omnivoice/health", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_preflight_timeout_reports_dedicated_timeout_value():
+    class _TimeoutTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("busy backend", request=request)
+
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=_TimeoutTransport(),
+        extension_preflight_timeout=15.0,
+    )
+
+    with pytest.raises(TimeoutError, match="after 15s"):
+        await client.preflight_extension_release_endpoints(extensions=("omnivoice",))
 
 
 @pytest.mark.asyncio
@@ -1339,7 +1518,72 @@ async def test_free_extension_models_uses_release_request_timeout():
 
     assert result[0].safe_to_continue is True
     assert result[0].contract_revision == 2
-    assert calls == [("POST", "/pixelle/gguf/free", 45.0)]
+    assert calls == [
+        ("GET", "/pixelle/health", 15.0),
+        ("POST", "/pixelle/gguf/free", 45.0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_free_extension_models_uses_targeted_unified_release_contract():
+    class _UnifiedReleaseTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/pixelle/health":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "contract_revision": 1,
+                        "extensions": {
+                            "omnivoice": {
+                                "protocol_version": 2,
+                                "contract_revision": 1,
+                                "ok": True,
+                                "release_endpoint": "/pixelle/free",
+                            }
+                        },
+                    },
+                    request=request,
+                )
+            if request.url.path == "/pixelle/free":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "contract_revision": 1,
+                        "safe_to_continue": True,
+                        "results": {
+                            "omnivoice": {
+                                "protocol_version": 2,
+                                "contract_revision": 1,
+                                "extension": "omnivoice",
+                                "released": True,
+                                "safe_to_continue": True,
+                                "residual_objects": [],
+                                "errors": [],
+                            }
+                        },
+                    },
+                    request=request,
+                )
+            raise AssertionError(f"unexpected endpoint: {request.url.path}")
+
+    transport = _UnifiedReleaseTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    results = await client.free_extension_models(extensions=("omnivoice",))
+
+    assert results[0].extension == "omnivoice"
+    assert results[0].endpoint == "/pixelle/free"
+    assert results[0].released is True
+    assert results[0].safe_to_continue is True
+    assert transport.calls == [
+        ("GET", "/pixelle/health", None),
+        ("POST", "/pixelle/free", {"extensions": ["omnivoice"]}),
+    ]
 
 
 @pytest.mark.asyncio

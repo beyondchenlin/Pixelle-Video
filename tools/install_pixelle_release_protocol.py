@@ -1,4 +1,4 @@
-"""Pixelle Release Protocol 安装脚本。
+r"""Pixelle Release Protocol 安装脚本。
 
 自动安装 Pixelle 所需的 ComfyUI 插件：
 
@@ -34,7 +34,7 @@ def resolve_custom_nodes_dir(custom_nodes_arg: str | os.PathLike[str] | None) ->
 
 
 def install_pixelle_plugin(custom_nodes: Path) -> bool:
-    """安装 Pixelle Release Protocol 插件（使用符号链接）。"""
+    """安装 Pixelle Release Protocol 插件（使用目录链接）。"""
     if not PIXELLE_PLUGIN.exists():
         print(f"  ✗ Pixelle 插件源码不存在: {PIXELLE_PLUGIN}")
         return False
@@ -42,12 +42,13 @@ def install_pixelle_plugin(custom_nodes: Path) -> bool:
     plugin_link = custom_nodes / "ComfyUI-Pixelle-Release-Protocol"
 
     if plugin_link.exists():
-        if plugin_link.is_symlink() or (os.name == 'nt' and os.path.isdir(plugin_link) and os.path.islink(plugin_link)):
-            print(f"  ✓ 符号链接已存在: {plugin_link}")
+        if plugin_link.resolve() == PIXELLE_PLUGIN.resolve():
+            print(f"  ✓ 插件链接已指向当前源码: {plugin_link}")
             return True
-        else:
-            print(f"  ✗ 目标路径已存在但不是符号链接: {plugin_link}")
-            return False
+        print(f"  ✗ 目标路径已存在，但没有指向当前插件源码: {plugin_link}")
+        print(f"    当前目标: {plugin_link.resolve()}")
+        print(f"    期望目标: {PIXELLE_PLUGIN.resolve()}")
+        return False
 
     try:
         if os.name == 'nt':
