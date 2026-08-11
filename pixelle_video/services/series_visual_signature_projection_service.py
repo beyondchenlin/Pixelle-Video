@@ -11,8 +11,6 @@ from pixelle_video.models.final_visual_prompt_contract_v45 import FinalVisualPro
 from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureContract,
     SeriesVisualSignatureRequest,
-    SeriesVisualSignatureRole,
-    SignatureReplacementPolicy,
     VisualSignatureProfileSnapshot,
 )
 from pixelle_video.models.series_visual_signature_projection_policy import (
@@ -195,24 +193,38 @@ class SeriesVisualSignatureProjectionService:
         frames: list[SeriesVisualSignatureFrameProjection] = []
         for index, frame_id in enumerate(frame_ids):
             base_prompt = str(base_prompts[index] or "")
+            frame_context = frame_contexts[index]
+            article_plan = plans_by_frame.get(frame_id)
+            base_visual_brief = briefs.get(frame_id)
             try:
-                if _ip_already_in_prompt(base_prompt, profile):
+                required_subjects = _required_subjects(
+                    article_plan=article_plan,
+                    frame_context=frame_context,
+                    base_visual_brief=base_visual_brief,
+                )
+                self.budget.assert_required_subjects(required_subjects)
+                if _prompt_satisfies_pass_through_contract(
+                    base_prompt, profile, required_subjects
+                ):
                     frame = self._project_pass_through(
                         frame_id=frame_id,
                         base_prompt=base_prompt,
                         base_negative_prompt=base_negative_prompts[index],
                         profile=profile,
                         request=request,
+                        frame_context=frame_context,
+                        article_plan=article_plan,
+                        required_subjects=required_subjects,
                     )
                 else:
                     frame = self.project_frame(
                         frame_id=frame_id,
                         base_prompt=base_prompt,
-                        frame_context=frame_contexts[index],
+                        frame_context=frame_context,
                         request=request,
                         profile=profile,
-                        article_plan=plans_by_frame.get(frame_id),
-                        base_visual_brief=briefs.get(frame_id),
+                        article_plan=article_plan,
+                        base_visual_brief=base_visual_brief,
                         base_negative_prompt=base_negative_prompts[index],
                     )
             except SeriesVisualSignatureProjectionError:
@@ -328,12 +340,16 @@ class SeriesVisualSignatureProjectionService:
         base_negative_prompt: str | None = None,
         profile: VisualSignatureProfileSnapshot,
         request: SeriesVisualSignatureRequest,
+        frame_context: Mapping[str, Any],
+        article_plan: ArticleConcretizationPlan | None,
+        required_subjects: Sequence[str],
     ) -> SeriesVisualSignatureFrameProjection:
-        """Validate and pass through a prompt that already contains IP identity.
+        """Preserve LLM text only after the complete frame contract passes.
 
-        The LLM has already woven the recurring visual identity into the scene
-        description. We add anti-watermark negative protections, run the final
-        prompt gate, and return the LLM prompt unchanged.
+        Pass-through is a text optimization, never an alternate constraint path.
+        The canonical compiler still owns negative protections, locked constraints,
+        budget validation, and provider-neutral contract semantics; only its
+        generated positive text is replaced by the already-valid LLM prompt.
         """
 
         if profile.profile_id != request.profile_id:
@@ -342,65 +358,56 @@ class SeriesVisualSignatureProjectionService:
                 f"profile has {profile.profile_id!r}, request has {request.profile_id!r}"
             )
 
-        negative_parts: list[str] = (
-            [p.strip() for p in str(base_negative_prompt or "").split(",") if p.strip()]
-            if base_negative_prompt
-            else []
-        )
-        negative_parts.extend(
-            (
-                "recurring visual signature rendered as a photorealistic mascot",
-                "recurring visual signature rendered as a sticker overlay",
-                "recurring visual signature rendered as a logo overlay",
-                "recurring visual signature rendered as a watermark",
-                "duplicate recurring visual signature instances",
+        article_payload, render_payload, visible_text_policy, task, role_context = (
+            _projection_context(
+                base_prompt=base_prompt,
+                frame_context=frame_context,
+                article_plan=article_plan,
+                required_subjects=required_subjects,
             )
         )
-        negative_prompt = ", ".join(_dedupe(negative_parts))
-
-        signature = SeriesVisualSignatureContract(
-            enabled=True,
-            role=SeriesVisualSignatureRole.SILENT_WITNESS,
+        signature = SeriesVisualSignatureContractBuilder().build(
+            request=request,
             profile=profile,
-            replacement_policy=SignatureReplacementPolicy.NO_SUBJECT_REPLACEMENT,
-            max_area_ratio=0.16,
-            participation_rule="LLM-integrated; no template injection needed.",
-            forbidden_behaviors=(),
-        )
-        assert_series_visual_signature_final_prompt(
-            positive_prompt=base_prompt,
-            negative_prompt=negative_prompt,
-            required_subjects=(),
-            signature=signature,
-            visible_text_policy="preserve_base",
+            role_context=role_context,
         )
         contract = FinalVisualPromptContractV45(
             contract_id=f"v45:{frame_id}",
             frame_id=frame_id,
-            primary_visual_task="pass_through",
-            required_subjects=(),
-            article_concretization={
-                "diagram": {
-                    "grammar": "preserve_base",
-                    "visual_metaphor": base_prompt,
-                },
-            },
+            primary_visual_task=task,
+            required_subjects=tuple(required_subjects),
+            article_concretization=article_payload,
             series_visual_signature=signature,
-            diagram_render={"render_style": "preserve_base"},
-            visible_text_policy="preserve_base",
+            diagram_render=render_payload,
+            visible_text_policy=visible_text_policy,
             projected_prompt_parts=(),
         )
+
+        compiled_bundle = FinalVisualPromptCompiler().compile(
+            final_contract=contract,
+            base_negative_prompt=base_negative_prompt,
+        )
+        assert_series_visual_signature_final_prompt(
+            positive_prompt=base_prompt,
+            negative_prompt=compiled_bundle.negative_prompt,
+            required_subjects=required_subjects,
+            signature=signature,
+            visible_text_policy=visible_text_policy,
+        )
+        metadata = compiled_bundle.to_dict()["metadata"]
+        metadata["pass_through_preserved_positive_prompt"] = True
         bundle = FinalVisualPromptBundle(
             positive_prompt=base_prompt,
-            negative_prompt=negative_prompt,
-            locked_constraints=(),
+            negative_prompt=compiled_bundle.negative_prompt,
+            locked_constraints=compiled_bundle.locked_constraints,
+            metadata=metadata,
         )
         return SeriesVisualSignatureFrameProjection(
             frame_id=frame_id,
             bundle=bundle,
             contract=contract,
             signature=signature,
-            required_subjects=(),
+            required_subjects=tuple(required_subjects),
         )
 
 def _projection_context(
@@ -505,11 +512,27 @@ def _dedupe(values: Sequence[Any]) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _ip_already_in_prompt(
+def _prompt_satisfies_pass_through_contract(
+    prompt: str,
+    profile: VisualSignatureProfileSnapshot,
+    required_subjects: Sequence[str],
+) -> bool:
+    if not _identity_already_in_prompt(prompt, profile):
+        return False
+    return all(
+        prompt_contains_term(prompt, subject)
+        for subject in required_subjects
+        if _text(subject)
+    )
+
+
+def _identity_already_in_prompt(
     prompt: str,
     profile: VisualSignatureProfileSnapshot,
 ) -> bool:
-    if not profile.identity_traits:
+    if not profile.display_name or not profile.identity_traits:
+        return False
+    if not prompt_contains_term(prompt, profile.display_name):
         return False
     return all(
         prompt_contains_term(prompt, trait)

@@ -323,3 +323,116 @@ def test_projection_fallback_injects_when_llm_missed_ip() -> None:
     for trait in profile.identity_traits:
         assert trait in frame.bundle.positive_prompt
     assert "timeline showing Musk" in frame.bundle.positive_prompt
+
+
+
+def test_missing_required_subject_uses_compiled_repair_instead_of_pass_through() -> None:
+    request = _request(series_visual_signature_role="guide")
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=request,
+        ip_profile=_ip_profile(),
+    )
+    llm_prompt = (
+        "Dalmatian with black spots, black sunglasses, red collar, and small round ears "
+        "stands beside a timeline showing a production process"
+    )
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=[llm_prompt],
+        frame_ids=["frame-1"],
+        frame_contexts=[{"primary_subject": "worker"}],
+        request=request,
+        profile=profile,
+    )
+
+    frame = result.frames[0]
+    assert frame.required_subjects == ("worker",)
+    assert "worker" in frame.bundle.positive_prompt
+    assert frame.bundle.positive_prompt != llm_prompt
+    assert (
+        frame.bundle.to_dict()["metadata"].get("pass_through_preserved_positive_prompt")
+        is None
+    )
+
+def test_pass_through_reuses_requested_role_and_subject_contract() -> None:
+    request = _request(series_visual_signature_role="guide")
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=request,
+        ip_profile=_ip_profile(),
+    )
+    llm_prompt = (
+        "A worker operates the assembly machine while Dalmatian with black spots, "
+        "black sunglasses, red collar, and small round ears points to the process path"
+    )
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=[llm_prompt],
+        frame_ids=["frame-1"],
+        frame_contexts=[{"primary_subject": "worker"}],
+        request=request,
+        profile=profile,
+    )
+
+    frame = result.frames[0]
+    assert frame.required_subjects == ("worker",)
+    assert frame.signature.role.value == "guide"
+    assert frame.signature.max_area_ratio == pytest.approx(0.20)
+    assert frame.bundle.positive_prompt == llm_prompt
+    assert frame.bundle.to_dict()["metadata"]["pass_through_preserved_positive_prompt"] is True
+    assert any("required source subject" in item for item in frame.bundle.locked_constraints)
+    assert any("recurring visual identity" in item for item in frame.bundle.locked_constraints)
+
+
+def test_identity_presence_requires_display_name_before_pass_through() -> None:
+    request = _request(series_visual_signature_role="guide")
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=request,
+        ip_profile=_ip_profile(),
+    )
+    prompt_without_name = (
+        "A spotted dog with black spots, black sunglasses, red collar, and small round ears "
+        "points at a process diagram"
+    )
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=[prompt_without_name],
+        frame_ids=["frame-1"],
+        frame_contexts=[{}],
+        request=request,
+        profile=profile,
+    )
+
+    frame = result.frames[0]
+    assert "Dalmatian" in frame.bundle.positive_prompt
+    assert frame.signature.role.value == "guide"
+    assert frame.signature.max_area_ratio == pytest.approx(0.20)
+
+
+
+def test_pass_through_reuses_no_visible_text_and_forbidden_trait_protections() -> None:
+    request = _request(series_visual_signature_role="guide")
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=request,
+        ip_profile=_ip_profile(forbidden_elements=("blue fur",)),
+    )
+    llm_prompt = (
+        "A worker operates the machine while Dalmatian with black spots, black sunglasses, "
+        "red collar, and small round ears points at the process path"
+    )
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=[llm_prompt],
+        frame_ids=["frame-1"],
+        frame_contexts=[
+            {
+                "primary_subject": "worker",
+                "visible_text_policy": "no_visible_text",
+            }
+        ],
+        request=request,
+        profile=profile,
+    )
+
+    negative_prompt = result.frames[0].bundle.negative_prompt
+    assert "readable text" in negative_prompt
+    assert "blue fur" in negative_prompt
