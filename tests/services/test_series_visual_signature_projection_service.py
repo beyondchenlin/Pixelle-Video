@@ -9,7 +9,6 @@ from pixelle_video.services.series_visual_signature_profile_snapshot_builder imp
     SeriesVisualSignatureProfileSnapshotBuilder,
 )
 from pixelle_video.services.series_visual_signature_projection_service import (
-    SeriesVisualSignatureProjectionError,
     SeriesVisualSignatureProjectionService,
 )
 
@@ -327,7 +326,7 @@ def test_projection_fallback_injects_when_llm_missed_ip() -> None:
 
 
 
-def test_pass_through_does_not_bypass_required_subject_gate() -> None:
+def test_missing_required_subject_uses_compiled_repair_instead_of_pass_through() -> None:
     request = _request(series_visual_signature_role="guide")
     profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
         request=request,
@@ -338,17 +337,22 @@ def test_pass_through_does_not_bypass_required_subject_gate() -> None:
         "stands beside a timeline showing a production process"
     )
 
-    with pytest.raises(SeriesVisualSignatureProjectionError) as exc_info:
-        SeriesVisualSignatureProjectionService().project_batch(
-            base_prompts=[llm_prompt],
-            frame_ids=["frame-1"],
-            frame_contexts=[{"primary_subject": "worker"}],
-            request=request,
-            profile=profile,
-        )
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=[llm_prompt],
+        frame_ids=["frame-1"],
+        frame_contexts=[{"primary_subject": "worker"}],
+        request=request,
+        profile=profile,
+    )
 
-    assert exc_info.value.reason_code == "final_prompt_gate_failed"
-
+    frame = result.frames[0]
+    assert frame.required_subjects == ("worker",)
+    assert "worker" in frame.bundle.positive_prompt
+    assert frame.bundle.positive_prompt != llm_prompt
+    assert (
+        frame.bundle.to_dict()["metadata"].get("pass_through_preserved_positive_prompt")
+        is None
+    )
 
 def test_pass_through_reuses_requested_role_and_subject_contract() -> None:
     request = _request(series_visual_signature_role="guide")
@@ -373,8 +377,10 @@ def test_pass_through_reuses_requested_role_and_subject_contract() -> None:
     assert frame.required_subjects == ("worker",)
     assert frame.signature.role.value == "guide"
     assert frame.signature.max_area_ratio == pytest.approx(0.20)
-    assert "worker" in frame.bundle.locked_constraints
-    assert "Dalmatian" in frame.bundle.locked_constraints
+    assert frame.bundle.positive_prompt == llm_prompt
+    assert frame.bundle.to_dict()["metadata"]["pass_through_preserved_positive_prompt"] is True
+    assert any("required source subject" in item for item in frame.bundle.locked_constraints)
+    assert any("recurring visual identity" in item for item in frame.bundle.locked_constraints)
 
 
 def test_identity_presence_requires_display_name_before_pass_through() -> None:
