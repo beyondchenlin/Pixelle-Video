@@ -6,6 +6,7 @@ from typing import Any
 
 from loguru import logger
 
+from pixelle_video.models.llm_interaction_trace import trace_context_with_prompt_template
 from pixelle_video.models.visual_story_engine import (
     DEFAULT_CONFIDENT_MARGIN,
     DEFAULT_CONFIDENT_SCORE,
@@ -29,9 +30,27 @@ from pixelle_video.models.visual_story_engine import (
 )
 from pixelle_video.prompts.visual_story_engine import (
     render_article_visual_route_analysis_prompt,
+    render_article_visual_route_score_repair_prompt,
 )
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
+from pixelle_video.services.visual_route_analysis_contract import (
+    VisualRouteAnalysisContractError,
+    coerce_route_analysis_response,
+    ensure_unique_route_ids,
+    extract_article_payload,
+    extract_route_candidates,
+    normalize_candidate_count,
+    parse_route_candidates,
+    recognized_payload_keys,
+    score_repair_article_context,
+    score_repair_candidate_context,
+    validate_score_repairs,
+)
 from pixelle_video.services.visual_story_quality_gate import VisualStoryQualityGate
+
+
+class _VisualRouteScoreRepairRequestError(RuntimeError):
+    """The bounded score-repair model request failed."""
 
 
 @dataclass(frozen=True)
@@ -137,6 +156,7 @@ class VisualStoryEngineService:
         trace_context: Any,
         trace_recorder: LLMInteractionRecorder | None,
     ) -> tuple[ArticleVisualUnderstanding, tuple[VisualRouteCandidate, ...]]:
+        candidate_count = normalize_candidate_count(candidate_count)
         rendered_prompt = render_article_visual_route_analysis_prompt(
             source_text=source_text,
             title=title,
@@ -145,54 +165,160 @@ class VisualStoryEngineService:
             candidate_count=candidate_count,
             target_language=target_language,
         )
-        payload: Mapping[str, Any] | None = None
+        prompt_trace_context = (
+            trace_context_with_prompt_template(
+                trace_context,
+                rendered_prompt=rendered_prompt,
+                attempt=1,
+                stage="article_visual_route_analysis",
+            )
+            if trace_context is not None
+            else None
+        )
         try:
             response = await llm_service(
                 prompt=rendered_prompt.text,
                 response_type=dict,
                 temperature=0.25,
                 max_tokens=5000,
-                trace_context=trace_context,
+                trace_context=prompt_trace_context,
                 trace_recorder=trace_recorder,
             )
-            payload = _coerce_mapping_response(response)
-            article_raw = (
-                payload.get("article_understanding")
-                or payload.get("article")
-                or payload.get("content_analysis")
-                or payload.get("analysis")
-                or {}
-            )
-            article = ArticleVisualUnderstanding.from_mapping(
-                article_raw if isinstance(article_raw, Mapping) else {}
-            )
-            raw_candidates = _first_sequence_payload(
-                payload,
-                (
-                    "candidate_routes",
-                    "candidates",
-                    "routes",
-                    "route_candidates",
-                    "visual_routes",
-                    "data",
-                    "items",
-                ),
-            )
-            candidates = tuple(
-                VisualRouteCandidate.from_mapping(item)
-                for item in raw_candidates
-                if isinstance(item, Mapping)
-            )
-            if not candidates:
-                raise ValueError("route analysis returned no route candidates")
-            return article, candidates
         except Exception as exc:
             logger.warning(
-                "Visual route analysis failed; using deterministic fallback: {} | payload_keys={}",
-                exc,
-                list(payload.keys()) if payload is not None else [],
+                "Visual route analysis request failed; using deterministic fallback: {}",
+                type(exc).__name__,
             )
             return _fallback_article_and_routes(source_text, title, candidate_count)
+
+        payload = coerce_route_analysis_response(response)
+        article_raw = extract_article_payload(payload)
+        if not article_raw:
+            logger.warning(
+                "Visual route analysis omitted article understanding; preserving route "
+                "candidates with deterministic article context"
+            )
+            article, _ = _fallback_article_and_routes(
+                source_text,
+                title,
+                candidate_count,
+            )
+        else:
+            try:
+                article = ArticleVisualUnderstanding.from_mapping(article_raw)
+            except (TypeError, ValueError) as exc:
+                logger.warning(
+                    "Visual route article understanding was invalid; preserving route "
+                    "candidates with deterministic article context: {}",
+                    type(exc).__name__,
+                )
+                article, _ = _fallback_article_and_routes(
+                    source_text,
+                    title,
+                    candidate_count,
+                )
+        raw_candidates = extract_route_candidates(payload)
+        parsed = parse_route_candidates(raw_candidates)
+
+        candidates_by_index = dict(parsed.accepted)
+        if parsed.repairable:
+            logger.info(
+                "Visual route analysis contained {} candidate(s) with invalid scores; "
+                "requesting bounded score-only repair",
+                len(parsed.repairable),
+            )
+            try:
+                repaired_scores = await self._repair_route_scores(
+                    llm_service=llm_service,
+                    article=article,
+                    candidates=parsed.repairable,
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                )
+            except (
+                VisualRouteAnalysisContractError,
+                _VisualRouteScoreRepairRequestError,
+            ) as exc:
+                logger.warning(
+                    "Visual route score repair failed; discarding only unrepaired "
+                    "candidates: {}",
+                    _route_contract_error_summary(exc),
+                )
+                repaired_scores = {}
+            for candidate_index, candidate in parsed.repairable:
+                scores = repaired_scores.get(candidate_index)
+                if scores is not None:
+                    candidates_by_index[candidate_index] = candidate.with_scores(scores)
+
+        candidates = ensure_unique_route_ids(
+            tuple(
+                candidate
+                for _, candidate in sorted(candidates_by_index.items())
+            )
+        )
+        if candidates:
+            omitted_count = len(raw_candidates) - len(candidates)
+            if omitted_count:
+                logger.warning(
+                    "Visual route analysis omitted {} unusable candidate(s) after isolated "
+                    "validation; continuing with {} valid candidate(s)",
+                    omitted_count,
+                    len(candidates),
+                )
+            return article, candidates
+
+        logger.warning(
+            "Visual route analysis returned no usable candidates; using deterministic "
+            "fallback | payload_keys={} candidate_count={} rejected_count={}",
+            recognized_payload_keys(payload),
+            len(raw_candidates),
+            parsed.rejected_count + len(parsed.repairable),
+        )
+        return _fallback_article_and_routes(source_text, title, candidate_count)
+
+    async def _repair_route_scores(
+        self,
+        *,
+        llm_service: Any,
+        article: ArticleVisualUnderstanding,
+        candidates: Sequence[tuple[int, VisualRouteCandidate]],
+        trace_context: Any,
+        trace_recorder: LLMInteractionRecorder | None,
+    ) -> dict[int, VisualRouteScores]:
+        rendered_prompt = render_article_visual_route_score_repair_prompt(
+            article_understanding=score_repair_article_context(article),
+            candidates=[
+                score_repair_candidate_context(candidate_index, candidate)
+                for candidate_index, candidate in candidates
+            ],
+        )
+        prompt_trace_context = (
+            trace_context_with_prompt_template(
+                trace_context,
+                rendered_prompt=rendered_prompt,
+                attempt=1,
+                stage="article_visual_route_score_repair",
+                metadata={"candidate_count": len(candidates)},
+            )
+            if trace_context is not None
+            else None
+        )
+        try:
+            response = await llm_service(
+                prompt=rendered_prompt.text,
+                response_type=dict,
+                temperature=0.0,
+                max_tokens=max(800, min(2500, len(candidates) * 300)),
+                trace_context=prompt_trace_context,
+                trace_recorder=trace_recorder,
+            )
+        except Exception as exc:
+            raise _VisualRouteScoreRepairRequestError(
+                type(exc).__name__
+            ) from exc
+        payload = coerce_route_analysis_response(response)
+        expected_indices = {candidate_index for candidate_index, _ in candidates}
+        return validate_score_repairs(payload, expected_indices)
 
     def _select_route(
         self,
@@ -445,53 +571,28 @@ def _visual_task_for_route(
     return prompt_intent or visual_goal or "visualize this article frame"
 
 
-def _coerce_mapping_response(response: Any) -> dict[str, Any]:
-    if isinstance(response, Mapping):
-        return dict(response)
-    if isinstance(response, str):
-        import json
-
-        text = response.strip()
-        if not text:
-            return {}
-        if text.startswith("```"):
-            text = text.strip("`").strip()
-            if text.lower().startswith("json"):
-                text = text[4:].strip()
+def _route_contract_error_summary(exc: Exception) -> str:
+    error_code = getattr(exc, "code", None)
+    if isinstance(error_code, str) and error_code:
+        return f"{type(exc).__name__}:{error_code}"
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
         try:
-            parsed = json.loads(text)
-        except Exception:
-            return {}
-        if isinstance(parsed, Mapping):
-            return dict(parsed)
-        if isinstance(parsed, list):
-            return {"items": parsed}
-        return {}
-    if isinstance(response, list):
-        return {"items": list(response)}
-    return {}
-
-
-def _first_sequence_payload(
-    payload: Mapping[str, Any],
-    keys: Sequence[str],
-) -> Sequence[Any]:
-    for key in keys:
-        sequence = _coerce_sequence_payload(payload.get(key), keys)
-        if sequence:
-            return sequence
-    return ()
-
-
-def _coerce_sequence_payload(value: Any, keys: Sequence[str]) -> Sequence[Any]:
-    if isinstance(value, Mapping):
-        return _first_sequence_payload(value, keys)
-    if isinstance(value, Sequence) and not isinstance(
-        value,
-        str | bytes | bytearray,
-    ):
-        return value
-    return ()
+            details = errors(
+                include_url=False,
+                include_context=False,
+                include_input=False,
+            )
+        except TypeError:
+            details = errors()
+        fields = [
+            ".".join(str(part) for part in detail.get("loc", ()))
+            for detail in details[:5]
+        ]
+        field_summary = ", ".join(field for field in fields if field)
+        suffix = f": {field_summary}" if field_summary else ""
+        return f"{len(details)} schema validation error(s){suffix}"
+    return type(exc).__name__
 
 
 def _fallback_article_and_routes(

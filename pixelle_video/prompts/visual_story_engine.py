@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
 
@@ -45,4 +45,31 @@ def render_article_visual_route_analysis_prompt(
     )
 
 
-__all__ = ["render_article_visual_route_analysis_prompt"]
+def render_article_visual_route_score_repair_prompt(
+    *,
+    article_understanding: Mapping[str, object],
+    candidates: Sequence[Mapping[str, object]],
+) -> RenderedPrompt:
+    """Render bounded score-only repair without resending the full source text."""
+
+    return render_prompt_template(
+        "article_visual_route_score_repair",
+        {
+            "article_understanding_json": json.dumps(
+                dict(article_understanding),
+                ensure_ascii=False,
+                indent=2,
+            ),
+            "candidates_json": json.dumps(
+                [dict(candidate) for candidate in candidates],
+                ensure_ascii=False,
+                indent=2,
+            ),
+        },
+    )
+
+
+__all__ = [
+    "render_article_visual_route_analysis_prompt",
+    "render_article_visual_route_score_repair_prompt",
+]
