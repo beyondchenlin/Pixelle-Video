@@ -1326,6 +1326,10 @@ class _LocalComfyUITaskScope:
         return state
 
 
+class _LocalComfyUIMemoryExhaustionError(RuntimeError):
+    """Terminal resource failure that must not enter generic retry classifiers."""
+
+
 class PixelleVideoCore:
     """
     Pixelle-Video Core - Service Layer
@@ -2048,52 +2052,54 @@ class PixelleVideoCore:
                 continue
             seen_endpoints.add(endpoint)
 
-            async with self._get_backend_lock(normalized_role):
-                if self._local_comfyui_active_task_count_by_backend.get(
-                    normalized_role,
-                    0,
-                ) > 0:
-                    logger.debug(
-                        "Skipping Pixelle-managed ComfyUI backend stop after "
-                        f"generation; role '{normalized_role}' still has active tasks"
-                    )
-                    continue
+            stop_reason = f"{reason} generation resource release"
+            try:
+                async with self._local_comfyui_accelerator_operation(
+                    backend_role=normalized_role,
+                    reason=stop_reason,
+                ):
+                    async with self._get_backend_lock(normalized_role):
+                        if self._local_comfyui_active_task_count_by_backend.get(
+                            normalized_role,
+                            0,
+                        ) > 0:
+                            logger.debug(
+                                "Skipping Pixelle-managed ComfyUI backend stop after "
+                                f"generation; role '{normalized_role}' still has active tasks"
+                            )
+                            continue
+                        result = await backend.stop(reason=stop_reason)
+            except Exception as exc:
+                errors.append(f"{normalized_role}={exc}")
+                continue
 
-                try:
-                    result = await backend.stop(
-                        reason=f"{reason} generation resource release"
+            payload = result.payload or {}
+            if payload.get("preserved_external_listener"):
+                if payload.get("stopped"):
+                    logger.info(
+                        "Cleaned a Pixelle-owned orphan process while preserving the "
+                        f"external ComfyUI listener for role '{normalized_role}'"
                     )
-                except Exception as exc:
-                    errors.append(f"{normalized_role}={exc}")
-                    continue
-
-                payload = result.payload or {}
-                if payload.get("preserved_external_listener"):
-                    if payload.get("stopped"):
-                        logger.info(
-                            "Cleaned a Pixelle-owned orphan process while preserving the "
-                            f"external ComfyUI listener for role '{normalized_role}'"
-                        )
-                        processed_roles.add(normalized_role)
-                    else:
-                        logger.warning(
-                            "Pixelle-owned orphan cleanup was not confirmed; the external "
-                            f"ComfyUI listener remains preserved for role '{normalized_role}'"
-                        )
-                    continue
-                if not payload.get("stopped"):
+                    processed_roles.add(normalized_role)
+                else:
                     logger.warning(
-                        "Skipping ComfyUI backend stop after generation for role "
-                        f"'{normalized_role}'; Pixelle does not own a running backend: "
-                        f"{payload}"
+                        "Pixelle-owned orphan cleanup was not confirmed; the external "
+                        f"ComfyUI listener remains preserved for role '{normalized_role}'"
                     )
-                    if payload.get("reason") == "external_backend_not_owned":
-                        processed_roles.add(normalized_role)
-                    continue
+                continue
+            if not payload.get("stopped"):
+                logger.warning(
+                    "Skipping ComfyUI backend stop after generation for role "
+                    f"'{normalized_role}'; Pixelle does not own a running backend: "
+                    f"{payload}"
+                )
+                if payload.get("reason") == "external_backend_not_owned":
+                    processed_roles.add(normalized_role)
+                continue
 
-                processed_roles.add(normalized_role)
-                stopped_roles.append(normalized_role)
-                await self._close_comfykit_instance(normalized_role)
+            processed_roles.add(normalized_role)
+            stopped_roles.append(normalized_role)
+            await self._close_comfykit_instance(normalized_role)
 
         for role in processed_roles:
             self._recent_local_comfyui_backend_roles.pop(role, None)
@@ -2474,7 +2480,6 @@ class PixelleVideoCore:
             return True
 
         reason = f"{context} batch stop"
-        client = self._get_comfyui_maintenance_client(role)
         try:
             async with self._local_comfyui_accelerator_operation(
                 backend_role=role,
@@ -2489,15 +2494,6 @@ class PixelleVideoCore:
                     f"{context} to release GPU and CPU memory; "
                     f"extensions={extensions or ('none',)}"
                 )
-                if client is not None:
-                    try:
-                        await client.wait_until_idle()
-                    except Exception as exc:
-                        raise RuntimeError(
-                            f"ComfyUI queue could not be confirmed idle before {context}; "
-                            "refusing to terminate work whose state is unknown"
-                        ) from exc
-
                 stopped = await self._stop_comfyui_backend_role(role, reason)
             if not stopped:
                 raise RuntimeError(
@@ -2928,46 +2924,42 @@ class PixelleVideoCore:
             backend_role=backend_role,
         )
 
-    async def _recover_local_comfykit_memory_and_retry_once(
+    def _diagnose_recent_comfyui_backend_failure(
         self,
-        workflow_input,
-        workflow_params: dict,
         *,
         backend_role: str,
-        original_exception: BaseException | None = None,
-    ) -> Any:
-        logger.warning(
+    ) -> str | None:
+        role = self._normalize_comfyui_backend_role(backend_role)
+        backend = self._get_comfyui_backend_controller(role)
+        if backend is None:
+            return None
+        recorded_ownership = self._recorded_local_comfyui_backend_ownership(role)
+        if (
+            recorded_ownership != "pixelle"
+            and str(getattr(backend, "management_mode", "")).lower() != "required"
+        ):
+            return None
+        diagnose = getattr(backend, "diagnose_recent_failure", None)
+        if not callable(diagnose):
+            return None
+        try:
+            return diagnose()
+        except Exception as exc:
+            logger.warning(
+                "Could not classify recent ComfyUI backend logs; "
+                f"role='{role}', error='{exc}'"
+            )
+            return None
+
+    def _memory_exhaustion_abort(
+        self,
+        backend_role: str,
+    ) -> _LocalComfyUIMemoryExhaustionError:
+        return _LocalComfyUIMemoryExhaustionError(
             "Local ComfyUI workflow ran out of memory on backend role "
-            f"'{backend_role}'; releasing memory and retrying once after backend recovery."
-        )
-        extensions = self._workflow_extensions(workflow_input)
-        if extensions:
-            released = await self.force_release_comfyui_memory(
-                context="oom-recovery",
-                backend_role=backend_role,
-                include_extensions=True,
-                extensions=extensions,
-            )
-        else:
-            released = await self.force_release_comfyui_memory(
-                context="oom-recovery",
-                backend_role=backend_role,
-            )
-        restarted = await self._restart_comfyui_backend_role(backend_role, "oom-recovery")
-        if not released and not restarted:
-            failure = RuntimeError(
-                "Local ComfyUI workflow ran out of memory and Pixelle stopped "
-                "before retrying without confirmed memory release."
-            )
-            if original_exception is not None:
-                raise failure from original_exception
-            raise failure
-        await self.prepare_comfyui_for_local_workflow(backend_role=backend_role)
-        await self._register_local_comfyui_task_use(backend_role=backend_role)
-        return await self._execute_local_comfykit_workflow_once(
-            workflow_input,
-            workflow_params,
-            backend_role=backend_role,
+            f"'{backend_role}'. Pixelle did not retry the same workflow configuration "
+            "because that would increase system memory pressure. The managed service "
+            "will be stopped by lifecycle cleanup before the next request."
         )
 
     async def _execute_local_comfykit_workflow(
@@ -2984,6 +2976,22 @@ class PixelleVideoCore:
                 workflow_params,
                 backend_role=role,
             )
+            result_status = _local_comfykit_result_status(result)
+            if (
+                result_status
+                and result_status != "completed"
+                and self._diagnose_recent_comfyui_backend_failure(
+                    backend_role=role
+                ) == "memory_exhaustion"
+            ):
+                self._record_local_comfykit_retry_attempt(
+                    workflow_input=workflow_input,
+                    backend_role=role,
+                    reason="memory_exhaustion",
+                    recovery_action="abort_same_configuration",
+                    failed_result=result,
+                )
+                raise self._memory_exhaustion_abort(role)
             if _local_comfykit_result_needs_connection_loss_retry(result):
                 self._record_local_comfykit_retry_attempt(
                     workflow_input=workflow_input,
@@ -3009,14 +3017,10 @@ class PixelleVideoCore:
                     workflow_input=workflow_input,
                     backend_role=role,
                     reason="memory_exhaustion",
-                    recovery_action="release_memory_and_restart_backend",
+                    recovery_action="abort_same_configuration",
                     failed_result=result,
                 )
-                return await self._recover_local_comfykit_memory_and_retry_once(
-                    workflow_input,
-                    workflow_params,
-                    backend_role=role,
-                )
+                raise self._memory_exhaustion_abort(role)
             if _local_comfykit_result_needs_transient_backend_retry(result):
                 self._record_local_comfykit_retry_attempt(
                     workflow_input=workflow_input,
@@ -3039,6 +3043,22 @@ class PixelleVideoCore:
                     return retry_result
             return result
         except Exception as exc:
+            if isinstance(exc, _LocalComfyUIMemoryExhaustionError):
+                raise
+            if (
+                not looks_like_memory_exhaustion(str(exc))
+                and self._diagnose_recent_comfyui_backend_failure(
+                    backend_role=role
+                ) == "memory_exhaustion"
+            ):
+                self._record_local_comfykit_retry_attempt(
+                    workflow_input=workflow_input,
+                    backend_role=role,
+                    reason="memory_exhaustion",
+                    recovery_action="abort_same_configuration",
+                    exception=exc,
+                )
+                raise self._memory_exhaustion_abort(role) from exc
             if looks_like_backend_connection_loss(str(exc)):
                 self._record_local_comfykit_retry_attempt(
                     workflow_input=workflow_input,
@@ -3086,15 +3106,10 @@ class PixelleVideoCore:
                 workflow_input=workflow_input,
                 backend_role=role,
                 reason="memory_exhaustion",
-                recovery_action="release_memory_and_restart_backend",
+                recovery_action="abort_same_configuration",
                 exception=exc,
             )
-            return await self._recover_local_comfykit_memory_and_retry_once(
-                workflow_input,
-                workflow_params,
-                backend_role=role,
-                original_exception=exc,
-            )
+            raise self._memory_exhaustion_abort(role) from exc
 
     async def _execute_scoped_local_comfykit_workflow(
         self,

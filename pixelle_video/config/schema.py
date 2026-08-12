@@ -504,6 +504,26 @@ class ComfyUIBackendProfile(BaseModel):
             "models resident is an explicit performance choice."
         ),
     )
+    resource_policy: Literal["auto", "memory_safe", "performance"] = Field(
+        default="auto",
+        description=(
+            "Managed ComfyUI launch policy. 'auto' selects the stable memory-safe "
+            "policy for managed Windows services. 'memory_safe' disables "
+            "pinned-memory and asynchronous weight-offload optimizations and disables "
+            "the execution cache. Dynamic VRAM remains available for large workflows. "
+            "'performance' is an explicit opt-in that keeps ComfyUI defaults."
+        ),
+    )
+    minimum_free_commit_gb: float = Field(
+        default=12.0,
+        ge=0,
+        le=256,
+        description=(
+            "Minimum available Windows commit capacity required before Pixelle starts a "
+            "managed ComfyUI process. Set to 0 only when an external supervisor enforces "
+            "an equivalent resource admission policy."
+        ),
+    )
     data_root: Optional[str] = Field(default=None, description="ComfyUI data root for this profile")
     shared_base_path: Optional[str] = Field(
         default=None,
@@ -521,13 +541,15 @@ class ComfyUIBackendProfile(BaseModel):
         normalized = dict(data)
         legacy_value = normalized.pop("restart_after_batch", None)
         if "stop_after_batch" not in normalized and legacy_value is not None:
-            normalized["stop_after_batch"] = bool(legacy_value)
+            # Preserve the original scalar and let Pydantic perform strict boolean
+            # coercion. Python's bool("false") is True and silently inverted legacy
+            # string configuration values.
+            normalized["stop_after_batch"] = legacy_value
             logger.warning(
                 "Migrating legacy ComfyUI profile field restart_after_batch={} to "
-                "stop_after_batch={}. Batch cleanup now stops the service and the next "
+                "stop_after_batch. Batch cleanup now stops the service and the next "
                 "workflow starts it on demand.",
                 legacy_value,
-                bool(legacy_value),
             )
         return normalized
 

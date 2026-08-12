@@ -11,6 +11,9 @@ param(
     [string]$LogsDir = '',
     [string]$HostAddress = '',
     [int]$Port = 0,
+    [ValidateSet('', 'auto', 'memory_safe', 'performance')]
+    [string]$ResourcePolicy = '',
+    [double]$MinimumFreeCommitGB = -1,
     [switch]$Json
 )
 
@@ -30,7 +33,9 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -RuntimeDir $RuntimeDir `
     -LogsDir $LogsDir `
     -HostAddress $HostAddress `
-    -Port $Port
+    -Port $Port `
+    -ResourcePolicy $ResourcePolicy `
+    -MinimumFreeCommitGB $MinimumFreeCommitGB
 
 $pidFile = Get-BackendPidFile $config
 $launcherPidFile = Get-BackendLauncherPidFile $config
@@ -156,11 +161,11 @@ $stoppedListener = $false
 if ($listener) {
     $listenerPid = [int]$listener.OwningProcess
     if ($listenerPid -ne $managedPid) {
-        $stoppedBackend = Stop-BackendOwnedComfyUIProcess $config $managedPid 'backend'
         $stoppedLauncher = $false
         if ($launcherPid -and $launcherPid -ne $managedPid -and $launcherInfo -and $launcherIsManagedBackend) {
             $stoppedLauncher = Stop-BackendOwnedComfyUIProcess $config $launcherPid 'launcher'
         }
+        $stoppedBackend = Stop-BackendOwnedComfyUIProcess $config $managedPid 'backend'
         $launcherStopConfirmed = -not $launcherIsManagedBackend -or $stoppedLauncher
         $stopConfirmed = $stoppedBackend -and $launcherStopConfirmed
         if ($stopConfirmed) {
@@ -189,11 +194,6 @@ if ($listener) {
     }
 }
 
-$stoppedBackend = Stop-BackendOwnedComfyUIProcess $config $managedPid 'backend'
-if ($listenerPid -and $listenerPid -eq $managedPid) {
-    $stoppedListener = $stoppedBackend
-}
-
 $stoppedLauncher = $false
 if ($launcherPid -and $launcherPid -ne $managedPid) {
     if (-not $launcherInfo) {
@@ -205,8 +205,20 @@ if ($launcherPid -and $launcherPid -ne $managedPid) {
         }
     }
 }
-
 $launcherStopConfirmed = -not $launcherIsManagedBackend -or $stoppedLauncher
+# Only stop the listener separately when the launcher tree was absent or could
+# not be stopped. A confirmed launcher-tree stop already includes its child.
+$stoppedBackend = $false
+if ($launcherIsManagedBackend -and $stoppedLauncher) {
+    $stoppedBackend = -not [bool](Get-ProcessInfo $managedPid)
+}
+else {
+    $stoppedBackend = Stop-BackendOwnedComfyUIProcess $config $managedPid 'backend'
+}
+if ($listenerPid -and $listenerPid -eq $managedPid) {
+    $stoppedListener = $stoppedBackend
+}
+
 $stopConfirmed = $stoppedBackend -and $launcherStopConfirmed
 if ($stopConfirmed) {
     Remove-BackendPidFiles $config

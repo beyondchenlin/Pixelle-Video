@@ -19,14 +19,12 @@ Refactored to use LinearVideoPipeline (Template Method Pattern).
 """
 
 import asyncio
-import inspect
 import json
 import os
 import re
 import shutil
 import subprocess
 import time
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -77,6 +75,9 @@ from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID
 from pixelle_video.models.video_generation_contract import (
     IPControlsContract,
     StoryboardControlsContract,
+)
+from pixelle_video.pipelines.comfyui_session import (
+    maybe_local_comfyui_workflow_session,
 )
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
@@ -200,61 +201,6 @@ class AssetExecutionMode:
     use_runninghub_parallel: bool
     use_staged_mode: bool
     local_media_session_policy: LocalMediaSessionPolicy = "none"
-
-
-@asynccontextmanager
-async def _maybe_local_comfyui_workflow_session(
-    core: Any,
-    *,
-    backend_role: str = "default",
-    stop_after_session: bool = False,
-):
-    session_factory = getattr(core, "local_comfyui_workflow_session", None)
-    if callable(session_factory):
-        try:
-            signature = inspect.signature(session_factory)
-        except (TypeError, ValueError):
-            supports_stop_after_session = True
-            supports_legacy_release_after_session = False
-            supports_backend_role = True
-        else:
-            supports_variadic_keywords = any(
-                parameter.kind == inspect.Parameter.VAR_KEYWORD
-                for parameter in signature.parameters.values()
-            )
-            supports_stop_after_session = (
-                "stop_after_session" in signature.parameters
-                or supports_variadic_keywords
-            )
-            supports_legacy_release_after_session = (
-                "release_after_session" in signature.parameters
-                or any(
-                    parameter.kind == inspect.Parameter.VAR_KEYWORD
-                    for parameter in signature.parameters.values()
-                )
-            )
-            supports_backend_role = (
-                "backend_role" in signature.parameters
-                or any(
-                    parameter.kind == inspect.Parameter.VAR_KEYWORD
-                    for parameter in signature.parameters.values()
-                )
-            )
-
-        session_kwargs = {}
-        if supports_stop_after_session:
-            session_kwargs["stop_after_session"] = stop_after_session
-        elif supports_legacy_release_after_session:
-            session_kwargs["release_after_session"] = stop_after_session
-        if supports_backend_role:
-            session_kwargs["backend_role"] = backend_role
-
-        session_context = session_factory(**session_kwargs) if session_kwargs else session_factory()
-        async with session_context:
-            yield
-        return
-
-    yield
 
 
 def _resolve_local_comfyui_tts_backend_role(core: Any, workflow_key: Optional[str]) -> str:
@@ -2087,7 +2033,7 @@ class StandardPipeline(LinearVideoPipeline):
         logger.info("Using staged selfhost image processing")
         synthesized_audio_count = 0
 
-        async with _maybe_local_comfyui_workflow_session(
+        async with maybe_local_comfyui_workflow_session(
             self.core,
             backend_role=tts_backend_role,
             stop_after_session=True,
@@ -2179,7 +2125,7 @@ class StandardPipeline(LinearVideoPipeline):
                     )
                     continue
 
-                async with _maybe_local_comfyui_workflow_session(
+                async with maybe_local_comfyui_workflow_session(
                     self.core,
                     backend_role=media_backend_role,
                     stop_after_session=True,
@@ -2208,7 +2154,7 @@ class StandardPipeline(LinearVideoPipeline):
             started_at = time.perf_counter()
             completed_generated_frame_count = 0
             try:
-                async with _maybe_local_comfyui_workflow_session(
+                async with maybe_local_comfyui_workflow_session(
                     self.core,
                     backend_role=media_backend_role,
                     stop_after_session=stop_after_session,
@@ -4264,7 +4210,7 @@ class StandardPipeline(LinearVideoPipeline):
             execution_mode.tts_workflow_key,
         )
 
-        async with _maybe_local_comfyui_workflow_session(
+        async with maybe_local_comfyui_workflow_session(
             self.core,
             backend_role=tts_backend_role,
             stop_after_session=True,

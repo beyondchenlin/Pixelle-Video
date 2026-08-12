@@ -128,6 +128,27 @@ async def test_pre_generation_queue_inspection_preserves_busy_foreign_queue():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid_queue",
+    (
+        {},
+        [],
+        {"queue_running": [], "queue_pending": "busy"},
+        {"queue_running": None, "queue_pending": []},
+    ),
+)
+async def test_queue_inspection_fails_closed_on_malformed_contract(invalid_queue):
+    transport = _RecordingTransport(queue_payloads=[invalid_queue])
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=transport,
+    )
+
+    with pytest.raises(RuntimeError, match="/queue"):
+        await client.inspect_queue_before_generation()
+
+
+@pytest.mark.asyncio
 async def test_wait_until_idle_observes_queue_without_interrupting_or_clearing(monkeypatch):
     transport = _RecordingTransport(
         queue_payloads=[

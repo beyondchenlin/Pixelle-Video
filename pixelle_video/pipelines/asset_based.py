@@ -45,6 +45,7 @@ from pixelle_video.models.llm_interaction_trace import (
     trace_context_with_prompt_template,
 )
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.pipelines.comfyui_session import maybe_local_comfyui_task_scope
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.platform_context import resolve_workspace_id
@@ -222,15 +223,16 @@ class AssetBasedPipeline(LinearVideoPipeline):
         ctx.request = ctx.params
 
         try:
-            # Execute pipeline lifecycle
-            await self.setup_environment(ctx)
-            await self.determine_title(ctx)
-            await self.generate_content(ctx)
-            await self.plan_visuals(ctx)
-            await self.initialize_storyboard(ctx)
-            await self.produce_assets(ctx)
-            await self.post_production(ctx)
-            await self.finalize(ctx)
+            async with maybe_local_comfyui_task_scope(self.core):
+                # Execute pipeline lifecycle
+                await self.setup_environment(ctx)
+                await self.determine_title(ctx)
+                await self.generate_content(ctx)
+                await self.plan_visuals(ctx)
+                await self.initialize_storyboard(ctx)
+                await self.produce_assets(ctx)
+                await self.post_production(ctx)
+                await self.finalize(ctx)
 
             return ctx
 

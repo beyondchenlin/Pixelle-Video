@@ -130,6 +130,8 @@ comfyui:
       comfyui_root: E:/comfyui/resources/ComfyUI
       managed: true
       stop_after_batch: true
+      resource_policy: auto       # Safe managed-service default; performance is explicit opt-in
+      minimum_free_commit_gb: 12  # Refuse startup before Windows commit exhaustion
       data_root: E:/ComfyUIData/pixelle
       shared_base_path: E:/ComfyUIData
       runtime_dir: _runtime/comfyui
