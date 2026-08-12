@@ -46,6 +46,13 @@ def test_compare_reports_backend_edge_and_baseline_deltas(tmp_path):
     assert difference.changed_pixel_ratio > 0
 
 
+def test_text_row_bands_split_at_the_first_blank_raster_row():
+    assert RenderArtifactAnalyzer._contiguous_bands((10, 11, 13, 14)) == (
+        (10, 11),
+        (13, 14),
+    )
+
+
 def test_pixel_contract_rejects_two_pixel_baseline_drift(tmp_path):
     left = tmp_path / "left.png"
     right = tmp_path / "right.png"

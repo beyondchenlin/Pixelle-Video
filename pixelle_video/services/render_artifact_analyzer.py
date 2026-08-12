@@ -343,7 +343,7 @@ class RenderArtifactAnalyzer:
         bands: list[tuple[int, int]] = []
         start = previous = sorted_rows[0]
         for row in sorted_rows[1:]:
-            if row <= previous + 7:
+            if row == previous + 1:
                 previous = row
                 continue
             bands.append((start, previous))
