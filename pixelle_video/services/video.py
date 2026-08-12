@@ -46,28 +46,43 @@ class VideoService(_VideoOperations):
         super().__init__()
         self._video_encoder = UnifiedVideoEncoder()
 
-    def _h264_encode_params(self) -> dict[str, object]:
+    def _h264_encode_params(
+        self,
+        *,
+        supports_hardware_frames: bool = False,
+    ) -> dict[str, object]:
         backend = resolve_ffmpeg_h264_backend()
         # VAAPI needs a device and hwupload filter owned by raw execution paths.
-        # Generic ffmpeg-python graphs therefore begin from CPU when VAAPI is the
-        # only hardware choice; the executor still uses VAAPI for compatible raw
-        # paths such as element-animation frame encoding.
-        if backend.codec == "h264_vaapi":
+        # Generic ffmpeg-python graphs therefore begin from CPU unless their
+        # caller explicitly projects software frames into the backend contract.
+        if backend.codec == "h264_vaapi" and not supports_hardware_frames:
             backend = get_h264_backend("libx264")
         return dict(backend.output_kwargs())
 
-    def _encode_run(self, build_output, *, quiet=False):
+    def _encode_run(
+        self,
+        build_output,
+        *,
+        quiet=False,
+        supports_hardware_frames: bool = False,
+    ):
         return self._video_encoder.run_ffmpeg_python(
             build_output,
             quiet=quiet,
-            preferred_params=self._h264_encode_params(),
+            preferred_params=self._h264_encode_params(
+                supports_hardware_frames=supports_hardware_frames
+            ),
         )
 
     def encode_render_graph(self, build_output, *, quiet: bool = False) -> str:
         """Encode one fully composed render graph through the shared H.264 policy."""
 
         self._ensure_ffmpeg()
-        return self._encode_run(build_output, quiet=quiet)
+        return self._encode_run(
+            build_output,
+            quiet=quiet,
+            supports_hardware_frames=True,
+        )
 
     def reject_render_encoder(self, codec: str, *, reason: str) -> None:
         """Disable a hardware encoder whose artifact failed the output contract."""

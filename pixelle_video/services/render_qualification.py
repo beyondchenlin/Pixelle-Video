@@ -36,6 +36,13 @@ from pixelle_video.services.render_artifact_analyzer import (
     PixelBox,
     RenderArtifactAnalyzer,
 )
+from pixelle_video.services.render_hardware_certification import (
+    HARDWARE_HOST_REPORT_VERSION,
+    HardwareCertificationAggregator,
+    build_file_evidence,
+    collect_hardware_provenance,
+    sanitize_hardware_diagnostic,
+)
 from pixelle_video.services.render_output_probe import RenderOutputProbe
 from pixelle_video.services.render_snapshot import RenderSnapshotService
 from pixelle_video.services.video_encoder_executor import reset_runtime_encoder_failures
@@ -43,6 +50,7 @@ from pixelle_video.utils.ffmpeg_encoder import (
     available_h264_backends,
     clear_ffmpeg_encoder_probe_cache,
     get_h264_backend,
+    supported_hardware_h264_codecs,
 )
 from pixelle_video.utils.path_safety import (
     resolve_path_within,
@@ -349,7 +357,16 @@ class RenderQualificationSuite:
             raise AssertionError("; ".join(failures))
         return payload
 
-    def run_hardware_matrix(self) -> dict:
+    def run_hardware_matrix(self, *, required_codec: str | None = None) -> dict:
+        supported_codecs = supported_hardware_h264_codecs()
+        if required_codec is not None and required_codec not in supported_codecs:
+            raise ValueError(
+                "required_codec must be one of: " + ", ".join(supported_codecs)
+            )
+        selected_codecs = (
+            (required_codec,) if required_codec is not None else supported_codecs
+        )
+        provenance = collect_hardware_provenance(repo_root=self.repo_root)
         case = QualificationCase(
             name="hardware-landscape-contain",
             width=320,
@@ -358,61 +375,153 @@ class RenderQualificationSuite:
         )
         case_root = self.output_root / "hardware"
         manifest = self.build_fixed_manifest(case=case, case_root=case_root)
-        results = []
-        for codec in ("h264_nvenc", "h264_qsv", "h264_vaapi"):
+        results: list[dict] = []
+        failures: list[str] = []
+        for codec in selected_codecs:
             backend = get_h264_backend(codec)
             with _encoder_override(codec):
                 runnable = any(item.codec == codec for item in available_h264_backends())
                 if not runnable:
+                    if required_codec is not None:
+                        failures.append(
+                            f"required hardware codec is unavailable on this host: {codec}"
+                        )
                     results.append(
                         {
                             "codec": codec,
                             "hardware": backend.hardware,
                             "status": "device_unavailable",
                             "available_on_host": False,
-                            "ok": None,
+                            "ok": False if required_codec is not None else None,
                         }
                     )
                     continue
-                measurement = self.render_ffmpeg(
-                    manifest=manifest,
-                    case_root=case_root,
-                    encoder=codec,
-                    output_name=f"{codec}.mp4",
-                )
-                report = json.loads(
-                    Path(measurement.output_path)
-                    .with_name(f"{Path(measurement.output_path).stem}.render_probe.json")
-                    .read_text(encoding="utf-8")
-                )
-                used_codec = report.get("encoder_backend")
-                results.append(
-                    {
-                        "codec": codec,
-                        "hardware": True,
-                        "available_on_host": True,
-                        "status": "passed" if used_codec == codec else "unexpected_fallback",
-                        "measurement": asdict(measurement),
-                        "encoder_backend": used_codec,
-                        "ok": used_codec == codec,
-                    }
-                )
+                try:
+                    measurement = self.render_ffmpeg(
+                        manifest=manifest,
+                        case_root=case_root,
+                        encoder=codec,
+                        output_name=f"{codec}.mp4",
+                    )
+                    output_path = Path(measurement.output_path)
+                    probe_path = output_path.with_name(
+                        f"{output_path.stem}.render_probe.json"
+                    )
+                    report = json.loads(probe_path.read_text(encoding="utf-8"))
+                    used_codec = report.get("encoder_backend")
+                    passed = used_codec == codec and report.get("ok") is True
+                    status = (
+                        "passed"
+                        if passed
+                        else (
+                            "unexpected_fallback"
+                            if used_codec != codec
+                            else "probe_failed"
+                        )
+                    )
+                    if not passed:
+                        failures.append(
+                            f"hardware codec {codec} produced status {status} "
+                            f"with encoder {used_codec!r}"
+                        )
+                    portable_probe = dict(report)
+                    portable_probe["path"] = output_path.relative_to(
+                        self.output_root
+                    ).as_posix()
+                    portable_probe["path_kind"] = "relative_to_report_root"
+                    self.analyzer.write_report(probe_path, portable_probe)
+                    results.append(
+                        {
+                            "codec": codec,
+                            "hardware": True,
+                            "available_on_host": True,
+                            "status": status,
+                            "measurement": {
+                                "elapsed_seconds": measurement.elapsed_seconds,
+                                "peak_rss_bytes": measurement.peak_rss_bytes,
+                            },
+                            "artifact": build_file_evidence(
+                                path=output_path,
+                                evidence_root=self.output_root,
+                            ),
+                            "probe_artifact": build_file_evidence(
+                                path=probe_path,
+                                evidence_root=self.output_root,
+                            ),
+                            "encoder_backend": used_codec,
+                            "ok": passed,
+                        }
+                    )
+                except Exception as exc:
+                    diagnostic = sanitize_hardware_diagnostic(
+                        exc,
+                        private_roots=(self.repo_root, self.output_root),
+                    )
+                    failures.append(
+                        f"hardware codec {codec} render failed: {diagnostic}"
+                    )
+                    results.append(
+                        {
+                            "codec": codec,
+                            "hardware": True,
+                            "available_on_host": True,
+                            "status": "render_failed",
+                            "error": diagnostic,
+                            "ok": False,
+                        }
+                    )
         available_results = [
             item for item in results if item["available_on_host"]
         ]
+        passed_codecs = [
+            item["codec"] for item in results if item.get("ok") is True
+        ]
+        host_ok = bool(available_results) and all(
+            item["ok"] is True for item in available_results
+        )
+        complete_on_host = set(passed_codecs) == set(supported_codecs)
+        gate_ok = (
+            len(passed_codecs) == 1 and passed_codecs[0] == required_codec
+            if required_codec is not None
+            else host_ok
+        )
         payload = {
-            "version": "render_qualification.v1",
-            "kind": "hardware_matrix",
+            "version": HARDWARE_HOST_REPORT_VERSION,
+            "kind": "hardware_host_matrix",
+            **provenance,
+            "supported_codecs": list(supported_codecs),
+            "required_codec": required_codec,
+            "requested_codecs": list(selected_codecs),
             "results": results,
             "available_codecs": [item["codec"] for item in available_results],
             "unavailable_codecs": [
                 item["codec"] for item in results if not item["available_on_host"]
             ],
-            "ok": bool(available_results)
-            and all(item["ok"] is True for item in available_results),
+            "passed_codecs": passed_codecs,
+            "host_ok": host_ok,
+            "complete_on_host": complete_on_host,
+            "errors": failures,
+            "ok": gate_ok and not failures,
         }
         self.analyzer.write_report(self.output_root / "hardware_report.json", payload)
         return payload
+
+    def aggregate_hardware_reports(
+        self,
+        *,
+        evidence_root: str | Path,
+        expected_run_id: str,
+        expected_revision: str | None = None,
+    ) -> dict:
+        revision = expected_revision or collect_hardware_provenance(
+            repo_root=self.repo_root
+        )["source_revision"]
+        return HardwareCertificationAggregator(probe=self.probe).aggregate(
+            evidence_root=evidence_root,
+            output_path=self.output_root / "hardware_certification_report.json",
+            expected_revision=revision,
+            expected_run_id=expected_run_id,
+        )
 
     def run_historical_task(self, *, task_dir: str | Path, use_gpu: bool = False) -> dict:
         source_task = Path(task_dir).resolve()

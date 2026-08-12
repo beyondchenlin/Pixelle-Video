@@ -10,6 +10,16 @@ from loguru import logger
 
 
 @dataclass(frozen=True)
+class H264RenderGraphProjection:
+    """Backend-owned projection from a software filter graph to an encoder."""
+
+    input_pixel_format: str | None = None
+    requires_hardware_upload: bool = False
+    output_pixel_format: str | None = "yuv420p"
+    global_args: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class H264EncoderBackend:
     """Backend-specific H.264 encoder contract."""
 
@@ -23,6 +33,9 @@ class H264EncoderBackend:
 
     def probe_command(self) -> list[str] | None:
         raise NotImplementedError
+
+    def render_graph_projection(self) -> H264RenderGraphProjection:
+        return H264RenderGraphProjection()
 
 
 @dataclass(frozen=True)
@@ -89,6 +102,12 @@ class QsvBackend(H264EncoderBackend):
             "-f", "null", "-",
         ]
 
+    def render_graph_projection(self) -> H264RenderGraphProjection:
+        return H264RenderGraphProjection(
+            input_pixel_format="nv12",
+            output_pixel_format=None,
+        )
+
 
 @dataclass(frozen=True)
 class VaapiBackend(H264EncoderBackend):
@@ -109,6 +128,17 @@ class VaapiBackend(H264EncoderBackend):
             "-vf", "format=nv12,hwupload", "-frames:v", "1",
             "-c:v", self.codec, "-qp", "23", "-f", "null", "-",
         ]
+
+    def render_graph_projection(self) -> H264RenderGraphProjection:
+        device = _resolve_vaapi_device()
+        if device is None:
+            raise RuntimeError("VAAPI render graph requires an accessible device")
+        return H264RenderGraphProjection(
+            input_pixel_format="nv12",
+            requires_hardware_upload=True,
+            output_pixel_format=None,
+            global_args=("-vaapi_device", device),
+        )
 
 
 _BACKENDS: dict[str, H264EncoderBackend] = {
@@ -183,6 +213,12 @@ def get_h264_backend(codec: str) -> H264EncoderBackend:
     return _BACKENDS[normalized]
 
 
+def supported_hardware_h264_codecs() -> tuple[str, ...]:
+    """Return the complete product-supported hardware qualification set."""
+
+    return _HARDWARE_BACKEND_ORDER
+
+
 def available_h264_backends() -> tuple[H264EncoderBackend, ...]:
     """Return runnable backends in execution order, always ending with CPU.
 
@@ -203,7 +239,7 @@ def available_h264_backends() -> tuple[H264EncoderBackend, ...]:
         return (cpu,)
 
     result: list[H264EncoderBackend] = []
-    for codec in _HARDWARE_BACKEND_ORDER:
+    for codec in supported_hardware_h264_codecs():
         if _probe_backend_runtime(codec):
             result.append(_BACKENDS[codec])
     result.append(cpu)
@@ -306,6 +342,7 @@ def _resolve_vaapi_device() -> str | None:
 
 __all__ = [
     "H264EncoderBackend",
+    "H264RenderGraphProjection",
     "Libx264Backend",
     "NvencBackend",
     "QsvBackend",
@@ -321,4 +358,5 @@ __all__ = [
     "has_gpu_encoder",
     "resolve_ffmpeg_h264_backend",
     "resolve_ffmpeg_h264_encoder",
+    "supported_hardware_h264_codecs",
 ]
