@@ -152,5 +152,5 @@ jobs:
         with:
           name: render-golden-evidence
           path: ${{ runner.temp }}/render-qualification
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7

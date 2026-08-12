@@ -536,12 +536,14 @@ class RenderQualificationSuite:
     ) -> TextStyleProfile:
         if not profile.font_file:
             return profile
+        source_repository = self._source_repository(source_task)
         resolved = self._resolve_historical_asset(
             profile.font_file,
             source_task=source_task,
             project_dir=project_dir,
             field_name=f"font profile {profile.id!r}",
-            additional_relative_roots=(source_task, self._source_repository(source_task)),
+            additional_relative_roots=(source_task, source_repository),
+            additional_trusted_roots=self._repository_asset_roots(source_repository),
         )
         return replace(profile, font_file=str(resolved))
 
@@ -553,6 +555,7 @@ class RenderQualificationSuite:
         project_dir: Path,
         field_name: str,
         additional_relative_roots: tuple[Path | None, ...] = (),
+        additional_trusted_roots: tuple[Path, ...] = (),
     ) -> Path:
         path_text = str(raw_path).strip()
         if not path_text:
@@ -560,7 +563,11 @@ class RenderQualificationSuite:
         supplied = Path(path_text)
         trusted_roots = tuple(
             root.resolve()
-            for root in (source_task, self.repo_root, self._source_repository(source_task))
+            for root in (
+                source_task,
+                self.repo_root / "resources",
+                *additional_trusted_roots,
+            )
             if root is not None
         )
         if supplied.is_absolute():
@@ -598,6 +605,12 @@ class RenderQualificationSuite:
         if source_task.parent.name == "output" and git_marker.exists():
             return candidate
         return None
+
+    @staticmethod
+    def _repository_asset_roots(repository: Path | None) -> tuple[Path, ...]:
+        if repository is None:
+            return ()
+        return (repository / "fonts", repository / "resources")
 
     def build_fixed_manifest(
         self,
