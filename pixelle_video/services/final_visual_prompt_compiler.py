@@ -200,6 +200,8 @@ def _diagram_clause(diagram: Mapping[str, Any]) -> str:
 
 
 def _style_clause(render: Mapping[str, Any]) -> str:
+    if bool(render.get("style_already_projected")):
+        return ""
     style = str(render.get("render_style") or "auto")
     if style == "preserve_base":
         return "Preserve the base scene visual style, camera, lighting, and surface treatment"

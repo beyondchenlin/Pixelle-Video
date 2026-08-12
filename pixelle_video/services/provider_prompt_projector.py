@@ -180,9 +180,11 @@ class ProviderPromptProjector:
         parts = [
             base_prompt,
             visual_anchor_clause,
-            _provider_style_surface_text(base_visual_brief.style_surface),
+            _provider_style_clause(
+                base_visual_brief.style_surface,
+                base_prompt=base_prompt,
+            ),
             _provider_scene_context_text(base_visual_brief),
-            _image_facing_style_surface(base_visual_brief.style_surface, base_prompt=base_prompt),
             _positive_readability_text(base_visual_brief.readability_constraints),
             _positive_requirements(negative_rules),
             "；".join(prompt_guards),
@@ -259,6 +261,15 @@ def _image_facing_style_surface(style_surface: str, *, base_prompt: str = "") ->
     if any(token in text for token in ("minimal", "negative space", "简洁", "留白")):
         clauses.append("画面保留留白，避免杂乱细节")
     return "，".join(_dedupe(clauses))
+
+
+def _provider_style_clause(style_surface: str, *, base_prompt: str) -> str:
+    """Project one provider-facing style clause without re-deriving it twice."""
+
+    explicit_style = _provider_style_surface_text(style_surface)
+    if explicit_style:
+        return explicit_style
+    return _image_facing_style_surface("", base_prompt=base_prompt)
 
 
 def _provider_style_surface_text(style_surface: str) -> str:
@@ -386,6 +397,10 @@ def _looks_like_negative_rule(text: str) -> bool:
             "no ",
             "avoid",
             "negative",
+            "excessive",
+            "gradient",
+            "complex background",
+            "detailed background",
             "replace source",
             "source subjects",
         )
@@ -404,10 +419,26 @@ def _negative_rule_to_positive_visual_requirement(text: str) -> str:
         return "奥特曼保持银红外星英雄造型、椭圆黄色眼睛和胸前能量计时器"
     if "不要画成银色外星面具" in text or "不要画成奥特曼盔甲" in text or "不要使用椭圆黄色发光眼睛" in text:
         return "超人保持人类男性超级英雄造型、蓝色战衣、红色披风、胸前S标志和黑发"
-    if "avoid complex textures" in lowered or "gradients" in lowered or "detailed backgrounds" in lowered:
-        return "画面保持简洁背景、平面线条和低细节质感"
     if "no visible text" in lowered or "no chinese characters" in lowered or "no english letters" in lowered:
         return "画面通过物体、构图和符号表达内容，表面保持干净完整"
+
+    style_requirements: list[str] = []
+    if (
+        "excessive color" in lowered
+        or "excessive use of color" in lowered
+        or lowered.strip(" .;,") in {"color", "colour"}
+    ):
+        style_requirements.append("使用克制且一致的配色")
+    if "gradient" in lowered:
+        style_requirements.append("使用平整色块")
+    if "complex texture" in lowered:
+        style_requirements.append("使用平面线条和无纹理表面")
+    if "complex background" in lowered or "detailed background" in lowered:
+        style_requirements.append("背景简洁、低细节")
+    if "simplicity and clarity" in lowered:
+        style_requirements.append("构图简洁清晰")
+    if style_requirements:
+        return "，".join(_dedupe(style_requirements))
     return ""
 
 

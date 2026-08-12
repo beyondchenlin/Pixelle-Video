@@ -182,7 +182,20 @@ def _style_surface(*, visual_style_contract: VisualStyleLayerContract | None, wo
         )
         if clause:
             parts.append(clause)
-    if _contains_any(base_prompt, ("黑白", "灰", "线条", "扁平", "插画")):
+    existing_style = " ".join(parts)
+    if _contains_any(base_prompt, ("黑白", "灰", "线条", "扁平", "插画")) and not _contains_any(
+        existing_style.lower(),
+        (
+            "flat monochrome",
+            "monochrome",
+            "black-and-white",
+            "line art",
+            "黑白",
+            "单色",
+            "线条",
+            "扁平",
+        ),
+    ):
         parts.append("黑白灰扁平插画，线条简洁，二维无纹理")
     return "，".join(_dedupe(parts))
 

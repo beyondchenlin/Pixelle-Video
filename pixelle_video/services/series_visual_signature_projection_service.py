@@ -459,7 +459,10 @@ def _projection_context(
             },
             "projection_source_kind": "identity_aware_visual_prompt",
         },
-        {"render_style": "preserve_base"},
+        {
+            "render_style": "preserve_base",
+            "style_already_projected": True,
+        },
         visible_text_policy,
         task,
         {"primary_visual_task": task},
