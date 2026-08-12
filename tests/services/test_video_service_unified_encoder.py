@@ -153,7 +153,7 @@ def test_public_video_service_keeps_stable_base_operations() -> None:
     assert callable(service._pad_video_to_duration)
 
 
-def test_render_graph_can_request_vaapi_while_generic_graphs_remain_cpu_safe(
+def test_render_graph_can_request_projected_backend_while_generic_graphs_are_safe(
     monkeypatch,
 ) -> None:
     service = VideoService()
@@ -163,8 +163,8 @@ def test_render_graph_can_request_vaapi_while_generic_graphs_remain_cpu_safe(
         lambda: get_h264_backend("h264_vaapi"),
     )
 
-    generic = service._h264_encode_params(supports_hardware_frames=False)
-    render_graph = service._h264_encode_params(supports_hardware_frames=True)
+    generic = service._h264_encode_params(supports_backend_projection=False)
+    render_graph = service._h264_encode_params(supports_backend_projection=True)
 
     assert generic["vcodec"] == "libx264"
     assert render_graph == {"vcodec": "h264_vaapi", "qp": 23}

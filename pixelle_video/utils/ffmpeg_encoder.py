@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
+from pathlib import PurePosixPath
 
 from loguru import logger
+
+_CLI_OUTPUT_OPTION_NAMES = {
+    "vcodec": "-c:v",
+    "preset": "-preset",
+    "crf": "-crf",
+    "rc": "-rc",
+    "cq": "-cq",
+    "b_ref_mode": "-b_ref_mode",
+    "global_quality": "-global_quality",
+    "qp": "-qp",
+}
 
 
 @dataclass(frozen=True)
@@ -33,6 +45,18 @@ class H264EncoderBackend:
 
     def probe_command(self) -> list[str] | None:
         raise NotImplementedError
+
+    def command_output_args(self) -> tuple[str, ...]:
+        params = self.output_kwargs()
+        unknown = sorted(set(params) - set(_CLI_OUTPUT_OPTION_NAMES))
+        if unknown:
+            raise ValueError(
+                f"encoder {self.codec} has unmapped command options: {', '.join(unknown)}"
+            )
+        args: list[str] = []
+        for key, value in params.items():
+            args.extend((_CLI_OUTPUT_OPTION_NAMES[key], str(value)))
+        return tuple(args)
 
     def render_graph_projection(self) -> H264RenderGraphProjection:
         return H264RenderGraphProjection()
@@ -94,18 +118,32 @@ class QsvBackend(H264EncoderBackend):
         }
 
     def probe_command(self) -> list[str]:
-        return [
+        command = [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=1",
-            "-frames:v", "1", "-c:v", self.codec,
-            "-preset", "medium", "-global_quality", "23",
-            "-f", "null", "-",
         ]
+        device = _resolve_qsv_device()
+        if device is not None:
+            command.extend(("-qsv_device", device))
+        command.extend(
+            (
+                "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=1",
+                "-frames:v", "1", "-c:v", self.codec,
+                "-preset", "medium", "-global_quality", "23",
+                "-f", "null", "-",
+            )
+        )
+        return command
 
     def render_graph_projection(self) -> H264RenderGraphProjection:
+        device = _resolve_qsv_device()
         return H264RenderGraphProjection(
             input_pixel_format="nv12",
             output_pixel_format=None,
+            global_args=(
+                ("-qsv_device", device)
+                if device is not None
+                else ()
+            ),
         )
 
 
@@ -174,22 +212,34 @@ def _probe_ffmpeg_encoders() -> set[str]:
     return encoders
 
 
-@lru_cache(maxsize=None)
 def _probe_backend_runtime(codec: str) -> bool:
     backend = get_h264_backend(codec)
     if not backend.hardware:
         return True
-    if codec not in _probe_ffmpeg_encoders():
-        return False
     command = backend.probe_command()
     if command is None:
         return False
+    if codec not in _probe_ffmpeg_encoders():
+        return False
+    return _run_backend_probe(
+        codec,
+        tuple(command),
+        backend.probe_timeout_seconds,
+    )
+
+
+@lru_cache(maxsize=None)
+def _run_backend_probe(
+    codec: str,
+    command: tuple[str, ...],
+    timeout_seconds: int,
+) -> bool:
     try:
         result = subprocess.run(
             command,
             capture_output=True,
             text=True,
-            timeout=backend.probe_timeout_seconds,
+            timeout=timeout_seconds,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False
@@ -246,7 +296,6 @@ def available_h264_backends() -> tuple[H264EncoderBackend, ...]:
     return tuple(result)
 
 
-@lru_cache(maxsize=1)
 def resolve_ffmpeg_h264_backend() -> H264EncoderBackend:
     backend = available_h264_backends()[0]
     override = os.environ.get("PIXELLE_FFMPEG_H264_ENCODER", "").strip()
@@ -264,7 +313,6 @@ def resolve_ffmpeg_h264_backend() -> H264EncoderBackend:
     return backend
 
 
-@lru_cache(maxsize=1)
 def resolve_ffmpeg_h264_encoder() -> str:
     """Compatibility resolver for legacy ffmpeg-python call sites."""
 
@@ -327,17 +375,55 @@ def ffmpeg_h264_fallback_kwargs() -> dict[str, object]:
 
 def clear_ffmpeg_encoder_probe_cache() -> None:
     _probe_ffmpeg_encoders.cache_clear()
-    _probe_backend_runtime.cache_clear()
-    resolve_ffmpeg_h264_backend.cache_clear()
-    resolve_ffmpeg_h264_encoder.cache_clear()
+    _run_backend_probe.cache_clear()
 
 
 def _resolve_vaapi_device() -> str | None:
     override = os.environ.get("PIXELLE_FFMPEG_VAAPI_DEVICE", "").strip()
     if override:
+        if not _is_linux_drm_render_node(override):
+            raise ValueError(
+                "PIXELLE_FFMPEG_VAAPI_DEVICE must be a /dev/dri/renderD<number> node"
+            )
         return override
-    default = Path("/dev/dri/renderD128")
-    return str(default) if default.exists() else None
+    default = "/dev/dri/renderD128"
+    return default if _is_linux_drm_render_node(default) else None
+
+
+def _resolve_qsv_device(*, platform_name: str | None = None) -> str | None:
+    current_platform = os.name if platform_name is None else platform_name
+    override = os.environ.get("PIXELLE_FFMPEG_QSV_DEVICE", "").strip()
+    if override:
+        if current_platform == "nt":
+            if not override.isdecimal() or not 0 <= int(override) <= 31:
+                raise ValueError(
+                    "PIXELLE_FFMPEG_QSV_DEVICE must be a DirectX adapter index "
+                    "between 0 and 31 on Windows"
+                )
+            return override
+        if not _is_linux_drm_render_node(override):
+            raise ValueError(
+                "PIXELLE_FFMPEG_QSV_DEVICE must be a /dev/dri/renderD<number> node"
+            )
+        return override
+    if current_platform == "nt":
+        return None
+    default = "/dev/dri/renderD128"
+    return default if _is_linux_drm_render_node(default) else None
+
+
+def _is_linux_drm_render_node(value: str) -> bool:
+    path = PurePosixPath(value)
+    if (
+        path.parent != PurePosixPath("/dev/dri")
+        or not path.name.startswith("renderD")
+        or not path.name.removeprefix("renderD").isdecimal()
+    ):
+        return False
+    try:
+        return stat.S_ISCHR(os.stat(value).st_mode)
+    except OSError:
+        return False
 
 
 __all__ = [

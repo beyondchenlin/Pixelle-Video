@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -84,6 +85,37 @@ class TestBackendContracts:
         assert ffmpeg_h264_encode_kwargs("h264_qsv") == {"global_quality": 23}
         assert ffmpeg_h264_encode_kwargs("h264_vaapi") == {"qp": 23}
 
+    @pytest.mark.parametrize(
+        ("codec", "expected"),
+        (
+            (
+                "libx264",
+                ("-c:v", "libx264", "-preset", "medium", "-crf", "23"),
+            ),
+            (
+                "h264_nvenc",
+                (
+                    "-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr",
+                    "-cq", "23", "-b_ref_mode", "middle",
+                ),
+            ),
+            (
+                "h264_qsv",
+                (
+                    "-c:v", "h264_qsv", "-preset", "medium",
+                    "-global_quality", "23",
+                ),
+            ),
+            ("h264_vaapi", ("-c:v", "h264_vaapi", "-qp", "23")),
+        ),
+    )
+    def test_raw_commands_share_backend_owned_output_options(
+        self,
+        codec,
+        expected,
+    ):
+        assert get_h264_backend(codec).command_output_args() == expected
+
     def test_unknown_encoder_override_is_rejected(self, monkeypatch):
         monkeypatch.setenv("PIXELLE_FFMPEG_H264_ENCODER", "h264_amf")
         clear_ffmpeg_encoder_probe_cache()
@@ -120,6 +152,20 @@ class TestRuntimeProbeCommands:
         assert "-preset p4" not in text
         assert "s=320x180:r=30:d=1" in text
 
+    def test_qsv_probe_binds_an_explicit_drm_render_node(self, monkeypatch):
+        monkeypatch.setattr(
+            encoder_module,
+            "_resolve_qsv_device",
+            lambda: "/dev/dri/renderD129",
+        )
+
+        command = get_h264_backend("h264_qsv").probe_command()
+
+        assert command[4:6] == [
+            "-qsv_device",
+            "/dev/dri/renderD129",
+        ]
+
     def test_vaapi_probe_requires_device_and_hwupload(self, monkeypatch):
         monkeypatch.setattr(
             encoder_module,
@@ -135,6 +181,25 @@ class TestRuntimeProbeCommands:
         assert "-qp 23" in text
         assert "-preset p4" not in text
         assert "b_ref_mode" not in text
+
+    def test_vaapi_device_override_rejects_non_device_paths(self, monkeypatch):
+        monkeypatch.setenv("PIXELLE_FFMPEG_VAAPI_DEVICE", "/tmp/renderD128")
+
+        with pytest.raises(ValueError, match="/dev/dri/renderD<number>"):
+            encoder_module._resolve_vaapi_device()
+
+    def test_vaapi_device_override_accepts_a_validated_render_node(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("PIXELLE_FFMPEG_VAAPI_DEVICE", "/dev/dri/renderD129")
+        monkeypatch.setattr(
+            encoder_module,
+            "_is_linux_drm_render_node",
+            lambda value: value == "/dev/dri/renderD129",
+        )
+
+        assert encoder_module._resolve_vaapi_device() == "/dev/dri/renderD129"
 
     def test_vaapi_render_graph_projection_owns_device_and_upload_contract(
         self,
@@ -159,14 +224,124 @@ class TestRuntimeProbeCommands:
             assert projection.requires_hardware_upload is False
             assert projection.output_pixel_format == "yuv420p"
 
-    def test_qsv_render_graph_projects_system_memory_frames_to_nv12(self):
+    def test_qsv_render_graph_projects_system_memory_frames_to_explicit_device(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            encoder_module,
+            "_resolve_qsv_device",
+            lambda: "/dev/dri/renderD129",
+        )
         projection = get_h264_backend("h264_qsv").render_graph_projection()
         assert projection.input_pixel_format == "nv12"
         assert projection.requires_hardware_upload is False
         assert projection.output_pixel_format is None
+        assert projection.global_args == (
+            "-qsv_device",
+            "/dev/dri/renderD129",
+        )
+
+    def test_qsv_device_override_rejects_ambiguous_non_drm_paths(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("PIXELLE_FFMPEG_QSV_DEVICE", "/tmp/renderD128")
+
+        with pytest.raises(ValueError, match="/dev/dri/renderD<number>"):
+            encoder_module._resolve_qsv_device(platform_name="posix")
+
+    def test_qsv_device_override_accepts_an_existing_drm_render_node(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("PIXELLE_FFMPEG_QSV_DEVICE", "/dev/dri/renderD129")
+        monkeypatch.setattr(
+            encoder_module,
+            "_is_linux_drm_render_node",
+            lambda value: value == "/dev/dri/renderD129",
+        )
+
+        assert (
+            encoder_module._resolve_qsv_device(platform_name="posix")
+            == "/dev/dri/renderD129"
+        )
+
+    def test_qsv_device_override_rejects_out_of_range_windows_adapter(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("PIXELLE_FFMPEG_QSV_DEVICE", "32")
+
+        with pytest.raises(ValueError, match="between 0 and 31"):
+            encoder_module._resolve_qsv_device(platform_name="nt")
+
+    def test_qsv_device_path_must_resolve_to_a_character_device(self, monkeypatch):
+        monkeypatch.setattr(
+            encoder_module.os,
+            "stat",
+            lambda value: SimpleNamespace(st_mode=encoder_module.stat.S_IFREG),
+        )
+        assert encoder_module._is_linux_drm_render_node("/dev/dri/renderD128") is False
+
+        monkeypatch.setattr(
+            encoder_module.os,
+            "stat",
+            lambda value: SimpleNamespace(st_mode=encoder_module.stat.S_IFCHR),
+        )
+        assert encoder_module._is_linux_drm_render_node("/dev/dri/renderD128") is True
 
 
 class TestRuntimeProbeSelection:
+    def test_runtime_probe_cache_is_scoped_to_the_resolved_device(self, monkeypatch):
+        device = {"value": "/dev/dri/renderD128"}
+        commands: list[tuple[str, ...]] = []
+        monkeypatch.setattr(
+            encoder_module,
+            "_resolve_qsv_device",
+            lambda: device["value"],
+        )
+        def _run(command, **kwargs):
+            if "-encoders" in command:
+                return _completed(command, stdout="V....D h264_qsv")
+            commands.append(tuple(command))
+            return _completed(command)
+
+        monkeypatch.setattr(subprocess, "run", _run)
+        clear_ffmpeg_encoder_probe_cache()
+        try:
+            assert encoder_module._probe_backend_runtime("h264_qsv") is True
+            assert encoder_module._probe_backend_runtime("h264_qsv") is True
+            device["value"] = "/dev/dri/renderD129"
+            assert encoder_module._probe_backend_runtime("h264_qsv") is True
+        finally:
+            clear_ffmpeg_encoder_probe_cache()
+
+        assert len(commands) == 2
+        assert commands[0][5] == "/dev/dri/renderD128"
+        assert commands[1][5] == "/dev/dri/renderD129"
+
+    def test_encoder_selection_tracks_environment_changes_without_stale_cache(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            _runtime_probe_runner(
+                encoders=("h264_nvenc", "h264_qsv", "libx264"),
+            ),
+        )
+        clear_ffmpeg_encoder_probe_cache()
+        try:
+            monkeypatch.setenv("PIXELLE_FFMPEG_H264_ENCODER", "h264_nvenc")
+            assert resolve_ffmpeg_h264_backend().codec == "h264_nvenc"
+
+            monkeypatch.setenv("PIXELLE_FFMPEG_H264_ENCODER", "h264_qsv")
+            assert resolve_ffmpeg_h264_backend().codec == "h264_qsv"
+        finally:
+            clear_ffmpeg_encoder_probe_cache()
+
     def test_compiled_encoder_that_cannot_encode_is_not_selected(self, monkeypatch):
         monkeypatch.delenv("PIXELLE_FFMPEG_H264_ENCODER", raising=False)
         monkeypatch.setattr(
