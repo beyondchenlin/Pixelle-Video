@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -6,11 +7,14 @@ from PIL import Image
 
 from pixelle_video.models.render_package import RenderAudioTrack, RenderManifest
 from pixelle_video.models.text_style import TextStyleProfile
+from pixelle_video.services import render_qualification as qualification_module
 from pixelle_video.services.render_qualification import (
     GOLDEN_TEXT,
     QualificationCase,
+    RenderMeasurement,
     RenderQualificationSuite,
 )
+from pixelle_video.utils.ffmpeg_encoder import get_h264_backend
 
 
 def test_golden_cases_cover_three_orientations_and_four_fit_modes(tmp_path):
@@ -53,6 +57,109 @@ def test_performance_gate_requires_exactly_five_runs(tmp_path):
 
     with pytest.raises(ValueError, match="exactly five runs"):
         suite.run_performance_gate(repeats=4)
+
+
+def test_exact_hardware_gate_fails_closed_when_required_device_is_unavailable(
+    tmp_path,
+    monkeypatch,
+):
+    suite = RenderQualificationSuite(output_root=tmp_path / "evidence")
+    monkeypatch.setattr(suite, "build_fixed_manifest", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        qualification_module,
+        "available_h264_backends",
+        lambda: (get_h264_backend("libx264"),),
+    )
+    monkeypatch.setattr(
+        qualification_module,
+        "collect_hardware_provenance",
+        lambda **_kwargs: _clean_hardware_provenance(),
+    )
+
+    report = suite.run_hardware_matrix(required_codec="h264_qsv")
+
+    assert report["required_codec"] == "h264_qsv"
+    assert report["results"] == [
+        {
+            "codec": "h264_qsv",
+            "hardware": True,
+            "status": "device_unavailable",
+            "available_on_host": False,
+            "ok": False,
+        }
+    ]
+    assert report["ok"] is False
+    assert report["complete_on_host"] is False
+    assert report["errors"] == [
+        "required hardware codec is unavailable on this host: h264_qsv"
+    ]
+
+
+def test_exact_hardware_gate_records_portable_hashed_final_artifacts(
+    tmp_path,
+    monkeypatch,
+):
+    suite = RenderQualificationSuite(output_root=tmp_path / "evidence")
+    monkeypatch.setattr(suite, "build_fixed_manifest", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        qualification_module,
+        "available_h264_backends",
+        lambda: (
+            get_h264_backend(os.environ["PIXELLE_FFMPEG_H264_ENCODER"]),
+            get_h264_backend("libx264"),
+        ),
+    )
+    monkeypatch.setattr(
+        qualification_module,
+        "collect_hardware_provenance",
+        lambda **_kwargs: _clean_hardware_provenance(),
+    )
+
+    def fake_render_ffmpeg(*, case_root, encoder, output_name, **_kwargs):
+        case_root.mkdir(parents=True, exist_ok=True)
+        output = case_root / output_name
+        output.write_bytes(b"real-device-final-video")
+        output.with_name(f"{output.stem}.render_probe.json").write_text(
+            json.dumps(
+                {
+                    "ok": True,
+                    "encoder_backend": encoder,
+                    "lossy_encode_count": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return RenderMeasurement(
+            elapsed_seconds=1.25,
+            peak_rss_bytes=1024,
+            output_path=str(output),
+        )
+
+    monkeypatch.setattr(suite, "render_ffmpeg", fake_render_ffmpeg)
+
+    report = suite.run_hardware_matrix(required_codec="h264_nvenc")
+
+    result = report["results"][0]
+    assert report["ok"] is True
+    assert report["host_ok"] is True
+    assert report["complete_on_host"] is False
+    assert result["status"] == "passed"
+    assert result["measurement"] == {
+        "elapsed_seconds": 1.25,
+        "peak_rss_bytes": 1024,
+    }
+    assert result["artifact"]["relative_path"] == "hardware/h264_nvenc.mp4"
+    assert len(result["artifact"]["sha256"]) == 64
+    assert "output_path" not in result["measurement"]
+    portable_probe = json.loads(
+        (
+            tmp_path
+            / "evidence"
+            / result["probe_artifact"]["relative_path"]
+        ).read_text(encoding="utf-8")
+    )
+    assert portable_probe["path"] == "hardware/h264_nvenc.mp4"
+    assert portable_probe["path_kind"] == "relative_to_report_root"
 
 
 def test_historical_font_resolution_uses_original_repository_asset(tmp_path):
@@ -186,3 +293,23 @@ def test_ffmpeg_background_track_rejects_unrepresentable_timing():
 
     with pytest.raises(ValueError, match="cannot be projected without loss"):
         RenderQualificationSuite._ffmpeg_background_track(manifest)
+
+
+def _clean_hardware_provenance() -> dict:
+    return {
+        "source_revision": "a" * 40,
+        "source_tree_clean": True,
+        "host": {
+            "operating_system": "TestOS",
+            "operating_system_release": "1",
+            "architecture": "x86_64",
+            "ffmpeg_version": "ffmpeg test",
+            "hardware_devices": ["test device"],
+        },
+        "ci": {
+            "provider": "local",
+            "run_id": None,
+            "run_attempt": None,
+            "job": None,
+        },
+    }
