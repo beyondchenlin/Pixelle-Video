@@ -34,6 +34,7 @@ on:
       - "tests/test_media_placement.py"
       - "tests/test_render_artifact_analyzer.py"
       - "tests/test_render_qualification.py"
+      - "tests/test_run_render_qualification.py"
       - "tests/test_text_layout_planner.py"
       - "tests/test_text_style_models.py"
       - "tools/hyperframes_bridge/**"
@@ -72,6 +73,7 @@ on:
       - "tests/test_media_placement.py"
       - "tests/test_render_artifact_analyzer.py"
       - "tests/test_render_qualification.py"
+      - "tests/test_run_render_qualification.py"
       - "tests/test_text_layout_planner.py"
       - "tests/test_text_style_models.py"
       - "tools/hyperframes_bridge/**"
@@ -135,6 +137,7 @@ jobs:
             tests/test_media_placement.py \
             tests/test_render_artifact_analyzer.py \
             tests/test_render_qualification.py \
+            tests/test_run_render_qualification.py \
             tests/test_text_layout_planner.py \
             tests/test_text_style_models.py
 
@@ -151,6 +154,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: render-golden-evidence
-          path: ${{ runner.temp }}/render-qualification
+          path: |
+            ${{ runner.temp }}/render-qualification/**/*.json
+            ${{ runner.temp }}/render-qualification/**/*.png
+            ${{ runner.temp }}/render-qualification/**/*.mp4
           if-no-files-found: warn
           retention-days: 7
+          compression-level: 1

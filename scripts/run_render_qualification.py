@@ -7,6 +7,14 @@ from pathlib import Path
 from pixelle_video.services.render_qualification import RenderQualificationSuite
 
 
+def _report_summary(report: dict) -> dict:
+    return {
+        "kind": report["kind"],
+        "ok": report["ok"],
+        "errors": list(report.get("errors") or []),
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run real final-video qualification gates.")
     parser.add_argument(
@@ -53,7 +61,7 @@ def main() -> int:
         json.dumps(
             {
                 "reports": [
-                    {"kind": item["kind"], "ok": item["ok"]} for item in reports
+                    _report_summary(item) for item in reports
                 ],
                 "output_root": str(Path(args.output_root).resolve()),
                 "ok": all(item["ok"] for item in reports),
