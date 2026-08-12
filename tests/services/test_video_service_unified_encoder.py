@@ -6,8 +6,10 @@ import ffmpeg
 from PIL import Image
 
 from pixelle_video.services import element_animation_renderer as animation_module
+from pixelle_video.services import video as video_module
 from pixelle_video.services.element_animation_renderer import PythonElementAnimationRenderer
 from pixelle_video.services.video import VideoService
+from pixelle_video.utils.ffmpeg_encoder import get_h264_backend
 
 
 def test_single_video_with_bgm_does_not_bypass_bgm(monkeypatch) -> None:
@@ -149,3 +151,20 @@ def test_public_video_service_keeps_stable_base_operations() -> None:
     assert callable(service.merge_audio_video)
     assert callable(service.create_video_from_image)
     assert callable(service._pad_video_to_duration)
+
+
+def test_render_graph_can_request_vaapi_while_generic_graphs_remain_cpu_safe(
+    monkeypatch,
+) -> None:
+    service = VideoService()
+    monkeypatch.setattr(
+        video_module,
+        "resolve_ffmpeg_h264_backend",
+        lambda: get_h264_backend("h264_vaapi"),
+    )
+
+    generic = service._h264_encode_params(supports_hardware_frames=False)
+    render_graph = service._h264_encode_params(supports_hardware_frames=True)
+
+    assert generic["vcodec"] == "libx264"
+    assert render_graph == {"vcodec": "h264_vaapi", "qp": 23}

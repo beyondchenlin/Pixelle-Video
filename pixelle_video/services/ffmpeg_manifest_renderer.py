@@ -32,6 +32,7 @@ from pixelle_video.services.render_output_probe import (
     RenderOutputProbe,
 )
 from pixelle_video.services.video import VideoService
+from pixelle_video.utils.ffmpeg_encoder import get_h264_backend
 
 
 class FfmpegManifestRenderer:
@@ -233,29 +234,44 @@ class FfmpegManifestRenderer:
                 )
 
             def _build_output(**encoder_kwargs):
-                return (
-                    ffmpeg.output(
-                        video_stream,
-                        audio_stream,
-                        str(output_path),
-                        acodec="aac",
-                        audio_bitrate="192k",
-                        ar=48000,
-                        ac=2,
-                        pix_fmt="yuv420p",
-                        r=manifest.fps,
-                        vsync="cfr",
-                        t=_format_time(duration),
-                        movflags="+faststart",
-                        color_range="tv",
-                        colorspace="bt709",
-                        color_primaries="bt709",
-                        color_trc="bt709",
-                        **encoder_kwargs,
+                codec = str(encoder_kwargs.get("vcodec") or "")
+                projection = get_h264_backend(codec).render_graph_projection()
+                projected_video = video_stream
+                if projection.input_pixel_format is not None:
+                    projected_video = projected_video.filter(
+                        "format",
+                        projection.input_pixel_format,
                     )
-                    .global_args("-hide_banner", "-loglevel", "error")
-                    .overwrite_output()
-                )
+                if projection.requires_hardware_upload:
+                    projected_video = projected_video.filter("hwupload")
+                output_options: dict[str, object] = {
+                    "acodec": "aac",
+                    "audio_bitrate": "192k",
+                    "ar": 48000,
+                    "ac": 2,
+                    "r": manifest.fps,
+                    "vsync": "cfr",
+                    "t": _format_time(duration),
+                    "movflags": "+faststart",
+                    "color_range": "tv",
+                    "colorspace": "bt709",
+                    "color_primaries": "bt709",
+                    "color_trc": "bt709",
+                    **encoder_kwargs,
+                }
+                if projection.output_pixel_format is not None:
+                    output_options["pix_fmt"] = projection.output_pixel_format
+                return ffmpeg.output(
+                    projected_video,
+                    audio_stream,
+                    str(output_path),
+                    **output_options,
+                ).global_args(
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    *projection.global_args,
+                ).overwrite_output()
 
             return self.video_service.encode_render_graph(_build_output)
 

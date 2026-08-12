@@ -16,6 +16,7 @@ from pixelle_video.utils.ffmpeg_encoder import (
     has_gpu_encoder,
     resolve_ffmpeg_h264_backend,
     resolve_ffmpeg_h264_encoder,
+    supported_hardware_h264_codecs,
 )
 
 
@@ -135,6 +136,35 @@ class TestRuntimeProbeCommands:
         assert "-preset p4" not in text
         assert "b_ref_mode" not in text
 
+    def test_vaapi_render_graph_projection_owns_device_and_upload_contract(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            encoder_module,
+            "_resolve_vaapi_device",
+            lambda: "/dev/dri/renderD999",
+        )
+
+        projection = get_h264_backend("h264_vaapi").render_graph_projection()
+
+        assert projection.input_pixel_format == "nv12"
+        assert projection.requires_hardware_upload is True
+        assert projection.output_pixel_format is None
+        assert projection.global_args == ("-vaapi_device", "/dev/dri/renderD999")
+
+    def test_software_and_nvenc_keep_planar_output(self):
+        for codec in ("libx264", "h264_nvenc"):
+            projection = get_h264_backend(codec).render_graph_projection()
+            assert projection.requires_hardware_upload is False
+            assert projection.output_pixel_format == "yuv420p"
+
+    def test_qsv_render_graph_projects_system_memory_frames_to_nv12(self):
+        projection = get_h264_backend("h264_qsv").render_graph_projection()
+        assert projection.input_pixel_format == "nv12"
+        assert projection.requires_hardware_upload is False
+        assert projection.output_pixel_format is None
+
 
 class TestRuntimeProbeSelection:
     def test_compiled_encoder_that_cannot_encode_is_not_selected(self, monkeypatch):
@@ -221,6 +251,13 @@ class TestRuntimeProbeSelection:
 
 
 class TestBackendMetadata:
+    def test_supported_hardware_registry_is_the_complete_product_contract(self):
+        assert supported_hardware_h264_codecs() == (
+            "h264_nvenc",
+            "h264_qsv",
+            "h264_vaapi",
+        )
+
     def test_backend_registry_reports_hardware_truthfully(self):
         assert get_h264_backend("libx264").hardware is False
         assert get_h264_backend("h264_nvenc").hardware is True

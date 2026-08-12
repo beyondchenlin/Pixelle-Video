@@ -12,6 +12,7 @@ from pixelle_video.models.render_execution_plan import RenderExecutionPlan
 from pixelle_video.models.render_package import CaptionCue, RenderManifest, VisualClip
 from pixelle_video.services.ffmpeg_manifest_renderer import FfmpegManifestRenderer
 from pixelle_video.services.render_output_probe import RenderOutputContractError
+from pixelle_video.utils import ffmpeg_encoder as encoder_module
 
 
 def _layered_template_spec_payload() -> dict:
@@ -453,6 +454,83 @@ def test_renderer_does_not_blame_hardware_for_timeline_contract_failures(tmp_pat
         )
 
     assert len(service.commands) == 1
+
+
+def test_renderer_projects_vaapi_device_upload_without_software_fallback(
+    tmp_path,
+    monkeypatch,
+):
+    class VaapiVideoService(_RecordingVideoService):
+        def encode_render_graph(self, build_output, *, quiet=False):
+            graph = build_output(vcodec="h264_vaapi", qp=23)
+            command = ffmpeg.compile(graph)
+            self.commands.append(command)
+            output = next(
+                Path(item)
+                for item in command
+                if item.endswith(".mp4") and ".rendering.mp4" in item
+            )
+            output.write_bytes(b"encoded")
+            return "h264_vaapi"
+
+    monkeypatch.setattr(
+        encoder_module,
+        "_resolve_vaapi_device",
+        lambda: "/dev/dri/renderD999",
+    )
+    service = VaapiVideoService()
+    probe = _AcceptingProbe()
+
+    FfmpegManifestRenderer(video_service=service, output_probe=probe).render(
+        manifest=_manifest(tmp_path, clip_count=1),
+        execution_plan=_execution_plan(),
+        output_path=str(tmp_path / "final.mp4"),
+    )
+
+    command = " ".join(service.commands[0])
+    assert "format=nv12" in command
+    assert "hwupload" in command
+    assert "-vaapi_device /dev/dri/renderD999" in command
+    assert "-vcodec h264_vaapi" in command or "-c:v h264_vaapi" in command
+    assert "-pix_fmt yuv420p" not in command
+    assert probe.calls[-1]["encoder_backend"] == "h264_vaapi"
+
+
+def test_renderer_projects_qsv_input_format_without_crossing_encoder_options(tmp_path):
+    class QsvVideoService(_RecordingVideoService):
+        def encode_render_graph(self, build_output, *, quiet=False):
+            graph = build_output(
+                vcodec="h264_qsv",
+                preset="medium",
+                global_quality=23,
+            )
+            command = ffmpeg.compile(graph)
+            self.commands.append(command)
+            output = next(
+                Path(item)
+                for item in command
+                if item.endswith(".mp4") and ".rendering.mp4" in item
+            )
+            output.write_bytes(b"encoded")
+            return "h264_qsv"
+
+    service = QsvVideoService()
+    probe = _AcceptingProbe()
+
+    FfmpegManifestRenderer(video_service=service, output_probe=probe).render(
+        manifest=_manifest(tmp_path, clip_count=1),
+        execution_plan=_execution_plan(),
+        output_path=str(tmp_path / "final.mp4"),
+    )
+
+    command = " ".join(service.commands[0])
+    assert "format=nv12" in command
+    assert "hwupload" not in command
+    assert "-vcodec h264_qsv" in command or "-c:v h264_qsv" in command
+    assert "-global_quality 23" in command
+    assert "-cq" not in command
+    assert "b_ref_mode" not in command
+    assert probe.calls[-1]["encoder_backend"] == "h264_qsv"
 
 
 def test_renderer_rejects_unprerendered_layered_template_visuals(tmp_path):
