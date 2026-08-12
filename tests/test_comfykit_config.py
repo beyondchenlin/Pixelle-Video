@@ -77,16 +77,16 @@ def test_get_comfykit_config_respects_explicit_websocket_override(monkeypatch):
     assert core._get_comfykit_config()["executor_type"] == "websocket"
 
 
-def test_comfyui_backend_management_defaults_to_external_desktop_mode():
+def test_comfyui_backend_management_keeps_backward_compatible_external_default():
     config = PixelleVideoConfig()
 
     assert config.comfyui.comfyui_url == "http://127.0.0.1:8188"
     assert config.comfyui.backend_management_mode == "disabled"
     assert config.comfyui.backends["default"].managed is True
-    assert config.comfyui.backends["default"].restart_after_batch is False
+    assert config.comfyui.backends["default"].stop_after_batch is True
 
 
-def test_comfyui_headless_management_remains_an_explicit_supported_mode():
+def test_comfyui_auto_management_remains_an_explicit_supported_mode():
     config = PixelleVideoConfig.model_validate(
         {
             "comfyui": {
@@ -94,7 +94,7 @@ def test_comfyui_headless_management_remains_an_explicit_supported_mode():
                 "backends": {
                     "default": {
                         "managed": True,
-                        "restart_after_batch": True,
+                        "stop_after_batch": True,
                     }
                 },
             }
@@ -103,7 +103,7 @@ def test_comfyui_headless_management_remains_an_explicit_supported_mode():
 
     assert config.comfyui.backend_management_mode == "auto"
     assert config.comfyui.backends["default"].managed is True
-    assert config.comfyui.backends["default"].restart_after_batch is True
+    assert config.comfyui.backends["default"].stop_after_batch is True
 
 
 def test_service_backend_management_fallback_is_fail_safe():

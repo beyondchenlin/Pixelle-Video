@@ -1,12 +1,12 @@
 # Pixelle ComfyUI 后端脚本
 
-Pixelle 默认采用桌面版外部连接模式：先由用户打开 ComfyUI Desktop，再在
-Pixelle 设置页测试连接。此模式下 Pixelle 不启动、不隐藏、不停止、不重启桌面版，
-用户可以持续看到桌面窗口、队列和生成内容。
+Pixelle 默认管理完整的本地 ComfyUI 服务：图片或音频工作流需要时启动，完整批次
+结束且队列为空后停止，下一批本地工作流再按需启动。进程退出是释放显存和系统内存
+的边界，不依赖插件私有的释放接口。
 
-本目录脚本只用于显式选择无界面托管模式的部署。脚本运行一个由 Pixelle 拥有的
-单实例后台进程，供本地 `selfhost` 工作流使用；它不会创建 ComfyUI Desktop 窗口，
-但启动后仍然可以通过浏览器访问界面：
+本目录脚本负责完整服务的启动、检查和停止。服务使用已配置的 ComfyUI 核心、前端、
+模型目录和数据目录；它不会创建 ComfyUI Desktop 窗口，但运行期间仍可通过浏览器
+查看队列、历史和生成内容：
 
 ```text
 http://127.0.0.1:8000
@@ -14,14 +14,15 @@ http://127.0.0.1:8000
 
 ## 生命周期模式
 
-- 推荐桌面版：`backend_management_mode: disabled`、`restart_after_batch: false`。
-  用户先打开桌面版，Pixelle 只检测连接和提交任务；此模式会覆盖后端配置中的
-  `managed` 值，确保不会启动、停止或重启桌面版。
-- 高级无界面托管：`backend_management_mode: auto` 或 `required`，并明确设置
-  `managed: true`。只有这个模式才会使用本目录的启动、停止和重启脚本。
+- 推荐按需启停：`backend_management_mode: required`、`managed: true`、
+  `stop_after_batch: true`。Pixelle 只停止经过进程身份验证、由自己启动的完整服务。
+- 外部连接：`backend_management_mode: disabled`。用户先手动启动实例，Pixelle 只检测
+  连接和提交任务，绝不停止外部服务。
+- 自动复用：`backend_management_mode: auto`。此模式可复用外部服务，因此无法保证批次
+  结束后彻底释放内存。
 
-“隐藏后台”和“桌面版”不是同一个程序形态。删除脚本中的隐藏窗口参数只会显示
-命令行窗口，不会变成 ComfyUI Desktop，因此不要用这种方式模拟桌面模式。
+桌面外壳和 ComfyUI 核心服务是两个生命周期层。按需启停管理的是提供生成能力的完整
+核心服务；服务运行时通过浏览器地址查看界面，停止后该地址随服务一起退出。
 
 ## Windows 双击入口
 

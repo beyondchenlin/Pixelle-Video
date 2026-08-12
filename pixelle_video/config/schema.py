@@ -489,20 +489,19 @@ class ComfyUIBackendProfile(BaseModel):
     managed: bool = Field(
         default=True,
         description=(
-            "Per-profile capability allowing Pixelle to start a missing headless local "
-            "backend only when global lifecycle management is explicitly auto or "
-            "required. A healthy process that Pixelle did not start remains externally "
-            "owned and is never stopped."
+            "Per-profile capability allowing Pixelle to start the complete configured "
+            "local service when global lifecycle management is auto or required. A "
+            "healthy process that Pixelle did not start remains externally owned and "
+            "is never stopped."
         ),
     )
-    restart_after_batch: bool = Field(
-        default=False,
+    stop_after_batch: bool = Field(
+        default=True,
         description=(
-            "Restart this backend after every workflow completion and at pipeline "
-            "stage boundaries when the running process is owned by Pixelle. External "
-            "backends are preserved. Set to False to keep models loaded in GPU for fast "
-            "follow-up requests — the default for single-backend-per-workflow-type "
-            "setups where the GPU has enough VRAM for all model sets."
+            "Stop the complete ComfyUI service after a deliberate workflow batch when "
+            "the running process is owned by Pixelle. The next local workflow starts it "
+            "on demand. External backends are preserved. Set to False only when keeping "
+            "models resident is an explicit performance choice."
         ),
     )
     data_root: Optional[str] = Field(default=None, description="ComfyUI data root for this profile")
@@ -513,6 +512,24 @@ class ComfyUIBackendProfile(BaseModel):
     runtime_dir: Optional[str] = Field(default=None, description="Runtime directory for this profile")
     logs_dir: Optional[str] = Field(default=None, description="Log directory for this profile")
     database_url: Optional[str] = Field(default=None, description="ComfyUI database URL for this profile")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_restart_after_batch(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        legacy_value = normalized.pop("restart_after_batch", None)
+        if "stop_after_batch" not in normalized and legacy_value is not None:
+            normalized["stop_after_batch"] = bool(legacy_value)
+            logger.warning(
+                "Migrating legacy ComfyUI profile field restart_after_batch={} to "
+                "stop_after_batch={}. Batch cleanup now stops the service and the next "
+                "workflow starts it on demand.",
+                legacy_value,
+                bool(legacy_value),
+            )
+        return normalized
 
 
 class ComfyUIWorkflowRouting(BaseModel):
@@ -536,7 +553,7 @@ def _default_backend_profile_payload(profile_name: str, fallback_url: str) -> di
     return {
         "url": fallback_url,
         "managed": True,
-        "restart_after_batch": False,
+        "stop_after_batch": True,
         "data_root": data_root,
         "runtime_dir": f"_runtime/comfyui/{profile_name}",
         "logs_dir": f"logs/comfyui/{profile_name}",
@@ -578,10 +595,10 @@ class ComfyUIConfig(BaseModel):
     backend_management_mode: Literal["auto", "required", "disabled"] = Field(
         default="disabled",
         description=(
-            "Controls ComfyUI lifecycle ownership. 'disabled' is the safe default for "
-            "a visible, user-owned ComfyUI Desktop process; 'auto' reuses a healthy "
-            "existing backend and starts a headless one only when the endpoint is "
-            "unavailable; 'required' accepts only a Pixelle-owned headless process."
+            "Controls ComfyUI lifecycle ownership. 'required' provides deterministic "
+            "on-demand lifecycle management for an explicitly configured deployment. "
+            "'auto' may reuse an external service without stopping it; 'disabled' is the "
+            "backward-compatible default and only connects to an external service."
         ),
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
@@ -631,8 +648,8 @@ class ComfyUIConfig(BaseModel):
         if legacy_fields:
             logger.warning(
                 "Ignoring legacy ComfyUI config field(s): {}. "
-                "Memory release is now handled by managed backend restart "
-                "controlled via backends.<role>.restart_after_batch.",
+                "Memory release is now handled by stopping the managed backend "
+                "controlled via backends.<role>.stop_after_batch.",
                 ", ".join(legacy_fields),
             )
 
@@ -640,7 +657,7 @@ class ComfyUIConfig(BaseModel):
             normalized.pop("gguf_cleanup_strategy", None)
             logger.warning(
                 "Ignoring retired ComfyUI config field: gguf_cleanup_strategy. "
-                "GGUF memory release is handled by managed backend restart."
+                "GGUF memory release is handled by stopping the managed backend."
             )
 
         normalized.pop("model_cleanup_mode", None)

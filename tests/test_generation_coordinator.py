@@ -851,8 +851,7 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_models_after
         extensions=("indextts2",),
         missing_endpoint="required",
     ):
-        calls.append(("preflight", context, extensions))
-        return True
+        raise AssertionError("process-stop cleanup must not require extension preflight")
 
     async def _get_kit(backend_role="default"):
         calls.append(("get_kit",))
@@ -878,7 +877,6 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_models_after
     assert result.status == "completed"
     assert calls == [
         ("prepare",),
-        ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("get_kit",),
         ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "demo"}),
         ("index_tts2_release", "post-index-tts2-workflow", "required"),
@@ -929,8 +927,7 @@ async def test_core_execute_gguf_workflow_releases_gguf_extension_after_execute(
         extensions=("indextts2",),
         missing_endpoint="required",
     ):
-        calls.append(("preflight", context, extensions))
-        return True
+        raise AssertionError("process-stop cleanup must not require extension preflight")
 
     async def _get_kit(backend_role="default"):
         calls.append(("get_kit",))
@@ -951,7 +948,6 @@ async def test_core_execute_gguf_workflow_releases_gguf_extension_after_execute(
     assert result.status == "completed"
     assert calls == [
         ("prepare",),
-        ("preflight", "pre-gguf-workflow", ("gguf",)),
         ("get_kit",),
         ("execute", str(workflow_path), {}),
         ("extension_release", "post-gguf-workflow", ("gguf",), "required"),
@@ -3571,7 +3567,7 @@ async def test_index_tts2_workflow_session_releases_models_once_at_session_exit(
     _install_noop_extension_preflight(core)
     core._get_or_create_comfykit = _get_kit
 
-    async with core.local_comfyui_workflow_session(release_after_session=True):
+    async with core.local_comfyui_workflow_session(stop_after_session=True):
         first = await core.execute_comfykit_workflow(
             "workflows/selfhost/tts_index2.json",
             first_params,
@@ -3655,7 +3651,7 @@ async def test_local_comfyui_workflow_session_releases_models_for_renamed_index_
     core._get_or_create_comfykit = _get_kit
     workflow_params = {"prompt": "first"}
 
-    async with core.local_comfyui_workflow_session(release_after_session=True):
+    async with core.local_comfyui_workflow_session(stop_after_session=True):
         result = await core.execute_comfykit_workflow(
             str(workflow_path),
             workflow_params,
@@ -3670,7 +3666,6 @@ async def test_local_comfyui_workflow_session_releases_models_for_renamed_index_
     assert result.status == "completed"
     assert events == [
         ("prepare",),
-        ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("get_kit",),
         ("execute", str(workflow_path), {"prompt": "first"}),
         ("index_tts2_release", "post-index-tts2-workflow", "required"),
@@ -3725,7 +3720,7 @@ async def test_index_tts2_workflow_session_releases_models_at_session_exit(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_index_tts2_workflow_preflights_required_extension_endpoint_before_execute(
+async def test_index_tts2_workflow_does_not_require_extension_release_preflight(
     tmp_path,
 ):
     events = []
@@ -3763,7 +3758,7 @@ async def test_index_tts2_workflow_preflights_required_extension_endpoint_before
     core.release_comfyui_after_index_tts2_workflow = _release_index_tts2
     core._get_or_create_comfykit = _get_kit
 
-    async with core.local_comfyui_workflow_session(release_after_session=True):
+    async with core.local_comfyui_workflow_session(stop_after_session=True):
         await core.execute_comfykit_workflow(
             "workflows/selfhost/tts_index2.json",
             workflow_params,
@@ -3777,7 +3772,6 @@ async def test_index_tts2_workflow_preflights_required_extension_endpoint_before
 
     assert events == [
         ("prepare",),
-        ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("execute", "workflows/selfhost/tts_index2.json"),
         ("index_tts2_release", "post-index-tts2-workflow", "required"),
     ]
@@ -3900,7 +3894,7 @@ async def test_local_comfyui_task_scope_releases_at_task_exit_after_workflow_ses
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_workflow_session_defers_release_to_task_exit_inside_task_scope():
+async def test_explicit_workflow_batch_stops_inside_task_scope():
     events = []
 
     class _Kit:
@@ -3931,7 +3925,7 @@ async def test_local_comfyui_workflow_session_defers_release_to_task_exit_inside
     core._get_or_create_comfykit = _get_kit
 
     async with core.local_comfyui_task_scope():
-        async with core.local_comfyui_workflow_session(release_after_session=True):
+        async with core.local_comfyui_workflow_session(stop_after_session=True):
             await core.execute_comfykit_workflow(
                 "image_batch.json",
                 {},
@@ -3941,12 +3935,12 @@ async def test_local_comfyui_workflow_session_defers_release_to_task_exit_inside
     assert events == [
         ("prepare",),
         ("execute", "image_batch.json"),
-        ("task_release",),
+        ("workflow_release",),
     ]
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_task_scope_preserves_success_when_release_is_not_confirmed():
+async def test_failed_batch_stop_preserves_success_and_retries_once_at_task_exit():
     events = []
 
     class _Kit:
@@ -3959,19 +3953,25 @@ async def test_local_comfyui_task_scope_preserves_success_when_release_is_not_co
     async def _prepare(*, backend_role="default"):
         events.append(("prepare",))
 
+    async def _release_workflow(*, backend_role="default"):
+        events.append(("workflow_release",))
+        raise RuntimeError("post-workflow stop was not confirmed")
+
     async def _release_task(*, backend_role="default"):
         events.append(("task_release",))
-        raise RuntimeError("post-task release was not confirmed")
+        core._mark_local_comfyui_released(backend_role=backend_role)
+        return True
 
     async def _get_kit(backend_role="default"):
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release_workflow
     core.release_comfyui_after_local_task = _release_task
     core._get_or_create_comfykit = _get_kit
 
     async with core.local_comfyui_task_scope():
-        async with core.local_comfyui_workflow_session(release_after_session=True):
+        async with core.local_comfyui_workflow_session(stop_after_session=True):
             result = await core.execute_comfykit_workflow(
                 "image_batch.json",
                 {},
@@ -3982,14 +3982,15 @@ async def test_local_comfyui_task_scope_preserves_success_when_release_is_not_co
     assert events == [
         ("prepare",),
         ("execute", "image_batch.json"),
+        ("workflow_release",),
         ("task_release",),
     ]
 
 
-def test_restart_after_batch_requires_effective_lifecycle_management(monkeypatch):
+def test_stop_after_batch_requires_effective_lifecycle_management(monkeypatch):
     core = PixelleVideoCore()
     registry = SimpleNamespace(
-        profile=lambda role: SimpleNamespace(restart_after_batch=True)
+        profile=lambda role: SimpleNamespace(stop_after_batch=True)
     )
     controller = SimpleNamespace(can_manage=lambda: False)
 
@@ -4000,11 +4001,11 @@ def test_restart_after_batch_requires_effective_lifecycle_management(monkeypatch
         lambda backend_role="default": controller,
     )
 
-    assert core._restart_after_batch_for_role("default") is False
+    assert core._stop_after_batch_for_role("default") is False
 
 
 @pytest.mark.asyncio
-async def test_task_start_external_ownership_prevents_late_restart_inspection(monkeypatch):
+async def test_task_start_external_ownership_prevents_late_stop_inspection(monkeypatch):
     core = PixelleVideoCore()
 
     class _ExternalBackend:
@@ -4078,23 +4079,255 @@ def _install_pixelle_owned_comfyui_backend(monkeypatch, core):
 
 
 @pytest.mark.asyncio
-async def test_release_comfyui_after_local_workflow_releases_models_after_batch(monkeypatch):
+async def test_release_comfyui_after_local_workflow_stops_owned_service_without_restart(
+    monkeypatch,
+):
     events = []
+    core = PixelleVideoCore()
+
+    async def _stop(backend_role, reason):
+        events.append(("stop", backend_role, reason))
+        return True
+
+    monkeypatch.setattr(core, "_stop_after_batch_for_role", lambda backend_role: True)
+    _install_pixelle_owned_comfyui_backend(monkeypatch, core)
+    monkeypatch.setattr(core, "_get_comfyui_maintenance_client", lambda role: None)
+    monkeypatch.setattr(core, "_stop_comfyui_backend_role", _stop)
+    monkeypatch.setattr(
+        core,
+        "_restart_comfyui_backend_role",
+        lambda *args, **kwargs: pytest.fail("batch cleanup must not restart ComfyUI"),
+    )
+
+    assert await core.release_comfyui_after_local_workflow() is True
+    assert events == [("stop", "default", "post-workflow batch stop")]
+
+
+@pytest.mark.asyncio
+async def test_next_local_batch_starts_service_on_demand_after_previous_batch_stop(
+    monkeypatch,
+):
+    events = []
+
+    class _Controller:
+        management_mode = "required"
+        profile = SimpleNamespace(managed=True)
+
+        def __init__(self):
+            self.running = False
+
+        async def ensure_ready(self, *, reason):
+            started = not self.running
+            self.running = True
+            events.append(("ensure", reason, started))
+            return SimpleNamespace(
+                ownership="pixelle",
+                started=started,
+                reused_existing=not started,
+            )
+
+        async def inspect_state(self, *, reason):
+            events.append(("inspect_owner", reason))
+            return ComfyUIBackendState(
+                ownership="pixelle" if self.running else "absent",
+                listener_present=self.running,
+                pid_file_present=self.running,
+                payload={},
+            )
+
+        async def stop(self, *, reason):
+            events.append(("stop", reason))
+            self.running = False
+            return SimpleNamespace(payload={"stopped": True})
+
+    class _Maintenance:
+        async def inspect_queue_before_generation(self):
+            events.append(("inspect_queue",))
+
+        async def wait_until_idle(self):
+            events.append(("idle",))
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute", workflow_input))
+            return SimpleNamespace(status="completed")
+
+    controller = _Controller()
+    core = PixelleVideoCore()
+
+    async def _get_kit(backend_role="default"):
+        return _Kit()
+
+    monkeypatch.setattr(
+        core,
+        "_get_comfyui_backend_controller",
+        lambda backend_role="default": controller,
+    )
+    monkeypatch.setattr(core, "_stop_after_batch_for_role", lambda backend_role: True)
+    monkeypatch.setattr(
+        core,
+        "_get_comfyui_maintenance_client",
+        lambda backend_role="default": _Maintenance(),
+    )
+    monkeypatch.setattr(core, "_get_or_create_comfykit", _get_kit)
+
+    for workflow_name in ("image_batch.json", "audio_batch.json"):
+        async with core.local_comfyui_workflow_session(stop_after_session=True):
+            await core.execute_comfykit_workflow(
+                workflow_name,
+                {},
+                workflow_source="selfhost",
+            )
+
+    assert events == [
+        ("ensure", "pre-workflow", True),
+        ("inspect_queue",),
+        ("execute", "image_batch.json"),
+        ("inspect_owner", "post-workflow batch stop"),
+        ("idle",),
+        ("stop", "post-workflow batch stop"),
+        ("ensure", "pre-workflow", True),
+        ("inspect_queue",),
+        ("execute", "audio_batch.json"),
+        ("inspect_owner", "post-workflow batch stop"),
+        ("idle",),
+        ("stop", "post-workflow batch stop"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_workflow_batches_for_different_roles_do_not_interleave_service_lifecycle():
+    events = []
+    image_started = asyncio.Event()
+    release_image = asyncio.Event()
+
+    class _Kit:
+        def __init__(self, role):
+            self.role = role
+
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute_start", self.role))
+            if self.role == "image":
+                image_started.set()
+                await release_image.wait()
+            events.append(("execute_end", self.role))
+            return SimpleNamespace(status="completed")
 
     core = PixelleVideoCore()
 
-    async def _restart(backend_role, reason):
-        events.append(("restart", backend_role, reason))
+    async def _prepare(*, backend_role="default"):
+        events.append(("prepare", backend_role))
+
+    async def _release(*, backend_role="default"):
+        events.append(("release", backend_role))
         return True
 
-    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
-    _install_pixelle_owned_comfyui_backend(monkeypatch, core)
-    core._restart_comfyui_backend_role = _restart
+    async def _get_kit(backend_role="default"):
+        return _Kit(backend_role)
 
-    assert await core.release_comfyui_after_local_workflow() is True
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+
+    async def _run(role):
+        async with core.local_comfyui_workflow_session(
+            backend_role=role,
+            stop_after_session=True,
+        ):
+            await core.execute_comfykit_workflow(
+                f"{role}.json",
+                {},
+                workflow_source="selfhost",
+                backend_role=role,
+            )
+
+    image_task = asyncio.create_task(_run("image"))
+    await image_started.wait()
+    tts_task = asyncio.create_task(_run("tts"))
+    await asyncio.sleep(0)
+
+    assert ("prepare", "tts") not in events
+    release_image.set()
+    await asyncio.gather(image_task, tts_task)
+
     assert events == [
-        ("restart", "default", "post-workflow memory release"),
+        ("prepare", "image"),
+        ("execute_start", "image"),
+        ("execute_end", "image"),
+        ("release", "image"),
+        ("prepare", "tts"),
+        ("execute_start", "tts"),
+        ("execute_end", "tts"),
+        ("release", "tts"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_nested_workflow_sessions_for_different_roles_fail_instead_of_deadlocking():
+    core = PixelleVideoCore()
+
+    async with core.local_comfyui_workflow_session(backend_role="image"):
+        with pytest.raises(RuntimeError, match="Cannot nest.*different backend roles"):
+            async with core.local_comfyui_workflow_session(backend_role="tts"):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_cancelled_workflow_batch_finishes_service_stop_before_releasing_locks():
+    cleanup_started = asyncio.Event()
+    allow_cleanup = asyncio.Event()
+    body_started = asyncio.Event()
+    events = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare(*, backend_role="default"):
+        return None
+
+    async def _release(*, backend_role="default"):
+        events.append("cleanup_start")
+        cleanup_started.set()
+        await allow_cleanup.wait()
+        events.append("cleanup_end")
+        return True
+
+    async def _get_kit(backend_role="default"):
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+
+    async def _run_batch():
+        async with core.local_comfyui_workflow_session(stop_after_session=True):
+            await core.execute_comfykit_workflow(
+                "image.json",
+                {},
+                workflow_source="selfhost",
+            )
+            body_started.set()
+            await asyncio.Future()
+
+    task = asyncio.create_task(_run_batch())
+    await body_started.wait()
+    task.cancel()
+    await cleanup_started.wait()
+    await asyncio.sleep(0)
+    assert not task.done()
+
+    allow_cleanup.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert events == ["cleanup_start", "cleanup_end"]
+    await asyncio.wait_for(core._local_comfyui_accelerator_lock.acquire(), timeout=1)
+    core._local_comfyui_accelerator_lock.release()
+    await asyncio.wait_for(core._get_backend_lock("default").acquire(), timeout=1)
+    core._get_backend_lock("default").release()
 
 
 @pytest.mark.asyncio
@@ -4107,16 +4340,16 @@ async def test_release_comfyui_after_local_workflow_preserves_external_backend(m
         async def inspect_state(self, *, reason):
             return SimpleNamespace(ownership="external", pid_file_present=False)
 
-    async def fail_restart(backend_role, reason):
-        raise AssertionError(f"external backend must not restart: {backend_role} {reason}")
+    async def fail_stop(backend_role, reason):
+        raise AssertionError(f"external backend must not stop: {backend_role} {reason}")
 
-    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    monkeypatch.setattr(core, "_stop_after_batch_for_role", lambda backend_role: True)
     monkeypatch.setattr(
         core,
         "_get_comfyui_backend_controller",
         lambda backend_role="default": _ExternalBackend(),
     )
-    monkeypatch.setattr(core, "_restart_comfyui_backend_role", fail_restart)
+    monkeypatch.setattr(core, "_stop_comfyui_backend_role", fail_stop)
 
     assert await core.release_comfyui_after_local_workflow() is True
 
@@ -4131,16 +4364,16 @@ async def test_release_preserves_backend_when_auto_ownership_inspection_fails(mo
         async def inspect_state(self, *, reason):
             raise PermissionError(f"process inspection denied: {reason}")
 
-    async def fail_restart(backend_role, reason):
-        raise AssertionError(f"unverified backend must not restart: {backend_role} {reason}")
+    async def fail_stop(backend_role, reason):
+        raise AssertionError(f"unverified backend must not stop: {backend_role} {reason}")
 
-    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    monkeypatch.setattr(core, "_stop_after_batch_for_role", lambda backend_role: True)
     monkeypatch.setattr(
         core,
         "_get_comfyui_backend_controller",
         lambda backend_role="default": _UninspectableBackend(),
     )
-    monkeypatch.setattr(core, "_restart_comfyui_backend_role", fail_restart)
+    monkeypatch.setattr(core, "_stop_comfyui_backend_role", fail_stop)
 
     assert await core.release_comfyui_after_local_workflow() is True
 
@@ -4155,7 +4388,7 @@ async def test_release_fails_when_required_ownership_inspection_fails(monkeypatc
         async def inspect_state(self, *, reason):
             raise PermissionError(f"process inspection denied: {reason}")
 
-    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    monkeypatch.setattr(core, "_stop_after_batch_for_role", lambda backend_role: True)
     monkeypatch.setattr(
         core,
         "_get_comfyui_backend_controller",
@@ -4167,156 +4400,88 @@ async def test_release_fails_when_required_ownership_inspection_fails(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_release_comfyui_after_local_workflow_logs_managed_restart_result(monkeypatch):
-    log_events = []
-
-    class _BoundLogger:
-        def __init__(self, fields=None):
-            self.fields = fields or {}
-
-        def bind(self, **fields):
-            return _BoundLogger({**self.fields, **fields})
-
-        def info(self, message):
-            log_events.append(("info", message, self.fields))
-
-        def warning(self, message):
-            log_events.append(("warning", message, self.fields))
-
-        def debug(self, message):
-            pass
-
-        def error(self, message):
-            log_events.append(("error", message, self.fields))
-
-    monkeypatch.setattr(service_module, "logger", _BoundLogger())
-
+async def test_release_comfyui_after_local_workflow_refuses_to_stop_busy_queue(
+    monkeypatch,
+):
     core = PixelleVideoCore()
 
-    async def _restart(backend_role, reason):
-        log_events.append(("restart", backend_role, reason))
-        return True
+    class _BusyQueue:
+        async def wait_until_idle(self):
+            raise TimeoutError("queue remained busy")
 
-    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    async def fail_stop(backend_role, reason):
+        raise AssertionError(f"busy queue must not be terminated: {backend_role} {reason}")
+
+    monkeypatch.setattr(core, "_stop_after_batch_for_role", lambda backend_role: True)
     _install_pixelle_owned_comfyui_backend(monkeypatch, core)
-    core._restart_comfyui_backend_role = _restart
+    monkeypatch.setattr(core, "_get_comfyui_maintenance_client", lambda role: _BusyQueue())
+    monkeypatch.setattr(core, "_stop_comfyui_backend_role", fail_stop)
 
-    assert await core.release_comfyui_after_local_workflow() is True
-    assert log_events == [
-        (
-            "info",
-            "[MEMORY_RELEASE] Restarting ComfyUI backend 'default' (post-workflow) to release GPU memory...",
-            {},
-        ),
-        ("restart", "default", "post-workflow memory release"),
-        (
-            "info",
-            "[MEMORY_RELEASE] ComfyUI backend 'default' restarted successfully (post-workflow)",
-            {},
-        ),
-    ]
+    with pytest.raises(RuntimeError, match="refusing to terminate work whose state is unknown"):
+        await core.release_comfyui_after_local_workflow()
 
 
 @pytest.mark.asyncio
-async def test_release_comfyui_after_index_tts2_workflow_fails_when_restart_is_not_confirmed(monkeypatch):
-    log_events = []
-
-    class _BoundLogger:
-        def __init__(self, fields=None):
-            self.fields = fields or {}
-
-        def bind(self, **fields):
-            return _BoundLogger({**self.fields, **fields})
-
-        def info(self, message):
-            log_events.append(("info", message, self.fields))
-
-        def warning(self, message):
-            log_events.append(("warning", message, self.fields))
-
-        def debug(self, message):
-            pass
-
-        def error(self, message):
-            log_events.append(("error", message, self.fields))
-
-    monkeypatch.setattr(service_module, "logger", _BoundLogger())
-
+async def test_release_comfyui_after_index_tts2_workflow_fails_when_stop_is_not_confirmed(
+    monkeypatch,
+):
     core = PixelleVideoCore()
 
-    async def _restart(backend_role, reason):
-        log_events.append(("restart", backend_role, reason))
+    async def _stop(backend_role, reason):
         return False
 
-    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    monkeypatch.setattr(core, "_stop_after_batch_for_role", lambda backend_role: True)
     _install_pixelle_owned_comfyui_backend(monkeypatch, core)
-    core._restart_comfyui_backend_role = _restart
+    monkeypatch.setattr(core, "_get_comfyui_maintenance_client", lambda role: None)
+    monkeypatch.setattr(core, "_stop_comfyui_backend_role", _stop)
 
-    with pytest.raises(RuntimeError, match="memory release was not confirmed"):
+    with pytest.raises(RuntimeError, match="service stop was not confirmed"):
         await core.release_comfyui_after_index_tts2_workflow(
             context="post-index-tts2-workflow",
             missing_endpoint="required",
         )
 
-    assert log_events == [
-        (
-            "info",
-            "[MEMORY_RELEASE] Restarting ComfyUI backend 'default' (extensions: ('indextts2',)) to release GPU memory...",
-            {},
-        ),
-        (
-            "restart",
-            "default",
-            "post-index-tts2-workflow memory release",
-        ),
-        (
-            "warning",
-            "[MEMORY_RELEASE] ComfyUI backend 'default' restart returned False (extensions: ('indextts2',))",
-            {},
-        ),
-        (
-            "error",
-            "[MEMORY_RELEASE] Failed to restart ComfyUI backend 'default': ComfyUI post-index-tts2-workflow memory release was not confirmed for backend 'default'",
-            {},
-        ),
-    ]
-
 
 @pytest.mark.asyncio
-async def test_release_comfyui_after_index_tts2_workflow_restarts_backend_when_enabled(monkeypatch):
+async def test_release_comfyui_after_index_tts2_workflow_stops_service_when_enabled(
+    monkeypatch,
+):
     events = []
 
     core = PixelleVideoCore()
 
-    async def _restart(backend_role, reason):
-        events.append(("restart", backend_role, reason))
+    async def _stop(backend_role, reason):
+        events.append(("stop", backend_role, reason))
         return True
 
-    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: True)
+    monkeypatch.setattr(core, "_stop_after_batch_for_role", lambda backend_role: True)
     _install_pixelle_owned_comfyui_backend(monkeypatch, core)
-    core._restart_comfyui_backend_role = _restart
+    monkeypatch.setattr(core, "_get_comfyui_maintenance_client", lambda role: None)
+    monkeypatch.setattr(core, "_stop_comfyui_backend_role", _stop)
 
     assert await core.release_comfyui_after_index_tts2_workflow(
         context="post-index-tts2-workflow",
         missing_endpoint="optional",
     ) is True
     assert events == [
-        ("restart", "default", "post-index-tts2-workflow memory release"),
+        ("stop", "default", "post-index-tts2-workflow batch stop"),
     ]
 
 
 @pytest.mark.asyncio
-async def test_release_comfyui_after_index_tts2_workflow_skips_restart_when_disabled(monkeypatch):
+async def test_release_comfyui_after_index_tts2_workflow_keeps_service_when_disabled(
+    monkeypatch,
+):
     events = []
 
     core = PixelleVideoCore()
 
-    async def _restart(backend_role, reason):
-        events.append(("restart", backend_role, reason))
-        raise AssertionError("restart_after_batch=False should keep the backend alive")
+    async def _stop(backend_role, reason):
+        events.append(("stop", backend_role, reason))
+        raise AssertionError("stop_after_batch=False should keep the backend alive")
 
-    monkeypatch.setattr(core, "_restart_after_batch_for_role", lambda backend_role: False)
-    core._restart_comfyui_backend_role = _restart
+    monkeypatch.setattr(core, "_stop_after_batch_for_role", lambda backend_role: False)
+    core._stop_comfyui_backend_role = _stop
 
     assert await core.release_comfyui_after_index_tts2_workflow(
         context="post-index-tts2-workflow",

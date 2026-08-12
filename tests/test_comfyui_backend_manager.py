@@ -348,13 +348,13 @@ async def test_auto_mode_reuses_healthy_external_backend_without_starting(monkey
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("ownership", ("external", "pixelle"))
-async def test_auto_mode_captures_healthy_backend_ownership_when_restart_is_enabled(
+async def test_auto_mode_captures_healthy_backend_ownership_when_batch_stop_is_enabled(
     monkeypatch,
     ownership,
 ):
     profile = ComfyUIBackendProfile(
         url="http://127.0.0.1:8000",
-        restart_after_batch=True,
+        stop_after_batch=True,
     )
     backend = ManagedComfyUIBackend(
         repo_root=Path.cwd(),
@@ -379,7 +379,7 @@ async def test_auto_mode_captures_healthy_backend_ownership_when_restart_is_enab
 async def test_auto_mode_keeps_healthy_backend_when_ownership_capture_fails(monkeypatch):
     profile = ComfyUIBackendProfile(
         url="http://127.0.0.1:8000",
-        restart_after_batch=True,
+        stop_after_batch=True,
     )
     backend = ManagedComfyUIBackend(
         repo_root=Path.cwd(),

@@ -3,7 +3,10 @@ from pathlib import Path
 import pytest
 import requests
 
-from web.components.settings import _probe_comfyui_connection
+from web.components.settings import (
+    _apply_backend_lifecycle_policy,
+    _probe_comfyui_connection,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -14,6 +17,49 @@ def test_settings_page_does_not_render_retired_gguf_cleanup_strategy():
     )
 
     assert "gguf_cleanup_strategy" not in source
+
+
+def test_settings_page_recommends_required_without_silently_migrating_old_config():
+    source = (PROJECT_ROOT / "web" / "components" / "settings.py").read_text(
+        encoding="utf-8"
+    )
+    chinese_locale = (
+        PROJECT_ROOT / "web" / "i18n" / "locales" / "zh_CN.json"
+    ).read_text(encoding="utf-8")
+
+    assert '"backend_management_mode",\n                    "disabled"' in source
+    assert "按需启停完整本地服务（推荐）" in chinese_locale
+    assert "图片或音频批次结束后关闭完整的 ComfyUI 服务" in chinese_locale
+
+
+def test_required_lifecycle_policy_enables_owned_batch_stop_for_every_profile():
+    original = {
+        "default": {
+            "managed": False,
+            "restart_after_batch": False,
+            "url": "http://127.0.0.1:8000",
+        },
+        "tts": {
+            "managed": True,
+            "stop_after_batch": False,
+            "url": "http://127.0.0.1:8002",
+        },
+    }
+
+    result = _apply_backend_lifecycle_policy(original, "required")
+
+    assert result["default"]["managed"] is True
+    assert result["default"]["stop_after_batch"] is True
+    assert "restart_after_batch" not in result["default"]
+    assert result["tts"]["managed"] is True
+    assert result["tts"]["stop_after_batch"] is True
+    assert original["default"]["managed"] is False
+
+
+def test_external_lifecycle_policy_preserves_profile_controls():
+    original = {"default": {"managed": False, "stop_after_batch": False}}
+
+    assert _apply_backend_lifecycle_policy(original, "disabled") == original
 
 
 def test_comfyui_connection_probe_is_read_only_authenticated_and_no_redirects(

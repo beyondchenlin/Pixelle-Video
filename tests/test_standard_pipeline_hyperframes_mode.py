@@ -279,7 +279,7 @@ class _DummyCore:
     def __init__(self, tmp_path: Path):
         self.config = {}
         self.local_comfyui_sessions = []
-        self.local_comfyui_session_release_options = []
+        self.local_comfyui_session_stop_options = []
         self.local_comfyui_session_backend_roles = []
         self.llm = object()
         self.video = object()
@@ -304,10 +304,10 @@ class _DummyCore:
     async def local_comfyui_workflow_session(
         self,
         *,
-        release_after_session=False,
+        stop_after_session=False,
         backend_role="default",
     ):
-        self.local_comfyui_session_release_options.append(release_after_session)
+        self.local_comfyui_session_stop_options.append(stop_after_session)
         self.local_comfyui_session_backend_roles.append(backend_role)
         self.local_comfyui_sessions.append("enter")
         try:
@@ -387,7 +387,7 @@ async def test_produce_assets_hyperframes_path_bypasses_legacy_html_composition(
         ("media", 1),
     ]
     assert core.local_comfyui_sessions == ["enter", "exit"]
-    assert core.local_comfyui_session_release_options == [True]
+    assert core.local_comfyui_session_stop_options == [True]
     assert core.local_comfyui_session_backend_roles == ["image"]
     assert [frame.image_path for frame in ctx.storyboard.frames] == [
         str(tmp_path / "00_raw.png"),
@@ -904,20 +904,17 @@ async def test_hyperframes_asset_path_rejects_unsupported_tts_audio_strategy_bef
 
 
 @pytest.mark.asyncio
-async def test_synthesize_hyperframes_audio_schedules_tts_backend_restart_after_batch(
+async def test_synthesize_hyperframes_audio_stops_batch_without_immediate_restart(
     tmp_path,
     monkeypatch,
 ):
-    scheduled = []
     core = _DummyCore(tmp_path)
-    core.schedule_comfyui_backend_restart = lambda role, reason: scheduled.append(
-        (role, reason)
+    core.schedule_comfyui_backend_restart = lambda role, reason: pytest.fail(
+        f"audio completion must not immediately restart {role}: {reason}"
     )
     core._get_comfyui_backend_registry = lambda: SimpleNamespace(
         resolve_role_for_tts=lambda workflow_key: "tts",
         resolve_role_for_media=lambda workflow_key, media_type: "image",
-        is_dedicated_backend=lambda role: role == "tts",
-        profile=lambda role: SimpleNamespace(restart_after_batch=True),
     )
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_context(tmp_path)
@@ -939,24 +936,27 @@ async def test_synthesize_hyperframes_audio_schedules_tts_backend_restart_after_
 
     await pipeline._synthesize_hyperframes_audio(ctx)
 
-    assert scheduled == [("tts", "post-tts-batch")]
+    assert core.local_comfyui_session_stop_options == [True]
+    assert core.local_comfyui_session_backend_roles == ["tts"]
 
 
 @pytest.mark.asyncio
-async def test_synthesize_hyperframes_audio_skips_restart_when_profile_disables_it(
+async def test_hyperframes_audio_supports_legacy_session_parameter(
     tmp_path,
     monkeypatch,
 ):
-    scheduled = []
     core = _DummyCore(tmp_path)
-    core.schedule_comfyui_backend_restart = lambda role, reason: scheduled.append(
-        (role, reason)
-    )
+    legacy_stop_options = []
+
+    @asynccontextmanager
+    async def legacy_session(*, release_after_session=False, backend_role="default"):
+        legacy_stop_options.append((release_after_session, backend_role))
+        yield
+
+    core.local_comfyui_workflow_session = legacy_session
     core._get_comfyui_backend_registry = lambda: SimpleNamespace(
         resolve_role_for_tts=lambda workflow_key: "tts",
         resolve_role_for_media=lambda workflow_key, media_type: "image",
-        is_dedicated_backend=lambda role: True,
-        profile=lambda role: SimpleNamespace(restart_after_batch=False),
     )
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_context(tmp_path)
@@ -978,7 +978,7 @@ async def test_synthesize_hyperframes_audio_skips_restart_when_profile_disables_
 
     await pipeline._synthesize_hyperframes_audio(ctx)
 
-    assert scheduled == []
+    assert legacy_stop_options == [(True, "tts")]
 
 
 @pytest.mark.asyncio

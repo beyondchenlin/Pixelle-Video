@@ -128,6 +128,34 @@ async def test_pre_generation_queue_inspection_preserves_busy_foreign_queue():
 
 
 @pytest.mark.asyncio
+async def test_wait_until_idle_observes_queue_without_interrupting_or_clearing(monkeypatch):
+    transport = _RecordingTransport(
+        queue_payloads=[
+            {"queue_running": [["running"]], "queue_pending": []},
+            {"queue_running": [], "queue_pending": []},
+        ]
+    )
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=transport,
+        idle_wait_timeout=1,
+    )
+
+    async def _immediate_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
+
+    state = await client.wait_until_idle()
+
+    assert state.busy is False
+    assert transport.calls == [
+        ("GET", "/queue", None),
+        ("GET", "/queue", None),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_force_cleanup_times_out_when_queue_never_goes_idle(monkeypatch):
     transport = _RecordingTransport(
         queue_payload={"queue_running": [["running"]], "queue_pending": []}

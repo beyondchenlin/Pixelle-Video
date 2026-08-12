@@ -112,14 +112,15 @@ comfyui:
   # Global ComfyUI settings
   comfyui_url: http://127.0.0.1:8000  # ComfyUI server URL (required for selfhost workflows)
   executor_type: null  # Optional override: null=auto (recommended HTTP default), websocket only for explicit opt-in
-  backend_management_mode: disabled  # recommended desktop mode: connect only; auto/required opt into a headless managed backend
-  # Memory release is handled by restart_after_batch only for a process Pixelle
-  # actually started. Existing external backends are reused without restart/stop.
-  # Set to false to keep models hot in GPU for fast follow-up requests.
+  backend_management_mode: required  # recommended: Pixelle owns the complete local service lifecycle
+  # A Pixelle-owned service is started on demand, stopped after each deliberate image
+  # or audio batch, and started again only when the next local workflow needs it.
+  # External backends are never stopped. Set stop_after_batch to false only when
+  # keeping models resident is an explicit performance choice.
   #
   # Managed single-backend profile (image and TTS share one process):
-  #   managed: true               # Allow Pixelle to start the backend when absent
-  #   restart_after_batch: true   # Restart after a batch only when Pixelle owns it
+  #   managed: true               # Allow Pixelle to start the complete service when absent
+  #   stop_after_batch: true      # Stop after a batch; the next batch starts on demand
   #   python_exe: ""              # Path to Python interpreter for managed backends
   #   comfyui_root: ""            # Path to ComfyUI installation for managed backends
   backends:
@@ -127,8 +128,8 @@ comfyui:
       url: http://127.0.0.1:8000
       python_exe: E:/ComfyUIData/.venv/Scripts/python.exe
       comfyui_root: E:/comfyui/resources/ComfyUI
-      managed: true  # dormant while backend_management_mode is disabled; enables explicit auto/required mode
-      restart_after_batch: false
+      managed: true
+      stop_after_batch: true
       data_root: E:/ComfyUIData/pixelle
       shared_base_path: E:/ComfyUIData
       runtime_dir: _runtime/comfyui

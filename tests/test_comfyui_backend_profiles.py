@@ -28,11 +28,11 @@ def test_config_keeps_structured_profiles_and_routing():
                 "backends": {
                     "image": {
                         "url": "http://127.0.0.1:8001",
-                        "restart_after_batch": True,
+                        "stop_after_batch": True,
                     },
                     "tts": {
                         "url": "http://127.0.0.1:8002",
-                        "restart_after_batch": True,
+                        "stop_after_batch": True,
                     },
                 },
                 "workflow_routing": {
@@ -46,7 +46,7 @@ def test_config_keeps_structured_profiles_and_routing():
 
     assert set(config.comfyui.backends) == {"default", "image", "tts"}
     assert config.comfyui.backends["image"].url == "http://127.0.0.1:8001"
-    assert config.comfyui.backends["image"].restart_after_batch is True
+    assert config.comfyui.backends["image"].stop_after_batch is True
     assert config.comfyui.workflow_routing.image == "image"
     assert config.comfyui.workflow_routing.tts == "tts"
 
@@ -73,6 +73,40 @@ def test_backend_profile_keeps_optional_runtime_paths():
     assert profile.comfyui_root == "D:/ComfyUI"
     assert profile.frontend_root == "D:/ComfyUI/web"
     assert profile.extra_models_config == "D:/ComfyUI/extra_model_paths.yaml"
+
+
+@pytest.mark.parametrize("legacy_value", [True, False])
+def test_backend_profile_migrates_legacy_restart_setting(legacy_value):
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "backends": {
+                    "default": {"restart_after_batch": legacy_value},
+                }
+            }
+        }
+    )
+
+    profile = config.comfyui.backends["default"]
+    assert profile.stop_after_batch is legacy_value
+    assert "restart_after_batch" not in profile.model_dump()
+
+
+def test_backend_profile_explicit_stop_setting_wins_over_legacy_setting():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "backends": {
+                    "default": {
+                        "restart_after_batch": False,
+                        "stop_after_batch": True,
+                    },
+                }
+            }
+        }
+    )
+
+    assert config.comfyui.backends["default"].stop_after_batch is True
 
 
 def test_backend_profile_database_url_defaults_to_profile_data_root():

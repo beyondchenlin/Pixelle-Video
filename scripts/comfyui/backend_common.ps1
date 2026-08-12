@@ -372,10 +372,14 @@ function Stop-BackendOwnedComfyUIProcess {
         return $false
     }
 
-    Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    $processTreeIds = @(Get-ProcessTreeIds -RootProcessId $ProcessId)
+    Stop-ProcessTreeOwnedByLaunch $ProcessId
     $deadline = (Get-Date).AddSeconds(5)
     do {
-        if (-not (Get-ProcessInfo $ProcessId)) {
+        $remainingProcessIds = @(
+            $processTreeIds | Where-Object { Get-ProcessInfo $_ }
+        )
+        if ($remainingProcessIds.Count -eq 0) {
             return $true
         }
         Start-Sleep -Milliseconds 100
@@ -383,11 +387,11 @@ function Stop-BackendOwnedComfyUIProcess {
     return $false
 }
 
-function Stop-ProcessTreeOwnedByLaunch {
+function Get-ProcessTreeIds {
     param([int]$RootProcessId)
 
     if ($RootProcessId -le 0) {
-        return
+        return @()
     }
 
     $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
@@ -405,7 +409,19 @@ function Stop-ProcessTreeOwnedByLaunch {
         }
     }
 
+    return @($RootProcessId) + @($descendants)
+}
+
+function Stop-ProcessTreeOwnedByLaunch {
+    param([int]$RootProcessId)
+
+    $processTreeIds = @(Get-ProcessTreeIds -RootProcessId $RootProcessId)
+    if ($processTreeIds.Count -eq 0) {
+        return
+    }
+
     Stop-Process -Id $RootProcessId -Force -ErrorAction SilentlyContinue
+    $descendants = @($processTreeIds | Where-Object { $_ -ne $RootProcessId })
     for ($index = $descendants.Count - 1; $index -ge 0; $index -= 1) {
         Stop-Process -Id $descendants[$index] -Force -ErrorAction SilentlyContinue
     }
