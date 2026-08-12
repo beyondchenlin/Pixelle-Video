@@ -498,6 +498,52 @@ async def test_core_stop_idle_managed_comfyui_backends_prefers_routed_roles_and_
 
 
 @pytest.mark.asyncio
+async def test_generation_cleanup_waits_for_accelerator_before_delegating_stop():
+    events = []
+
+    class _Backend:
+        def can_manage(self):
+            return True
+
+        async def stop(self, *, reason):
+            events.append("stop")
+            return SimpleNamespace(payload={"stopped": True})
+
+    class _Registry:
+        config = SimpleNamespace(
+            workflow_routing=SimpleNamespace(
+                image="default",
+                tts="default",
+                default="default",
+            ),
+            backends={"default": SimpleNamespace(url="http://127.0.0.1:8000")},
+        )
+
+        def profile(self, role):
+            return self.config.backends[role]
+
+        def managed_backend(self, role):
+            return _Backend()
+
+    core = PixelleVideoCore()
+    core._get_comfyui_backend_registry = lambda: _Registry()
+    async def _close_comfykit_instance(role=None):
+        return None
+
+    core._close_comfykit_instance = _close_comfykit_instance
+    await core._local_comfyui_accelerator_lock.acquire()
+    cleanup = asyncio.create_task(
+        core._stop_idle_managed_comfyui_backends(reason="test")
+    )
+    await asyncio.sleep(0)
+    assert events == []
+    core._local_comfyui_accelerator_lock.release()
+
+    assert await cleanup == ["default"]
+    assert events == ["stop"]
+
+
+@pytest.mark.asyncio
 async def test_core_stop_idle_managed_comfyui_backends_uses_recent_roles_when_available():
     stop_calls = []
 
@@ -991,7 +1037,9 @@ async def test_core_execute_local_comfy_workflow_releases_after_failure():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure_shape", ("exception", "error_result"))
-async def test_core_execute_local_comfy_workflow_recovers_once_after_oom(failure_shape):
+async def test_core_execute_local_comfy_workflow_does_not_retry_same_config_after_oom(
+    failure_shape,
+):
     calls = []
     attempts = 0
 
@@ -1043,28 +1091,61 @@ async def test_core_execute_local_comfy_workflow_recovers_once_after_oom(failure
     core._restart_comfyui_backend_role = _restart
     core._get_or_create_comfykit = _get_kit
 
-    result = await core.execute_comfykit_workflow(
-        "workflows/selfhost/oom_lifecycle.json",
-        {},
-        workflow_source="selfhost",
-    )
+    if failure_shape == "error_result":
+        with pytest.raises(RuntimeError, match="did not retry the same workflow"):
+            await core.execute_comfykit_workflow(
+                "workflows/selfhost/oom_lifecycle.json",
+                {},
+                workflow_source="selfhost",
+            )
+    else:
+        with pytest.raises(RuntimeError, match="did not retry the same workflow"):
+            await core.execute_comfykit_workflow(
+                "workflows/selfhost/oom_lifecycle.json",
+                {},
+                workflow_source="selfhost",
+            )
 
-    assert result.status == "completed"
     assert calls == [
         ("prepare",),
         ("get_kit",),
         ("execute", 1, "workflows/selfhost/oom_lifecycle.json", {}),
-        ("force_release", "oom-recovery"),
-        ("restart", "default", "oom-recovery"),
-        ("prepare",),
-        ("get_kit",),
-        ("execute", 2, "workflows/selfhost/oom_lifecycle.json", {}),
         ("release",),
     ]
 
 
 @pytest.mark.asyncio
-async def test_core_execute_index_tts2_oom_recovery_releases_plugin_cache_in_comfyui_mode(
+async def test_core_uses_recent_managed_log_to_classify_secondary_cublas_failure(
+    monkeypatch,
+):
+    calls = []
+    core = PixelleVideoCore()
+
+    async def _execute_once(workflow_input, workflow_params, *, backend_role="default"):
+        calls.append("execute")
+        return SimpleNamespace(
+            status="error",
+            msg="CUDA error: CUBLAS_STATUS_EXECUTION_FAILED",
+        )
+
+    monkeypatch.setattr(core, "_execute_local_comfykit_workflow_once", _execute_once)
+    monkeypatch.setattr(
+        core,
+        "_diagnose_recent_comfyui_backend_failure",
+        lambda **_kwargs: "memory_exhaustion",
+    )
+
+    with pytest.raises(RuntimeError, match="did not retry the same workflow"):
+        await core._execute_local_comfykit_workflow(
+            "selfhost/image_z_image_turbo_gguf.json",
+            {},
+        )
+
+    assert calls == ["execute"]
+
+
+@pytest.mark.asyncio
+async def test_core_execute_index_tts2_oom_stops_without_same_config_retry(
     monkeypatch,
     tmp_path,
 ):
@@ -1136,28 +1217,22 @@ async def test_core_execute_index_tts2_oom_recovery_releases_plugin_cache_in_com
     _install_noop_extension_preflight(core)
     core._get_or_create_comfykit = _get_kit
 
-    result = await core.execute_comfykit_workflow(
-        "workflows/selfhost/tts_index2.json",
-        workflow_params,
-        workflow_source="selfhost",
-        tts_workflow_trace_context=_tts_trace_context(
-            tmp_path,
-            workflow="workflows/selfhost/tts_index2.json",
-            workflow_params=workflow_params,
-        ),
-    )
+    with pytest.raises(RuntimeError, match="did not retry the same workflow"):
+        await core.execute_comfykit_workflow(
+            "workflows/selfhost/tts_index2.json",
+            workflow_params,
+            workflow_source="selfhost",
+            tts_workflow_trace_context=_tts_trace_context(
+                tmp_path,
+                workflow="workflows/selfhost/tts_index2.json",
+                workflow_params=workflow_params,
+            ),
+        )
 
-    assert result.status == "completed"
     assert calls == [
         ("prepare",),
         ("get_kit",),
         ("execute", 1, "workflows/selfhost/tts_index2.json"),
-        ("client", "http://127.0.0.1:8000", "secret"),
-        ("free_with_extensions", "high", ("indextts2",), "required"),
-        ("restart", "default", "oom-recovery"),
-        ("prepare",),
-        ("get_kit",),
-        ("execute", 2, "workflows/selfhost/tts_index2.json"),
         ("index_tts2_release", "post-index-tts2-workflow", "required"),
     ]
 
@@ -1208,7 +1283,7 @@ async def test_core_execute_local_comfy_workflow_stops_when_oom_release_fails():
     core._restart_comfyui_backend_role = _restart
     core._get_or_create_comfykit = _get_kit
 
-    with pytest.raises(RuntimeError, match="without confirmed memory release"):
+    with pytest.raises(RuntimeError, match="did not retry the same workflow"):
         await core.execute_comfykit_workflow(
             "workflows/selfhost/oom_release_failure.json",
             {},
@@ -1219,8 +1294,6 @@ async def test_core_execute_local_comfy_workflow_stops_when_oom_release_fails():
         ("prepare",),
         ("get_kit",),
         ("execute", 1),
-        ("force_release", "oom-recovery"),
-        ("restart", "default", "oom-recovery"),
         ("release",),
     ]
 
@@ -4136,6 +4209,7 @@ async def test_next_local_batch_starts_service_on_demand_after_previous_batch_st
             )
 
         async def stop(self, *, reason):
+            await _Maintenance().wait_until_idle()
             events.append(("stop", reason))
             self.running = False
             return SimpleNamespace(payload={"stopped": True})
@@ -4405,19 +4479,17 @@ async def test_release_comfyui_after_local_workflow_refuses_to_stop_busy_queue(
 ):
     core = PixelleVideoCore()
 
-    class _BusyQueue:
-        async def wait_until_idle(self):
-            raise TimeoutError("queue remained busy")
-
     async def fail_stop(backend_role, reason):
-        raise AssertionError(f"busy queue must not be terminated: {backend_role} {reason}")
+        raise RuntimeError(
+            "ComfyUI queue could not be confirmed idle before stopping the "
+            f"Pixelle-owned backend '{backend_role}'"
+        )
 
     monkeypatch.setattr(core, "_stop_after_batch_for_role", lambda backend_role: True)
     _install_pixelle_owned_comfyui_backend(monkeypatch, core)
-    monkeypatch.setattr(core, "_get_comfyui_maintenance_client", lambda role: _BusyQueue())
     monkeypatch.setattr(core, "_stop_comfyui_backend_role", fail_stop)
 
-    with pytest.raises(RuntimeError, match="refusing to terminate work whose state is unknown"):
+    with pytest.raises(RuntimeError, match="queue could not be confirmed idle"):
         await core.release_comfyui_after_local_workflow()
 
 

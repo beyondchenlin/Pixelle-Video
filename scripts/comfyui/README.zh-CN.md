@@ -16,6 +16,8 @@ http://127.0.0.1:8000
 
 - 推荐按需启停：`backend_management_mode: required`、`managed: true`、
   `stop_after_batch: true`。Pixelle 只停止经过进程身份验证、由自己启动的完整服务。
+- 推荐保留 `resource_policy: auto` 和 `minimum_free_commit_gb: 12`。Windows 托管服务
+  会关闭容易耗尽系统提交内存的锁页、异步卸载和执行缓存，同时保留大工作流需要的动态显存能力。
 - 外部连接：`backend_management_mode: disabled`。用户先手动启动实例，Pixelle 只检测
   连接和提交任务，绝不停止外部服务。
 - 自动复用：`backend_management_mode: auto`。此模式可复用外部服务，因此无法保证批次

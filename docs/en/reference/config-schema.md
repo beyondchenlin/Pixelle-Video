@@ -54,6 +54,8 @@ template:
 - `comfyui_url`: Local ComfyUI address (default `http://127.0.0.1:8188`)
 - `backend_management_mode`: ComfyUI lifecycle policy. `"required"` is recommended for a configured single-machine local deployment: Pixelle accepts only a complete local service whose ownership it can verify, starts it on demand, and stops it after each deliberate image or audio batch. `"auto"` may reuse an external service and therefore cannot guarantee memory release. `"disabled"` is the backward-compatible default; it only connects to an external service and never starts or stops it.
 - `backends.<role>.stop_after_batch`: When enabled for a Pixelle-owned service, wait for an idle queue and stop the complete service after the batch. The next local workflow starts it on demand. External or unverified services are preserved.
+- `backends.<role>.resource_policy`: Managed-process resource policy. `auto` selects the stable `memory_safe` default for managed Windows services; that mode disables pinned memory, asynchronous model offload, and the execution cache while preserving dynamic VRAM for large workflows. `performance` is an explicit opt-in for operators who have measured their complete workload.
+- `backends.<role>.minimum_free_commit_gb`: Minimum available Windows commit capacity required before starting a managed service. The default is 12 GiB; startup fails early below the threshold instead of crashing during model loading.
 - `pre_generation_cleanup_mode`: Cleanup before a local generation batch
   - `"force"`: Interrupt and clear a busy queue, then wait for ComfyUI to become idle before Pixelle starts
   - `"conservative"`: Leave the existing queue untouched and avoid forced cleanup

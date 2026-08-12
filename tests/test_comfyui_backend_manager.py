@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 
@@ -22,6 +23,23 @@ class _ProbeClient:
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
+
+
+class _QueueClient:
+    def __init__(self, events=None, *, error=None, health=None):
+        self.events = events if events is not None else []
+        self.error = error
+        self.health = health if health is not None else {"system": {}}
+
+    async def wait_until_idle(self):
+        self.events.append("queue_idle")
+        if self.error is not None:
+            raise self.error
+
+    async def probe_backend(self):
+        if isinstance(self.health, Exception):
+            raise self.health
+        return self.health
 
 
 def _state(ownership, *, listener=True, pid_file=False):
@@ -180,6 +198,8 @@ def test_managed_backend_uses_profile_runtime_arguments(tmp_path):
     assert profile.database_url in args
     assert "-Port" in args
     assert "8001" in args
+    assert args[args.index("-ResourcePolicy") + 1] == "auto"
+    assert args[args.index("-MinimumFreeCommitGB") + 1] == "12"
 
 
 def test_managed_backend_passes_optional_profile_script_arguments(tmp_path):
@@ -294,6 +314,7 @@ async def test_managed_backend_script_timeout_reports_context(monkeypatch, tmp_p
             logs_dir=str(tmp_path / "logs"),
         ),
         management_mode="required",
+        maintenance_client=_QueueClient(),
     )
 
     def fake_run(command, **kwargs):
@@ -667,6 +688,136 @@ async def test_stop_preserves_external_backend(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_stop_waits_for_idle_queue_before_stopping_owned_listener(monkeypatch):
+    events = []
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+        maintenance_client=_QueueClient(events),
+    )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("pixelle", pid_file=True)),
+    )
+
+    async def run_script(script_name, action, *, reason, extra_args=None):
+        events.append("stop")
+        return ComfyUIBackendCommandResult(
+            action=action,
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={"stopped": True},
+        )
+
+    monkeypatch.setattr(backend, "_run_script", run_script)
+
+    result = await backend.stop(reason="batch-stop")
+
+    assert result.payload["stopped"] is True
+    assert events == ["queue_idle", "stop"]
+
+
+@pytest.mark.asyncio
+async def test_stop_fails_closed_when_owned_listener_queue_is_unknown(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+        maintenance_client=_QueueClient(error=TimeoutError("queue unavailable")),
+    )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("pixelle", pid_file=True)),
+    )
+
+    async def fail_script(*args, **kwargs):
+        raise AssertionError("unknown queue state must not stop a live listener")
+
+    monkeypatch.setattr(backend, "_run_script", fail_script)
+
+    with pytest.raises(RuntimeError, match="queue could not be confirmed idle"):
+        await backend.stop(reason="batch-stop")
+
+
+@pytest.mark.asyncio
+async def test_stop_cleans_crashed_owned_process_without_queue_probe(monkeypatch):
+    events = []
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+        maintenance_client=_QueueClient(events, error=AssertionError("must not probe")),
+    )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(
+            _state("absent", listener=False, pid_file=True)
+        ),
+    )
+
+    async def run_script(script_name, action, *, reason, extra_args=None):
+        events.append("stop")
+        return ComfyUIBackendCommandResult(
+            action=action,
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={"stopped": True},
+        )
+
+    monkeypatch.setattr(backend, "_run_script", run_script)
+
+    result = await backend.stop(reason="crash-cleanup")
+
+    assert result.payload["stopped"] is True
+    assert events == ["stop"]
+
+
+@pytest.mark.asyncio
+async def test_stop_cleans_api_unhealthy_owned_listener_when_queue_is_unreachable(
+    monkeypatch,
+):
+    events = []
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        comfyui_url="http://127.0.0.1:8000",
+        management_mode="auto",
+        maintenance_client=_QueueClient(
+            events,
+            error=TimeoutError("queue unavailable"),
+            health=ConnectionError("backend unavailable"),
+        ),
+    )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("pixelle", pid_file=True)),
+    )
+
+    async def run_script(script_name, action, *, reason, extra_args=None):
+        events.append("stop")
+        return ComfyUIBackendCommandResult(
+            action=action,
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={"stopped": True},
+        )
+
+    monkeypatch.setattr(backend, "_run_script", run_script)
+
+    result = await backend.stop(reason="api-unhealthy")
+
+    assert result.payload["stopped"] is True
+    assert events == ["queue_idle", "stop"]
+
+
+@pytest.mark.asyncio
 async def test_stop_cleans_owned_record_without_touching_external_listener(monkeypatch):
     backend = ManagedComfyUIBackend(
         repo_root=Path.cwd(),
@@ -758,3 +909,60 @@ async def test_restart_does_not_start_when_stop_is_unconfirmed(monkeypatch):
     monkeypatch.setattr(backend, "start", fail_start)
 
     assert await backend.restart(reason="memory-release") is False
+
+
+@pytest.mark.asyncio
+async def test_start_command_includes_typed_resource_contract(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile=ComfyUIBackendProfile(
+            url="http://127.0.0.1:8000",
+            resource_policy="memory_safe",
+            minimum_free_commit_gb=12.5,
+        ),
+    )
+
+    captured = {}
+
+    async def _run_script(script_name, action, *, reason, extra_args=None):
+        captured["extra_args"] = extra_args
+        return ComfyUIBackendCommandResult(
+            action=action,
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={"started": True},
+        )
+
+    monkeypatch.setattr(backend, "_run_script", _run_script)
+
+    await backend.start(reason="test")
+
+    assert captured["extra_args"] == [
+        "-ReadyTimeoutSeconds",
+        "90",
+    ]
+
+
+def test_recent_failure_diagnostic_classifies_only_fresh_bounded_memory_log(tmp_path):
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    stderr_log = logs_dir / "comfyui-backend.stderr.log"
+    stderr_log.write_text(
+        "fatal : Memory allocation failure\nCUDA error: CUBLAS_STATUS_EXECUTION_FAILED",
+        encoding="utf-8",
+    )
+    backend = ManagedComfyUIBackend(
+        repo_root=tmp_path,
+        working_directory=tmp_path,
+        profile=ComfyUIBackendProfile(
+            url="http://127.0.0.1:8000",
+            logs_dir=str(logs_dir),
+        ),
+    )
+
+    assert backend.diagnose_recent_failure() == "memory_exhaustion"
+
+    old_timestamp = stderr_log.stat().st_mtime - 300
+    os.utime(stderr_log, (old_timestamp, old_timestamp))
+    assert backend.diagnose_recent_failure() is None

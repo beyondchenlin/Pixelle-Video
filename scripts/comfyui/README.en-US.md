@@ -19,6 +19,9 @@ http://127.0.0.1:8000
 - Recommended on-demand mode: `backend_management_mode: required`, `managed: true`,
   and `stop_after_batch: true`. Pixelle stops only the complete service it started and
   whose process identity it verified.
+- Keep `resource_policy: auto` and `minimum_free_commit_gb: 12` for managed Windows
+  deployments. The safe default disables pinned-memory, asynchronous offload, and
+  execution caching while preserving dynamic VRAM for large workflows.
 - External mode: `backend_management_mode: disabled`. The user starts the instance;
   Pixelle only probes and submits work and never stops the external service.
 - Reuse mode: `backend_management_mode: auto`. This may reuse an external service, so

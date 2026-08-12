@@ -11,6 +11,9 @@ param(
     [string]$LogsDir = '',
     [string]$HostAddress = '',
     [int]$Port = 0,
+    [ValidateSet('', 'auto', 'memory_safe', 'performance')]
+    [string]$ResourcePolicy = '',
+    [double]$MinimumFreeCommitGB = -1,
     [int]$ReadyTimeoutSeconds = 90,
     [switch]$DryRun,
     [switch]$Json
@@ -32,9 +35,13 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -RuntimeDir $RuntimeDir `
     -LogsDir $LogsDir `
     -HostAddress $HostAddress `
-    -Port $Port
+    -Port $Port `
+    -ResourcePolicy $ResourcePolicy `
+    -MinimumFreeCommitGB $MinimumFreeCommitGB
 
 Assert-BackendPrerequisites $config
+Assert-BackendResourcePolicySupport $config
+$config.MemorySnapshot = Get-SystemMemorySnapshot
 
 $arguments = Get-BackendArguments $config
 $listener = Get-BackendListener $config
@@ -100,6 +107,8 @@ if ($DryRun) {
     exit 0
 }
 
+Assert-BackendSystemMemoryAdmission $config
+
 Ensure-Directory $config.RuntimeDir
 Ensure-Directory $config.LogsDir
 
@@ -112,12 +121,41 @@ $previousStderrLog = Move-ExistingBackendLog -Path $stderrLog -Stamp $logStamp
 $previousPythonIoEncoding = $env:PYTHONIOENCODING
 $env:PYTHONIOENCODING = 'utf-8'
 try {
+    $supervisorPath = Join-Path $PSScriptRoot 'backend_supervisor.ps1'
+    $argumentsJson = ConvertTo-Json -InputObject ([object[]]$arguments) -Compress
+    $argumentsBase64 = [Convert]::ToBase64String(
+        [Text.Encoding]::UTF8.GetBytes($argumentsJson)
+    )
+    $supervisorArguments = @(
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        $supervisorPath,
+        '-PythonExe',
+        $config.PythonExe,
+        '-WorkingDirectory',
+        $config.ComfyUIRoot,
+        '-StdoutLog',
+        $stdoutLog,
+        '-StderrLog',
+        $stderrLog,
+        '-ArgumentsBase64',
+        $argumentsBase64,
+        '-ProfileName',
+        $config.ProfileName,
+        '-ComfyUIRoot',
+        $config.ComfyUIRoot,
+        '-SharedBasePath',
+        $config.SharedBasePath,
+        '-Port',
+        [string]$config.Port
+    )
+    $powerShellExe = (Get-Process -Id $PID).Path
     $process = Start-Process `
-        -FilePath $config.PythonExe `
-        -ArgumentList $arguments `
-        -WorkingDirectory $config.ComfyUIRoot `
-        -RedirectStandardOutput $stdoutLog `
-        -RedirectStandardError $stderrLog `
+        -FilePath $powerShellExe `
+        -ArgumentList $supervisorArguments `
+        -WorkingDirectory $PSScriptRoot `
         -WindowStyle Hidden `
         -PassThru
 }

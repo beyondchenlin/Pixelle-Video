@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -14,6 +15,7 @@ from urllib.parse import urlparse
 from loguru import logger
 
 from pixelle_video.config.schema import ComfyUIBackendProfile
+from pixelle_video.services.comfyui_errors import looks_like_memory_exhaustion
 from pixelle_video.services.comfyui_maintenance import ComfyUIMaintenanceClient
 
 
@@ -334,8 +336,35 @@ class ComfyUIBackendController:
             "start_backend.ps1",
             "start",
             reason=reason,
-            extra_args=["-ReadyTimeoutSeconds", str(self.ready_timeout_seconds)],
+            extra_args=[
+                "-ReadyTimeoutSeconds",
+                str(self.ready_timeout_seconds),
+            ],
         )
+
+    def diagnose_recent_failure(self, *, max_age_seconds: float = 120.0) -> str | None:
+        """Classify a bounded, recent managed-backend log tail without exposing it."""
+        logs_dir = str(self.profile.logs_dir or "").strip()
+        if not logs_dir:
+            return None
+        log_path = Path(logs_dir)
+        if not log_path.is_absolute():
+            log_path = self.working_directory / log_path
+        stderr_path = log_path / "comfyui-backend.stderr.log"
+        try:
+            age_seconds = max(0.0, time.time() - stderr_path.stat().st_mtime)
+            if age_seconds > max_age_seconds:
+                return None
+            with stderr_path.open("rb") as stream:
+                stream.seek(0, os.SEEK_END)
+                size = stream.tell()
+                stream.seek(max(0, size - 256 * 1024), os.SEEK_SET)
+                tail = stream.read().decode("utf-8", errors="replace")
+        except OSError:
+            return None
+        if looks_like_memory_exhaustion(tail):
+            return "memory_exhaustion"
+        return None
 
     async def stop(self, *, reason: str) -> ComfyUIBackendCommandResult:
         state = await self.inspect_state(reason=f"{reason}:stop-check")
@@ -357,6 +386,24 @@ class ComfyUIBackendController:
                 reason="backend_absent",
                 payload=state.payload,
             )
+        # Only a live Pixelle-owned listener can have queued work. A crashed
+        # service may still have a recorded supervisor that must be terminated,
+        # but its HTTP queue is no longer available to inspect.
+        if state.owned_by_pixelle and state.listener_present:
+            try:
+                await self.maintenance_client.wait_until_idle()
+            except Exception as exc:
+                health, _health_error = await self._probe_backend_safely()
+                if health is not None:
+                    raise RuntimeError(
+                        "ComfyUI queue could not be confirmed idle before stopping the "
+                        f"Pixelle-owned backend '{self.profile_name}'"
+                    ) from exc
+                logger.warning(
+                    "Stopping an API-unhealthy Pixelle-owned ComfyUI backend even though "
+                    "its queue is unreachable; process ownership remains verified: "
+                    f"profile='{self.profile_name}', reason='{reason}'"
+                )
         return await self._run_script("stop_backend.ps1", "stop", reason=reason)
 
     async def check(self, *, reason: str) -> ComfyUIBackendCommandResult:
@@ -573,6 +620,14 @@ class ComfyUIBackendController:
         self._append_profile_arg(args, "-ComfyUIRoot", self.profile.comfyui_root)
         self._append_profile_arg(args, "-ExtraModelsConfig", self.profile.extra_models_config)
         self._append_profile_arg(args, "-FrontEndRoot", self.profile.frontend_root)
+        args.extend(
+            [
+                "-ResourcePolicy",
+                self.profile.resource_policy,
+                "-MinimumFreeCommitGB",
+                f"{self.profile.minimum_free_commit_gb:g}",
+            ]
+        )
         return args
 
     def _append_profile_arg(

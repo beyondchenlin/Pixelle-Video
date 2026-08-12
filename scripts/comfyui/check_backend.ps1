@@ -11,6 +11,9 @@ param(
     [string]$LogsDir = '',
     [string]$HostAddress = '',
     [int]$Port = 0,
+    [ValidateSet('', 'auto', 'memory_safe', 'performance')]
+    [string]$ResourcePolicy = '',
+    [double]$MinimumFreeCommitGB = -1,
     [switch]$Json
 )
 
@@ -30,7 +33,9 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -RuntimeDir $RuntimeDir `
     -LogsDir $LogsDir `
     -HostAddress $HostAddress `
-    -Port $Port
+    -Port $Port `
+    -ResourcePolicy $ResourcePolicy `
+    -MinimumFreeCommitGB $MinimumFreeCommitGB
 
 $listener = Get-BackendListener $config
 $managedPid = Read-BackendPid $config

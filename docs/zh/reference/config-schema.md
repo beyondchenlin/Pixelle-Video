@@ -51,6 +51,8 @@ template:
 
 - `comfyui_url`: 本地 ComfyUI 地址（默认 `http://127.0.0.1:8188`）
 - `backend_management_mode`: ComfyUI 生命周期策略。`"required"` 是本地单机生成的推荐配置，只接受由 Pixelle 验证所有权的完整本地服务；工作流需要时按需启动，批次结束后停止。`"auto"` 可复用外部服务，因此无法保证释放内存；`"disabled"` 是兼容旧部署的默认值，只连接外部服务，永不启动或停止它。
+- `backends.<role>.resource_policy`: 托管服务资源策略。`auto` 对 Windows 托管服务使用稳定的 `memory_safe` 默认策略，关闭锁页内存、异步模型卸载和执行缓存，同时保留大工作流需要的动态显存能力；`performance` 只供完成整条业务链路实测后的显式启用。
+- `backends.<role>.minimum_free_commit_gb`: 启动托管服务所需的最低 Windows 可用提交内存，默认 12 GiB；低于阈值时提前拒绝启动。
 - `comfyui_api_key`: ComfyUI API 密钥（可选，用于 [Comfy Platform](https://platform.comfy.org/profile/api-keys)）
 
 Pixelle 在提交本地工作流前通过 `/system_stats` 验证服务健康，并只观察共享队列，不中断或清空其他客户端任务。对 Pixelle 验证所有权的服务，`stop_after_batch: true` 会在完整图片或音频批次结束且队列为空后停止整个服务；下一批本地工作流才重新启动。进程退出同时释放显存和系统内存，不依赖插件私有的释放接口。对外部启动或所有权无法验证的服务，Pixelle 不执行停止操作。服务运行期间，仍可通过配置地址在浏览器中查看队列、历史和生成内容。

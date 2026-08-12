@@ -82,6 +82,11 @@ def make_fake_comfyui(tmp_path: Path) -> tuple[Path, Path, Path]:
     comfyui_root = tmp_path / "ComfyUI"
     data_root = tmp_path / "ComfyUIData"
     comfyui_root.mkdir()
+    (comfyui_root / "comfy").mkdir()
+    (comfyui_root / "comfy" / "cli_args.py").write_text(
+        "--disable-pinned-memory --disable-async-offload --cache-none",
+        encoding="utf-8",
+    )
     (comfyui_root / "web_custom_versions" / "desktop_app").mkdir(parents=True)
     (comfyui_root / "main.py").write_text("print('fake comfyui')\n", encoding="utf-8")
     for name in ("input", "output", "user"):
@@ -428,6 +433,11 @@ def test_start_backend_dry_run_initializes_missing_profile_dirs(
     runtime_dir = tmp_path / "runtime" / "image"
     logs_dir = tmp_path / "logs" / "image"
     comfyui_root.mkdir()
+    (comfyui_root / "comfy").mkdir()
+    (comfyui_root / "comfy" / "cli_args.py").write_text(
+        "--disable-pinned-memory --disable-async-offload --cache-none",
+        encoding="utf-8",
+    )
     (comfyui_root / "web_custom_versions" / "desktop_app").mkdir(parents=True)
     (comfyui_root / "main.py").write_text("print('fake comfyui')\n", encoding="utf-8")
     extra_models_config = tmp_path / "extra_models_config.yaml"
@@ -634,6 +644,115 @@ def test_start_backend_dry_run_uses_headless_safe_args(tmp_path: Path) -> None:
     assert "--extra-model-paths-config" in argv
     assert "--front-end-root" not in argv
     assert "--enable-cors-header" not in argv
+
+
+def test_start_backend_memory_safe_policy_disables_commit_heavy_features(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    (comfyui_root / "comfy" / "cli_args.py").write_text(
+        "--disable-pinned-memory --disable-async-offload "
+        "--cache-none",
+        encoding="utf-8",
+    )
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-ResourcePolicy",
+        "memory_safe",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-HostAddress",
+        "127.0.0.1",
+        "-Port",
+        "65500",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["resource_policy"] == "memory_safe"
+    assert "--disable-pinned-memory" in payload["arguments"]
+    assert "--disable-async-offload" in payload["arguments"]
+    assert "--disable-dynamic-vram" not in payload["arguments"]
+    assert "--cache-none" in payload["arguments"]
+
+
+def test_start_backend_auto_policy_defaults_to_memory_safe(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-ResourcePolicy",
+        "auto",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-HostAddress",
+        "127.0.0.1",
+        "-Port",
+        "65500",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["requested_resource_policy"] == "auto"
+    assert payload["resource_policy"] == "memory_safe"
+    assert "--disable-pinned-memory" in payload["arguments"]
+
+
+def test_start_backend_memory_safe_policy_fails_when_support_is_unverifiable(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    (comfyui_root / "comfy" / "cli_args.py").unlink()
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-ResourcePolicy",
+        "memory_safe",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-HostAddress",
+        "127.0.0.1",
+        "-Port",
+        "65500",
+    )
+
+    assert result.returncode != 0
+    assert "cannot prove support" in result.stderr
 
 
 def test_data_root_environment_does_not_override_shared_base_path(tmp_path: Path) -> None:
@@ -1222,7 +1341,8 @@ def test_stop_backend_terminates_owned_service_descendants(tmp_path: Path) -> No
         )
 
         assert stop.returncode == 0, stop.stderr
-        assert json.loads(stop.stdout)["stopped"] is True
+        stop_payload = json.loads(stop.stdout)
+        assert stop_payload["stopped"] is True, json.dumps(stop_payload, indent=2)
         wait_for_process_exit(worker_pid)
     finally:
         kill_fake_comfyui_processes(comfyui_root)

@@ -43,6 +43,107 @@ function Resolve-BackendInt {
     return $Default
 }
 
+function Resolve-BackendDouble {
+    param(
+        [double]$Provided,
+        [string]$EnvironmentName,
+        [double]$Default
+    )
+
+    if ($Provided -ge 0) {
+        return $Provided
+    }
+
+    $environmentValue = [Environment]::GetEnvironmentVariable($EnvironmentName)
+    if ($environmentValue -and $environmentValue.Trim()) {
+        return [double]::Parse(
+            $environmentValue,
+            [System.Globalization.CultureInfo]::InvariantCulture
+        )
+    }
+
+    return $Default
+}
+
+function Get-SystemMemorySnapshot {
+    try {
+        $operatingSystem = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+        $computerSystem = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+        # Win32_OperatingSystem exposes the Windows commit limit and remaining
+        # commit in KiB. Prefer raw performance counters when available, but do
+        # not reject startup solely because that optional provider is busy.
+        $commitLimitBytes = [double]$operatingSystem.TotalVirtualMemorySize * 1KB
+        $freeCommitBytes = [double]$operatingSystem.FreeVirtualMemory * 1KB
+        $commitSource = 'operating_system'
+        try {
+            $memoryPerformance = Get-CimInstance `
+                Win32_PerfRawData_PerfOS_Memory `
+                -ErrorAction Stop
+            $performanceCommitLimit = [double]$memoryPerformance.CommitLimit
+            $performanceCommitted = [double]$memoryPerformance.CommittedBytes
+            if ($performanceCommitLimit -gt 0 -and
+                $performanceCommitted -ge 0 -and
+                $performanceCommitted -le $performanceCommitLimit) {
+                $commitLimitBytes = $performanceCommitLimit
+                $freeCommitBytes = $performanceCommitLimit - $performanceCommitted
+                $commitSource = 'performance_counter'
+            }
+        }
+        catch {
+            # The operating-system values above are the same Windows commit
+            # accounting domain and remain a valid admission-control fallback.
+        }
+        $committedBytes = [math]::Max(
+            [double]0,
+            [double]($commitLimitBytes - $freeCommitBytes)
+        )
+        return [ordered]@{
+            total_physical_gb = [math]::Round(
+                [double]$computerSystem.TotalPhysicalMemory / 1GB,
+                2
+            )
+            free_physical_gb = [math]::Round(
+                [double]$operatingSystem.FreePhysicalMemory / 1MB,
+                2
+            )
+            total_commit_gb = [math]::Round(
+                $commitLimitBytes / 1GB,
+                2
+            )
+            committed_gb = [math]::Round($committedBytes / 1GB, 2)
+            free_commit_gb = [math]::Round(
+                [math]::Max([double]0, [double]$freeCommitBytes) / 1GB,
+                2
+            )
+            commit_source = $commitSource
+        }
+    }
+    catch {
+        return $null
+    }
+}
+
+function Resolve-BackendResourcePolicy {
+    param(
+        [string]$RequestedPolicy
+    )
+
+    $normalized = ([string]$RequestedPolicy).Trim().ToLowerInvariant()
+    if ($normalized -notin @('auto', 'memory_safe', 'performance')) {
+        throw "Unsupported ComfyUI resource policy: $RequestedPolicy"
+    }
+    if ($normalized -ne 'auto') {
+        return $normalized
+    }
+
+    # Managed services share system commit with the web process, renderers, and
+    # later pipeline stages. Workflow model sizes are not known at service-start
+    # time, so physical-RAM thresholds cannot prove that pinned/offload buffers
+    # are safe. Auto is therefore the stable safe default; performance is an
+    # explicit opt-in for operators who have measured their complete workload.
+    return 'memory_safe'
+}
+
 function ConvertTo-SqliteUrl {
     param([string]$DatabasePath)
     return "sqlite:///$($DatabasePath -replace '\\', '/')"
@@ -61,7 +162,9 @@ function Resolve-PixelleComfyUIBackendConfig {
         [string]$RuntimeDir,
         [string]$LogsDir,
         [string]$HostAddress,
-        [int]$Port
+        [int]$Port,
+        [string]$ResourcePolicy = '',
+        [double]$MinimumFreeCommitGB = -1
     )
 
     $repoRoot = Get-PixelleRepoRoot
@@ -82,6 +185,19 @@ function Resolve-PixelleComfyUIBackendConfig {
     if ($resolvedPort -lt 1 -or $resolvedPort -gt 65535) {
         throw "ComfyUI port must be between 1 and 65535: $resolvedPort"
     }
+    $requestedResourcePolicy = Resolve-BackendValue `
+        $ResourcePolicy `
+        'PIXELLE_COMFYUI_RESOURCE_POLICY' `
+        'auto'
+    $resolvedResourcePolicy = Resolve-BackendResourcePolicy `
+        $requestedResourcePolicy
+    $resolvedMinimumFreeCommitGB = Resolve-BackendDouble `
+        $MinimumFreeCommitGB `
+        'PIXELLE_COMFYUI_MINIMUM_FREE_COMMIT_GB' `
+        12.0
+    if ($resolvedMinimumFreeCommitGB -lt 0 -or $resolvedMinimumFreeCommitGB -gt 256) {
+        throw "ComfyUI minimum free commit must be between 0 and 256 GiB: $resolvedMinimumFreeCommitGB"
+    }
 
     return [ordered]@{
         ProfileName = $resolvedProfileName
@@ -97,6 +213,10 @@ function Resolve-PixelleComfyUIBackendConfig {
         LogsDir = Resolve-BackendValue $LogsDir 'PIXELLE_COMFYUI_LOGS_DIR' (Join-Path $repoRoot 'logs\comfyui')
         HostAddress = $resolvedHostAddress
         Port = $resolvedPort
+        RequestedResourcePolicy = $requestedResourcePolicy
+        ResourcePolicy = $resolvedResourcePolicy
+        MinimumFreeCommitGB = $resolvedMinimumFreeCommitGB
+        MemorySnapshot = $null
     }
 }
 
@@ -175,6 +295,10 @@ function Add-BackendProfilePayloadFields {
     $Payload['ownership_file'] = Get-BackendOwnershipFile $Config
     $Payload['stdout_log'] = Get-BackendStdoutLog $Config
     $Payload['stderr_log'] = Get-BackendStderrLog $Config
+    $Payload['requested_resource_policy'] = $Config.RequestedResourcePolicy
+    $Payload['resource_policy'] = $Config.ResourcePolicy
+    $Payload['minimum_free_commit_gb'] = $Config.MinimumFreeCommitGB
+    $Payload['system_memory'] = $Config.MemorySnapshot
     return $Payload
 }
 
@@ -203,6 +327,63 @@ function Assert-BackendPrerequisites {
     }
     if (-not $Config.DatabaseUrl.StartsWith('sqlite:///')) {
         throw "ComfyUI database URL must use sqlite:///: $($Config.DatabaseUrl)"
+    }
+}
+
+function Assert-BackendSystemMemoryAdmission {
+    param([hashtable]$Config)
+
+    $minimum = [double]$Config.MinimumFreeCommitGB
+    if ($minimum -le 0) {
+        return
+    }
+    $snapshot = $Config.MemorySnapshot
+    if (-not $snapshot) {
+        $snapshot = Get-SystemMemorySnapshot
+    }
+    if (-not $snapshot) {
+        throw "Could not inspect Windows system memory before starting ComfyUI."
+    }
+    $Config.MemorySnapshot = $snapshot
+    $available = [double]$snapshot.free_commit_gb
+    if ($available -lt $minimum) {
+        throw (
+            "Refusing to start ComfyUI because available system commit is " +
+            "$available GiB, below the configured minimum of $minimum GiB. " +
+            "Close memory-intensive applications or increase the Windows page file."
+        )
+    }
+}
+
+function Assert-BackendResourcePolicySupport {
+    param([hashtable]$Config)
+
+    if ($Config.ResourcePolicy -ne 'memory_safe') {
+        return
+    }
+    $cliArgumentsPath = Join-Path $Config.ComfyUIRoot 'comfy\cli_args.py'
+    if (-not (Test-Path -LiteralPath $cliArgumentsPath -PathType Leaf)) {
+        throw (
+            "Configured ComfyUI cannot prove support for the memory-safe launch " +
+            "contract because comfy/cli_args.py is missing: $cliArgumentsPath"
+        )
+    }
+    $cliSource = Get-Content -LiteralPath $cliArgumentsPath -Raw
+    $missingArguments = @(
+        @(
+            '--disable-pinned-memory',
+            '--disable-async-offload',
+            '--cache-none'
+        ) | Where-Object {
+            $cliSource.IndexOf($_, [System.StringComparison]::Ordinal) -lt 0
+        }
+    )
+    if ($missingArguments.Count -gt 0) {
+        throw (
+            "Configured ComfyUI does not support the memory-safe launch contract. " +
+            "Missing argument(s): $($missingArguments -join ', '). Update ComfyUI or " +
+            "explicitly select resource_policy=performance after accepting the memory risk."
+        )
     }
 }
 
@@ -236,6 +417,11 @@ function Get-BackendArguments {
     [void]$arguments.Add('--port')
     [void]$arguments.Add([string]$Config.Port)
     [void]$arguments.Add('--normalvram')
+    if ($Config.ResourcePolicy -eq 'memory_safe') {
+        [void]$arguments.Add('--disable-pinned-memory')
+        [void]$arguments.Add('--disable-async-offload')
+        [void]$arguments.Add('--cache-none')
+    }
 
     return [string[]]$arguments.ToArray()
 }
@@ -334,10 +520,22 @@ function Test-ManagedComfyUICommandLine {
     if (-not $baseDirectoryMatches -and $Config.DataRoot -and $Config.DataRoot -ne $Config.SharedBasePath) {
         $baseDirectoryMatches = Test-CommandLineArgumentValue $CommandLine '--base-directory' $Config.DataRoot
     }
-    return (
+    $backendMatches = (
         (Test-CommandLineContainsValue $CommandLine $mainPy) -and
         $baseDirectoryMatches -and
         (Test-CommandLineArgumentValue $CommandLine '--port' ([string]$Config.Port))
+    )
+    if ($backendMatches) {
+        return $true
+    }
+
+    $supervisorPath = Join-Path $PSScriptRoot 'backend_supervisor.ps1'
+    return (
+        (Test-CommandLineContainsValue $CommandLine $supervisorPath) -and
+        (Test-CommandLineArgumentValue $CommandLine '-ProfileName' $Config.ProfileName) -and
+        (Test-CommandLineArgumentValue $CommandLine '-ComfyUIRoot' $Config.ComfyUIRoot) -and
+        (Test-CommandLineArgumentValue $CommandLine '-SharedBasePath' $Config.SharedBasePath) -and
+        (Test-CommandLineArgumentValue $CommandLine '-Port' ([string]$Config.Port))
     )
 }
 
@@ -367,13 +565,58 @@ function Stop-BackendOwnedComfyUIProcess {
     if ($ProcessId -le 0) {
         return $false
     }
+    # The other owned process in the same launch tree may already have stopped
+    # this identity. Absence is a successful stop confirmation, not a failure.
+    if (-not (Get-ProcessInfo $ProcessId)) {
+        return $true
+    }
     if (-not (Test-ManagedComfyUIProcess $Config $ProcessId) -or
         -not (Test-BackendProcessOwnership $Config $ProcessId $Role)) {
         return $false
     }
 
-    $processTreeIds = @(Get-ProcessTreeIds -RootProcessId $ProcessId)
-    Stop-ProcessTreeOwnedByLaunch $ProcessId
+    $ownershipRecord = Read-BackendOwnershipRecord $Config
+    $backendPid = if ($ownershipRecord) { [int]$ownershipRecord.backend_pid } else { 0 }
+    $launcherPid = if ($ownershipRecord) { [int]$ownershipRecord.launcher_pid } else { 0 }
+    if ($launcherPid -and $launcherPid -eq $ProcessId) {
+        $processTreeIds = @($ProcessId)
+        if ($backendPid) {
+            $allProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+            $backendTreeIds = @(Get-ProcessTreeIds -RootProcessId $backendPid)
+            $knownTreeIds = [System.Collections.Generic.HashSet[int]]::new()
+            foreach ($knownProcessId in $backendTreeIds) {
+                [void]$knownTreeIds.Add([int]$knownProcessId)
+            }
+            # Capture grandchildren recursively before stopping any process. A
+            # process that exits during the walk can re-parent its children.
+            $treeExpanded = $true
+            while ($treeExpanded) {
+                $treeExpanded = $false
+                foreach ($candidate in $allProcesses) {
+                    $candidateId = [int]$candidate.ProcessId
+                    if (-not $knownTreeIds.Contains($candidateId) -and
+                        $knownTreeIds.Contains([int]$candidate.ParentProcessId)) {
+                        [void]$knownTreeIds.Add($candidateId)
+                        $treeExpanded = $true
+                    }
+                }
+            }
+            $backendTreeIds = @($knownTreeIds)
+            $processTreeIds += $backendTreeIds
+            for ($index = $backendTreeIds.Count - 1; $index -ge 0; $index -= 1) {
+                Stop-Process -Id $backendTreeIds[$index] -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        # Do not recursively terminate from the listener identity: an externally
+        # spawned child can be re-parented beneath it and is not covered by the
+        # launch ownership record. The verified launcher path is the only safe
+        # boundary for descendant termination.
+        $processTreeIds = @($ProcessId)
+        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    }
     $deadline = (Get-Date).AddSeconds(5)
     do {
         $remainingProcessIds = @(
@@ -420,11 +663,14 @@ function Stop-ProcessTreeOwnedByLaunch {
         return
     }
 
-    Stop-Process -Id $RootProcessId -Force -ErrorAction SilentlyContinue
     $descendants = @($processTreeIds | Where-Object { $_ -ne $RootProcessId })
     for ($index = $descendants.Count - 1; $index -ge 0; $index -= 1) {
         Stop-Process -Id $descendants[$index] -Force -ErrorAction SilentlyContinue
     }
+    # Stop children before their verified launch root. Killing the root first can
+    # re-parent descendants and make a later process-tree walk unable to confirm
+    # that the complete owned service exited.
+    Stop-Process -Id $RootProcessId -Force -ErrorAction SilentlyContinue
 }
 
 function Get-ProcessCreationIdentity {

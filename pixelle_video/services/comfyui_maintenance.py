@@ -807,8 +807,14 @@ class ComfyUIMaintenanceClient:
 
     async def _get_queue(self) -> dict:
         response = await self._request("GET", "/queue")
-        data = response.json()
-        return data if isinstance(data, dict) else {}
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise RuntimeError("ComfyUI /queue returned invalid JSON") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError("ComfyUI /queue response must be a JSON object")
+        self._queue_counts(data)
+        return data
 
     async def _get_system_vram_snapshot(self) -> dict[str, Any] | None:
         try:
@@ -964,8 +970,24 @@ class ComfyUIMaintenanceClient:
             await asyncio.sleep(_IDLE_POLL_INTERVAL_SECONDS)
 
     def _queue_counts(self, queue: dict) -> tuple[int, int]:
-        running = queue.get("queue_running") or []
-        pending = queue.get("queue_pending") or []
+        if not isinstance(queue, dict):
+            raise RuntimeError("ComfyUI /queue response must be a JSON object")
+        missing = [
+            key
+            for key in ("queue_running", "queue_pending")
+            if key not in queue
+        ]
+        if missing:
+            raise RuntimeError(
+                "ComfyUI /queue response is missing required field(s): "
+                + ", ".join(missing)
+            )
+        running = queue["queue_running"]
+        pending = queue["queue_pending"]
+        if not isinstance(running, list) or not isinstance(pending, list):
+            raise RuntimeError(
+                "ComfyUI /queue fields queue_running and queue_pending must be arrays"
+            )
         return len(running), len(pending)
 
     async def _post(self, path: str, payload: dict) -> None:

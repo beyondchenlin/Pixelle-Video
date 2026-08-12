@@ -340,7 +340,7 @@ async def test_local_workflow_waits_for_other_backend_restart(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_cpu_oom_restarts_managed_backend_before_retry(monkeypatch):
+async def test_cpu_oom_does_not_retry_same_managed_backend_config(monkeypatch):
     monkeypatch.setattr(
         config_manager,
         "config",
@@ -386,11 +386,12 @@ async def test_cpu_oom_restarts_managed_backend_before_retry(monkeypatch):
     monkeypatch.setattr(core, "_restart_comfyui_backend_role", fake_restart)
     monkeypatch.setattr(core, "prepare_comfyui_for_local_workflow", fake_prepare)
 
-    result = await core._execute_local_comfykit_workflow(
-        "workflows/selfhost/image_z.json",
-        {},
-        backend_role="image",
-    )
+    with pytest.raises(RuntimeError, match="did not retry the same workflow"):
+        await core._execute_local_comfykit_workflow(
+            "workflows/selfhost/image_z.json",
+            {},
+            backend_role="image",
+        )
 
-    assert result == "ok"
-    assert restarted == [("image", "oom-recovery")]
+    assert attempts == 1
+    assert restarted == []
