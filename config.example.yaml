@@ -24,6 +24,7 @@ runtime:
   release_resources_after_video_generation: true
   close_comfykit_after_generation: true
   close_html_browser_after_generation: true
+  release_alignment_service_after_use: true
   close_alignment_service_after_generation: true
   stop_managed_comfyui_backends_after_generation: true
   collect_garbage_after_generation: true
@@ -130,8 +131,8 @@ comfyui:
       comfyui_root: E:/comfyui/resources/ComfyUI
       managed: true
       stop_after_batch: true
-      resource_policy: auto       # Safe managed-service default; performance is explicit opt-in
-      minimum_free_commit_gb: 12  # Refuse startup before Windows commit exhaustion
+      resource_policy: auto       # Preserve batch cache/offload; avoid pinned host-memory pressure
+      minimum_free_commit_gb: null  # Adaptive OS safety reserve; set a measured override if needed
       data_root: E:/ComfyUIData/pixelle
       shared_base_path: E:/ComfyUIData
       runtime_dir: _runtime/comfyui

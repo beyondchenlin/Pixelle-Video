@@ -19,6 +19,7 @@ Refactored to use LinearVideoPipeline (Template Method Pattern).
 """
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -1852,7 +1853,10 @@ class StandardPipeline(LinearVideoPipeline):
         master_audio_path, master_audio_duration = await self._synthesize_hyperframes_audio(ctx)
         setattr(ctx, "master_audio_path", master_audio_path)
         setattr(ctx, "master_audio_duration", master_audio_duration)
-        self._align_legacy_master_track_timings(ctx)
+        await self._execute_alignment_operation(
+            lambda: self._align_legacy_master_track_timings(ctx),
+            context="legacy-master-track-alignment",
+        )
         self._offset_sentence_timings_to_master_timeline(ctx.timing_plan)
         frame_timing_windows = {
             window.frame_index: window
@@ -1926,6 +1930,58 @@ class StandardPipeline(LinearVideoPipeline):
                 timing_plan.blocks,
                 timing_plan.sentences,
             )
+
+    async def _execute_alignment_operation(
+        self,
+        operation: Callable[[], Any],
+        *,
+        context: str,
+    ) -> Any:
+        execute = getattr(self.core, "execute_alignment_operation", None)
+        if callable(execute):
+            result = execute(operation, context=context)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+
+        result: Any = None
+        operation_failed = False
+        try:
+            result = operation()
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        except BaseException:
+            operation_failed = True
+            raise
+        finally:
+            await self._release_alignment_service_after_use(
+                context=context,
+                operation_failed=operation_failed,
+            )
+
+    async def _release_alignment_service_after_use(
+        self,
+        *,
+        context: str,
+        operation_failed: bool,
+    ) -> bool:
+        release = getattr(self.core, "release_alignment_service_after_use", None)
+        if not callable(release):
+            return False
+        try:
+            result = release(context=context)
+            if inspect.isawaitable(result):
+                result = await result
+            return bool(result)
+        except Exception as exc:
+            log = logger.warning if operation_failed else logger.error
+            log(
+                "Subtitle alignment cleanup failed at the pipeline stage boundary; "
+                f"preserving the {'original failure' if operation_failed else 'successful result'}; "
+                f"context='{context}', error='{exc}'"
+            )
+            return False
 
     def _extract_audio_clip(
         self,
@@ -3017,7 +3073,10 @@ class StandardPipeline(LinearVideoPipeline):
             0.82,
         )
         master_audio_path, master_audio_duration = await self._synthesize_hyperframes_audio(ctx)
-        self._align_hyperframes_timing_plan(ctx)
+        await self._execute_alignment_operation(
+            lambda: self._align_hyperframes_timing_plan(ctx),
+            context="hyperframes-master-track-alignment",
+        )
         self._offset_sentence_timings_to_master_timeline(timing_plan)
 
         if config.silence_trim_tool == "auto_editor":

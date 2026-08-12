@@ -444,6 +444,94 @@ async def test_core_release_generation_resources_releases_alignment_and_managed_
 
 
 @pytest.mark.asyncio
+async def test_core_releases_alignment_model_at_stage_boundary(monkeypatch):
+    config = PixelleVideoConfig.model_validate(
+        {"runtime": {"release_alignment_service_after_use": True}}
+    )
+    monkeypatch.setattr(service_module.config_manager, "config", config)
+    calls = []
+
+    class _AlignmentService:
+        def release_resources(self):
+            calls.append("release")
+            return True
+
+    core = PixelleVideoCore()
+    core.alignment_service = _AlignmentService()
+
+    assert await core.release_alignment_service_after_use(context="before-media") is True
+    assert calls == ["release"]
+
+
+@pytest.mark.asyncio
+async def test_core_serializes_shared_alignment_use_and_release():
+    core = PixelleVideoCore()
+    events = []
+    first_started = asyncio.Event()
+    finish_first = asyncio.Event()
+
+    async def _first_operation():
+        events.append("first:start")
+        first_started.set()
+        await finish_first.wait()
+        events.append("first:end")
+
+    async def _second_operation():
+        events.append("second:start")
+        events.append("second:end")
+
+    async def _release(*, context):
+        events.append(f"release:{context}")
+        return True
+
+    core.release_alignment_service_after_use = _release
+
+    first_task = asyncio.create_task(
+        core.execute_alignment_operation(_first_operation, context="first")
+    )
+    await first_started.wait()
+    second_task = asyncio.create_task(
+        core.execute_alignment_operation(_second_operation, context="second")
+    )
+    await asyncio.sleep(0)
+
+    assert events == ["first:start"]
+
+    finish_first.set()
+    await asyncio.gather(first_task, second_task)
+
+    assert events == [
+        "first:start",
+        "first:end",
+        "release:first",
+        "second:start",
+        "second:end",
+        "release:second",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_core_alignment_cleanup_never_replaces_business_outcome():
+    core = PixelleVideoCore()
+
+    async def _broken_release(*, context):
+        raise RuntimeError(f"cleanup failed: {context}")
+
+    core.release_alignment_service_after_use = _broken_release
+
+    assert (
+        await core.execute_alignment_operation(lambda: "aligned", context="success")
+        == "aligned"
+    )
+
+    def _broken_operation():
+        raise ValueError("alignment failed")
+
+    with pytest.raises(ValueError, match="alignment failed"):
+        await core.execute_alignment_operation(_broken_operation, context="failure")
+
+
+@pytest.mark.asyncio
 async def test_core_stop_idle_managed_comfyui_backends_prefers_routed_roles_and_dedupes():
     stop_calls = []
     close_calls = []
@@ -3562,7 +3650,7 @@ async def test_core_execute_local_comfy_workflows_serialize_cleanup_boundary():
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch():
+async def test_local_comfyui_workflow_session_prepares_and_stops_once_for_two_item_batch():
     events = []
 
     class _Kit:
@@ -3586,7 +3674,7 @@ async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch(
     core.release_comfyui_after_local_workflow = _release
     core._get_or_create_comfykit = _get_kit
 
-    async with core.local_comfyui_workflow_session():
+    async with core.local_comfyui_workflow_session(stop_after_session=True):
         first = await core.execute_comfykit_workflow(
             "first.json",
             {},
@@ -3606,6 +3694,7 @@ async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch(
         ("execute", "first.json", {}),
         ("get_kit",),
         ("execute", "second.json", {}),
+        ("release",),
     ]
 
 

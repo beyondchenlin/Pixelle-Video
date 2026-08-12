@@ -507,21 +507,24 @@ class ComfyUIBackendProfile(BaseModel):
     resource_policy: Literal["auto", "memory_safe", "performance"] = Field(
         default="auto",
         description=(
-            "Managed ComfyUI launch policy. 'auto' selects the stable memory-safe "
-            "policy for managed Windows services. 'memory_safe' disables "
-            "pinned-memory and asynchronous weight-offload optimizations and disables "
-            "the execution cache. Dynamic VRAM remains available for large workflows. "
-            "'performance' is an explicit opt-in that keeps ComfyUI defaults."
+            "Managed ComfyUI launch policy. 'auto' selects the host-memory-safe "
+            "policy for managed Windows services. 'memory_safe' disables pinned host "
+            "memory while preserving asynchronous model offload and the execution "
+            "cache, which are required to keep multi-item batches memory-efficient. "
+            "'performance' keeps all ComfyUI defaults."
         ),
     )
-    minimum_free_commit_gb: float = Field(
-        default=12.0,
+    minimum_free_commit_gb: Optional[float] = Field(
+        default=None,
         ge=0,
         le=256,
         description=(
             "Minimum available Windows commit capacity required before Pixelle starts a "
-            "managed ComfyUI process. Set to 0 only when an external supervisor enforces "
-            "an equivalent resource admission policy."
+            "managed ComfyUI process. When omitted, Pixelle derives a bounded operating-"
+            "system safety reserve from the machine's commit limit. This guard protects "
+            "Windows itself; it does not claim that an unknown workflow will fit. Set an "
+            "explicit value for measured deployments, or 0 only when an external "
+            "supervisor enforces equivalent admission control."
         ),
     )
     data_root: Optional[str] = Field(default=None, description="ComfyUI data root for this profile")
@@ -844,6 +847,14 @@ class RuntimeConfig(BaseModel):
             "Release cached subtitle forced-alignment models after generation. "
             "This prevents the main Pixelle process from retaining large ASR "
             "models between back-to-back video jobs."
+        ),
+    )
+    release_alignment_service_after_use: bool = Field(
+        default=True,
+        description=(
+            "Release the subtitle forced-alignment model immediately after timing "
+            "alignment completes. This prevents the aligner and a later local media "
+            "workflow from retaining accelerator and system memory at the same time."
         ),
     )
     stop_managed_comfyui_backends_after_generation: bool = Field(

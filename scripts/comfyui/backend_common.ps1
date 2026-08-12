@@ -65,6 +65,22 @@ function Resolve-BackendDouble {
     return $Default
 }
 
+function Resolve-BackendFilesystemPath {
+    param(
+        [string]$Path,
+        [string]$BasePath
+    )
+
+    if (-not $Path -or -not $Path.Trim()) {
+        return ''
+    }
+    $candidate = [Environment]::ExpandEnvironmentVariables($Path.Trim())
+    if (-not [System.IO.Path]::IsPathRooted($candidate)) {
+        $candidate = Join-Path $BasePath $candidate
+    }
+    return [System.IO.Path]::GetFullPath($candidate)
+}
+
 function Get-SystemMemorySnapshot {
     try {
         $operatingSystem = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
@@ -136,12 +152,41 @@ function Resolve-BackendResourcePolicy {
         return $normalized
     }
 
-    # Managed services share system commit with the web process, renderers, and
-    # later pipeline stages. Workflow model sizes are not known at service-start
-    # time, so physical-RAM thresholds cannot prove that pinned/offload buffers
-    # are safe. Auto is therefore the stable safe default; performance is an
-    # explicit opt-in for operators who have measured their complete workload.
+    # The managed process shares host memory with the web process, renderers, and
+    # later pipeline stages. Keep page-locked host buffers disabled by default,
+    # while preserving ComfyUI's model offload and execution cache: both are
+    # essential for bounded memory and reuse inside a multi-item workflow batch.
     return 'memory_safe'
+}
+
+function Set-BackendEffectiveMinimumFreeCommit {
+    param([System.Collections.IDictionary]$Config)
+
+    $requested = [double]$Config.RequestedMinimumFreeCommitGB
+    if ($requested -ge 0) {
+        $Config.MinimumFreeCommitGB = $requested
+        $Config.MinimumFreeCommitMode = 'configured'
+        return
+    }
+
+    $snapshot = $Config.MemorySnapshot
+    if (-not $snapshot) {
+        $snapshot = Get-SystemMemorySnapshot
+        $Config.MemorySnapshot = $snapshot
+    }
+    if (-not $snapshot) {
+        return
+    }
+
+    # This is an operating-system safety reserve, not an estimate of an unknown
+    # workflow's model footprint. Scale with the commit limit but keep the guard
+    # bounded so capable machines are not rejected by an arbitrary fixed value.
+    $adaptiveMinimum = [math]::Max(
+        [double]2,
+        [math]::Min([double]6, [double]$snapshot.total_commit_gb * 0.10)
+    )
+    $Config.MinimumFreeCommitGB = [math]::Round($adaptiveMinimum, 2)
+    $Config.MinimumFreeCommitMode = 'automatic'
 }
 
 function ConvertTo-SqliteUrl {
@@ -168,13 +213,19 @@ function Resolve-PixelleComfyUIBackendConfig {
     )
 
     $repoRoot = Get-PixelleRepoRoot
-    $resolvedDataRoot = Resolve-BackendValue $DataRoot 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData\pixelle'
+    $resolvedDataRoot = Resolve-BackendFilesystemPath `
+        (Resolve-BackendValue $DataRoot 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData\pixelle') `
+        $repoRoot
     $defaultSharedBasePath = Split-Path -Parent $resolvedDataRoot
     if (-not $defaultSharedBasePath) {
         $defaultSharedBasePath = $resolvedDataRoot
     }
-    $resolvedSharedBasePath = Resolve-BackendValue $SharedBasePath 'PIXELLE_COMFYUI_SHARED_BASE_PATH' $defaultSharedBasePath
-    $resolvedComfyUIRoot = Resolve-BackendValue $ComfyUIRoot 'PIXELLE_COMFYUI_ROOT' 'E:\comfyui\resources\ComfyUI'
+    $resolvedSharedBasePath = Resolve-BackendFilesystemPath `
+        (Resolve-BackendValue $SharedBasePath 'PIXELLE_COMFYUI_SHARED_BASE_PATH' $defaultSharedBasePath) `
+        $repoRoot
+    $resolvedComfyUIRoot = Resolve-BackendFilesystemPath `
+        (Resolve-BackendValue $ComfyUIRoot 'PIXELLE_COMFYUI_ROOT' 'E:\comfyui\resources\ComfyUI') `
+        $repoRoot
     $defaultDatabaseUrl = ConvertTo-SqliteUrl (Join-Path $resolvedDataRoot 'user\comfyui.db')
     $resolvedProfileName = Resolve-BackendValue $ProfileName 'PIXELLE_COMFYUI_PROFILE' 'default'
     $resolvedHostAddress = Resolve-BackendValue $HostAddress 'PIXELLE_COMFYUI_HOST' '127.0.0.1'
@@ -194,28 +245,46 @@ function Resolve-PixelleComfyUIBackendConfig {
     $resolvedMinimumFreeCommitGB = Resolve-BackendDouble `
         $MinimumFreeCommitGB `
         'PIXELLE_COMFYUI_MINIMUM_FREE_COMMIT_GB' `
-        12.0
-    if ($resolvedMinimumFreeCommitGB -lt 0 -or $resolvedMinimumFreeCommitGB -gt 256) {
-        throw "ComfyUI minimum free commit must be between 0 and 256 GiB: $resolvedMinimumFreeCommitGB"
+        -1
+    if ($resolvedMinimumFreeCommitGB -lt -1 -or $resolvedMinimumFreeCommitGB -gt 256) {
+        throw "ComfyUI minimum free commit must be automatic or between 0 and 256 GiB: $resolvedMinimumFreeCommitGB"
     }
+
+    $resolvedPythonExe = Resolve-BackendFilesystemPath `
+        (Resolve-BackendValue $PythonExe 'PIXELLE_COMFYUI_PYTHON' (Join-Path $resolvedSharedBasePath '.venv\Scripts\python.exe')) `
+        $repoRoot
+    $resolvedExtraModelsConfig = Resolve-BackendFilesystemPath `
+        (Resolve-BackendValue $ExtraModelsConfig 'PIXELLE_COMFYUI_EXTRA_MODELS_CONFIG' '') `
+        $repoRoot
+    $resolvedFrontEndRoot = Resolve-BackendFilesystemPath `
+        (Resolve-BackendValue $FrontEndRoot 'PIXELLE_COMFYUI_FRONTEND_ROOT' '') `
+        $repoRoot
+    $resolvedRuntimeDir = Resolve-BackendFilesystemPath `
+        (Resolve-BackendValue $RuntimeDir 'PIXELLE_COMFYUI_RUNTIME_DIR' (Join-Path $repoRoot '_runtime\comfyui')) `
+        $repoRoot
+    $resolvedLogsDir = Resolve-BackendFilesystemPath `
+        (Resolve-BackendValue $LogsDir 'PIXELLE_COMFYUI_LOGS_DIR' (Join-Path $repoRoot 'logs\comfyui')) `
+        $repoRoot
 
     return [ordered]@{
         ProfileName = $resolvedProfileName
         RepoRoot = $repoRoot
-        PythonExe = Resolve-BackendValue $PythonExe 'PIXELLE_COMFYUI_PYTHON' (Join-Path $resolvedSharedBasePath '.venv\Scripts\python.exe')
+        PythonExe = $resolvedPythonExe
         ComfyUIRoot = $resolvedComfyUIRoot
         DataRoot = $resolvedDataRoot
         SharedBasePath = $resolvedSharedBasePath
-        ExtraModelsConfig = Resolve-BackendValue $ExtraModelsConfig 'PIXELLE_COMFYUI_EXTRA_MODELS_CONFIG' ''
-        FrontEndRoot = Resolve-BackendValue $FrontEndRoot 'PIXELLE_COMFYUI_FRONTEND_ROOT' ''
+        ExtraModelsConfig = $resolvedExtraModelsConfig
+        FrontEndRoot = $resolvedFrontEndRoot
         DatabaseUrl = Resolve-BackendValue $DatabaseUrl 'PIXELLE_COMFYUI_DATABASE_URL' $defaultDatabaseUrl
-        RuntimeDir = Resolve-BackendValue $RuntimeDir 'PIXELLE_COMFYUI_RUNTIME_DIR' (Join-Path $repoRoot '_runtime\comfyui')
-        LogsDir = Resolve-BackendValue $LogsDir 'PIXELLE_COMFYUI_LOGS_DIR' (Join-Path $repoRoot 'logs\comfyui')
+        RuntimeDir = $resolvedRuntimeDir
+        LogsDir = $resolvedLogsDir
         HostAddress = $resolvedHostAddress
         Port = $resolvedPort
         RequestedResourcePolicy = $requestedResourcePolicy
         ResourcePolicy = $resolvedResourcePolicy
+        RequestedMinimumFreeCommitGB = $resolvedMinimumFreeCommitGB
         MinimumFreeCommitGB = $resolvedMinimumFreeCommitGB
+        MinimumFreeCommitMode = if ($resolvedMinimumFreeCommitGB -ge 0) { 'configured' } else { 'automatic' }
         MemorySnapshot = $null
     }
 }
@@ -245,6 +314,57 @@ function Get-BackendStderrLog {
     return (Join-Path $Config.LogsDir 'comfyui-backend.stderr.log')
 }
 
+function Get-BackendSupervisorStderrLog {
+    param([hashtable]$Config)
+    return (Join-Path $Config.LogsDir 'comfyui-supervisor.stderr.log')
+}
+
+function Get-BackendExitCodeFile {
+    param([hashtable]$Config)
+    return (Join-Path $Config.RuntimeDir 'comfyui-backend.exit-code')
+}
+
+function Get-BackendDiagnosticTail {
+    param(
+        [string[]]$Paths,
+        [int]$TailLines = 40,
+        [int]$MaximumCharacters = 12000
+    )
+
+    $sections = New-Object System.Collections.Generic.List[string]
+    foreach ($path in $Paths) {
+        if (-not $path -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            continue
+        }
+        try {
+            $lines = @(Get-Content -LiteralPath $path -Tail $TailLines -ErrorAction Stop)
+        }
+        catch {
+            continue
+        }
+        if ($lines.Count -eq 0) {
+            continue
+        }
+        [void]$sections.Add("[$path]`n$($lines -join "`n")")
+    }
+
+    $tail = $sections -join "`n"
+    $tail = [regex]::Replace(
+        $tail,
+        '(?im)(authorization\s*:\s*)[^\r\n]+',
+        '$1[REDACTED]'
+    )
+    $tail = [regex]::Replace(
+        $tail,
+        '(?im)((?:api[_-]?key|access[_-]?token|password|secret)(?:\s*[:=]\s*))[^\s,;]+',
+        '$1[REDACTED]'
+    )
+    if ($tail.Length -gt $MaximumCharacters) {
+        return $tail.Substring($tail.Length - $MaximumCharacters)
+    }
+    return $tail
+}
+
 function Move-ExistingBackendLog {
     param(
         [string]$Path,
@@ -266,6 +386,14 @@ function Move-ExistingBackendLog {
     }
 
     Move-Item -LiteralPath $Path -Destination $archivePath
+
+    # Keep enough launch history for post-mortem analysis without allowing a
+    # repeatedly restarting backend to grow the log directory forever.
+    $archivePattern = "$baseName.*$extension"
+    @(Get-ChildItem -LiteralPath $directory -File -Filter $archivePattern |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -Skip 20) |
+        Remove-Item -Force -ErrorAction SilentlyContinue
     return $archivePath
 }
 
@@ -295,9 +423,17 @@ function Add-BackendProfilePayloadFields {
     $Payload['ownership_file'] = Get-BackendOwnershipFile $Config
     $Payload['stdout_log'] = Get-BackendStdoutLog $Config
     $Payload['stderr_log'] = Get-BackendStderrLog $Config
+    $Payload['supervisor_stderr_log'] = Get-BackendSupervisorStderrLog $Config
+    $Payload['exit_code_file'] = Get-BackendExitCodeFile $Config
     $Payload['requested_resource_policy'] = $Config.RequestedResourcePolicy
     $Payload['resource_policy'] = $Config.ResourcePolicy
-    $Payload['minimum_free_commit_gb'] = $Config.MinimumFreeCommitGB
+    $Payload['minimum_free_commit_gb'] = if ([double]$Config.MinimumFreeCommitGB -ge 0) {
+        $Config.MinimumFreeCommitGB
+    }
+    else {
+        $null
+    }
+    $Payload['minimum_free_commit_mode'] = $Config.MinimumFreeCommitMode
     $Payload['system_memory'] = $Config.MemorySnapshot
     return $Payload
 }
@@ -333,7 +469,11 @@ function Assert-BackendPrerequisites {
 function Assert-BackendSystemMemoryAdmission {
     param([hashtable]$Config)
 
+    Set-BackendEffectiveMinimumFreeCommit $Config
     $minimum = [double]$Config.MinimumFreeCommitGB
+    if ($minimum -lt 0) {
+        throw "Could not inspect Windows system memory before starting ComfyUI."
+    }
     if ($minimum -le 0) {
         return
     }
@@ -370,11 +510,7 @@ function Assert-BackendResourcePolicySupport {
     }
     $cliSource = Get-Content -LiteralPath $cliArgumentsPath -Raw
     $missingArguments = @(
-        @(
-            '--disable-pinned-memory',
-            '--disable-async-offload',
-            '--cache-none'
-        ) | Where-Object {
+        @('--disable-pinned-memory') | Where-Object {
             $cliSource.IndexOf($_, [System.StringComparison]::Ordinal) -lt 0
         }
     )
@@ -382,7 +518,7 @@ function Assert-BackendResourcePolicySupport {
         throw (
             "Configured ComfyUI does not support the memory-safe launch contract. " +
             "Missing argument(s): $($missingArguments -join ', '). Update ComfyUI or " +
-            "explicitly select resource_policy=performance after accepting the memory risk."
+            "explicitly select resource_policy=performance after accepting pinned-host-memory use."
         )
     }
 }
@@ -419,8 +555,6 @@ function Get-BackendArguments {
     [void]$arguments.Add('--normalvram')
     if ($Config.ResourcePolicy -eq 'memory_safe') {
         [void]$arguments.Add('--disable-pinned-memory')
-        [void]$arguments.Add('--disable-async-offload')
-        [void]$arguments.Add('--cache-none')
     }
 
     return [string[]]$arguments.ToArray()

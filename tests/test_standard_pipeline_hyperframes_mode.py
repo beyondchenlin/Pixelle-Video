@@ -281,6 +281,7 @@ class _DummyCore:
         self.local_comfyui_sessions = []
         self.local_comfyui_session_stop_options = []
         self.local_comfyui_session_backend_roles = []
+        self.alignment_release_contexts = []
         self.llm = object()
         self.video = object()
         self.tts = _FakeTTS()
@@ -299,6 +300,10 @@ class _DummyCore:
             resolve_role_for_tts=lambda workflow_key: "tts",
             resolve_role_for_media=lambda workflow_key, media_type: "image",
         )
+
+    async def release_alignment_service_after_use(self, *, context):
+        self.alignment_release_contexts.append(context)
+        return True
 
     @asynccontextmanager
     async def local_comfyui_workflow_session(
@@ -1028,6 +1033,7 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
     assert core.alignment_service.calls == [
         (["block-1", "block-2"], ["sentence-1", "sentence-2"])
     ]
+    assert core.alignment_release_contexts == ["hyperframes-master-track-alignment"]
     assert core.audio_edit_service.trim_calls == [
         (
             str(Path(ctx.task_dir) / "audio" / "master_audio.wav"),
@@ -1492,6 +1498,7 @@ async def test_post_production_respects_direct_duration_alignment_engine(monkeyp
     assert core.alignment_service.duration_calls == [
         (["block-1"], ["sentence-1", "sentence-2"])
     ]
+    assert core.alignment_release_contexts == ["hyperframes-master-track-alignment"]
     assert manifest.sentence_units[0].source_start == pytest.approx(0.0)
     assert manifest.sentence_units[0].source_end <= manifest.sentence_units[1].source_start
     assert manifest.sentence_units[-1].source_end == pytest.approx(4.0)

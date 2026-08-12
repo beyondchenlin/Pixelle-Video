@@ -21,7 +21,7 @@ import gc
 import hashlib
 import inspect
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -1417,6 +1417,7 @@ class PixelleVideoCore:
         self._local_comfyui_active_task_count_by_backend: dict[str, int] = {}
         self._recent_local_comfyui_backend_roles: dict[str, None] = {}
         self._generation_resource_lifecycle_lock = asyncio.Lock()
+        self._alignment_service_operation_lock = asyncio.Lock()
         self._active_generation_count = 0
         
         # Default pipeline callable (for backward compatibility)
@@ -2009,6 +2010,66 @@ class PixelleVideoCore:
         if inspect.isawaitable(result):
             result = await result
         return bool(result)
+
+    async def release_alignment_service_after_use(self, *, context: str) -> bool:
+        """Best-effort release at the alignment/media lifecycle boundary."""
+        self.config = config_manager.config.to_dict()
+        runtime_config = self.config.get("runtime", {})
+        if not isinstance(runtime_config, Mapping):
+            runtime_config = {}
+        if not bool(runtime_config.get("release_alignment_service_after_use", True)):
+            logger.debug(
+                "Keeping subtitle alignment resources resident after use; "
+                f"context='{context}'"
+            )
+            return False
+
+        try:
+            released = await self._release_alignment_service_resources()
+        except Exception as exc:
+            # Resource cleanup must not replace a successful alignment result. The
+            # generation-level fallback will try again when the worker becomes idle.
+            logger.warning(
+                "Subtitle alignment resource release failed after use; "
+                f"context='{context}', error='{exc}'"
+            )
+            return False
+        if released:
+            logger.info(
+                "Released subtitle alignment resources before the next heavy pipeline "
+                f"stage; context='{context}'"
+            )
+        return released
+
+    async def execute_alignment_operation(
+        self,
+        operation: Callable[[], Any],
+        *,
+        context: str,
+    ) -> Any:
+        """Serialize use and release of the shared forced-alignment model."""
+        async with self._alignment_service_operation_lock:
+            operation_failed = False
+            try:
+                result = operation()
+                if inspect.isawaitable(result):
+                    result = await result
+                return result
+            except BaseException:
+                operation_failed = True
+                raise
+            finally:
+                try:
+                    await self.release_alignment_service_after_use(context=context)
+                except Exception as exc:
+                    # Cleanup is deliberately best-effort: never replace either a
+                    # completed alignment result or its original business failure.
+                    log = logger.warning if operation_failed else logger.error
+                    log(
+                        "Subtitle alignment cleanup raised unexpectedly; "
+                        f"preserving the {'original failure' if operation_failed else 'successful result'}; "
+                        f"context='{context}', error='{exc}'"
+                    )
 
     async def _stop_idle_managed_comfyui_backends(self, *, reason: str) -> list[str]:
         registry = self._get_comfyui_backend_registry()

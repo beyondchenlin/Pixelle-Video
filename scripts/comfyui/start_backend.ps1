@@ -42,6 +42,7 @@ $config = Resolve-PixelleComfyUIBackendConfig `
 Assert-BackendPrerequisites $config
 Assert-BackendResourcePolicySupport $config
 $config.MemorySnapshot = Get-SystemMemorySnapshot
+Set-BackendEffectiveMinimumFreeCommit $config
 
 $arguments = Get-BackendArguments $config
 $listener = Get-BackendListener $config
@@ -99,6 +100,7 @@ if ($DryRun) {
         logs_dir = $config.LogsDir
         stdout_log = Get-BackendStdoutLog $config
         stderr_log = Get-BackendStderrLog $config
+        supervisor_stderr_log = Get-BackendSupervisorStderrLog $config
         pid_file = $pidFile
         launcher_pid_file = $launcherPidFile
     }
@@ -114,9 +116,15 @@ Ensure-Directory $config.LogsDir
 
 $stdoutLog = Get-BackendStdoutLog $config
 $stderrLog = Get-BackendStderrLog $config
+$supervisorStderrLog = Get-BackendSupervisorStderrLog $config
+$exitCodeFile = Get-BackendExitCodeFile $config
 $logStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
 $previousStdoutLog = Move-ExistingBackendLog -Path $stdoutLog -Stamp $logStamp
 $previousStderrLog = Move-ExistingBackendLog -Path $stderrLog -Stamp $logStamp
+$previousSupervisorStderrLog = Move-ExistingBackendLog `
+    -Path $supervisorStderrLog `
+    -Stamp $logStamp
+Remove-Item -LiteralPath $exitCodeFile -Force -ErrorAction SilentlyContinue
 
 $previousPythonIoEncoding = $env:PYTHONIOENCODING
 $env:PYTHONIOENCODING = 'utf-8'
@@ -140,6 +148,10 @@ try {
         $stdoutLog,
         '-StderrLog',
         $stderrLog,
+        '-SupervisorStderrLog',
+        $supervisorStderrLog,
+        '-ExitCodeFile',
+        $exitCodeFile,
         '-ArgumentsBase64',
         $argumentsBase64,
         '-ProfileName',
@@ -177,6 +189,46 @@ try {
     $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
     do {
         Start-Sleep -Milliseconds 500
+        $process.Refresh()
+        if ($process.HasExited) {
+            $process.WaitForExit()
+            $supervisorExitCode = $null
+            if (Test-Path -LiteralPath $exitCodeFile -PathType Leaf) {
+                $recordedExitCode = (Get-Content -LiteralPath $exitCodeFile -Raw).Trim()
+                if ($recordedExitCode -match '^-?\d+$') {
+                    $supervisorExitCode = [int]$recordedExitCode
+                }
+            }
+            if ($null -eq $supervisorExitCode) {
+                try {
+                    $supervisorExitCode = $process.ExitCode
+                }
+                catch {
+                    $supervisorExitCode = 'unknown'
+                }
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$supervisorExitCode)) {
+                $supervisorExitCode = 'unknown'
+            }
+            Start-Sleep -Milliseconds 100
+            $diagnosticTail = Get-BackendDiagnosticTail -Paths @(
+                $supervisorStderrLog,
+                $stderrLog,
+                $stdoutLog
+            )
+            $diagnosticSuffix = if ($diagnosticTail) {
+                "`nRecent diagnostic output:`n$diagnosticTail"
+            }
+            else {
+                ''
+            }
+            throw (
+                "ComfyUI backend supervisor PID $($process.Id) exited with code " +
+                "$supervisorExitCode before $($config.HostAddress):$($config.Port) " +
+                "started listening. Check logs: $supervisorStderrLog ; " +
+                "$stderrLog$diagnosticSuffix"
+            )
+        }
         $listener = Get-BackendListener $config
         if ($listener) {
             $listenerPid = [int]$listener.OwningProcess
@@ -199,6 +251,7 @@ try {
                 stderr_log = $stderrLog
                 previous_stdout_log = $previousStdoutLog
                 previous_stderr_log = $previousStderrLog
+                previous_supervisor_stderr_log = $previousSupervisorStderrLog
             }
             $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
             Write-BackendMessage -Json:$Json -Payload $payload -Message "Started ComfyUI backend on $($config.HostAddress):$($config.Port) with listener PID $listenerPid."
@@ -206,7 +259,23 @@ try {
         }
     } while ((Get-Date) -lt $deadline)
 
-    throw "Started ComfyUI backend PID $($process.Id), but it did not listen on $($config.HostAddress):$($config.Port) within $ReadyTimeoutSeconds seconds. Check logs: $stdoutLog ; $stderrLog"
+    $diagnosticTail = Get-BackendDiagnosticTail -Paths @(
+        $supervisorStderrLog,
+        $stderrLog,
+        $stdoutLog
+    )
+    $diagnosticSuffix = if ($diagnosticTail) {
+        "`nRecent diagnostic output:`n$diagnosticTail"
+    }
+    else {
+        ''
+    }
+    throw (
+        "Started ComfyUI backend supervisor PID $($process.Id), but it did not " +
+        "listen on $($config.HostAddress):$($config.Port) within " +
+        "$ReadyTimeoutSeconds seconds. Check logs: $supervisorStderrLog ; " +
+        "$stderrLog$diagnosticSuffix"
+    )
 }
 catch {
     if (-not $started) {

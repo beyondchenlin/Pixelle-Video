@@ -16,8 +16,9 @@ http://127.0.0.1:8000
 
 - 推荐按需启停：`backend_management_mode: required`、`managed: true`、
   `stop_after_batch: true`。Pixelle 只停止经过进程身份验证、由自己启动的完整服务。
-- 推荐保留 `resource_policy: auto` 和 `minimum_free_commit_gb: 12`。Windows 托管服务
-  会关闭容易耗尽系统提交内存的锁页、异步卸载和执行缓存，同时保留大工作流需要的动态显存能力。
+- 推荐保留 `resource_policy: auto`，并省略 `minimum_free_commit_gb`。Windows 托管服务
+  只关闭锁页内存，保留批次内必需的异步模型卸载和执行缓存；启动门槛会根据系统提交上限
+  自动计算为 2 至 6 GiB 的操作系统安全余量。该门槛不冒充未知工作流的内存需求估算。
 - 外部连接：`backend_management_mode: disabled`。用户先手动启动实例，Pixelle 只检测
   连接和提交任务，绝不停止外部服务。
 - 自动复用：`backend_management_mode: auto`。此模式可复用外部服务，因此无法保证批次
@@ -68,6 +69,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\comfyui\start_backen
 ```text
 logs\comfyui\
 ```
+
+相对的运行目录和日志目录始终按项目根目录解析。每次启动会归档上一次后端日志和监督进程
+错误日志，每类最多保留 20 份；监督进程提前退出时，启动命令会立即返回退出码和受限长度的
+日志尾部，不再无意义地等待完整超时时间。
 
 ## 默认配置
 

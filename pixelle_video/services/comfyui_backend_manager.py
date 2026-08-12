@@ -620,14 +620,14 @@ class ComfyUIBackendController:
         self._append_profile_arg(args, "-ComfyUIRoot", self.profile.comfyui_root)
         self._append_profile_arg(args, "-ExtraModelsConfig", self.profile.extra_models_config)
         self._append_profile_arg(args, "-FrontEndRoot", self.profile.frontend_root)
-        args.extend(
-            [
-                "-ResourcePolicy",
-                self.profile.resource_policy,
-                "-MinimumFreeCommitGB",
-                f"{self.profile.minimum_free_commit_gb:g}",
-            ]
-        )
+        args.extend(["-ResourcePolicy", self.profile.resource_policy])
+        if self.profile.minimum_free_commit_gb is not None:
+            args.extend(
+                [
+                    "-MinimumFreeCommitGB",
+                    f"{self.profile.minimum_free_commit_gb:g}",
+                ]
+            )
         return args
 
     def _append_profile_arg(

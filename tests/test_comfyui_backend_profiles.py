@@ -81,7 +81,7 @@ def test_backend_profile_defaults_to_automatic_memory_policy():
     profile = config.comfyui.backends["default"]
 
     assert profile.resource_policy == "auto"
-    assert profile.minimum_free_commit_gb == 12.0
+    assert profile.minimum_free_commit_gb is None
 
 
 @pytest.mark.parametrize("legacy_value", [True, False])

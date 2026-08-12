@@ -199,7 +199,7 @@ def test_managed_backend_uses_profile_runtime_arguments(tmp_path):
     assert "-Port" in args
     assert "8001" in args
     assert args[args.index("-ResourcePolicy") + 1] == "auto"
-    assert args[args.index("-MinimumFreeCommitGB") + 1] == "12"
+    assert "-MinimumFreeCommitGB" not in args
 
 
 def test_managed_backend_passes_optional_profile_script_arguments(tmp_path):
@@ -936,8 +936,11 @@ async def test_start_command_includes_typed_resource_contract(monkeypatch):
 
     monkeypatch.setattr(backend, "_run_script", _run_script)
 
+    script_args = backend._script_args()
     await backend.start(reason="test")
 
+    assert script_args[script_args.index("-ResourcePolicy") + 1] == "memory_safe"
+    assert script_args[script_args.index("-MinimumFreeCommitGB") + 1] == "12.5"
     assert captured["extra_args"] == [
         "-ReadyTimeoutSeconds",
         "90",

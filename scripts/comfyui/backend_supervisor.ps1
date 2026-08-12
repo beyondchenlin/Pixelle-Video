@@ -8,6 +8,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$StderrLog,
     [Parameter(Mandatory = $true)]
+    [string]$SupervisorStderrLog,
+    [Parameter(Mandatory = $true)]
+    [string]$ExitCodeFile,
+    [Parameter(Mandatory = $true)]
     [string]$ArgumentsBase64,
     [string]$ProfileName = 'default',
     [string]$ComfyUIRoot = '',
@@ -17,6 +21,21 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+trap {
+    try {
+        $diagnostic = ($_ | Out-String)
+        [System.IO.File]::WriteAllText(
+            $SupervisorStderrLog,
+            $diagnostic,
+            [System.Text.UTF8Encoding]::new($false)
+        )
+    }
+    catch {
+        # The parent still observes process exit and reports the intended log path.
+    }
+    exit 1
+}
 
 Add-Type -TypeDefinition @'
 using System;
@@ -303,9 +322,11 @@ try {
     while ($job.ActiveProcessCount -gt 0) {
         Start-Sleep -Milliseconds 100
     }
-    $stdoutTask.GetAwaiter().GetResult()
-    $stderrTask.GetAwaiter().GetResult()
-    exit $backendProcess.ExitCode
+    [void]$stdoutTask.GetAwaiter().GetResult()
+    [void]$stderrTask.GetAwaiter().GetResult()
+    $backendExitCode = $backendProcess.ExitCode
+    Set-Content -LiteralPath $ExitCodeFile -Value ([string]$backendExitCode) -Encoding ASCII
+    exit $backendExitCode
 }
 finally {
     $job.Dispose()

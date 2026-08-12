@@ -51,8 +51,9 @@ template:
 
 - `comfyui_url`: 本地 ComfyUI 地址（默认 `http://127.0.0.1:8188`）
 - `backend_management_mode`: ComfyUI 生命周期策略。`"required"` 是本地单机生成的推荐配置，只接受由 Pixelle 验证所有权的完整本地服务；工作流需要时按需启动，批次结束后停止。`"auto"` 可复用外部服务，因此无法保证释放内存；`"disabled"` 是兼容旧部署的默认值，只连接外部服务，永不启动或停止它。
-- `backends.<role>.resource_policy`: 托管服务资源策略。`auto` 对 Windows 托管服务使用稳定的 `memory_safe` 默认策略，关闭锁页内存、异步模型卸载和执行缓存，同时保留大工作流需要的动态显存能力；`performance` 只供完成整条业务链路实测后的显式启用。
-- `backends.<role>.minimum_free_commit_gb`: 启动托管服务所需的最低 Windows 可用提交内存，默认 12 GiB；低于阈值时提前拒绝启动。
+- `backends.<role>.resource_policy`: 托管服务资源策略。`auto` 对 Windows 托管服务使用 `memory_safe` 默认策略，只关闭锁页主机内存，同时保留批次内必需的异步模型卸载和执行缓存；`performance` 保留 ComfyUI 的全部默认值。
+- `backends.<role>.minimum_free_commit_gb`: 启动托管服务前保留的 Windows 可用提交内存。省略时根据系统提交上限自动计算 2 至 6 GiB 的操作系统安全余量；显式数值用于经过实测的部署，`0` 仅用于已有等价外部保护的环境。该门槛不代表未知工作流一定能够装入内存。
+- `runtime.release_alignment_service_after_use`: 默认启用。在字幕时间对齐完成后立即释放强制对齐模型，避免它与随后的本地图片模型同时占用显存和系统内存；生成结束时的释放仍作为失败兜底。
 - `comfyui_api_key`: ComfyUI API 密钥（可选，用于 [Comfy Platform](https://platform.comfy.org/profile/api-keys)）
 
 Pixelle 在提交本地工作流前通过 `/system_stats` 验证服务健康，并只观察共享队列，不中断或清空其他客户端任务。对 Pixelle 验证所有权的服务，`stop_after_batch: true` 会在完整图片或音频批次结束且队列为空后停止整个服务；下一批本地工作流才重新启动。进程退出同时释放显存和系统内存，不依赖插件私有的释放接口。对外部启动或所有权无法验证的服务，Pixelle 不执行停止操作。服务运行期间，仍可通过配置地址在浏览器中查看队列、历史和生成内容。

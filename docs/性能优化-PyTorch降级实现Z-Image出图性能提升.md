@@ -1,5 +1,7 @@
 # 性能优化：PyTorch 降级 + ComfyUI 启动参数调优实现 Z-Image 出图性能恢复
 
+> **当前结论（2026/08/12）**：本文保留的是单张暖机性能试验记录，不是现行生产启动方案。后续批次稳定性验证证明，`--disable-async-offload` 会阻止权重及时卸载，`--highvram` 会扩大模型常驻范围；两者都会增加连续生成时的显存与系统提交压力，禁止复制到托管后端。现行参数以 `scripts/comfyui/backend_common.ps1` 为唯一事实源：使用 `--normalvram`，内存安全策略只追加 `--disable-pinned-memory`，并保留异步权重卸载和执行缓存。
+
 ## 概述
 
 2026/04/30 发现 ComfyUI Z-Image Turbo GGUF 工作流出图速度从正常的 2-3 秒/张退化到 7-11 秒/张。经过两阶段排查：第一阶段定位 PyTorch 2.11 为主因，降级恢复至 5 秒；第二阶段定位 ComfyUI 0.20 内存管理变化为次因，通过启动参数调优逐步恢复（当前 3.8s，目标 2-3s）。
@@ -171,12 +173,23 @@ Prompt executed in ~5.0 seconds
 | [ComfyUI#11081](https://github.com/Comfy-Org/ComfyUI/issues/11081) | GGUF 模型 VRAM 利用率降至 45-55% | 🟡 部分相关 |
 | [ComfyUI#11072](https://github.com/Comfy-Org/ComfyUI/issues/11072) | VAE 智能卸载不释放足够显存导致 GPU 显存换页到系统内存 | 🟡 部分相关 |
 
-### 最终参数组合
+### 当时试验阶段参数（已废弃）
+
+下面的组合只记录单张暖机试验结果，未覆盖连续批次、多个模型阶段重叠和系统提交峰值，不能作为生产结论：
 
 ```powershell
-# scripts/comfyui/backend_common.ps1 Get-BackendArguments 函数
+# 历史试验参数，禁止用于当前托管后端
 --highvram                  # 所有模型锁死在 GPU
 --disable-async-offload     # 关闭异步权重卸载（减少 CUDA stream 开销）
+```
+
+当前托管后端采用以下原则：
+
+```powershell
+--normalvram                # 允许模型按需卸载，控制连续批次的常驻范围
+--disable-pinned-memory     # 避免锁页主机内存持续挤占系统提交
+# 保留异步权重卸载
+# 保留执行缓存，使同一批次复用已加载模型和计算结果
 ```
 
 对应 Git 提交：
@@ -186,6 +199,7 @@ Prompt executed in ~5.0 seconds
 | `789d939` | 新增 --disable-async-offload |
 | `0a8cb60` | --disable-dynamic-vram → --highvram |
 | `283c518` | 尝试 --disable-smart-memory + --fp16-vae（已回退） |
+| `15523346` | 发现模型无法及时卸载后，移除 --disable-async-offload |
 
 ### 已排除的参数
 
@@ -195,18 +209,18 @@ Prompt executed in ~5.0 seconds
 | `--fp16-vae` | ❌ 倒退 0.6s | Z-Image AutoencodingEngine 在 RTX 4090 上 bfloat16 优于 float16 |
 | `--gpu-only` | ❌ 未改善 | PyTorch 2.11 下测试，不优于 --highvram |
 
-### 日志验证要点
+### 当前日志验证要点
 
 启动后检查以下日志行确认参数生效：
 
 ```
-Set vram state to: HIGH_VRAM                    # --highvram 生效
-# 无 "Using async weight offloading" 行         # --disable-async-offload 生效
+Set vram state to: NORMAL_VRAM                  # --normalvram 生效
+Using async weight offloading                   # 异步权重卸载保持开启
 # 无 "Disabling smart memory management" 行     # 确认未使用 --disable-smart-memory
 VAE load device: cuda:0, offload device: cpu, dtype: torch.bfloat16  # 保持 bfloat16
 ```
 
-暖机跑期望：
+以下暖机数据仅是历史测量值，不能作为批次内存稳定性的验收标准：
 
 ```
 100%|██████████| 5/5 [00:00<00:00, 6.5+ it/s]   # 采样速度 > 6 it/s

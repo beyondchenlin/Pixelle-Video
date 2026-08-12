@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import socket
@@ -150,6 +151,15 @@ def write_fake_hanging_main_py(comfyui_root: Path) -> None:
                 "time.sleep(30)",
             ]
         ),
+        encoding="utf-8",
+    )
+
+
+def write_fake_failing_main_py(comfyui_root: Path) -> None:
+    (comfyui_root / "main.py").write_text(
+        "import sys\n"
+        "print('deliberate backend failure api_key=do-not-expose', file=sys.stderr, flush=True)\n"
+        "sys.exit(23)\n",
         encoding="utf-8",
     )
 
@@ -646,13 +656,12 @@ def test_start_backend_dry_run_uses_headless_safe_args(tmp_path: Path) -> None:
     assert "--enable-cors-header" not in argv
 
 
-def test_start_backend_memory_safe_policy_disables_commit_heavy_features(
+def test_start_backend_memory_safe_policy_preserves_batch_reuse_and_offload(
     tmp_path: Path,
 ) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     (comfyui_root / "comfy" / "cli_args.py").write_text(
-        "--disable-pinned-memory --disable-async-offload "
-        "--cache-none",
+        "--disable-pinned-memory",
         encoding="utf-8",
     )
     result = run_powershell(
@@ -683,9 +692,9 @@ def test_start_backend_memory_safe_policy_disables_commit_heavy_features(
     payload = json.loads(result.stdout)
     assert payload["resource_policy"] == "memory_safe"
     assert "--disable-pinned-memory" in payload["arguments"]
-    assert "--disable-async-offload" in payload["arguments"]
+    assert "--disable-async-offload" not in payload["arguments"]
     assert "--disable-dynamic-vram" not in payload["arguments"]
-    assert "--cache-none" in payload["arguments"]
+    assert "--cache-none" not in payload["arguments"]
 
 
 def test_start_backend_auto_policy_defaults_to_memory_safe(tmp_path: Path) -> None:
@@ -719,6 +728,45 @@ def test_start_backend_auto_policy_defaults_to_memory_safe(tmp_path: Path) -> No
     assert payload["requested_resource_policy"] == "auto"
     assert payload["resource_policy"] == "memory_safe"
     assert "--disable-pinned-memory" in payload["arguments"]
+    assert "--disable-async-offload" not in payload["arguments"]
+    assert "--cache-none" not in payload["arguments"]
+    assert payload["minimum_free_commit_mode"] == "automatic"
+    assert 2 <= payload["minimum_free_commit_gb"] <= 6
+
+
+def test_start_backend_resolves_relative_runtime_and_log_paths_from_repo_root(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    runtime_dir = Path("_runtime") / "tests" / tmp_path.name / "runtime"
+    logs_dir = Path("_runtime") / "tests" / tmp_path.name / "logs"
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        runtime_dir,
+        "-LogsDir",
+        logs_dir,
+        "-Port",
+        "65500",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert Path(payload["runtime_dir"]) == (REPO_ROOT / runtime_dir).resolve()
+    assert Path(payload["logs_dir"]) == (REPO_ROOT / logs_dir).resolve()
+    assert Path(payload["stdout_log"]).parent == (REPO_ROOT / logs_dir).resolve()
+    assert Path(payload["supervisor_stderr_log"]).parent == (REPO_ROOT / logs_dir).resolve()
 
 
 def test_start_backend_memory_safe_policy_fails_when_support_is_unverifiable(
@@ -1917,3 +1965,80 @@ def test_start_backend_cleans_up_when_backend_never_listens(tmp_path: Path) -> N
         assert json.loads(check.stdout)["listener_present"] is False
     finally:
         kill_fake_comfyui_processes(comfyui_root)
+
+
+def test_start_backend_reports_early_backend_exit_without_waiting_for_timeout(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_failing_main_py(comfyui_root)
+    runtime_dir = tmp_path / "runtime"
+    logs_dir = tmp_path / "logs"
+    port = reserve_free_port()
+
+    started_at = time.monotonic()
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        runtime_dir,
+        "-LogsDir",
+        logs_dir,
+        "-HostAddress",
+        "127.0.0.1",
+        "-Port",
+        str(port),
+        "-ReadyTimeoutSeconds",
+        "8",
+    )
+    elapsed = time.monotonic() - started_at
+
+    combined_output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert elapsed < 5
+    assert "exited with code 23" in combined_output
+    assert "deliberate backend failure" in combined_output
+    assert "api_key=[REDACTED]" in combined_output
+    assert "do-not-expose" not in combined_output
+    assert "comfyui-backend.stderr.log" in combined_output
+    assert not (runtime_dir / "comfyui-backend.pid").exists()
+    assert not (runtime_dir / "comfyui-backend.launcher.pid").exists()
+
+
+def test_backend_supervisor_writes_its_own_startup_failure_log(tmp_path: Path) -> None:
+    stdout_log = tmp_path / "backend.stdout.log"
+    stderr_log = tmp_path / "backend.stderr.log"
+    supervisor_stderr_log = tmp_path / "supervisor.stderr.log"
+    exit_code_file = tmp_path / "backend.exit-code"
+    arguments_base64 = base64.b64encode(json.dumps([]).encode("utf-8")).decode("ascii")
+
+    result = run_powershell(
+        SCRIPT_DIR / "backend_supervisor.ps1",
+        "-PythonExe",
+        tmp_path / "missing-python.exe",
+        "-WorkingDirectory",
+        tmp_path,
+        "-StdoutLog",
+        stdout_log,
+        "-StderrLog",
+        stderr_log,
+        "-SupervisorStderrLog",
+        supervisor_stderr_log,
+        "-ExitCodeFile",
+        exit_code_file,
+        "-ArgumentsBase64",
+        arguments_base64,
+    )
+
+    assert result.returncode != 0
+    assert supervisor_stderr_log.exists()
+    assert supervisor_stderr_log.read_text(encoding="utf-8").strip()
+    assert not exit_code_file.exists()

@@ -736,6 +736,11 @@ async def test_produce_assets_aborts_immediately_on_staged_image_failure(monkeyp
         ("media", 0),
         ("media", 1),
     ]
+    assert ctx.storyboard.frames[0].image_path == "image-0.png"
+    assert ctx.storyboard.frames[1].image_path is None
+    assert core.local_comfyui_sessions == ["enter", "exit", "enter", "exit"]
+    assert core.local_comfyui_session_stop_options == [True, True]
+    assert core.local_comfyui_session_backend_roles == ["tts", "image"]
     assert ctx.storyboard.frames[0].video_segment_path is None
     assert ctx.storyboard.frames[1].video_segment_path is None
 
