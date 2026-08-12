@@ -462,7 +462,7 @@ def test_image_z_image_turbo_gguf_defaults_to_5_sampling_steps():
     assert workflow["3"]["inputs"]["steps"] == 5
 
 
-def test_image_z_image_turbo_gguf_uses_tiled_vae_decode():
+def test_image_z_image_turbo_gguf_uses_automatic_vae_decode():
     workflow = json.loads(
         Path("workflows/selfhost/image_z_image_turbo_gguf.json").read_text(
             encoding="utf-8"
@@ -470,11 +470,8 @@ def test_image_z_image_turbo_gguf_uses_tiled_vae_decode():
     )
 
     decode_node = workflow["8"]
-    assert decode_node["class_type"] == "VAEDecodeTiled"
-    assert decode_node["inputs"]["tile_size"] == 512
-    assert decode_node["inputs"]["overlap"] == 64
-    assert decode_node["inputs"]["temporal_size"] == 64
-    assert decode_node["inputs"]["temporal_overlap"] == 8
+    assert decode_node["class_type"] == "VAEDecode"
+    assert set(decode_node["inputs"]) == {"samples", "vae"}
 
 
 def test_image_z_image_turbo_gguf_doc_declares_easy_use_dependency():
@@ -484,8 +481,8 @@ def test_image_z_image_turbo_gguf_doc_declares_easy_use_dependency():
 
     assert "ComfyUI-Easy-Use" in doc
     assert "easy int" in doc
-    assert "VAEDecodeTiled" in doc
-    assert "temporal_size" in doc
+    assert "VAEDecode" in doc
+    assert "显存不足时自动回退到分块解码" in doc
     assert "include_turbo_gguf_q4" in doc
     assert "默认采样步数" in doc
     assert "`5`" in doc

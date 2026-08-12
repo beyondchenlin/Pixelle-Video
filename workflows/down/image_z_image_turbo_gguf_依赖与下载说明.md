@@ -28,16 +28,15 @@
 - `EmptySD3LatentImage`
 - `ModelSamplingAuraFlow`
 - `KSampler`
-- `VAEDecodeTiled`
+- `VAEDecode`
 - `SaveImage`
 
 ### 2.1.1 Pixelle runtime policy
 
 - 默认工作流继续使用 `Q8_0` 主模型和 `Q8_0` 文本编码器，这是近期主线的质量/性能契约。
-- 默认 VAE 解码策略是稳定优先的 `VAEDecodeTiled`，用于降低 Q8 在 1280x720 / 1k 图像解码阶段的瞬时显存峰值。
+- 默认 VAE 解码策略使用 `VAEDecode`：显存足够时执行整图解码以减少分块开销，显存不足时自动回退到分块解码。
 - 这不是 Q4 降级方案；Q4 只作为显存极端紧张时的显式可选逃生路径。
-- `VAEDecodeTiled` 节点必须支持这些输入：`samples`、`vae`、`tile_size`、`overlap`、`temporal_size`、`temporal_overlap`。
-- 当前默认参数：`tile_size=512`、`overlap=64`、`temporal_size=64`、`temporal_overlap=8`。
+- `VAEDecode` 节点必须支持 `samples`、`vae` 输入，并由 ComfyUI 在整图解码发生显存溢出时自动转为分块解码。
 
 ### 2.2 依赖分类
 
@@ -48,7 +47,7 @@
 | Python 包 | `gguf`、`sentencepiece`、`protobuf` | GGUF 模型读取与分词依赖 |
 | 主模型 | `z-image-turbo-Q8_0.gguf` | `Z-Image-Turbo` GGUF 主扩散模型，默认高质量量化版本 |
 | 文本编码器 | `Qwen3-4B-Q8_0.gguf` | `Z-Image-Turbo` GGUF 文本编码器，默认高质量量化版本 |
-| VAE | `ae.safetensors` | `latent` 与图像之间的分块解码，用于降低 Q8/1k 图像解码阶段显存峰值 |
+| VAE | `ae.safetensors` | `latent` 与图像之间的自动解码；显存足够时整图解码，显存不足时回退分块解码 |
 | ComfyUI 前端修复 | `dialogService-*.js` 中的 GGUF loader 映射 | 修复右侧“缺失模型/未知模型”误报，不影响实际跑图，但能消除错误提示 |
 
 ## 3. 目标目录
@@ -226,7 +225,7 @@ Get-Item `
 ### 8.3 检查工作流节点是否匹配
 
 ```powershell
-rg -n "UnetLoaderGGUF|CLIPLoaderGGUF|easy int" "workflows/selfhost/image_z_image_turbo_gguf.json"
+rg -n "UnetLoaderGGUF|CLIPLoaderGGUF|easy int|VAEDecode" "workflows/selfhost/image_z_image_turbo_gguf.json"
 ```
 
 ### 8.4 检查仓库中的工作流参数映射
