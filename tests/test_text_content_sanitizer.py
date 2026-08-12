@@ -40,6 +40,12 @@ def test_sanitizer_marks_escape_requirements_for_sensitive_plain_text():
     assert result.removed_tokens == ()
 
 
+def test_sanitizer_preserves_explicit_line_breaks_for_backend_parity():
+    result = TextContentSanitizer().sanitize("first line\n  second   line")
+
+    assert result.display_text == "first line\nsecond line"
+
+
 def test_sanitizer_removes_quoted_css_and_ffmpeg_fragments_without_trailing_leakage():
     result = TextContentSanitizer().sanitize(
         'Title style="color: red;" drawtext=text=\'hello world\' keep'

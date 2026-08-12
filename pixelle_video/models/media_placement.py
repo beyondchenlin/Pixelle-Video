@@ -5,7 +5,7 @@ from math import isclose, isfinite
 from typing import Any, Literal, Mapping
 
 MediaPlacementBasis = Literal["canvas"]
-MediaPlacementFit = Literal["contain"]
+MediaPlacementFit = Literal["contain", "cover", "stretch", "original_size"]
 MediaPlacementAnchor = Literal[
     "top_left",
     "top",
@@ -19,7 +19,10 @@ MediaPlacementAnchor = Literal[
 ]
 
 VALID_MEDIA_PLACEMENT_BASIS = ("canvas",)
-VALID_MEDIA_PLACEMENT_FIT = ("contain",)
+VALID_MEDIA_PLACEMENT_FIT = ("contain", "cover", "stretch", "original_size")
+VALID_CANVAS_PROJECTION_FIT = ("contain",)
+MAX_MEDIA_BOX_AREA_MULTIPLIER = 64
+MAX_MEDIA_BOX_EDGE_MULTIPLIER = 64
 VALID_MEDIA_PLACEMENT_ANCHORS = (
     "top_left",
     "top",
@@ -141,13 +144,40 @@ def calculate_media_box(
     media_source_width = dimensions["media_source_width"]
     media_source_height = dimensions["media_source_height"]
 
-    contain_scale = min(
-        canvas_width / media_source_width,
-        canvas_height / media_source_height,
-    )
+    if resolved.fit == "contain":
+        fit_width = media_source_width * min(
+            canvas_width / media_source_width,
+            canvas_height / media_source_height,
+        )
+        fit_height = media_source_height * min(
+            canvas_width / media_source_width,
+            canvas_height / media_source_height,
+        )
+    elif resolved.fit == "cover":
+        cover_scale = max(
+            canvas_width / media_source_width,
+            canvas_height / media_source_height,
+        )
+        fit_width = media_source_width * cover_scale
+        fit_height = media_source_height * cover_scale
+    elif resolved.fit == "stretch":
+        fit_width = canvas_width
+        fit_height = canvas_height
+    else:
+        fit_width = media_source_width
+        fit_height = media_source_height
     placement_scale = resolved.scale_percent / 100
-    width = media_source_width * contain_scale * placement_scale
-    height = media_source_height * contain_scale * placement_scale
+    width = fit_width * placement_scale
+    height = fit_height * placement_scale
+    if (
+        width * height
+        > canvas_width * canvas_height * MAX_MEDIA_BOX_AREA_MULTIPLIER
+        or width > canvas_width * MAX_MEDIA_BOX_EDGE_MULTIPLIER
+        or height > canvas_height * MAX_MEDIA_BOX_EDGE_MULTIPLIER
+    ):
+        raise ValueError(
+            "resolved media box exceeds the renderer resource-safety limit"
+        )
     if resolved.anchor is not None:
         left = _anchor_left(resolved.anchor, canvas_width, width)
         top = _anchor_top(resolved.anchor, canvas_height, height)
@@ -165,10 +195,13 @@ def project_canvas_box_to_template(
     canvas_height: float,
     template_width: float,
     template_height: float,
-    canvas_fit: MediaPlacementFit = "contain",
+    canvas_fit: Literal["contain"] = "contain",
 ) -> MediaBox:
-    if canvas_fit not in VALID_MEDIA_PLACEMENT_FIT:
-        raise ValueError(f"canvas_fit must be one of {VALID_MEDIA_PLACEMENT_FIT}")
+    if canvas_fit not in VALID_CANVAS_PROJECTION_FIT:
+        raise ValueError(
+            f"canvas_fit must be one of {VALID_CANVAS_PROJECTION_FIT}; "
+            "projection consumes an already-resolved canvas box"
+        )
     dimensions = _validate_positive_dimensions(
         canvas_width=canvas_width,
         canvas_height=canvas_height,

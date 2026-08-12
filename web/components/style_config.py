@@ -458,6 +458,16 @@ def _render_media_placement_offset_slider(*, key: str, label: str) -> int:
 
 
 def _render_media_placement_controls() -> MediaPlacement:
+    fit = _render_size_segmented_control(
+        label=tr("media_placement.fit"),
+        options=("contain", "cover", "stretch", "original_size"),
+        labels={
+            value: tr(f"media_placement.fit.{value}")
+            for value in ("contain", "cover", "stretch", "original_size")
+        },
+        key="media_placement_fit",
+        default=MediaPlacement().fit,
+    )
     has_scale_session_value = session_state_has_key(
         st.session_state,
         "media_placement_scale_percent",
@@ -507,6 +517,7 @@ def _render_media_placement_controls() -> MediaPlacement:
     caption = getattr(st, "caption", None)
 
     placement = MediaPlacement(
+        fit=fit,
         scale_percent=scale_percent,
         offset_x=offset_x,
         offset_y=offset_y,
@@ -515,6 +526,7 @@ def _render_media_placement_controls() -> MediaPlacement:
 
     if caption is not None:
         caption(
+            f"{tr('media_placement.fit')}: {tr(f'media_placement.fit.{placement.fit}')} · "
             f"{tr('media_placement.scale')}: {placement.scale_percent}% · "
             f"X {placement.offset_x}px · Y {placement.offset_y}px"
         )

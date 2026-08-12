@@ -25,6 +25,7 @@ from pixelle_video.services.layered_template_adapters.hyperframes import (
 )
 from pixelle_video.services.media_geometry_resolver import MediaGeometryResolver
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
+from pixelle_video.services.text_layout_planner import wrap_by_character_limit
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
     resolve_text_style_layout,
@@ -248,7 +249,7 @@ class HyperFramesCompiler:
             "max-width:none!important;max-height:none!important;}"
             "#main-comp .pixelle-media-layer>.pixelle-media-clip>.pixelle-media{"
             "width:100%!important;height:100%!important;max-width:none!important;"
-            "max-height:none!important;object-fit:contain!important;display:block!important;}"
+            "max-height:none!important;object-fit:fill!important;display:block!important;}"
             "</style>"
         )
 
@@ -287,7 +288,11 @@ class HyperFramesCompiler:
             profile = resolver.resolve_for_cue(cue=self._caption_as_text_cue(cue))
             css_variables = self._style_profile_css_variables(profile, context)
             text_style = self._text_content_inline_style()
-            display_text = self._safe_display_text(cue.text)
+            display_text = self._wrapped_cue_text(
+                cue.text,
+                profile,
+                render_manifest_version=context.render_manifest_version,
+            )
             rendered.append(
                 (
                     f'<div id="{escape(cue.id, quote=True)}" class="clip caption-group" '
@@ -319,7 +324,11 @@ class HyperFramesCompiler:
                 f"{css_variables} max-width: var(--text-max-width);"
             )
             text_style = self._text_content_inline_style()
-            display_text = self._safe_display_text(cue.text)
+            display_text = self._wrapped_cue_text(
+                cue.text,
+                profile,
+                render_manifest_version=context.render_manifest_version,
+            )
             rendered.append(
                 (
                     f'<div id="{escape(cue.id, quote=True)}" '
@@ -341,6 +350,23 @@ class HyperFramesCompiler:
 
     def _safe_display_text(self, text: object) -> str:
         return self.text_sanitizer.sanitize(text).display_text
+
+    def _wrapped_cue_text(
+        self,
+        text: object,
+        profile: TextStyleProfile,
+        *,
+        render_manifest_version: str,
+    ) -> str:
+        display_text = self._safe_display_text(text)
+        if (
+            render_manifest_version != "render_manifest.v2"
+            or not profile.max_chars_per_line
+        ):
+            return display_text
+        return "\n".join(
+            wrap_by_character_limit(display_text, profile.max_chars_per_line)
+        )
 
     def _render_title(self, context: TemplateRenderContext) -> str:
         display_text = self._safe_display_text(context.title)

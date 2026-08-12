@@ -1,4 +1,7 @@
-from pixelle_video.services.text_layout_planner import TextLayoutPlanner
+from pixelle_video.services.text_layout_planner import (
+    TextLayoutPlanner,
+    wrap_by_character_limit,
+)
 
 
 def test_layout_planner_wraps_cjk_by_display_width_and_reports_safe_area_slot():
@@ -77,3 +80,17 @@ def test_layout_planner_serialization_omits_quoted_renderer_fragments():
     assert "drawtext=" not in serialized
     assert 'red;"' not in serialized
     assert "world'" not in serialized
+
+
+def test_character_limit_wrap_preserves_explicit_lines_and_graphemes():
+    assert wrap_by_character_limit("ABCD\ne\u0301e\u0301", 2) == (
+        "AB",
+        "CD",
+        "e\u0301e\u0301",
+    )
+
+
+def test_layout_planner_preserves_explicit_newline_boundaries():
+    result = TextLayoutPlanner().plan_text("AB\n中文", max_display_width=10)
+
+    assert result.wrapped_lines == ("AB", "中文")

@@ -311,3 +311,96 @@ def test_ass_export_ignores_tracks_without_ass_target(tmp_path):
     outputs = AssTextAdapter().export(manifest=manifest, output_dir=tmp_path)
 
     assert "不应导出" not in outputs.master.read_text(encoding="utf-8")
+
+
+def test_ass_v2_projects_css_pixel_font_units_and_explicit_line_spacing(tmp_path):
+    manifest = RenderManifest(
+        version="render_manifest.v2",
+        task_id="task-v2-lines",
+        title="Canonical line layout",
+        width=320,
+        height=180,
+        fps=30,
+        template_id="styled",
+        text_style_profiles=[
+            TextStyleProfile(
+                id="canonical",
+                name="Canonical",
+                font_file=(
+                    "resources/hyperframes/runtime/fonts/assets/"
+                    "NotoSansSC-wght.ttf"
+                ),
+                font_size=36,
+                line_height=1.0,
+                position="bottom",
+                alignment="center",
+                margin_x=10,
+                margin_y=12,
+                max_chars_per_line=5,
+            )
+        ],
+        text_tracks=[
+            TextTrack(
+                id="subtitle",
+                kind="subtitle",
+                name="Subtitle",
+                renderer_targets=("ass",),
+                style_profile="canonical",
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="s1",
+                track_id="subtitle",
+                text="FIRSTHELLO",
+                start=0.0,
+                end=1.0,
+                role="subtitle",
+            )
+        ],
+    )
+
+    output = AssTextAdapter().export(manifest=manifest, output_dir=tmp_path)
+    content = output.master.read_text(encoding="utf-8")
+
+    assert "Style: canonical,Noto Sans SC,54," in content
+    assert r"{\an2\pos(160,140)}FIRST" in content
+    assert r"{\an2\pos(160,176)}HELLO" in content
+    assert content.count("Dialogue:") == 2
+
+
+def test_ass_v1_preserves_legacy_multiline_event_shape(tmp_path):
+    manifest = RenderManifest(
+        version="render_manifest.v1",
+        task_id="task-v1-lines",
+        title="Legacy line layout",
+        width=320,
+        height=180,
+        fps=30,
+        template_id="legacy",
+        text_tracks=[
+            TextTrack(
+                id="subtitle",
+                kind="subtitle",
+                name="Subtitle",
+                renderer_targets=("ass",),
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="s1",
+                track_id="subtitle",
+                text="FIRST\nSECOND",
+                start=0.0,
+                end=1.0,
+                role="subtitle",
+            )
+        ],
+    )
+
+    output = AssTextAdapter().export(manifest=manifest, output_dir=tmp_path)
+    content = output.master.read_text(encoding="utf-8")
+
+    assert "Style: caption-default,Noto Sans SC,36," in content
+    assert r"FIRST\NSECOND" in content
+    assert content.count("Dialogue:") == 1

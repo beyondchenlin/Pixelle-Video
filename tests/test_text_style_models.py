@@ -46,8 +46,9 @@ def test_normalize_hex_color_accepts_none_and_rejects_invalid_values():
 
 
 def test_text_style_profile_rejects_invalid_opacity():
-    with pytest.raises(ValueError, match="background_opacity"):
-        TextStyleProfile(id="bad", name="Bad", background_opacity=1.5)
+    for opacity in (1.5, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="background_opacity"):
+            TextStyleProfile(id="bad", name="Bad", background_opacity=opacity)
 
 
 @pytest.mark.parametrize(
@@ -60,6 +61,12 @@ def test_text_style_profile_rejects_invalid_opacity():
         ({"margin_x": -1}, "margin"),
         ({"position": "middle"}, "position"),
         ({"alignment": "justify"}, "alignment"),
+        ({"max_width_ratio": 0}, "max_width_ratio"),
+        ({"max_width_ratio": float("nan")}, "max_width_ratio"),
+        ({"line_height": 0}, "line_height"),
+        ({"line_height": float("inf")}, "line_height"),
+        ({"max_chars_per_line": True}, "max_chars_per_line"),
+        ({"max_chars_per_line": 201}, "max_chars_per_line"),
         ({"scale_basis_width": 0}, "scale basis"),
         ({"scale_basis_height": 0}, "scale basis"),
     ],
@@ -69,6 +76,15 @@ def test_text_style_profile_rejects_invalid_contract_values(kwargs, message):
     payload.update(kwargs)
     with pytest.raises(ValueError, match=message):
         TextStyleProfile(**payload)
+
+
+def test_text_style_profile_normalizes_legacy_zero_character_limit_to_auto():
+    profile = TextStyleProfile.from_dict(
+        {"id": "legacy", "name": "Legacy", "max_chars_per_line": 0}
+    )
+
+    assert profile.max_chars_per_line is None
+    assert profile.to_dict()["max_chars_per_line"] is None
 
 
 def test_text_style_profile_scale_for_canvas_clamps_canvas_dimensions():

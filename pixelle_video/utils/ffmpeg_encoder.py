@@ -37,7 +37,7 @@ class Libx264Backend(H264EncoderBackend):
     def probe_command(self) -> list[str]:
         return [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "color=c=black:s=64x64:r=1:d=1",
+            "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=1",
             "-frames:v", "1", "-c:v", self.codec,
             "-preset", "medium", "-crf", "23", "-f", "null", "-",
         ]
@@ -61,7 +61,7 @@ class NvencBackend(H264EncoderBackend):
     def probe_command(self) -> list[str]:
         return [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "color=c=black:s=64x64:r=1:d=1",
+            "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=1",
             "-frames:v", "1", "-c:v", self.codec,
             "-preset", "p4", "-rc", "vbr", "-cq", "23",
             "-b_ref_mode", "middle", "-f", "null", "-",
@@ -83,7 +83,7 @@ class QsvBackend(H264EncoderBackend):
     def probe_command(self) -> list[str]:
         return [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "color=c=black:s=64x64:r=1:d=1",
+            "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=1",
             "-frames:v", "1", "-c:v", self.codec,
             "-preset", "medium", "-global_quality", "23",
             "-f", "null", "-",
@@ -105,7 +105,7 @@ class VaapiBackend(H264EncoderBackend):
         return [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-vaapi_device", device,
-            "-f", "lavfi", "-i", "color=c=black:s=64x64:r=1:d=1",
+            "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=1",
             "-vf", "format=nv12,hwupload", "-frames:v", "1",
             "-c:v", self.codec, "-qp", "23", "-f", "null", "-",
         ]

@@ -112,6 +112,22 @@ def test_template_render_context_preserves_media_sync_contract():
     assert context.media_layout_mode == "canvas"
 
 
+def test_template_render_context_carries_manifest_version_for_compatibility():
+    manifest = RenderManifest(
+        version="render_manifest.v2",
+        task_id="task-version",
+        title="demo",
+        width=1280,
+        height=720,
+        fps=30,
+        template_id="image_landscape_minimal",
+    )
+
+    context = build_template_render_context(manifest, template_params={})
+
+    assert context.render_manifest_version == "render_manifest.v2"
+
+
 def test_template_render_context_hides_title_and_signature_by_default():
     manifest = RenderManifest(
         task_id="task-template-display-defaults",

@@ -7,6 +7,10 @@ from pixelle_video.models.text_style import TextStyleProfile
 from pixelle_video.services.font_discovery import canonical_font_family_name
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+# libass interprets the ASS Fontsize field on a 2/3 cap-height scale compared
+# with the CSS pixel contract used by TextStyleProfile. Keep this conversion
+# at the adapter boundary so stored profiles remain backend-independent.
+_ASS_FONT_UNITS_PER_CSS_PIXEL = 1.5
 _ASS_ALIGNMENT_BY_POSITION = {
     ("bottom", "center"): 2,
     ("lower_third", "center"): 2,
@@ -41,6 +45,8 @@ class AssStyleBuilder:
         profile: TextStyleProfile,
         canvas_width: int,
         canvas_height: int,
+        *,
+        project_css_pixel_units: bool = False,
     ) -> str:
         if not isinstance(profile, TextStyleProfile):
             raise TypeError("profile must be a TextStyleProfile")
@@ -51,7 +57,10 @@ class AssStyleBuilder:
             raise ValueError("canvas_width and canvas_height must be positive")
 
         scale = profile.scale_for_canvas(canvas_width, canvas_height)
-        font_size = max(1, _scale_int(profile.font_size, scale))
+        font_unit_scale = (
+            _ASS_FONT_UNITS_PER_CSS_PIXEL if project_css_pixel_units else 1.0
+        )
+        font_size = max(1, _scale_int(profile.font_size * font_unit_scale, scale))
         outline = _scale_int(profile.stroke_width, scale)
         shadow = _scale_int(profile.shadow_blur, scale) if profile.shadow_blur else 0
         margin_x = _scale_int(profile.margin_x, scale)
@@ -70,7 +79,7 @@ class AssStyleBuilder:
             "1",
             str(outline),
             str(shadow),
-            str(_ass_alignment(profile)),
+            str(ass_alignment(profile)),
             str(margin_x),
             str(margin_x),
             str(margin_y),
@@ -88,7 +97,7 @@ def _validate_ass_field(value: str, field_name: str) -> None:
         raise ValueError(f"ASS {field_name} cannot contain comma, CR, or LF")
 
 
-def _ass_alignment(profile: TextStyleProfile) -> int:
+def ass_alignment(profile: TextStyleProfile) -> int:
     try:
         return _ASS_ALIGNMENT_BY_POSITION[(profile.position, profile.alignment)]
     except KeyError as exc:

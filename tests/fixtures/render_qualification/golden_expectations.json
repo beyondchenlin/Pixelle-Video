@@ -1,0 +1,17 @@
+{
+  "version": "render_golden_expectations.v1",
+  "cases": {
+    "landscape-contain": {"media_box": {"left": 100, "top": 0, "right": 219, "bottom": 179}, "landmark_box": {"left": 126, "top": 36, "right": 194, "bottom": 144}, "text_line_count": 2, "text_baseline_proxy_rows": [129, 165]},
+    "landscape-cover": {"media_box": {"left": 0, "top": 0, "right": 319, "bottom": 179}, "landmark_box": {"left": 70, "top": 0, "right": 250, "bottom": 179}, "text_line_count": 2, "text_baseline_proxy_rows": [129, 165]},
+    "landscape-stretch": {"media_box": {"left": 0, "top": 0, "right": 319, "bottom": 179}, "landmark_box": {"left": 70, "top": 36, "right": 250, "bottom": 144}, "text_line_count": 2, "text_baseline_proxy_rows": [129, 165]},
+    "landscape-original_size": {"media_box": {"left": 60, "top": 0, "right": 259, "bottom": 179}, "landmark_box": {"left": 104, "top": 0, "right": 216, "bottom": 179}, "text_line_count": 2, "text_baseline_proxy_rows": [129, 165]},
+    "portrait-contain": {"media_box": {"left": 0, "top": 25, "right": 179, "bottom": 294}, "landmark_box": {"left": 40, "top": 79, "right": 140, "bottom": 240}, "text_line_count": 2, "text_baseline_proxy_rows": [269, 305]},
+    "portrait-cover": {"media_box": {"left": 0, "top": 0, "right": 179, "bottom": 319}, "landmark_box": {"left": 30, "top": 64, "right": 150, "bottom": 256}, "text_line_count": 2, "text_baseline_proxy_rows": [269, 305]},
+    "portrait-stretch": {"media_box": {"left": 0, "top": 0, "right": 179, "bottom": 319}, "landmark_box": {"left": 40, "top": 64, "right": 140, "bottom": 256}, "text_line_count": 2, "text_baseline_proxy_rows": [269, 305]},
+    "portrait-original_size": {"media_box": {"left": 0, "top": 10, "right": 179, "bottom": 309}, "landmark_box": {"left": 34, "top": 70, "right": 146, "bottom": 250}, "text_line_count": 2, "text_baseline_proxy_rows": [269, 305]},
+    "square-contain": {"media_box": {"left": 40, "top": 0, "right": 199, "bottom": 239}, "landmark_box": {"left": 75, "top": 48, "right": 165, "bottom": 192}, "text_line_count": 2, "text_baseline_proxy_rows": [189, 225]},
+    "square-cover": {"media_box": {"left": 0, "top": 0, "right": 239, "bottom": 239}, "landmark_box": {"left": 53, "top": 12, "right": 187, "bottom": 228}, "text_line_count": 2, "text_baseline_proxy_rows": [189, 225]},
+    "square-stretch": {"media_box": {"left": 0, "top": 0, "right": 239, "bottom": 239}, "landmark_box": {"left": 53, "top": 48, "right": 187, "bottom": 192}, "text_line_count": 2, "text_baseline_proxy_rows": [189, 225]},
+    "square-original_size": {"media_box": {"left": 20, "top": 0, "right": 219, "bottom": 239}, "landmark_box": {"left": 64, "top": 30, "right": 176, "bottom": 210}, "text_line_count": 2, "text_baseline_proxy_rows": [189, 225]}
+  }
+}

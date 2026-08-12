@@ -830,13 +830,20 @@ def test_video_generate_request_rejects_invalid_media_placement_scale(scale_perc
     [
         {"anchor": "middle"},
         {"basis": "template"},
-        {"fit": "cover"},
+        {"fit": "crop"},
         {"scale_percent": 80, "offset_x": 12.5},
     ],
 )
 def test_video_generate_request_rejects_invalid_media_placement_values(media_placement):
     with pytest.raises(ValidationError):
         VideoGenerateRequest(text="demo", media_placement=media_placement)
+
+
+@pytest.mark.parametrize("fit", ["contain", "cover", "stretch", "original_size"])
+def test_video_generate_request_accepts_supported_media_fit_modes(fit):
+    request = VideoGenerateRequest(text="demo", media_placement={"fit": fit})
+
+    assert request.media_placement.fit == fit
 
 
 def test_build_video_generation_params_includes_media_placement():

@@ -105,6 +105,7 @@ class TestRuntimeProbeCommands:
         assert "-b_ref_mode middle" in text
         assert "global_quality" not in text
         assert "hwupload" not in text
+        assert "s=320x180:r=30:d=1" in text
 
     def test_qsv_probe_uses_qsv_quality_without_nvenc_options(self):
         command = get_h264_backend("h264_qsv").probe_command()
@@ -116,6 +117,7 @@ class TestRuntimeProbeCommands:
         assert " -cq " not in f" {text} "
         assert "b_ref_mode" not in text
         assert "-preset p4" not in text
+        assert "s=320x180:r=30:d=1" in text
 
     def test_vaapi_probe_requires_device_and_hwupload(self, monkeypatch):
         monkeypatch.setattr(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any, Mapping
 
 DEFAULT_CAPTION_STYLE_ID = "caption-default"
@@ -107,7 +108,24 @@ class TextStyleProfile:
             raise ValueError("shadow_blur must be non-negative")
         if self.margin_x < 0 or self.margin_y < 0:
             raise ValueError("margins must be non-negative")
-        if not 0.0 <= float(self.background_opacity) <= 1.0:
+        if not isfinite(float(self.max_width_ratio)) or not 0 < float(
+            self.max_width_ratio
+        ) <= 1:
+            raise ValueError("max_width_ratio must be finite and between 0 and 1")
+        if not isfinite(float(self.line_height)) or float(self.line_height) <= 0:
+            raise ValueError("line_height must be a finite positive number")
+        if type(self.max_chars_per_line) is int and self.max_chars_per_line == 0:
+            # Legacy manifests and the UI use zero as the wire sentinel for auto layout.
+            # Keep one canonical internal representation so renderers cannot diverge.
+            object.__setattr__(self, "max_chars_per_line", None)
+        if self.max_chars_per_line is not None and (
+            type(self.max_chars_per_line) is not int
+            or not 1 <= self.max_chars_per_line <= 200
+        ):
+            raise ValueError("max_chars_per_line must be an integer between 1 and 200")
+        if not isfinite(float(self.background_opacity)) or not 0.0 <= float(
+            self.background_opacity
+        ) <= 1.0:
             raise ValueError("background_opacity must be between 0 and 1")
         if self.position not in _POSITIONS:
             raise ValueError(f"Unsupported text position: {self.position}")

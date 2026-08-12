@@ -1,6 +1,7 @@
 import pytest
 
 from pixelle_video.models.media_placement import (
+    MediaBox,
     MediaPlacement,
     calculate_media_box,
     project_canvas_box_to_template,
@@ -53,6 +54,47 @@ def test_resolve_media_placement_accepts_dict_and_none():
         offset_x=40,
         offset_y=-20,
     )
+
+
+@pytest.mark.parametrize("fit", ["contain", "cover", "stretch", "original_size"])
+def test_media_placement_round_trips_every_supported_fit_mode(fit):
+    placement = resolve_media_placement({"fit": fit})
+
+    assert placement.fit == fit
+    assert resolve_media_placement(placement.to_dict()) == placement
+
+
+@pytest.mark.parametrize(
+    ("fit", "expected"),
+    [
+        ("contain", (720, 720, 280, 0)),
+        ("cover", (1280, 1280, 0, -280)),
+        ("stretch", (1280, 720, 0, 0)),
+        ("original_size", (1024, 1024, 128, -152)),
+    ],
+)
+def test_fit_modes_have_distinct_canvas_geometry(fit, expected):
+    box = calculate_media_box(
+        canvas_width=1280,
+        canvas_height=720,
+        media_source_width=1024,
+        media_source_height=1024,
+        placement=MediaPlacement(fit=fit),
+    )
+
+    assert (round(box.width), round(box.height), round(box.left), round(box.top)) == expected
+
+
+@pytest.mark.parametrize("fit", ["cover", "original_size"])
+def test_media_box_rejects_extreme_geometry_before_renderer_allocation(fit):
+    with pytest.raises(ValueError, match="resource-safety limit"):
+        calculate_media_box(
+            canvas_width=1080,
+            canvas_height=1920,
+            media_source_width=100_000,
+            media_source_height=1,
+            placement=MediaPlacement(fit=fit),
+        )
 
 
 @pytest.mark.parametrize(
@@ -194,4 +236,19 @@ def test_projection_rejects_template_canvas_aspect_mismatch():
             template_width=1080,
             template_height=1920,
             canvas_fit="contain",
+        )
+
+
+@pytest.mark.parametrize("unsupported_fit", ["cover", "stretch", "original_size"])
+def test_projection_rejects_fit_modes_it_does_not_implement(unsupported_fit):
+    canvas_box = MediaBox(width=640, height=360, left=0, top=0)
+
+    with pytest.raises(ValueError, match="already-resolved canvas box"):
+        project_canvas_box_to_template(
+            canvas_box,
+            canvas_width=1280,
+            canvas_height=720,
+            template_width=1920,
+            template_height=1080,
+            canvas_fit=unsupported_fit,
         )

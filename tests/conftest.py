@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PYTEST_BASETEMP_ROOT = REPO_ROOT / "_runtime" / "pytest-basetemp"
+
+
+def _pytest_basetemp_root() -> Path:
+    configured_runtime = os.environ.get("PIXELLE_VIDEO_RUNTIME_ROOT", "").strip()
+    runtime_root = Path(configured_runtime) if configured_runtime else REPO_ROOT / "_runtime"
+    return runtime_root / "pytest-basetemp"
 
 
 def _has_comfykit_workflow_parser() -> bool:
@@ -66,8 +71,9 @@ def pytest_configure(config):
     os.environ["PIXELLE_VIDEO_ROOT"] = str(REPO_ROOT)
     if not os.environ.get("PIXELLE_VIDEO_RUNTIME_ROOT"):
         os.environ["PIXELLE_VIDEO_RUNTIME_ROOT"] = str(REPO_ROOT / "_runtime")
-    PYTEST_BASETEMP_ROOT.mkdir(parents=True, exist_ok=True)
-    config.option.basetemp = str(PYTEST_BASETEMP_ROOT / str(os.getpid()))
+    pytest_basetemp_root = _pytest_basetemp_root()
+    pytest_basetemp_root.mkdir(parents=True, exist_ok=True)
+    config.option.basetemp = str(pytest_basetemp_root / str(os.getpid()))
 
 
 def pytest_ignore_collect(collection_path, config):

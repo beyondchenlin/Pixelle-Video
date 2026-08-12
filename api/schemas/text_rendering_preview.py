@@ -10,7 +10,7 @@ class TextRenderingPreviewMediaPlacementRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     basis: Literal["canvas"] = Field("canvas")
-    fit: Literal["contain"] = Field("contain")
+    fit: Literal["contain", "cover", "stretch", "original_size"] = Field("contain")
     scale_percent: StrictInt = Field(100, ge=10, le=100)
     anchor: Literal[
         "top_left",

@@ -1,0 +1,156 @@
+name: Render Golden Gate
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+    paths:
+      - ".github/workflows/render-golden-ci.yml"
+      - "api/schemas/text_rendering_preview.py"
+      - "api/schemas/video.py"
+      - "pixelle_video/models/media_placement.py"
+      - "pixelle_video/models/template_render_context.py"
+      - "pixelle_video/models/text_style.py"
+      - "pixelle_video/services/ass_style_builder.py"
+      - "pixelle_video/services/ass_text_adapter.py"
+      - "pixelle_video/services/ffmpeg_manifest_renderer.py"
+      - "pixelle_video/services/frame_html.py"
+      - "pixelle_video/services/hyperframes_compiler.py"
+      - "pixelle_video/services/hyperframes_project_service.py"
+      - "pixelle_video/services/render_artifact_analyzer.py"
+      - "pixelle_video/services/render_qualification.py"
+      - "pixelle_video/services/text_content_sanitizer.py"
+      - "pixelle_video/services/text_layout_planner.py"
+      - "pixelle_video/utils/ffmpeg_encoder.py"
+      - "resources/hyperframes/templates/render_contract_golden/**"
+      - "resources/hyperframes/runtime/**"
+      - "scripts/run_render_qualification.py"
+      - "tests/fixtures/render_qualification/**"
+      - "tests/test_ass_style_builder.py"
+      - "tests/test_ass_text_adapter.py"
+      - "tests/test_hyperframes_compiler.py"
+      - "tests/test_hyperframes_project_service.py"
+      - "tests/test_media_placement.py"
+      - "tests/test_render_artifact_analyzer.py"
+      - "tests/test_render_qualification.py"
+      - "tests/test_text_layout_planner.py"
+      - "tests/test_text_style_models.py"
+      - "tools/hyperframes_bridge/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - ".github/workflows/render-golden-ci.yml"
+      - "api/schemas/text_rendering_preview.py"
+      - "api/schemas/video.py"
+      - "pixelle_video/models/media_placement.py"
+      - "pixelle_video/models/template_render_context.py"
+      - "pixelle_video/models/text_style.py"
+      - "pixelle_video/services/ass_style_builder.py"
+      - "pixelle_video/services/ass_text_adapter.py"
+      - "pixelle_video/services/ffmpeg_manifest_renderer.py"
+      - "pixelle_video/services/frame_html.py"
+      - "pixelle_video/services/hyperframes_compiler.py"
+      - "pixelle_video/services/hyperframes_project_service.py"
+      - "pixelle_video/services/render_artifact_analyzer.py"
+      - "pixelle_video/services/render_qualification.py"
+      - "pixelle_video/services/text_content_sanitizer.py"
+      - "pixelle_video/services/text_layout_planner.py"
+      - "pixelle_video/utils/ffmpeg_encoder.py"
+      - "resources/hyperframes/templates/render_contract_golden/**"
+      - "resources/hyperframes/runtime/**"
+      - "scripts/run_render_qualification.py"
+      - "tests/fixtures/render_qualification/**"
+      - "tests/test_ass_style_builder.py"
+      - "tests/test_ass_text_adapter.py"
+      - "tests/test_hyperframes_compiler.py"
+      - "tests/test_hyperframes_project_service.py"
+      - "tests/test_media_placement.py"
+      - "tests/test_render_artifact_analyzer.py"
+      - "tests/test_render_qualification.py"
+      - "tests/test_text_layout_planner.py"
+      - "tests/test_text_style_models.py"
+      - "tools/hyperframes_bridge/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-golden-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  final-video-golden-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: tools/hyperframes_bridge/package-lock.json
+
+      - name: Install system and Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install uv==0.10.7
+          uv sync --frozen --extra dev
+
+      - name: Install locked HyperFrames bridge
+        working-directory: tools/hyperframes_bridge
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+        run: npm ci
+
+      - name: Verify browser runtime
+        run: |
+          test -x /usr/bin/google-chrome
+          /usr/bin/google-chrome --version
+
+      - name: Run qualification unit tests
+        run: |
+          uv run pytest -q \
+            tests/test_ass_style_builder.py \
+            tests/test_ass_text_adapter.py \
+            tests/test_hyperframes_compiler.py \
+            tests/test_hyperframes_project_service.py \
+            tests/test_media_placement.py \
+            tests/test_render_artifact_analyzer.py \
+            tests/test_render_qualification.py \
+            tests/test_text_layout_planner.py \
+            tests/test_text_style_models.py
+
+      - name: Run twelve-case final-video golden matrix
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
+          PIXELLE_HYPERFRAMES_USE_GPU: "false"
+        run: |
+          uv run python scripts/run_render_qualification.py golden \
+            --output-root "${RUNNER_TEMP}/render-qualification"
+
+      - name: Upload final-video evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: render-golden-evidence
+          path: ${{ runner.temp }}/render-qualification
+          if-no-files-found: error
+          retention-days: 7

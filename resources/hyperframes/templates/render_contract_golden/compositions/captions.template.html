@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="../runtime/fonts/phase1_fonts.css" />
+    <script src="../runtime/vendor/gsap.min.js"></script>
+    <style>
+      html,
+      body,
+      #captions-root {
+        margin: 0;
+        width: __CANVAS_WIDTH__px;
+        height: __CANVAS_HEIGHT__px;
+        overflow: hidden;
+        background: transparent;
+      }
+
+      .caption-group {
+        position: absolute;
+        left: var(--text-left);
+        right: var(--text-right);
+        top: var(--text-top);
+        bottom: var(--text-bottom);
+        transform: var(--text-transform);
+        width: min(var(--text-max-width), calc(100% - var(--text-margin-x) * 2));
+        max-width: var(--text-max-width);
+        display: flex;
+        align-items: var(--text-align-items);
+        justify-content: var(--text-justify-content);
+        text-align: var(--text-text-align);
+        opacity: 0;
+        visibility: hidden;
+      }
+
+      .caption-text {
+        margin: 0;
+        padding: 0;
+        color: var(--text-fill);
+        font-family: var(--text-font-family);
+        font-size: var(--text-font-size);
+        font-weight: var(--text-font-weight);
+        line-height: var(--text-line-height);
+        white-space: pre-line;
+        text-align: var(--text-text-align);
+        background: var(--text-background);
+        -webkit-text-stroke: var(--text-stroke-width) var(--text-stroke-color);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="captions-root"
+      data-composition-id="captions"
+      data-width="__CANVAS_WIDTH__"
+      data-height="__CANVAS_HEIGHT__"
+      data-start="0"
+      data-duration="__DURATION__"
+    >
+      __CAPTIONS__
+    </div>
+    <script>
+      (function bootstrapCaptionsTimeline() {
+        const root = document.getElementById("captions-root");
+        const duration = Math.max(Number(root?.dataset?.duration || 0), 0);
+        const captions = Array.from(document.querySelectorAll(".caption-group"));
+        const timeline = gsap.timeline({ paused: true });
+        gsap.set(captions, { autoAlpha: 0 });
+        captions.forEach((caption) => {
+          const start = Number(caption.dataset.start || 0);
+          const clipDuration = Math.max(Number(caption.dataset.duration || 0), 0.1);
+          timeline.set(caption, { autoAlpha: 1, visibility: "visible" }, start);
+          timeline.set(caption, { autoAlpha: 0, visibility: "hidden" }, start + clipDuration);
+        });
+        const remaining = duration - Math.max(Number(timeline.duration()) || 0, 0);
+        if (remaining > 0) timeline.to({}, { duration: remaining });
+        window.__timelines = window.__timelines || {};
+        window.__timelines.captions = timeline;
+      })();
+    </script>
+  </body>
+</html>

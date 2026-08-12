@@ -121,6 +121,20 @@ def test_build_style_without_basis_is_orientation_independent(
     assert style.startswith("Style: Resolved,Noto Sans SC,36,")
 
 
+def test_build_style_projects_canonical_css_pixels_to_ass_font_units():
+    profile = TextStyleProfile(id="style", name="Style", font_size=36)
+
+    style = AssStyleBuilder().build_style(
+        "Projected",
+        profile,
+        canvas_width=320,
+        canvas_height=180,
+        project_css_pixel_units=True,
+    )
+
+    assert style.startswith("Style: Projected,Noto Sans SC,54,")
+
+
 @pytest.mark.parametrize(
     ("position", "alignment", "expected_alignment"),
     [

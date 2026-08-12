@@ -119,6 +119,7 @@ def build_template_render_context(
 
     return TemplateRenderContext(
         template_id=manifest.template_id,
+        render_manifest_version=manifest.version,
         canvas_width=manifest.canvas_width,
         canvas_height=manifest.canvas_height,
         media_width=manifest.media_width,

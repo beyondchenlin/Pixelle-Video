@@ -486,7 +486,7 @@ def test_html_frame_generator_injects_standard_media_layer_css(tmp_path):
     assert "--pixelle-media-top: 108px" in html
     assert '<img class="pixelle-media"' in html
     assert "width: 100% !important" in html
-    assert "object-fit: contain !important" in html
+    assert "object-fit: fill !important" in html
 
 
 def test_html_frame_generator_defaults_standard_media_layer_to_full_contain_fit(

@@ -45,7 +45,7 @@ class TextContentSanitizer:
         )
         display_text = _remove_drawtext_filters(display_text, removed_tokens)
         display_text = _remove_control_characters(display_text, removed_tokens)
-        display_text = " ".join(display_text.split())
+        display_text = _normalize_visible_whitespace(display_text)
 
         removed_html = any(token.lstrip().startswith("<") for token in removed_tokens)
         return TextContentSanitizeResult(
@@ -163,3 +163,13 @@ def _remove_control_characters(text: str, removed_tokens: list[str]) -> str:
             continue
         kept.append(char)
     return "".join(kept)
+
+
+def _normalize_visible_whitespace(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [" ".join(line.split()) for line in normalized.split("\n")]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)

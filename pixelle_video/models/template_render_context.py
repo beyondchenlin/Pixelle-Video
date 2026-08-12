@@ -86,6 +86,7 @@ class TemplateRenderContext:
     footer: Optional[str]
     theme: Optional[str]
     style_profile: str
+    render_manifest_version: str = "render_manifest.v1"
     media_width: Optional[int] = None
     media_height: Optional[int] = None
     sync_media_size_to_canvas: bool = False

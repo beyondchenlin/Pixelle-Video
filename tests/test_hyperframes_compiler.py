@@ -184,6 +184,7 @@ def test_hyperframes_compiler_defaults_media_placement_variables_to_full_contain
     assert "--pixelle-media-display-height: 720px" in index_html
     assert "--pixelle-media-left: 0px" in index_html
     assert "--pixelle-media-top: 0px" in index_html
+    assert "object-fit:fill!important" in index_html
 
 
 def test_compiler_exposes_clip_level_element_animation_manifest_attribute(
@@ -442,6 +443,32 @@ def test_hyperframes_compiler_emits_text_style_variables(tmp_path: Path):
     assert "--text-fill: #FFFF00" in html
     assert "Important text &amp; keep" in html
     assert "<b>" not in html
+
+
+def test_hyperframes_compiler_applies_profile_character_limit_before_rendering():
+    compiler = HyperFramesCompiler()
+    profile = TextStyleProfile(
+        id="wrapped",
+        name="Wrapped",
+        max_chars_per_line=8,
+    )
+
+    assert compiler._wrapped_cue_text(
+        "BASELINEBASELINE",
+        profile,
+        render_manifest_version="render_manifest.v2",
+    ) == (
+        "BASELINE\nBASELINE"
+    )
+
+    assert (
+        compiler._wrapped_cue_text(
+            "BASELINEBASELINE",
+            profile,
+            render_manifest_version="render_manifest.v1",
+        )
+        == "BASELINEBASELINE"
+    )
 
 
 def test_hyperframes_compiler_prefers_cue_style_over_track_style(tmp_path: Path):

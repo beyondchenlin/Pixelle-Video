@@ -525,6 +525,7 @@ def test_render_layout_preview_workbench_renders_media_placement_summary(monkeyp
 
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
     assert "主媒体位置" in rendered
+    assert "完整包含" in rendered
     assert "76%" in rendered
     assert "X 18px" in rendered
     assert "Y -24px" in rendered

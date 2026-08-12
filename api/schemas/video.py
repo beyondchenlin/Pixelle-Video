@@ -128,15 +128,18 @@ class MediaPlacementRequest(BaseModel):
         "canvas",
         description="Placement basis. First version supports final canvas only.",
     )
-    fit: Literal["contain"] = Field(
+    fit: Literal["contain", "cover", "stretch", "original_size"] = Field(
         "contain",
-        description="Preserve aspect ratio and do not crop.",
+        description=(
+            "Media fitting policy: contain preserves the full source, cover fills and crops, "
+            "stretch fills without preserving aspect ratio, and original_size uses source pixels."
+        ),
     )
     scale_percent: StrictInt = Field(
         100,
         ge=10,
         le=100,
-        description="Display size as percent of final video canvas contain-fit size.",
+        description="Display size as percent of the selected fitting policy's base rectangle.",
     )
     offset_x: StrictInt = Field(
         0,

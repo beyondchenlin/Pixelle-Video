@@ -238,6 +238,7 @@ def test_renderer_consumes_resolved_media_box_instead_of_reinterpreting_geometry
     command = " ".join(service.commands[0])
     assert "overlay=eof_action=pass:shortest=1:x=24:y=18" in command
     assert "scale=160:90" in command
+    assert "force_original_aspect_ratio" not in command
 
 
 def test_renderer_rejects_unresolved_ass_font_before_encoding(tmp_path):

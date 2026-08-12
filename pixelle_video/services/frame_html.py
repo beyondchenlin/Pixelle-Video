@@ -533,7 +533,7 @@ html body .pixelle-media-layer[data-pixelle-standard-media-layer]
   min-height: 0 !important;
   max-width: none !important;
   max-height: none !important;
-  object-fit: contain !important;
+  object-fit: fill !important;
   display: block !important;
   margin: 0 !important;
   padding: 0 !important;

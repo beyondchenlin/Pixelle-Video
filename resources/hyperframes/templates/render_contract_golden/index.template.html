@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=__CANVAS_WIDTH__, height=__CANVAS_HEIGHT__" />
+    <title>Pixelle Render Contract Golden</title>
+    <link rel="stylesheet" href="./runtime/fonts/phase1_fonts.css" />
+    <script src="./runtime/vendor/gsap.min.js"></script>
+    <style>
+      html,
+      body,
+      #main-comp {
+        margin: 0;
+        width: __CANVAS_WIDTH__px;
+        height: __CANVAS_HEIGHT__px;
+        overflow: hidden;
+        background: #000;
+      }
+
+      #main-comp {
+        position: relative;
+      }
+
+      .pixelle-media-layer,
+      #text-layer,
+      #captions-layer {
+        position: absolute;
+        inset: 0;
+      }
+
+      .pixelle-media-layer {
+        z-index: 1;
+      }
+
+      #text-layer {
+        z-index: 2;
+        pointer-events: none;
+      }
+
+      #captions-layer {
+        z-index: 3;
+        pointer-events: none;
+      }
+    </style>
+    __MEDIA_PLACEMENT_CSS__
+  </head>
+  <body>
+    <div
+      id="main-comp"
+      data-composition-id="main-comp"
+      data-width="__CANVAS_WIDTH__"
+      data-height="__CANVAS_HEIGHT__"
+      data-start="0"
+      data-duration="__DURATION__"
+    >
+      <div class="pixelle-media-layer">__VISUALS__</div>
+      <div
+        id="text-layer"
+        data-composition-id="text-layer"
+        data-composition-src="compositions/text_layer.html"
+        data-start="0"
+        data-track-index="2"
+        data-duration="__DURATION__"
+      ></div>
+      <div
+        id="captions-layer"
+        data-composition-id="captions"
+        data-composition-src="compositions/captions.html"
+        data-start="0"
+        data-track-index="3"
+        data-duration="__DURATION__"
+      ></div>
+      __AUDIO__
+    </div>
+    <script>
+      (function bootstrapMainTimeline() {
+        const root = document.getElementById("main-comp");
+        const duration = Math.max(Number(root?.dataset?.duration || 0), 0);
+        const timeline = gsap.timeline({ paused: true });
+        timeline.to({}, { duration });
+        window.__timelines = window.__timelines || {};
+        window.__timelines["main-comp"] = timeline;
+      })();
+    </script>
+  </body>
+</html>

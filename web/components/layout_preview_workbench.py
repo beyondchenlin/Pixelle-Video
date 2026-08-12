@@ -69,6 +69,12 @@ _NO_SPEC = "\u6682\u65e0\u53ef\u9884\u89c8\u7684\u6392\u7248\u89c4\u683c\u3002"
 _CANVAS_SIZE = "\u753b\u5e03\u5c3a\u5bf8"
 _MEDIA_SIZE = "\u5a92\u4f53\u5c3a\u5bf8"
 _MEDIA_PLACEMENT = "\u4e3b\u5a92\u4f53\u4f4d\u7f6e"
+_MEDIA_FIT_LABELS = {
+    "contain": "\u5b8c\u6574\u5305\u542b",
+    "cover": "\u8986\u76d6\u88c1\u526a",
+    "stretch": "\u62c9\u4f38\u586b\u6ee1",
+    "original_size": "\u539f\u59cb\u5c3a\u5bf8",
+}
 _LAYER_COUNT = "\u56fe\u5c42\u6570\u91cf"
 _RENDER_SUMMARY = "\u6e32\u67d3\u6458\u8981"
 _TEMPLATE_SUMMARY = "\u6a21\u677f\u6458\u8981"
@@ -825,7 +831,7 @@ def _media_placement_summary(
 ) -> str:
     placement = resolve_media_placement(media_placement)
     return (
-        f"{placement.scale_percent}% · "
+        f"{_MEDIA_FIT_LABELS[placement.fit]} · {placement.scale_percent}% · "
         f"X {placement.offset_x}px · Y {placement.offset_y}px"
     )
 

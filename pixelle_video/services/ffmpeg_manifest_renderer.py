@@ -367,16 +367,22 @@ class FfmpegManifestRenderer:
             source.filter("fps", fps=fps, round="near")
             .filter("trim", end_frame=frame_count)
             .filter("setpts", "PTS-STARTPTS")
-            .filter(
-                "scale",
-                box_width,
-                box_height,
-                force_original_aspect_ratio="decrease",
-                flags="lanczos",
-                out_color_matrix="bt709",
-                out_range="tv",
-            )
-            .filter(
+        )
+        scale_options: dict[str, object] = {
+            "flags": "lanczos",
+            "out_color_matrix": "bt709",
+            "out_range": "tv",
+        }
+        if media_box is None:
+            scale_options["force_original_aspect_ratio"] = "decrease"
+        normalized = normalized.filter(
+            "scale",
+            box_width,
+            box_height,
+            **scale_options,
+        )
+        if media_box is None:
+            normalized = normalized.filter(
                 "pad",
                 box_width,
                 box_height,
@@ -384,9 +390,7 @@ class FfmpegManifestRenderer:
                 "(oh-ih)/2",
                 color="black",
             )
-            .filter("setsar", 1)
-            .filter("format", "yuv420p")
-        )
+        normalized = normalized.filter("setsar", 1).filter("format", "yuv420p")
         if (
             box_width != width
             or box_height != height

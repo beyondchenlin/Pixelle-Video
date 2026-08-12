@@ -67,7 +67,32 @@ def display_width(text: str) -> int:
     return sum(_cluster_display_width(cluster) for cluster in _grapheme_clusters(text))
 
 
+def wrap_by_character_limit(text: str, max_characters: int) -> tuple[str, ...]:
+    limit = max(1, int(max_characters))
+    wrapped: list[str] = []
+    for explicit_line in str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        clusters = _grapheme_clusters(explicit_line)
+        if not clusters:
+            wrapped.append("")
+            continue
+        wrapped.extend(
+            "".join(clusters[index : index + limit])
+            for index in range(0, len(clusters), limit)
+        )
+    return tuple(wrapped or [""])
+
+
 def _wrap_by_display_width(text: str, max_display_width: int) -> tuple[str, ...]:
+    wrapped: list[str] = []
+    for explicit_line in text.split("\n"):
+        wrapped.extend(_wrap_single_line_by_display_width(explicit_line, max_display_width))
+    return tuple(wrapped or [""])
+
+
+def _wrap_single_line_by_display_width(
+    text: str,
+    max_display_width: int,
+) -> tuple[str, ...]:
     lines: list[str] = []
     current: list[str] = []
     current_width = 0
