@@ -5,10 +5,10 @@ from typing import Iterable
 class FontResolver:
     APPLICATION_ROOT = Path(__file__).resolve().parents[2]
     DEFAULT_CANDIDATE_DIRS = (
+        Path("resources/hyperframes/runtime/fonts/assets"),
         Path("fonts"),
         Path("font"),
         Path("resource/fonts"),
-        Path("resources/hyperframes/runtime/fonts/assets"),
     )
 
     def __init__(self, candidate_dirs: Iterable[str | Path] | None = None) -> None:

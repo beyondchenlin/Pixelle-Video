@@ -7,10 +7,10 @@ from typing import Iterable
 
 FONT_FILE_EXTENSIONS = {".ttf", ".otf", ".ttc", ".otc"}
 DEFAULT_FONT_SEARCH_DIRS = (
+    Path("resources/hyperframes/runtime/fonts/assets"),
     Path("fonts"),
     Path("font"),
     Path("resource/fonts"),
-    Path("resources/hyperframes/runtime/fonts/assets"),
 )
 APPLICATION_ROOT = Path(__file__).resolve().parents[2]
 FONT_FAMILY_ALIASES = {

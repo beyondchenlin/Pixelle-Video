@@ -510,11 +510,13 @@ class FfmpegManifestRenderer:
             for path in referenced
         }
         resolver = FontResolver()
-        options = discover_font_options(resolver.candidate_dirs)
-        options_by_family = {
-            canonical_font_family_name(option.family).casefold(): option.path.resolve()
-            for option in options
-        }
+        options_by_family: dict[str, Path] = {}
+        for candidate_dir in resolver.candidate_dirs:
+            for option in discover_font_options([candidate_dir]):
+                options_by_family.setdefault(
+                    canonical_font_family_name(option.family).casefold(),
+                    option.path.resolve(),
+                )
         for family_key in sorted(required_families.keys() - resolved_families):
             font_path = options_by_family.get(family_key)
             if font_path is None:

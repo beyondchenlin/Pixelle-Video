@@ -53,6 +53,19 @@ def test_font_resolver_returns_none_without_explicit_candidate(tmp_path):
     )
 
 
+def test_font_resolver_prefers_bundled_assets_over_unmanaged_root_fonts(
+    tmp_path,
+    monkeypatch,
+):
+    bundled = tmp_path / "resources" / "hyperframes" / "runtime" / "fonts" / "assets"
+    unmanaged = tmp_path / "fonts"
+    bundled.mkdir(parents=True)
+    unmanaged.mkdir()
+    monkeypatch.setattr(_font_resolver_cls(), "APPLICATION_ROOT", tmp_path)
+
+    assert _font_resolver_cls()().resolve_fontsdir() == bundled.resolve()
+
+
 def test_font_resolver_uses_explicit_candidate_directory(tmp_path):
     candidate = tmp_path / "fonts"
     candidate.mkdir()
