@@ -17,11 +17,14 @@ def test_home_page_uses_conditional_pipeline_rendering_instead_of_tabs():
 
 def test_home_recent_gallery_does_not_eagerly_embed_or_open_video_files():
     card_source = inspect.getsource(recent_video_gallery.render_recent_video_card)
+    player_source = inspect.getsource(recent_video_gallery.render_recent_video_player)
 
     assert "st.video" not in card_source
     assert "open(" not in card_source
     assert "download_button" not in card_source
     assert "link_button" in card_source
+    assert "render_recent_video_player" in card_source
+    assert "st.video" in player_source
 
 
 def test_style_config_uses_one_template_selector_instead_of_preview_tabs():

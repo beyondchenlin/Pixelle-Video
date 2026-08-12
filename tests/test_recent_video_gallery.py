@@ -53,6 +53,17 @@ def test_merge_recent_video_items_puts_current_first_and_dedupes(tmp_path):
     assert [item["task_id"] for item in merged] == ["task-current", "task-history"]
 
 
+def test_merge_recent_video_items_can_return_all_items():
+    history = [
+        {"task_id": f"task-{index}", "video_path": f"video-{index}.mp4"}
+        for index in range(gallery.RECENT_VIDEO_LIMIT + 3)
+    ]
+
+    merged = gallery.merge_recent_video_items(None, history, limit=None)
+
+    assert len(merged) == gallery.RECENT_VIDEO_LIMIT + 3
+
+
 def test_fetch_recent_history_video_items_scans_pages_until_limit(tmp_path):
     valid_paths = []
     for index in range(4):
@@ -161,6 +172,35 @@ def test_lightweight_recent_index_loader_sorts_filters_and_contains_paths(tmp_pa
     assert [item["task_id"] for item in items] == ["new", "old"]
 
 
+def test_lightweight_recent_index_loader_can_return_all_videos(tmp_path):
+    output_root = tmp_path / "output"
+    output_root.mkdir()
+    tasks = []
+    for index in range(gallery.RECENT_VIDEO_LIMIT + 3):
+        video = output_root / f"task-{index}" / "final.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"video")
+        tasks.append(
+            {
+                "task_id": f"task-{index}",
+                "status": "completed",
+                "completed_at": f"2026-01-{index + 1:02d}T00:00:00",
+                "video_path": str(video),
+            }
+        )
+    (output_root / ".index.json").write_text(
+        json.dumps({"tasks": tasks}),
+        encoding="utf-8",
+    )
+
+    items = gallery.fetch_recent_history_video_items_from_index(
+        output_root=output_root,
+        limit=None,
+    )
+
+    assert len(items) == gallery.RECENT_VIDEO_LIMIT + 3
+
+
 def test_lightweight_recent_index_loader_fails_closed_for_corrupt_index(tmp_path):
     output_root = tmp_path / "output"
     output_root.mkdir()
@@ -239,6 +279,20 @@ def test_get_current_recent_video_item_clears_missing_session_video(tmp_path):
 
     assert current is None
     assert gallery.RECENT_GENERATED_VIDEO_KEY not in session_state
+
+
+def test_toggle_recent_video_player_keeps_only_one_active_item():
+    session_state = {}
+    player_key = gallery.RECENT_VIDEO_PLAYER_KEY + "_dashboard"
+
+    gallery.toggle_recent_video_player(session_state, player_key, "first")
+    assert session_state[player_key] == "first"
+
+    gallery.toggle_recent_video_player(session_state, player_key, "second")
+    assert session_state[player_key] == "second"
+
+    gallery.toggle_recent_video_player(session_state, player_key, "second")
+    assert player_key not in session_state
 
 
 def test_build_recent_video_gallery_css_is_scoped_and_responsive():
@@ -367,7 +421,54 @@ def test_render_recent_video_gallery_uses_lightweight_index_without_core(monkeyp
     assert captured["items"][0]["task_id"] == "task-1"
 
 
-def test_render_recent_video_card_links_to_file_service_without_loading_media(monkeypatch):
+def test_render_dashboard_gallery_requests_all_indexed_videos(monkeypatch):
+    captured = {"limits": [], "items": [], "markdown": []}
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        session_state = {}
+
+        def markdown(self, body, **_kwargs):
+            captured["markdown"].append(body)
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(gallery, "st", _FakeStreamlit())
+    monkeypatch.setattr(gallery, "tr", lambda key: key)
+    monkeypatch.setattr(gallery, "get_current_recent_video_item", lambda _state: None)
+
+    def _fetch_all(*, limit):
+        captured["limits"].append(limit)
+        return [
+            {"task_id": f"task-{index}", "video_path": f"video-{index}.mp4"}
+            for index in range(gallery.RECENT_VIDEO_LIMIT + 2)
+        ]
+
+    monkeypatch.setattr(gallery, "fetch_recent_history_video_items_from_index", _fetch_all)
+    monkeypatch.setattr(
+        gallery,
+        "render_recent_video_card",
+        lambda item, **_kwargs: captured["items"].append(item),
+    )
+
+    gallery.render_recent_video_gallery(None, key_suffix="_dashboard", show_all=True)
+
+    assert captured["limits"] == [None]
+    assert len(captured["items"]) == gallery.RECENT_VIDEO_LIMIT + 2
+    assert any("recent_videos.all_title" in body for body in captured["markdown"])
+
+
+def test_render_recent_video_card_activates_inline_player_without_eager_media(monkeypatch):
     captured = {"links": [], "markdown": [], "buttons": []}
 
     class _FakeContext:
@@ -418,9 +519,11 @@ def test_render_recent_video_card_links_to_file_service_without_loading_media(mo
         }
     )
 
-    assert len(captured["links"]) == 2
+    assert len(captured["links"]) == 1
     assert captured["links"][0][1].endswith("/output/task/final.mp4")
-    assert captured["links"][1][1].endswith("/output/task/final.mp4")
+    play_button = next(button for button in captured["buttons"] if button[0] == "▶️")
+    assert play_button[1]["on_click"] is gallery.toggle_recent_video_player
+    assert play_button[1]["args"][1] == gallery.RECENT_VIDEO_PLAYER_KEY
     assert any("recent-video-cover" in body for body in captured["markdown"])
     assert any("loading=\"lazy\"" in body for body in captured["markdown"])
     assert all("<video" not in body for body in captured["markdown"])

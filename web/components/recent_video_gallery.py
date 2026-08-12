@@ -35,6 +35,7 @@ from web.utils.output_media_urls import build_output_media_urls
 RECENT_GENERATED_VIDEO_KEY = "recent_generated_video"
 RECENT_VIDEO_GALLERY_KEY = "recent_video_gallery"
 RECENT_VIDEO_GRID_KEY = "recent_video_grid"
+RECENT_VIDEO_PLAYER_KEY = "recent_video_player"
 RECENT_HISTORY_PAGE_SIZE = 12
 RECENT_HISTORY_MAX_PAGES = 4
 RECENT_VIDEO_LIMIT = 9
@@ -90,9 +91,12 @@ def merge_recent_video_items(
     current_item: dict[str, Any] | None,
     history_items: list[dict[str, Any]],
     *,
-    limit: int = RECENT_VIDEO_LIMIT,
+    limit: int | None = RECENT_VIDEO_LIMIT,
 ) -> list[dict[str, Any]]:
     """Merge current generation and history items, preserving current first."""
+    if limit is not None and limit <= 0:
+        return []
+
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
     candidates = ([current_item] if current_item else []) + list(history_items)
@@ -104,7 +108,7 @@ def merge_recent_video_items(
             continue
         seen.add(identity)
         merged.append(item)
-        if len(merged) >= limit:
+        if limit is not None and len(merged) >= limit:
             break
     return merged
 
@@ -114,13 +118,17 @@ def fetch_recent_history_video_items(
     *,
     runner: Callable[[Any], Any] = run_async,
     file_exists: Callable[[str], bool] = os.path.exists,
-    limit: int = RECENT_VIDEO_LIMIT,
+    limit: int | None = RECENT_VIDEO_LIMIT,
     page_size: int = RECENT_HISTORY_PAGE_SIZE,
-    max_pages: int = RECENT_HISTORY_MAX_PAGES,
+    max_pages: int | None = RECENT_HISTORY_MAX_PAGES,
 ) -> list[dict[str, Any]]:
     """Fetch enough completed History items to fill the compact Home gallery."""
+    if limit is not None and limit <= 0:
+        return []
+
     items: list[dict[str, Any]] = []
-    for page in range(1, max_pages + 1):
+    page = 1
+    while max_pages is None or page <= max_pages:
         try:
             result = runner(
                 pixelle_video.history.get_task_list(
@@ -139,11 +147,12 @@ def fetch_recent_history_video_items(
             normalized = normalize_recent_video_item(task, file_exists=file_exists)
             if normalized:
                 items.append(normalized)
-                if len(items) >= limit:
+                if limit is not None and len(items) >= limit:
                     return items
 
         if page >= int(result.get("total_pages") or 1):
             break
+        page += 1
     return items
 
 
@@ -151,9 +160,12 @@ def fetch_recent_history_video_items_from_index(
     *,
     output_root: str | Path | None = None,
     file_exists: Callable[[str], bool] = os.path.exists,
-    limit: int = RECENT_VIDEO_LIMIT,
+    limit: int | None = RECENT_VIDEO_LIMIT,
 ) -> list[dict[str, Any]]:
     """Read the rebuildable history index without initializing generation services."""
+    if limit is not None and limit <= 0:
+        return []
+
     root = Path(output_root or get_output_path()).resolve()
     index_path = root / ".index.json"
     try:
@@ -199,7 +211,7 @@ def fetch_recent_history_video_items_from_index(
         )
         if normalized is not None:
             items.append(normalized)
-            if len(items) >= limit:
+            if limit is not None and len(items) >= limit:
                 break
     return items
 
@@ -250,6 +262,29 @@ def store_recent_generated_video(result: Any, session_state: dict[str, Any]) -> 
         "completed_at": created_at_value,
         "source": "current",
     }
+
+
+def toggle_recent_video_player(
+    session_state: dict[str, Any],
+    player_state_key: str,
+    item_key: str,
+) -> None:
+    """Activate one inline player, or collapse it when selected again."""
+    if session_state.get(player_state_key) == item_key:
+        session_state.pop(player_state_key, None)
+        return
+    session_state[player_state_key] = item_key
+
+
+def render_recent_video_player(stream_url: str) -> None:
+    """Render the single media element selected by the user."""
+    st.video(
+        stream_url,
+        autoplay=True,
+        loop=False,
+        muted=False,
+        width="stretch",
+    )
 
 
 def build_recent_video_gallery_css(
@@ -305,6 +340,13 @@ def build_recent_video_gallery_css(
     .recent-video-cover-link:hover .recent-video-cover {{
         transform: scale(1.025);
         filter: brightness(0.94);
+    }}
+    .st-key-{grid_key} video[data-testid="stVideo"] {{
+        width: 100% !important;
+        aspect-ratio: 16 / 9;
+        object-fit: contain;
+        background: #090b10;
+        border-radius: 8px;
     }}
     .recent-video-placeholder {{
         display: grid;
@@ -375,22 +417,35 @@ def format_recent_video_datetime(value: Any) -> str:
         return str(value)
 
 
-def render_recent_video_gallery(pixelle_video: Any | None, *, key_suffix: str = "") -> None:
+def render_recent_video_gallery(
+    pixelle_video: Any | None,
+    *,
+    key_suffix: str = "",
+    show_all: bool = False,
+) -> None:
     """Render the compact recent-video gallery inside the Home output card."""
     gallery_key = f"{RECENT_VIDEO_GALLERY_KEY}{key_suffix}"
     grid_key = f"{RECENT_VIDEO_GRID_KEY}{key_suffix}"
     st.markdown(build_recent_video_gallery_css(gallery_key, grid_key), unsafe_allow_html=True)
     current = get_current_recent_video_item(st.session_state)
-    history_items = (
-        fetch_recent_history_video_items(pixelle_video)
-        if pixelle_video is not None
-        else fetch_recent_history_video_items_from_index()
-    )
-    items = merge_recent_video_items(current, history_items)
+    if pixelle_video is not None:
+        history_items = (
+            fetch_recent_history_video_items(pixelle_video, limit=None, max_pages=None)
+            if show_all
+            else fetch_recent_history_video_items(pixelle_video)
+        )
+    else:
+        history_items = (
+            fetch_recent_history_video_items_from_index(limit=None)
+            if show_all
+            else fetch_recent_history_video_items_from_index()
+        )
+    items = merge_recent_video_items(current, history_items, limit=None) if show_all else merge_recent_video_items(current, history_items)
+    title_key = "recent_videos.all_title" if show_all else "recent_videos.title"
 
     with st.container(key=gallery_key):
         st.markdown(
-            f'<div class="recent-video-section-title">{escape(tr("recent_videos.title"))}</div>',
+            f'<div class="recent-video-section-title">{escape(tr(title_key))}</div>',
             unsafe_allow_html=True,
         )
         if not items:
@@ -417,6 +472,7 @@ def render_recent_video_card(
 ) -> None:
     """Render one recent video card."""
     item_key = f"{_stable_key(item.get('task_id') or item.get('video_path'))}{key_suffix}"
+    player_state_key = f"{RECENT_VIDEO_PLAYER_KEY}{key_suffix}"
     raw_title = str(item.get("title") or tr("recent_videos.untitled"))
     download_stem = raw_title[:-4] if raw_title.casefold().endswith(".mp4") else raw_title
     media_urls = build_output_media_urls(
@@ -427,7 +483,13 @@ def render_recent_video_card(
     with st.container(border=True):
         title = escape(raw_title)
         cover_url_value = getattr(media_urls, "cover_url", None) if media_urls is not None else None
-        if media_urls is not None and cover_url_value:
+        player_active = (
+            media_urls is not None
+            and st.session_state.get(player_state_key) == item_key
+        )
+        if player_active:
+            render_recent_video_player(media_urls.stream_url)
+        elif media_urls is not None and cover_url_value:
             stream_url = escape(media_urls.stream_url, quote=True)
             cover_url = escape(cover_url_value, quote=True)
             st.markdown(
@@ -469,10 +531,16 @@ def render_recent_video_card(
         task_id = item.get("task_id")
         with action_columns[0]:
             if media_urls is not None:
-                st.link_button(
-                    "▶️",
-                    media_urls.stream_url,
-                    help=tr("history.task_card.play"),
+                st.button(
+                    "⏹️" if player_active else "▶️",
+                    key=f"recent_play_{item_key}",
+                    help=(
+                        tr("recent_videos.close_player")
+                        if player_active
+                        else tr("history.task_card.play")
+                    ),
+                    on_click=toggle_recent_video_player,
+                    args=(st.session_state, player_state_key, item_key),
                     width="stretch",
                 )
             else:

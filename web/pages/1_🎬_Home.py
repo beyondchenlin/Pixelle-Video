@@ -76,7 +76,7 @@ def main():
     )
     if not editor_open:
         st.caption(tr("home.dashboard.caption"))
-        render_recent_video_gallery(None, key_suffix="_dashboard")
+        render_recent_video_gallery(None, key_suffix="_dashboard", show_all=True)
         return
     
     # ========================================================================
