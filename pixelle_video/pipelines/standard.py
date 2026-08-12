@@ -22,7 +22,6 @@ import asyncio
 import inspect
 import json
 import os
-import re
 import shutil
 import subprocess
 import time
@@ -39,6 +38,7 @@ from pixelle_video.models.asset_bible import AssetBible, IPProfile
 from pixelle_video.models.caption_speech_plan import build_caption_speech_plan
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
+from pixelle_video.models.media_placement import MediaBox
 from pixelle_video.models.progress import (
     ProgressEvent,
     ProgressEventType,
@@ -107,6 +107,7 @@ from pixelle_video.services.llm_trace_refs import (
     llm_trace_refs_from_records,
     merge_llm_trace_refs,
 )
+from pixelle_video.services.media_geometry_resolver import MediaGeometryResolver
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
 from pixelle_video.services.omnivoice_longform_blocks import build_omnivoice_longform_block_plan
 from pixelle_video.services.prompt_trace_artifacts import (
@@ -184,10 +185,6 @@ from pixelle_video.utils.workflow_capabilities import (
     get_workflow_capabilities,
 )
 from pixelle_video.workflow_content_contracts import extract_workflow_file_trace
-
-HYPERFRAMES_LONG_RENDER_FALLBACK_SECONDS = 120.0
-HYPERFRAMES_CJK_CHARS_PER_SECOND_ESTIMATE = 4.0
-HYPERFRAMES_LATIN_WORDS_PER_SECOND_ESTIMATE = 2.5
 
 LocalMediaSessionPolicy = Literal["none", "batch", "per_frame"]
 
@@ -1516,95 +1513,6 @@ class StandardPipeline(LinearVideoPipeline):
             return None
         return self._get_hyperframes_template_unavailable_reason(ctx)
 
-    def _estimate_hyperframes_render_duration(self, ctx: PipelineContext) -> Optional[float]:
-        master_audio_duration = getattr(ctx, "master_audio_duration", None)
-        if master_audio_duration is None:
-            master_audio_duration = getattr(getattr(ctx, "storyboard", None), "total_duration", None)
-        if master_audio_duration is not None:
-            try:
-                duration = max(float(master_audio_duration), 0.0)
-            except (TypeError, ValueError):
-                duration = 0.0
-            if duration <= 0:
-                duration = self._estimate_narration_duration_for_render_routing(ctx)
-        else:
-            duration = self._estimate_narration_duration_for_render_routing(ctx)
-
-        if duration <= 0:
-            return None
-
-        return duration
-
-    def _estimate_hyperframes_render_frame_count(
-        self,
-        ctx: PipelineContext,
-        *,
-        duration: Optional[float] = None,
-    ) -> Optional[int]:
-        fps = max(int(getattr(ctx.config, "video_fps", 0) or 0), 1)
-        render_duration = (
-            self._estimate_hyperframes_render_duration(ctx)
-            if duration is None
-            else duration
-        )
-        if render_duration is None:
-            return None
-
-        return int(round(max(float(render_duration), 0.0) * fps))
-
-    def _estimate_narration_duration_for_render_routing(
-        self,
-        ctx: PipelineContext,
-    ) -> float:
-        texts: list[str] = []
-        timing_plan = getattr(ctx, "timing_plan", None)
-        if timing_plan is not None:
-            texts.extend(
-                str(getattr(block, "text", "") or "")
-                for block in getattr(timing_plan, "blocks", []) or []
-            )
-        if not texts:
-            texts.extend(self._text_rendering_frame_texts(ctx))
-
-        text = " ".join(item for item in texts if item)
-        if not text.strip():
-            return 0.0
-
-        cjk_chars = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
-        latin_words = len(re.findall(r"[A-Za-z0-9']+", text))
-        estimated_duration = (
-            cjk_chars / HYPERFRAMES_CJK_CHARS_PER_SECOND_ESTIMATE
-            + latin_words / HYPERFRAMES_LATIN_WORDS_PER_SECOND_ESTIMATE
-        )
-        return estimated_duration
-
-    def _get_hyperframes_long_render_fallback_reason(
-        self,
-        ctx: PipelineContext,
-    ) -> Optional[str]:
-        if ctx.config.render_backend != HYPERFRAMES_COMPILED_RENDER_BACKEND:
-            return None
-        if getattr(ctx.config, "layered_template_spec", None):
-            return None
-        if getattr(ctx.config, "element_animation_enabled", False):
-            return None
-
-        duration = self._estimate_hyperframes_render_duration(ctx)
-        if duration is None:
-            return None
-        if duration <= HYPERFRAMES_LONG_RENDER_FALLBACK_SECONDS:
-            return None
-
-        frame_count = self._estimate_hyperframes_render_frame_count(
-            ctx,
-            duration=duration,
-        )
-        return (
-            "ffmpeg_manifest selected for long-duration static render: "
-            f"estimated duration is {duration:.1f}s and estimated HyperFrames "
-            f"screenshot workload is {frame_count} frames"
-        )
-
     def _get_hyperframes_template_unavailable_reason(
         self,
         ctx: PipelineContext,
@@ -1671,17 +1579,6 @@ class StandardPipeline(LinearVideoPipeline):
         )
 
         fallback_reason = result.fallback_reason
-        long_render_fallback_reason = self._get_hyperframes_long_render_fallback_reason(ctx)
-        if (
-            requested_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND
-            and long_render_fallback_reason is not None
-            and result.effective_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND
-        ):
-            result = RenderCapabilityResult(
-                effective_backend=FFMPEG_MANIFEST_RENDER_BACKEND,
-                fallback_reason=long_render_fallback_reason,
-            )
-            fallback_reason = long_render_fallback_reason
         if (
             result.fallback_reason
             and requested_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND
@@ -1863,6 +1760,8 @@ class StandardPipeline(LinearVideoPipeline):
             for window in allocate_frame_timing_windows(
                 frame_count=len(storyboard.frames),
                 sentence_units=ctx.timing_plan.sentences,
+                timeline_start=0.0,
+                timeline_end=master_audio_duration,
             )
         }
 
@@ -3012,6 +2911,21 @@ class StandardPipeline(LinearVideoPipeline):
         ass_outputs = self._export_ass_for_manifest_if_needed(ctx, manifest)
 
         from pixelle_video.services.ffmpeg_manifest_renderer import FfmpegManifestRenderer
+        from pixelle_video.services.render_snapshot import RenderSnapshotService
+
+        snapshot_paths = RenderSnapshotService().write(
+            output_dir=ctx.task_dir or Path(ctx.final_video_path).parent,
+            manifest=manifest,
+            execution_plan=execution_plan,
+            supplemental_assets={
+                "ass": ass_outputs.master if ass_outputs is not None else None,
+                "bgm": ctx.params.get("bgm_path"),
+            },
+            render_options={
+                "bgm_volume": float(ctx.params.get("bgm_volume", 0.2)),
+                "bgm_mode": str(ctx.params.get("bgm_mode", "loop")),
+            },
+        )
 
         final_video_path = FfmpegManifestRenderer().render(
             manifest=manifest,
@@ -3024,6 +2938,15 @@ class StandardPipeline(LinearVideoPipeline):
         )
 
         ctx.observability["render_execution_plan"] = execution_plan.to_dict()
+        ctx.observability["render_snapshot"] = {
+            "manifest_path": str(snapshot_paths.manifest),
+            "execution_plan_path": str(snapshot_paths.execution_plan),
+            "asset_inventory_path": str(snapshot_paths.asset_inventory),
+        }
+        final_output = Path(final_video_path).resolve()
+        ctx.observability["render_probe_path"] = str(
+            final_output.with_name(f"{final_output.stem}.render_probe.json")
+        )
         ctx.storyboard.final_video_path = final_video_path
         ctx.storyboard.completed_at = datetime.now()
 
@@ -3115,6 +3038,7 @@ class StandardPipeline(LinearVideoPipeline):
         )
         canvas_width, canvas_height = self._resolve_storyboard_canvas_size(config)
         return RenderManifest(
+            version="render_manifest.v2",
             task_id=ctx.task_id or config.task_id or "",
             title=storyboard.title,
             canvas_width=canvas_width,
@@ -3131,7 +3055,10 @@ class StandardPipeline(LinearVideoPipeline):
             master_audio_duration=master_audio_duration,
             audio_blocks=list(getattr(ctx.timing_plan, "blocks", []) or []),
             sentence_units=list(getattr(ctx.timing_plan, "sentences", []) or []),
-            visual_clips=self._build_manifest_visual_clips(ctx),
+            visual_clips=self._build_manifest_visual_clips(
+                ctx,
+                total_duration=master_audio_duration,
+            ),
             template_display=config.template_display,
             caption_rendering_enabled=self._caption_renderer_enabled(ctx, "ass"),
             caption_renderer_targets=list(
@@ -3165,19 +3092,30 @@ class StandardPipeline(LinearVideoPipeline):
 
         raise RuntimeError("ffmpeg_manifest render path requires master audio")
 
-    def _build_manifest_visual_clips(self, ctx: PipelineContext) -> list[VisualClip]:
+    def _build_manifest_visual_clips(
+        self,
+        ctx: PipelineContext,
+        *,
+        total_duration: float | None = None,
+    ) -> list[VisualClip]:
         prefer_template_frame = (
             self._resolve_effective_render_backend(ctx) != HYPERFRAMES_COMPILED_RENDER_BACKEND
         )
+        canvas_width, canvas_height = self._resolve_storyboard_canvas_size(ctx.config)
         windows = {
             window.frame_index: window
             for window in allocate_frame_timing_windows(
                 frame_count=len(ctx.storyboard.frames),
                 sentence_units=getattr(ctx.timing_plan, "sentences", []) or [],
+                timeline_start=0.0,
+                timeline_end=(
+                    float(total_duration)
+                    if total_duration is not None
+                    else float(ctx.storyboard.total_duration)
+                ),
             )
         }
         visual_clips: list[VisualClip] = []
-        cursor = 0.0
         for frame in ctx.storyboard.frames:
             media_path, media_type, source_kind, source_media_path = (
                 self._resolve_manifest_frame_media(
@@ -3192,14 +3130,13 @@ class StandardPipeline(LinearVideoPipeline):
                 continue
 
             window = windows.get(frame.index)
-            if window is not None:
-                start = float(window.start)
-                end = float(window.end)
-            else:
-                duration = max(float(getattr(frame, "duration", 0.0) or 0.0), 0.001)
-                start = cursor
-                end = cursor + duration
-            cursor = max(cursor, end)
+            if window is None:
+                raise RuntimeError(
+                    "Cannot build a continuous render timeline for frame "
+                    f"{frame.index + 1}"
+                )
+            start = float(window.start)
+            end = float(window.end)
 
             visual_clips.append(
                 VisualClip(
@@ -3224,9 +3161,44 @@ class StandardPipeline(LinearVideoPipeline):
                         None,
                     ),
                     source_media_path=source_media_path,
+                    resolved_media_box=self._resolve_clip_media_box(
+                        config=ctx.config,
+                        media_path=media_path,
+                        media_type=media_type,
+                        source_kind=source_kind,
+                        canvas_width=canvas_width,
+                        canvas_height=canvas_height,
+                    ),
                 )
             )
         return visual_clips
+
+    @staticmethod
+    def _resolve_clip_media_box(
+        *,
+        config: StoryboardConfig,
+        media_path: str,
+        media_type: str,
+        source_kind: str,
+        canvas_width: int,
+        canvas_height: int,
+    ) -> MediaBox:
+        if source_kind == "template_frame":
+            return MediaBox(
+                width=canvas_width,
+                height=canvas_height,
+                left=0,
+                top=0,
+            )
+        return MediaGeometryResolver().resolve_box(
+            media_path=media_path,
+            media_type=media_type,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+            fallback_width=config.media_width,
+            fallback_height=config.media_height,
+            placement=config.media_placement,
+        )
 
     def _resolve_manifest_frame_media(
         self,
@@ -3494,21 +3466,19 @@ class StandardPipeline(LinearVideoPipeline):
         )
         ass_tracks = [*caption_ass_tracks, *overlay_ass_tracks]
         ass_cues = [*caption_ass_cues, *overlay_ass_cues]
+        manifest.caption_rendering_enabled = self._caption_renderer_enabled(ctx, "ass")
+        manifest.caption_renderer_targets = list(
+            self._caption_renderer_targets_for_summary(ctx)
+        )
+        manifest.caption_cues = caption_cues
+        manifest.text_style_profiles = self._text_style_profiles_for_manifest(ctx)
+        manifest.text_tracks = ass_tracks
+        manifest.text_cues = ass_cues
         ass_outputs = None
         if ass_cues:
             ass_dir = Path(ctx.task_dir or Path(ctx.final_video_path).parent) / "text_layer"
             ass_outputs = AssTextAdapter().export(
-                manifest=replace(
-                    manifest,
-                    caption_rendering_enabled=self._caption_renderer_enabled(ctx, "ass"),
-                    caption_renderer_targets=list(
-                        self._caption_renderer_targets_for_summary(ctx)
-                    ),
-                    caption_cues=caption_cues,
-                    text_style_profiles=self._text_style_profiles_for_manifest(ctx),
-                    text_tracks=ass_tracks,
-                    text_cues=ass_cues,
-                ),
+                manifest=manifest,
                 output_dir=ass_dir,
             )
 
@@ -3586,14 +3556,37 @@ class StandardPipeline(LinearVideoPipeline):
             ProgressEventType.PREPARING_RENDER_MANIFEST,
             0.86,
         )
-        visual_clips = self._build_hyperframes_visual_clips(storyboard, timing_plan)
+        visual_clips = self._build_hyperframes_visual_clips(
+            storyboard,
+            timing_plan,
+            total_duration=master_audio_duration,
+        )
         await self._materialize_element_motion_for_hyperframes_visual_clips(
             ctx,
             visual_clips,
         )
-        visual_clips = self._build_hyperframes_visual_clips(storyboard, timing_plan)
+        visual_clips = self._build_hyperframes_visual_clips(
+            storyboard,
+            timing_plan,
+            total_duration=master_audio_duration,
+        )
+        visual_clips = [
+            replace(
+                clip,
+                resolved_media_box=self._resolve_clip_media_box(
+                    config=config,
+                    media_path=clip.media_path,
+                    media_type=clip.media_type,
+                    source_kind=clip.source_kind,
+                    canvas_width=canvas_width,
+                    canvas_height=canvas_height,
+                ),
+            )
+            for clip in visual_clips
+        ]
 
         manifest = RenderManifest(
+            version="render_manifest.v2",
             task_id=ctx.task_id,
             title=storyboard.title,
             canvas_width=canvas_width,
@@ -4647,20 +4640,31 @@ class StandardPipeline(LinearVideoPipeline):
         self,
         storyboard: Storyboard,
         timing_plan,
+        *,
+        total_duration: float | None = None,
     ) -> List[VisualClip]:
-        clip_specs: List[dict] = []
         frame_timing_windows = {
             window.frame_index: window
             for window in allocate_frame_timing_windows(
                 frame_count=len(storyboard.frames),
                 sentence_units=getattr(timing_plan, "sentences", []) or [],
+                timeline_start=0.0,
+                timeline_end=(
+                    float(total_duration)
+                    if total_duration is not None
+                    else float(storyboard.total_duration)
+                ),
             )
         }
 
+        visual_clips: List[VisualClip] = []
         for frame in storyboard.frames:
             window = frame_timing_windows.get(frame.index)
             if window is None:
-                continue
+                raise RuntimeError(
+                    "Cannot build a continuous HyperFrames timeline for frame "
+                    f"{frame.index + 1}"
+                )
 
             if frame.media_type == "video":
                 raw_media_path = frame.video_path or frame.image_path
@@ -4688,70 +4692,27 @@ class StandardPipeline(LinearVideoPipeline):
                     if getattr(frame, "element_motion_video_path", None)
                     else "raw media"
                 )
-                logger.warning(
-                    "Skipping HyperFrames visual clip for frame "
-                    f"{frame.index + 1}: missing {missing_media_label}"
+                raise RuntimeError(
+                    "Cannot build a continuous HyperFrames timeline because frame "
+                    f"{frame.index + 1} has no {missing_media_label}"
                 )
-                continue
 
-            clip_specs.append(
-                {
-                    "frame_index": frame.index,
-                    "raw_start": max(float(window.start), 0.0),
-                    "raw_end": max(float(window.end), float(window.start)),
-                    "media_path": media_path,
-                    "media_type": media_type,
-                    "source_kind": source_kind,
-                    "media_role": media_role,
-                    "element_animation_manifest_path": getattr(
+            visual_clips.append(
+                VisualClip(
+                    id=f"clip-{frame.index + 1}",
+                    frame_index=frame.index,
+                    start=float(window.start),
+                    end=float(window.end),
+                    media_path=media_path,
+                    media_type=media_type,
+                    source_kind=source_kind,
+                    media_role=media_role,
+                    element_animation_manifest_path=getattr(
                         frame,
                         "element_animation_manifest_path",
                         None,
                     ),
-                    "source_media_path": source_media_path,
-                }
-            )
-
-        if not clip_specs:
-            return []
-
-        duration_candidates = [float(storyboard.total_duration or 0.0)]
-        duration_candidates.extend(
-            float(block.end)
-            for block in getattr(timing_plan, "blocks", [])
-            if getattr(block, "end", None) is not None
-        )
-        duration_candidates.extend(spec["raw_end"] for spec in clip_specs)
-        total_duration = max(duration_candidates, default=0.0)
-
-        visual_clips: List[VisualClip] = []
-        previous_boundary = 0.0
-
-        for index, spec in enumerate(clip_specs):
-            clip_start = previous_boundary if index > 0 else 0.0
-
-            if index + 1 < len(clip_specs):
-                next_raw_start = float(clip_specs[index + 1]["raw_start"])
-                candidate_boundary = next_raw_start if next_raw_start > clip_start else spec["raw_end"]
-                clip_end = max(candidate_boundary, clip_start + 0.001)
-            else:
-                clip_end = max(total_duration, spec["raw_end"], clip_start + 0.001)
-
-            previous_boundary = clip_end
-            visual_clips.append(
-                VisualClip(
-                    id=f"clip-{spec['frame_index'] + 1}",
-                    frame_index=spec["frame_index"],
-                    start=clip_start,
-                    end=clip_end,
-                    media_path=spec["media_path"],
-                    media_type=spec["media_type"],
-                    source_kind=spec["source_kind"],
-                    media_role=spec["media_role"],
-                    element_animation_manifest_path=spec[
-                        "element_animation_manifest_path"
-                    ],
-                    source_media_path=spec["source_media_path"],
+                    source_media_path=source_media_path,
                 )
             )
 

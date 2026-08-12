@@ -37,7 +37,6 @@ from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 from typing import Any, Dict, Optional
-from urllib.parse import unquote, urlparse
 
 from loguru import logger
 from PIL import Image
@@ -54,6 +53,7 @@ from pixelle_video.services.browser_executable import (
     resolve_browser_executable,
 )
 from pixelle_video.services.frame_render_readiness import FrameRenderReadiness
+from pixelle_video.services.media_geometry_resolver import MediaGeometryResolver
 from pixelle_video.utils.os_util import get_temp_path
 from pixelle_video.utils.template_util import parse_template_size
 
@@ -422,42 +422,16 @@ class HTMLFrameGenerator:
         self,
         media_url: str,
         *,
+        media_type: str,
         media_width: int | None,
         media_height: int | None,
     ) -> tuple[int, int]:
-        source_path = self._media_url_to_local_path(media_url)
-        if source_path and source_path.exists():
-            try:
-                with Image.open(source_path) as source:
-                    return source.width, source.height
-            except Exception as exc:
-                logger.debug(
-                    f"Could not inspect media dimensions with PIL: {source_path} ({exc})"
-                )
-
-        return (
-            max(1, int(media_width or self.width)),
-            max(1, int(media_height or self.height)),
+        return MediaGeometryResolver().resolve_source_size(
+            media_path=media_url,
+            media_type=media_type,
+            fallback_width=media_width or self.width,
+            fallback_height=media_height or self.height,
         )
-
-    def _media_url_to_local_path(self, media_url: str) -> Path | None:
-        if not media_url:
-            return None
-        if media_url.startswith("file://"):
-            parsed = urlparse(media_url)
-            if parsed.scheme != "file":
-                return None
-            path = unquote(parsed.path)
-            if os.name == "nt" and path.startswith("/") and re.match(r"^/[a-zA-Z]:", path):
-                path = path[1:]
-            return Path(path)
-        if media_url.startswith(("http://", "https://", "data:")):
-            return None
-
-        path = Path(media_url)
-        if not path.is_absolute():
-            path = Path.cwd() / path
-        return path
 
     def _build_standard_media_layer(
         self,
@@ -474,6 +448,7 @@ class HTMLFrameGenerator:
 
         source_width, source_height = self._resolve_media_source_size(
             media_url,
+            media_type=normalized_media_type,
             media_width=media_width,
             media_height=media_height,
         )
@@ -502,7 +477,7 @@ class HTMLFrameGenerator:
             media_tag = f'<img class="pixelle-media" src="{escaped_url}" alt="">'
 
         layer = (
-            '<div class="pixelle-media-layer">'
+            '<div class="pixelle-media-layer" data-pixelle-standard-media-layer>'
             '<div class="pixelle-media-box" data-pixelle-media-box>'
             f"{media_tag}"
             "</div>"
@@ -525,24 +500,43 @@ class HTMLFrameGenerator:
   --pixelle-media-left: {variables["pixelle_media_left"]};
   --pixelle-media-top: {variables["pixelle_media_top"]};
 }}
-.pixelle-media-layer {{
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
+html body .pixelle-media-layer[data-pixelle-standard-media-layer] {{
+  position: fixed !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  pointer-events: none !important;
 }}
-.pixelle-media-box {{
-  position: absolute;
-  box-sizing: border-box;
-  width: var(--pixelle-media-display-width);
-  height: var(--pixelle-media-display-height);
-  left: var(--pixelle-media-left);
-  top: var(--pixelle-media-top);
+html body .pixelle-media-layer[data-pixelle-standard-media-layer]
+  .pixelle-media-box[data-pixelle-media-box] {{
+  position: absolute !important;
+  box-sizing: border-box !important;
+  width: var(--pixelle-media-display-width) !important;
+  height: var(--pixelle-media-display-height) !important;
+  max-width: none !important;
+  max-height: none !important;
+  left: var(--pixelle-media-left) !important;
+  top: var(--pixelle-media-top) !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }}
-.pixelle-media {{
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
+html body .pixelle-media-layer[data-pixelle-standard-media-layer]
+  .pixelle-media-box[data-pixelle-media-box] > .pixelle-media {{
+  position: static !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }}
 </style>"""
         head_match = re.search(r"</head>", html, flags=re.IGNORECASE)

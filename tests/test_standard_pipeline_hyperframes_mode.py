@@ -631,8 +631,10 @@ def test_render_manifest_visual_clips_use_raw_media_for_hyperframes_when_shell_e
     assert [clip.source_kind for clip in clips] == ["raw_media", "raw_media"]
 
 
-def test_resolve_effective_render_backend_falls_back_to_ffmpeg_manifest_for_long_static_hyperframes(
+@pytest.mark.parametrize("long_duration", [121.0, 271.910113])
+def test_resolve_effective_render_backend_preserves_explicit_hyperframes_for_long_video(
     tmp_path,
+    long_duration,
 ):
     core = _DummyCore(tmp_path)
     pipeline = StandardPipeline(core)
@@ -643,7 +645,6 @@ def test_resolve_effective_render_backend_falls_back_to_ffmpeg_manifest_for_long
         frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
         Path(frame.image_path).write_bytes(b"raw")
 
-    long_duration = 271.910113
     ctx.master_audio_duration = long_duration
     ctx.storyboard.total_duration = long_duration
     ctx.timing_plan.sentences[0].source_start = 0.0
@@ -651,62 +652,12 @@ def test_resolve_effective_render_backend_falls_back_to_ffmpeg_manifest_for_long
     ctx.timing_plan.sentences[1].source_start = 120.0
     ctx.timing_plan.sentences[1].source_end = long_duration
 
-    assert pipeline._resolve_effective_render_backend(ctx) == "ffmpeg_manifest"
-    fallback_reason = pipeline._get_render_backend_fallback_reason(ctx)
-    assert fallback_reason is not None
-    assert "ffmpeg_manifest" in fallback_reason
-    assert "long-duration" in fallback_reason
-
-
-def test_resolve_effective_render_backend_uses_two_minute_duration_threshold(
-    tmp_path,
-):
-    core = _DummyCore(tmp_path)
-    pipeline = StandardPipeline(core)
-    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
-    ctx.config.video_fps = 10
-    ctx.master_audio_duration = 121.0
-    ctx.storyboard.total_duration = 121.0
-
-    assert pipeline._resolve_effective_render_backend(ctx) == "ffmpeg_manifest"
-
-
-def test_resolve_effective_render_backend_estimates_long_hyperframes_before_audio_exists(
-    tmp_path,
-):
-    core = _DummyCore(tmp_path)
-    pipeline = StandardPipeline(core)
-    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
-    long_narration = "长视频旁白。" * 360
-    for frame in ctx.storyboard.frames:
-        frame.narration = long_narration
-    for block in ctx.timing_plan.blocks:
-        block.text = long_narration
-    ctx.master_audio_duration = None
-    ctx.storyboard.total_duration = 0.0
-
-    assert pipeline._resolve_effective_render_backend(ctx) == "ffmpeg_manifest"
-
-
-def test_resolve_effective_render_backend_sums_mixed_language_duration_estimate(
-    tmp_path,
-):
-    core = _DummyCore(tmp_path)
-    pipeline = StandardPipeline(core)
-    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
-    ctx.timing_plan.blocks[0].text = chr(0x4E2D) * 240
-    ctx.timing_plan.blocks[1].text = " ".join(["word"] * 180)
-    ctx.master_audio_duration = None
-    ctx.storyboard.total_duration = 0.0
-
-    assert pipeline._estimate_narration_duration_for_render_routing(ctx) == pytest.approx(
-        132.0
-    )
-    assert pipeline._resolve_effective_render_backend(ctx) == "ffmpeg_manifest"
+    assert pipeline._resolve_effective_render_backend(ctx) == "hyperframes_compiled"
+    assert pipeline._get_render_backend_fallback_reason(ctx) is None
 
 
 @pytest.mark.asyncio
-async def test_post_production_switches_to_ffmpeg_manifest_after_real_audio_exceeds_threshold(
+async def test_post_production_keeps_hyperframes_after_real_audio_exceeds_two_minutes(
     monkeypatch,
     tmp_path,
 ):
@@ -731,18 +682,15 @@ async def test_post_production_switches_to_ffmpeg_manifest_after_real_audio_exce
     def fake_get_audio_duration(audio_path):
         return 121.0 if str(audio_path).endswith("master_audio.wav") else 60.5
 
-    calls = {}
-
     class FakeFfmpegManifestRenderer:
         def render(self, **kwargs):
-            calls.update(kwargs)
-            output_path = Path(kwargs["output_path"])
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_bytes(b"video")
-            return str(output_path)
+            raise AssertionError("explicit HyperFrames selection must not be replaced")
 
-    async def fail_hyperframes_render(*args, **kwargs):
-        raise AssertionError("hyperframes renderer should not run after late ffmpeg switch")
+    async def fake_hyperframes_render(project_dir, **kwargs):
+        output_path = Path(kwargs["output_path"])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"video")
+        return str(output_path)
 
     monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
     monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
@@ -751,25 +699,17 @@ async def test_post_production_switches_to_ffmpeg_manifest_after_real_audio_exce
         "pixelle_video.services.ffmpeg_manifest_renderer.FfmpegManifestRenderer",
         FakeFfmpegManifestRenderer,
     )
-    monkeypatch.setattr(core.hyperframes_renderer, "render_async", fail_hyperframes_render)
+    monkeypatch.setattr(core.hyperframes_renderer, "render_async", fake_hyperframes_render)
 
     assert pipeline._resolve_effective_render_backend(ctx) == "hyperframes_compiled"
 
     await pipeline.post_production(ctx)
 
-    manifest = calls["manifest"]
-    execution_plan = calls["execution_plan"]
-    assert execution_plan.effective_backend == "ffmpeg_manifest"
-    assert manifest.master_audio_duration == pytest.approx(121.0)
-    assert ctx.observability["render_execution_plan"]["effective_backend"] == "ffmpeg_manifest"
-    assert [clip.source_kind for clip in manifest.visual_clips] == [
-        "template_frame",
-        "template_frame",
-    ]
-    assert all(clip.media_path for clip in manifest.visual_clips)
     assert ctx.master_audio_duration == pytest.approx(121.0)
     assert ctx.storyboard.total_duration == pytest.approx(121.0)
-    assert core.hyperframes_renderer.calls == []
+    assert core.hyperframes_project_service.manifest.master_audio_duration == pytest.approx(
+        121.0
+    )
 
 
 @pytest.mark.asyncio
@@ -1548,7 +1488,10 @@ async def test_post_production_uses_stable_master_audio_duration_for_storyboard_
 
 
 @pytest.mark.asyncio
-async def test_post_production_skips_shell_image_fallback_for_missing_raw_media(monkeypatch, tmp_path):
+async def test_post_production_rejects_shell_image_fallback_for_missing_raw_media(
+    monkeypatch,
+    tmp_path,
+):
     monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
 
     core = _DummyCore(tmp_path)
@@ -1572,14 +1515,15 @@ async def test_post_production_skips_shell_image_fallback_for_missing_raw_media(
     monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
     monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
 
-    await pipeline.post_production(ctx)
-
-    manifest = core.hyperframes_project_service.manifest
-    assert manifest.visual_clips == []
+    with pytest.raises(RuntimeError, match="no raw media"):
+        await pipeline.post_production(ctx)
 
 
 @pytest.mark.asyncio
-async def test_post_production_warns_and_keeps_clips_for_mixed_raw_media_availability(monkeypatch, tmp_path):
+async def test_post_production_rejects_mixed_raw_media_availability(
+    monkeypatch,
+    tmp_path,
+):
     monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
 
     core = _DummyCore(tmp_path)
@@ -1598,11 +1542,6 @@ async def test_post_production_warns_and_keeps_clips_for_mixed_raw_media_availab
     ctx.storyboard.frames[1].composed_image_path = str(tmp_path / "01_shell.png")
     Path(ctx.storyboard.frames[1].composed_image_path).write_text("shell", encoding="utf-8")
 
-    warnings: list[str] = []
-
-    def fake_warning(message):
-        warnings.append(message)
-
     def fake_normalize_audio(input_path, output_path):
         Path(output_path).write_bytes(b"wav")
         return output_path
@@ -1613,17 +1552,12 @@ async def test_post_production_warns_and_keeps_clips_for_mixed_raw_media_availab
     def fake_get_audio_duration(audio_path):
         return 2.0
 
-    monkeypatch.setattr("pixelle_video.pipelines.standard.logger.warning", fake_warning)
     monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
     monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
     monkeypatch.setattr(pipeline, "_get_audio_duration", fake_get_audio_duration)
 
-    await pipeline.post_production(ctx)
-
-    manifest = core.hyperframes_project_service.manifest
-    assert [clip.media_path for clip in manifest.visual_clips] == [str(tmp_path / "00_raw.png")]
-    assert warnings
-    assert "missing raw media" in warnings[0]
+    with pytest.raises(RuntimeError, match="frame 2 has no raw media"):
+        await pipeline.post_production(ctx)
 
 
 @pytest.mark.asyncio

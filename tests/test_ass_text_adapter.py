@@ -3,6 +3,10 @@ from pixelle_video.models.text_style import TextStyleProfile
 from pixelle_video.services.ass_text_adapter import AssTextAdapter
 
 
+def test_ass_text_adapter_preserves_ascii_commas_in_dialogue_text():
+    assert AssTextAdapter()._escape_text("alpha,beta") == "alpha,beta"
+
+
 def test_ass_export_writes_master_and_split_tracks_with_escaped_text(tmp_path):
     manifest = RenderManifest(
         task_id="task-1",
@@ -61,7 +65,7 @@ def test_ass_export_writes_master_and_split_tracks_with_escaped_text(tmp_path):
     assert r"\{测试\}\N第二行" in master_text
     assert "Style: caption-default" in subtitle_text
     assert "Style: overlay-default" in overlay_text
-    assert "重点，词" in overlay_text
+    assert "重点,词" in overlay_text
     assert "第一行" not in overlay_text
 
 

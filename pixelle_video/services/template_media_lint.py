@@ -17,6 +17,16 @@ _BACKGROUND_IMAGE_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _HTML_COMMENT_PATTERN = re.compile(r"<!--.*?-->", re.DOTALL)
+_PROTECTED_MEDIA_RULE_PATTERN = re.compile(
+    r"([^{}]*(?:\.pixelle-media-layer|\.pixelle-media-box|\.pixelle-media)[^{}]*)"
+    r"\{([^{}]*)\}",
+    re.IGNORECASE | re.DOTALL,
+)
+_PROTECTED_GEOMETRY_DECLARATION_PATTERN = re.compile(
+    r"(?:^|;)\s*(?:position|inset|left|right|top|bottom|width|height|"
+    r"min-width|min-height|max-width|max-height|object-fit)\s*:",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -46,5 +56,13 @@ def lint_media_template(path: str | Path) -> TemplateMediaLintResult:
 
     if _RAW_IMAGE_PLACEHOLDER_PATTERN.search(lint_source):
         errors.append("raw {{image}} bypasses standard media layer")
+
+    for selector, declarations in _PROTECTED_MEDIA_RULE_PATTERN.findall(lint_source):
+        if _PROTECTED_GEOMETRY_DECLARATION_PATTERN.search(declarations):
+            compact_selector = " ".join(selector.split())
+            errors.append(
+                "template overrides protected standard media geometry: "
+                f"{compact_selector}"
+            )
 
     return TemplateMediaLintResult(path=template_path, errors=errors)

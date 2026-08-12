@@ -15,10 +15,15 @@ from pixelle_video.models.render_package import CaptionCue, TextCue
 from pixelle_video.models.template_render_context import TemplateRenderContext
 from pixelle_video.models.template_text_style_presets import resolve_template_text_style_preset
 from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID, TextStyleProfile
-from pixelle_video.services.font_discovery import resolve_font_file
+from pixelle_video.services.font_discovery import (
+    canonical_font_family_name,
+    font_family_from_file,
+    resolve_font_file,
+)
 from pixelle_video.services.layered_template_adapters.hyperframes import (
     LayeredTemplateHyperFramesAdapter,
 )
+from pixelle_video.services.media_geometry_resolver import MediaGeometryResolver
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
@@ -55,6 +60,7 @@ class HyperFramesCompiler:
         template_root: Path | None = None,
         runtime_root: Path | None = None,
         text_sanitizer: TextContentSanitizer | None = None,
+        media_geometry_resolver: MediaGeometryResolver | None = None,
     ):
         self.template_root = (
             Path(template_root)
@@ -67,6 +73,7 @@ class HyperFramesCompiler:
             else Path("resources/hyperframes/runtime")
         )
         self.text_sanitizer = text_sanitizer or TextContentSanitizer()
+        self.media_geometry_resolver = media_geometry_resolver or MediaGeometryResolver()
 
     def compile(self, *, project_dir: Path, context: TemplateRenderContext) -> None:
         layered_template_spec = active_layered_template_spec(
@@ -112,7 +119,7 @@ class HyperFramesCompiler:
             "__STYLE_PROFILE__": escape(context.style_profile),
             "__MEDIA_LAYOUT_MODE__": escape(context.media_layout_mode, quote=True),
             "__MEDIA_PLACEMENT_CSS__": self._render_media_placement_css(context),
-            "__VISUALS__": self._render_visuals(context),
+            "__VISUALS__": self._render_visuals(context, base_dir=project_dir),
             "__AUDIO__": self._render_audio(context),
             "__CAPTIONS__": self._render_captions(context),
             "__TEXT_CUES__": self._render_text_cues(context),
@@ -155,7 +162,12 @@ class HyperFramesCompiler:
             encoding="utf-8",
         )
 
-    def _render_visuals(self, context: TemplateRenderContext) -> str:
+    def _render_visuals(
+        self,
+        context: TemplateRenderContext,
+        *,
+        base_dir: Path | None = None,
+    ) -> str:
         rendered: list[str] = []
         for clip in context.visuals:
             duration = max(float(clip.end) - float(clip.start), 0.1)
@@ -170,11 +182,28 @@ class HyperFramesCompiler:
                     ' data-element-animation-manifest="'
                     f'{escape(clip.element_animation_manifest_path, quote=True)}"'
                 )
+            box = clip.resolved_media_box or self.media_geometry_resolver.resolve_box(
+                media_path=clip.media_path,
+                media_type=clip.media_type,
+                canvas_width=context.canvas_width,
+                canvas_height=context.canvas_height,
+                fallback_width=context.media_width,
+                fallback_height=context.media_height,
+                placement=context.media_placement,
+                base_dir=base_dir,
+            )
+            geometry_style = (
+                f"--pixelle-media-display-width:{box.width:.6f}px;"
+                f"--pixelle-media-display-height:{box.height:.6f}px;"
+                f"--pixelle-media-left:{box.left:.6f}px;"
+                f"--pixelle-media-top:{box.top:.6f}px"
+            )
             rendered.append(
                 (
                     f'<div id="{escape(clip.id, quote=True)}" class="clip pixelle-media-clip" '
                     f'data-start="{clip.start}" '
-                    f'data-duration="{duration}" data-track-index="{track_index}"'
+                    f'data-duration="{duration}" data-track-index="{track_index}" '
+                    f'style="{geometry_style}"'
                     f"{element_manifest_attr}>"
                     f"{media_tag}"
                     "</div>"
@@ -209,13 +238,17 @@ class HyperFramesCompiler:
             f"--pixelle-media-left: {round(box.left)}px;"
             f"--pixelle-media-top: {round(box.top)}px;"
             "}"
-            ".pixelle-media-layer{position:absolute;inset:0;pointer-events:none;}"
-            ".pixelle-media-clip{position:absolute;"
-            "left:var(--pixelle-media-left);"
-            "top:var(--pixelle-media-top);"
-            "width:var(--pixelle-media-display-width);"
-            "height:var(--pixelle-media-display-height);}"
-            ".pixelle-media{width:100%;height:100%;object-fit:contain;display:block;}"
+            "#main-comp .pixelle-media-layer{position:absolute!important;"
+            "inset:0!important;pointer-events:none!important;}"
+            "#main-comp .pixelle-media-layer>.pixelle-media-clip{position:absolute!important;"
+            "left:var(--pixelle-media-left)!important;"
+            "top:var(--pixelle-media-top)!important;"
+            "width:var(--pixelle-media-display-width)!important;"
+            "height:var(--pixelle-media-display-height)!important;"
+            "max-width:none!important;max-height:none!important;}"
+            "#main-comp .pixelle-media-layer>.pixelle-media-clip>.pixelle-media{"
+            "width:100%!important;height:100%!important;max-width:none!important;"
+            "max-height:none!important;object-fit:contain!important;display:block!important;}"
             "</style>"
         )
 
@@ -396,7 +429,9 @@ class HyperFramesCompiler:
             f"--{prefix}-stroke-color: {profile.stroke_color}",
             f"--{prefix}-stroke-width: {stroke_width}px",
             f"--{prefix}-background: {background}",
-            f"--{prefix}-font-family: {self._css_font_family_value(profile.font_family)}",
+            "--"
+            f"{prefix}-font-family: "
+            f"{self._css_font_family_value(canonical_font_family_name(profile.font_family))}",
             f"--{prefix}-font-size: {font_size}px",
             f"--{prefix}-font-weight: {int(profile.font_weight)}",
             f"--{prefix}-line-height: {float(profile.line_height)}",
@@ -587,9 +622,16 @@ class HyperFramesCompiler:
             if source_path is None:
                 raise ValueError(f"font_file must be an existing file: {profile.font_file}")
 
-            family = str(profile.font_family).strip()
+            family = canonical_font_family_name(profile.font_family)
             if not family:
                 continue
+
+            actual_family = font_family_from_file(source_path)
+            if actual_family.casefold() != family.casefold():
+                raise ValueError(
+                    "font family does not match font_file: "
+                    f"expected {family!r}, got {actual_family!r} from {source_path}"
+                )
 
             source_path = source_path.resolve()
             key = (family.casefold(), str(source_path).casefold())

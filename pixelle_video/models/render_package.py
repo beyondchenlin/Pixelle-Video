@@ -19,7 +19,11 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
 from pixelle_video.models.layered_template import active_layered_template_spec
-from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
+from pixelle_video.models.media_placement import (
+    MediaBox,
+    MediaPlacement,
+    resolve_media_placement,
+)
 from pixelle_video.models.template_display import TemplateDisplaySettings
 from pixelle_video.models.text_overlay import (
     FrozenJSONValue,
@@ -171,6 +175,7 @@ class VisualClip:
     text_policy: str = "caption_renderer"
     element_animation_manifest_path: Optional[str] = None
     source_media_path: Optional[str] = None
+    resolved_media_box: MediaBox | None = None
     diagnostics: Mapping[str, FrozenJSONValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -178,6 +183,11 @@ class VisualClip:
         self.start = float(self.start)
         self.end = float(self.end)
         self.track_index = int(self.track_index)
+        if self.resolved_media_box is not None and not isinstance(
+            self.resolved_media_box,
+            MediaBox,
+        ):
+            self.resolved_media_box = MediaBox.from_dict(self.resolved_media_box)
         self.diagnostics = _freeze_json_mapping(self.diagnostics)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -196,6 +206,11 @@ class VisualClip:
             "text_policy": self.text_policy,
             "element_animation_manifest_path": self.element_animation_manifest_path,
             "source_media_path": self.source_media_path,
+            "resolved_media_box": (
+                self.resolved_media_box.to_dict()
+                if self.resolved_media_box is not None
+                else None
+            ),
             "diagnostics": thaw_json_value(self.diagnostics),
         }
 
@@ -216,6 +231,7 @@ class VisualClip:
             text_policy=str(data.get("text_policy", "caption_renderer")),
             element_animation_manifest_path=data.get("element_animation_manifest_path"),
             source_media_path=data.get("source_media_path"),
+            resolved_media_box=data.get("resolved_media_box"),
             diagnostics=data.get("diagnostics", {}),
         )
 

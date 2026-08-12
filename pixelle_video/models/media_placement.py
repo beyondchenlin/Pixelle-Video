@@ -81,6 +81,35 @@ class MediaBox:
     left: float
     top: float
 
+    def __post_init__(self) -> None:
+        dimensions = _validate_positive_dimensions(
+            width=self.width,
+            height=self.height,
+        )
+        left = _normalize_finite_number("left", self.left)
+        top = _normalize_finite_number("top", self.top)
+        object.__setattr__(self, "width", dimensions["width"])
+        object.__setattr__(self, "height", dimensions["height"])
+        object.__setattr__(self, "left", left)
+        object.__setattr__(self, "top", top)
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> MediaBox:
+        return cls(
+            width=value["width"],
+            height=value["height"],
+            left=value["left"],
+            top=value["top"],
+        )
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "width": self.width,
+            "height": self.height,
+            "left": self.left,
+            "top": self.top,
+        }
+
 
 def resolve_media_placement(value: MediaPlacement | Mapping[str, Any] | None) -> MediaPlacement:
     if value is None:
@@ -212,6 +241,18 @@ def _normalize_offset(name: str, value: Any) -> int:
     if not isfinite(numeric_value) or not numeric_value.is_integer():
         raise ValueError(f"{name} must be an integer")
     return int(numeric_value)
+
+
+def _normalize_finite_number(name: str, value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a finite number")
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be a finite number") from exc
+    if not isfinite(numeric_value):
+        raise ValueError(f"{name} must be a finite number")
+    return numeric_value
 
 
 def _validate_positive_dimensions(**dimensions: float) -> dict[str, float]:

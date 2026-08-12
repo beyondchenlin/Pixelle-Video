@@ -44,7 +44,7 @@ def test_build_style_scales_font_outline_shadow_and_margins_for_canvas():
         "Scaled", profile, canvas_width=720, canvas_height=1280
     )
 
-    assert style.startswith("Style: Scaled,Noto Sans CJK SC,43,")
+    assert style.startswith("Style: Scaled,Noto Sans SC,43,")
     assert ",3,0,2,53,53,93,1" in style
 
 
@@ -91,14 +91,34 @@ def test_build_style_rejects_non_positive_canvas_dimensions(
         )
 
 
-def test_build_style_keeps_scaled_font_size_at_least_one_for_tiny_canvas():
+def test_build_style_without_explicit_basis_keeps_resolved_pixel_values():
     profile = TextStyleProfile(id="style", name="Style", font_size=64)
 
     style = AssStyleBuilder().build_style(
         "Tiny", profile, canvas_width=1, canvas_height=1
     )
 
-    assert style.startswith("Style: Tiny,Noto Sans CJK SC,1,")
+    assert style.startswith("Style: Tiny,Noto Sans SC,64,")
+
+
+@pytest.mark.parametrize(
+    ("canvas_width", "canvas_height"),
+    [(1280, 720), (720, 1280), (1080, 1080)],
+)
+def test_build_style_without_basis_is_orientation_independent(
+    canvas_width,
+    canvas_height,
+):
+    profile = TextStyleProfile(id="style", name="Style", font_size=36)
+
+    style = AssStyleBuilder().build_style(
+        "Resolved",
+        profile,
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
+    )
+
+    assert style.startswith("Style: Resolved,Noto Sans SC,36,")
 
 
 @pytest.mark.parametrize(

@@ -63,6 +63,17 @@ class VideoService(_VideoOperations):
             preferred_params=self._h264_encode_params(),
         )
 
+    def encode_render_graph(self, build_output, *, quiet: bool = False) -> str:
+        """Encode one fully composed render graph through the shared H.264 policy."""
+
+        self._ensure_ffmpeg()
+        return self._encode_run(build_output, quiet=quiet)
+
+    def reject_render_encoder(self, codec: str, *, reason: str) -> None:
+        """Disable a hardware encoder whose artifact failed the output contract."""
+
+        self._video_encoder.disable_hardware_backend(codec, reason=reason)
+
     def concat_videos(
         self,
         videos: List[str],

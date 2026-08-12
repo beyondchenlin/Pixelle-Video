@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from pixelle_video.models.render_package import CaptionCue, TextCue, TextTrack, VisualClip
 from pixelle_video.models.template_render_context import (
@@ -1803,6 +1804,46 @@ def test_image_landscape_minimal_template_expands_visual_when_media_syncs_to_can
     assert "--pixelle-media-left: 0px" in index_html
     assert "--pixelle-media-top: 0px" in index_html
     assert 'class="clip pixelle-media-clip"' in index_html
+
+
+def test_hyperframes_uses_actual_asset_geometry_instead_of_configured_guess(
+    tmp_path: Path,
+):
+    media_path = tmp_path / "square-source.png"
+    Image.new("RGB", (1000, 1000), "red").save(media_path)
+    compiler = HyperFramesCompiler()
+    context = TemplateRenderContext(
+        template_id="image_landscape_minimal",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1280,
+        media_height=720,
+        duration=1.0,
+        fps=30,
+        title="Geometry",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_landscape_minimal",
+        visuals=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0.0,
+                end=1.0,
+                media_path=str(media_path),
+                media_type="image",
+            )
+        ],
+    )
+
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "--pixelle-media-display-width:720.000000px" in index_html
+    assert "--pixelle-media-display-height:720.000000px" in index_html
+    assert "--pixelle-media-left:280.000000px" in index_html
+    assert "--pixelle-media-top:0.000000px" in index_html
 
 
 def _layered_template_spec_payload(**overrides):

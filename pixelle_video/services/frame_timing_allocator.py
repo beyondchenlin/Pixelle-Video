@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import Sequence
 
 from pixelle_video.models.render_package import SentenceUnit
@@ -17,6 +18,8 @@ def allocate_frame_timing_windows(
     *,
     frame_count: int,
     sentence_units: Sequence[SentenceUnit],
+    timeline_start: float | None = None,
+    timeline_end: float | None = None,
 ) -> list[FrameTimingWindow]:
     if frame_count <= 0:
         return []
@@ -41,19 +44,82 @@ def allocate_frame_timing_windows(
             if end > start:
                 frame_segments[frame_index].append((start, end))
 
-    windows: list[FrameTimingWindow] = []
+    raw_windows: dict[int, FrameTimingWindow] = {}
     for frame_index in range(frame_count):
         segments = frame_segments[frame_index]
         if not segments:
             continue
-        windows.append(
-            FrameTimingWindow(
-                frame_index=frame_index,
-                start=min(start for start, _ in segments),
-                end=max(end for _, end in segments),
-            )
+        raw_windows[frame_index] = FrameTimingWindow(
+            frame_index=frame_index,
+            start=min(start for start, _ in segments),
+            end=max(end for _, end in segments),
         )
-    return windows
+
+    if timeline_start is None and timeline_end is None:
+        return [raw_windows[index] for index in sorted(raw_windows)]
+    if timeline_start is None or timeline_end is None:
+        raise ValueError("timeline_start and timeline_end must be provided together")
+    return _allocate_continuous_windows(
+        frame_count=frame_count,
+        raw_windows=raw_windows,
+        timeline_start=timeline_start,
+        timeline_end=timeline_end,
+    )
+
+
+def _allocate_continuous_windows(
+    *,
+    frame_count: int,
+    raw_windows: dict[int, FrameTimingWindow],
+    timeline_start: float,
+    timeline_end: float,
+) -> list[FrameTimingWindow]:
+    start = float(timeline_start)
+    end = float(timeline_end)
+    if not isfinite(start) or not isfinite(end) or end <= start:
+        raise ValueError("continuous timeline must have a finite positive duration")
+
+    boundaries: list[float | None] = [start]
+    for index in range(frame_count - 1):
+        left = raw_windows.get(index)
+        right = raw_windows.get(index + 1)
+        if left is not None and right is not None:
+            boundary = right.start
+        elif left is not None:
+            boundary = left.end
+        elif right is not None:
+            boundary = right.start
+        else:
+            boundary = None
+        boundaries.append(boundary)
+    boundaries.append(end)
+
+    known_indices = [index for index, value in enumerate(boundaries) if value is not None]
+    for left_index, right_index in zip(known_indices, known_indices[1:]):
+        left_value = float(boundaries[left_index])
+        right_value = float(boundaries[right_index])
+        span = right_index - left_index
+        for offset in range(1, span):
+            boundaries[left_index + offset] = (
+                left_value + (right_value - left_value) * (offset / span)
+            )
+
+    duration = end - start
+    minimum_duration = min(0.001, duration / frame_count)
+    resolved = [float(value) for value in boundaries]
+    for index in range(1, frame_count):
+        lower = resolved[index - 1] + minimum_duration
+        upper = end - ((frame_count - index) * minimum_duration)
+        resolved[index] = min(max(resolved[index], lower), upper)
+
+    return [
+        FrameTimingWindow(
+            frame_index=index,
+            start=resolved[index],
+            end=resolved[index + 1],
+        )
+        for index in range(frame_count)
+    ]
 
 
 def _sentence_window(sentence: SentenceUnit) -> tuple[float | None, float | None]:

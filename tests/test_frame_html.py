@@ -3,7 +3,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops
 
 from pixelle_video.services.frame_html import HTMLDocumentFrameRenderer, HTMLFrameGenerator
 from pixelle_video.services.frame_render_readiness import FrameRenderReadiness
@@ -479,11 +479,14 @@ def test_html_frame_generator_injects_standard_media_layer_css(tmp_path):
     )
 
     assert "pixelle-media-layer" in html
+    assert "data-pixelle-standard-media-layer" in html
     assert "--pixelle-media-display-width: 1536px" in html
     assert "--pixelle-media-display-height: 864px" in html
     assert "--pixelle-media-left: 192px" in html
     assert "--pixelle-media-top: 108px" in html
     assert '<img class="pixelle-media"' in html
+    assert "width: 100% !important" in html
+    assert "object-fit: contain !important" in html
 
 
 def test_html_frame_generator_defaults_standard_media_layer_to_full_contain_fit(
@@ -513,6 +516,55 @@ def test_html_frame_generator_defaults_standard_media_layer_to_full_contain_fit(
     assert "--pixelle-media-display-height: 1080px" in html
     assert "--pixelle-media-left: 0px" in html
     assert "--pixelle-media-top: 0px" in html
+
+
+def test_landscape_template_render_does_not_double_shrink_canvas_media(tmp_path):
+    pytest.importorskip("playwright.async_api")
+    source = tmp_path / "source.png"
+    output = tmp_path / "frame.png"
+    Image.new("RGB", (1280, 720), (255, 0, 0)).save(source)
+    generator = HTMLFrameGenerator(
+        "templates/1920x1080/image_landscape_minimal.html",
+        canvas_width=1280,
+        canvas_height=720,
+    )
+
+    try:
+        run_async(
+            generator.generate_frame(
+                title="",
+                text="",
+                image=str(source),
+                ext={"media_layout_mode": "template"},
+                output_path=str(output),
+                media_placement={"scale_percent": 100},
+                media_width=1280,
+                media_height=720,
+            )
+        )
+    finally:
+        run_async(HTMLFrameGenerator.close_browser())
+
+    with Image.open(output).convert("RGB") as rendered:
+        red, green, blue = rendered.split()
+        red_mask = ImageChops.multiply(
+            red.point(lambda value: 255 if value > 240 else 0),
+            ImageChops.multiply(
+                green.point(lambda value: 255 if value < 20 else 0),
+                blue.point(lambda value: 255 if value < 20 else 0),
+            ),
+        )
+        pixels = rendered.load()
+        red_points = [
+            (x, y)
+            for x, y in ((0, 0), (1279, 0), (0, 719), (1279, 719))
+            if pixels[x, y][0] > 240
+            and pixels[x, y][1] < 20
+            and pixels[x, y][2] < 20
+        ]
+
+    assert red_mask.getbbox() == (0, 0, 1280, 720)
+    assert len(red_points) == 4
 
 
 def test_html_frame_generator_injects_video_media_element(tmp_path):

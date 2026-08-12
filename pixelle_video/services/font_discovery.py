@@ -10,13 +10,23 @@ DEFAULT_FONT_SEARCH_DIRS = (
     Path("fonts"),
     Path("font"),
     Path("resource/fonts"),
+    Path("resources/hyperframes/runtime/fonts/assets"),
 )
+APPLICATION_ROOT = Path(__file__).resolve().parents[2]
+FONT_FAMILY_ALIASES = {
+    "noto sans cjk sc": "Noto Sans SC",
+}
 
 
 @dataclass(frozen=True)
 class FontOption:
     family: str
     path: Path
+
+
+def canonical_font_family_name(family: str) -> str:
+    cleaned = str(family or "").strip()
+    return FONT_FAMILY_ALIASES.get(cleaned.casefold(), cleaned)
 
 
 def font_path_for_payload(path: str | Path) -> str:
@@ -28,18 +38,24 @@ def resolve_font_file(font_file: str | Path | None) -> Path | None:
     if font_file is None:
         return None
     font_path = Path(font_file)
+    if not font_path.is_absolute():
+        font_path = APPLICATION_ROOT / font_path
     if font_path.is_file():
-        return font_path
-    resolved = font_path.resolve()
-    if resolved.is_file():
-        return resolved
+        return font_path.resolve()
     return None
 
 
 def discover_font_options(
     candidate_dirs: Iterable[str | Path] | None = None,
 ) -> list[FontOption]:
-    font_dirs = tuple(Path(candidate) for candidate in (candidate_dirs or DEFAULT_FONT_SEARCH_DIRS))
+    font_dirs = tuple(
+        Path(candidate)
+        for candidate in (
+            candidate_dirs
+            if candidate_dirs is not None
+            else (APPLICATION_ROOT / item for item in DEFAULT_FONT_SEARCH_DIRS)
+        )
+    )
     options_by_path: dict[str, FontOption] = {}
     for font_dir in font_dirs:
         if not font_dir.is_dir():
@@ -82,6 +98,35 @@ def font_family_from_file(path: Path) -> str:
         pass
 
     return path.stem.strip()
+
+
+def missing_font_characters(path: Path, text: str) -> tuple[str, ...]:
+    """Return printable characters that resolve to the font's missing-glyph box."""
+
+    try:
+        from PIL import ImageFont
+
+        font = ImageFont.truetype(str(path), size=64)
+    except (OSError, ValueError):
+        return tuple(sorted({character for character in text if character.isprintable()}))
+
+    sentinel_signatures = {
+        _glyph_signature(font, "\u0378"),
+        _glyph_signature(font, "\U0010ffff"),
+    }
+    missing = {
+        character
+        for character in text
+        if character.isprintable()
+        and not character.isspace()
+        and _glyph_signature(font, character) in sentinel_signatures
+    }
+    return tuple(sorted(missing))
+
+
+def _glyph_signature(font, character: str) -> tuple[tuple[int, int], bytes]:
+    mask = font.getmask(character, mode="L")
+    return mask.size, bytes(mask)
 
 
 def build_font_face_css(font_path_str: str) -> str | None:

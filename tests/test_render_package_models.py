@@ -14,6 +14,7 @@ from pixelle_video.models.layered_template import (
     RectSpec,
     TemplateLayer,
 )
+from pixelle_video.models.media_placement import MediaBox
 from pixelle_video.models.render_package import (
     AudioBlock,
     CaptionCue,
@@ -310,6 +311,7 @@ def test_visual_clip_round_trips_template_and_motion_metadata():
         text_policy="caption_renderer",
         element_animation_manifest_path="element/frame_000.json",
         source_media_path="raw/frame_000.png",
+        resolved_media_box=MediaBox(width=640, height=360, left=40, top=60),
         diagnostics={"template_has_text_slot": True},
     )
     restored = VisualClip.from_dict(clip.to_dict())
@@ -317,6 +319,12 @@ def test_visual_clip_round_trips_template_and_motion_metadata():
     assert restored.media_role == "final_frame"
     assert restored.template_id == "image_default"
     assert restored.element_animation_manifest_path == "element/frame_000.json"
+    assert restored.resolved_media_box == MediaBox(
+        width=640,
+        height=360,
+        left=40,
+        top=60,
+    )
     assert restored.diagnostics["template_has_text_slot"] is True
 
 

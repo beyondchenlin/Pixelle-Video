@@ -130,7 +130,11 @@ async def test_post_production_routes_ffmpeg_manifest_to_renderer(monkeypatch, t
     core = _DummyCore()
     pipeline = StandardPipeline(core)
     ctx = _build_context(tmp_path)
-    ctx.params["bgm_path"] = "default.mp3"
+    bgm_path = tmp_path / "default.mp3"
+    bgm_path.write_bytes(b"music")
+    captions_path = tmp_path / "captions.ass"
+    captions_path.write_text("[Script Info]\n", encoding="utf-8")
+    ctx.params["bgm_path"] = str(bgm_path)
     ctx.params["bgm_volume"] = 0.4
     ctx.params["bgm_mode"] = "once"
 
@@ -149,7 +153,7 @@ async def test_post_production_routes_ffmpeg_manifest_to_renderer(monkeypatch, t
     monkeypatch.setattr(
         pipeline,
         "_export_ass_for_manifest_if_needed",
-        lambda context, manifest: SimpleNamespace(master=tmp_path / "captions.ass"),
+        lambda context, manifest: SimpleNamespace(master=captions_path),
     )
 
     await pipeline.post_production(ctx)
@@ -157,8 +161,8 @@ async def test_post_production_routes_ffmpeg_manifest_to_renderer(monkeypatch, t
     manifest = calls["manifest"]
     execution_plan = calls["execution_plan"]
     assert calls["output_path"] == str(tmp_path / "task-1" / "final.mp4")
-    assert calls["ass_path"] == str(tmp_path / "captions.ass")
-    assert calls["bgm_path"] == "default.mp3"
+    assert calls["ass_path"] == str(captions_path)
+    assert calls["bgm_path"] == str(bgm_path)
     assert calls["bgm_volume"] == 0.4
     assert calls["bgm_mode"] == "once"
     assert manifest.master_audio_path == str(Path(ctx.master_audio_path))
@@ -204,8 +208,10 @@ def test_build_render_manifest_uses_canvas_contract_separately_from_media(tmp_pa
 
     manifest = pipeline._build_render_manifest_for_current_timeline(ctx)
 
+    assert manifest.version == "render_manifest.v2"
     assert (manifest.canvas_width, manifest.canvas_height) == (1280, 720)
     assert (manifest.media_width, manifest.media_height) == (768, 768)
+    assert all(clip.resolved_media_box is not None for clip in manifest.visual_clips)
 
 
 def test_resolve_effective_backend_records_ffmpeg_fallback_for_canvas_motion(tmp_path):

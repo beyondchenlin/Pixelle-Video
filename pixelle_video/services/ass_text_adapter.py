@@ -136,7 +136,6 @@ class AssTextAdapter:
             .replace("\\", r"\\")
             .replace("{", r"\{")
             .replace("}", r"\}")
-            .replace(",", "，")
             .replace("\r\n", "\n")
             .replace("\r", "\n")
             .replace("\n", r"\N")

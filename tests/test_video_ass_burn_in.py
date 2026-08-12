@@ -24,7 +24,10 @@ def test_font_resolver_prefers_existing_font_file_parent(tmp_path, monkeypatch):
     assert result == font_dir
 
 
-def test_font_resolver_returns_first_existing_default_candidate(tmp_path, monkeypatch):
+def test_font_resolver_default_is_independent_from_process_working_directory(
+    tmp_path,
+    monkeypatch,
+):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "font").mkdir()
     (tmp_path / "resource" / "fonts").mkdir(parents=True)
@@ -32,13 +35,29 @@ def test_font_resolver_returns_first_existing_default_candidate(tmp_path, monkey
     result = _font_resolver_cls()().resolve_fontsdir()
 
     assert result is not None
-    assert result.resolve() == (tmp_path / "font").resolve()
+    expected = (
+        _font_resolver_cls().APPLICATION_ROOT
+        / "resources"
+        / "hyperframes"
+        / "runtime"
+        / "fonts"
+        / "assets"
+    )
+    assert result.resolve() == expected.resolve()
 
 
-def test_font_resolver_returns_none_without_font_file_or_candidate(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+def test_font_resolver_returns_none_without_explicit_candidate(tmp_path):
+    assert (
+        _font_resolver_cls()(candidate_dirs=[tmp_path / "missing"]).resolve_fontsdir()
+        is None
+    )
 
-    assert _font_resolver_cls()().resolve_fontsdir() is None
+
+def test_font_resolver_uses_explicit_candidate_directory(tmp_path):
+    candidate = tmp_path / "fonts"
+    candidate.mkdir()
+
+    assert _font_resolver_cls()(candidate_dirs=[candidate]).resolve_fontsdir() == candidate
 
 
 def test_build_ass_filter_includes_ass_file_and_fontsdir(tmp_path):
