@@ -496,7 +496,10 @@ def test_renderer_projects_vaapi_device_upload_without_software_fallback(
     assert probe.calls[-1]["encoder_backend"] == "h264_vaapi"
 
 
-def test_renderer_projects_qsv_input_format_without_crossing_encoder_options(tmp_path):
+def test_renderer_projects_qsv_device_and_input_without_crossing_encoder_options(
+    tmp_path,
+    monkeypatch,
+):
     class QsvVideoService(_RecordingVideoService):
         def encode_render_graph(self, build_output, *, quiet=False):
             graph = build_output(
@@ -514,6 +517,11 @@ def test_renderer_projects_qsv_input_format_without_crossing_encoder_options(tmp
             output.write_bytes(b"encoded")
             return "h264_qsv"
 
+    monkeypatch.setattr(
+        encoder_module,
+        "_resolve_qsv_device",
+        lambda: "/dev/dri/renderD129",
+    )
     service = QsvVideoService()
     probe = _AcceptingProbe()
 
@@ -526,6 +534,7 @@ def test_renderer_projects_qsv_input_format_without_crossing_encoder_options(tmp
     command = " ".join(service.commands[0])
     assert "format=nv12" in command
     assert "hwupload" not in command
+    assert "-qsv_device /dev/dri/renderD129" in command
     assert "-vcodec h264_qsv" in command or "-c:v h264_qsv" in command
     assert "-global_quality 23" in command
     assert "-cq" not in command

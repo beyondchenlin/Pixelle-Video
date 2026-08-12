@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import threading
 from collections.abc import Callable, Mapping
@@ -36,9 +35,13 @@ class UnifiedVideoEncoder:
         *,
         quiet: bool = False,
         preferred_params: Mapping[str, object] | None = None,
+        supports_backend_projection: bool = False,
     ) -> str:
         last_error: ffmpeg.Error | None = None
-        for params in self._ffmpeg_python_param_candidates(preferred_params):
+        for params in self._ffmpeg_python_param_candidates(
+            preferred_params,
+            supports_backend_projection=supports_backend_projection,
+        ):
             codec = str(params.get("vcodec") or "")
             try:
                 extra: dict[str, bool] = {
@@ -148,18 +151,33 @@ class UnifiedVideoEncoder:
     def _ffmpeg_python_param_candidates(
         self,
         preferred_params: Mapping[str, object] | None,
+        *,
+        supports_backend_projection: bool,
     ) -> tuple[dict[str, object], ...]:
         candidates: list[dict[str, object]] = []
         preferred = dict(preferred_params or {})
         preferred_codec = str(preferred.get("vcodec") or "")
-        if preferred and not self.is_hardware_backend_disabled(preferred_codec):
+        preferred_backend = _known_backend(preferred_codec)
+        preferred_supports_graph = (
+            preferred_backend is None
+            or preferred_backend.legacy_ffmpeg_python_compatible
+            or supports_backend_projection
+        )
+        if (
+            preferred
+            and preferred_supports_graph
+            and not self.is_hardware_backend_disabled(preferred_codec)
+        ):
             candidates.append(preferred)
 
         for backend in self.runtime_backend_candidates():
-            # Generic ffmpeg-python filter graphs do not own VAAPI device/hwupload
-            # setup. VAAPI remains available to raw executor paths that can build
-            # that contract explicitly; these generic paths fall through to CPU.
-            if backend.codec == "h264_vaapi":
+            # Generic ffmpeg-python graphs cannot apply backend-owned device,
+            # format, or upload projections. Only explicitly compatible backends
+            # may enter those paths; render graphs opt in to the full contract.
+            if (
+                not supports_backend_projection
+                and not backend.legacy_ffmpeg_python_compatible
+            ):
                 continue
             candidates.append(dict(backend.output_kwargs()))
 
@@ -176,12 +194,11 @@ class UnifiedVideoEncoder:
         duration: float,
         audio_path: Path | None,
     ) -> list[str] | None:
-        command = ["ffmpeg", "-y"]
-        if backend.codec == "h264_vaapi":
-            device = _vaapi_device()
-            if device is None:
-                return None
-            command.extend(("-vaapi_device", device))
+        try:
+            projection = backend.render_graph_projection()
+        except RuntimeError:
+            return None
+        command = ["ffmpeg", "-y", *projection.global_args]
 
         command.extend(
             (
@@ -194,43 +211,17 @@ class UnifiedVideoEncoder:
         if audio_path is not None and audio_path.exists():
             command.extend(("-i", str(audio_path)))
 
-        if backend.codec == "h264_nvenc":
-            command.extend(
-                (
-                    "-c:v", "h264_nvenc",
-                    "-preset", "p4",
-                    "-rc", "vbr",
-                    "-cq", "23",
-                    "-b_ref_mode", "middle",
-                    "-pix_fmt", "yuv420p",
-                )
-            )
-        elif backend.codec == "h264_qsv":
-            command.extend(
-                (
-                    "-c:v", "h264_qsv",
-                    "-preset", "medium",
-                    "-global_quality", "23",
-                    "-pix_fmt", "nv12",
-                )
-            )
-        elif backend.codec == "h264_vaapi":
-            command.extend(
-                (
-                    "-vf", "format=nv12,hwupload",
-                    "-c:v", "h264_vaapi",
-                    "-qp", "23",
-                )
-            )
-        else:
-            command.extend(
-                (
-                    "-c:v", "libx264",
-                    "-preset", "medium",
-                    "-crf", "23",
-                    "-pix_fmt", "yuv420p",
-                )
-            )
+        filters: list[str] = []
+        if projection.input_pixel_format is not None:
+            filters.append(f"format={projection.input_pixel_format}")
+        if projection.requires_hardware_upload:
+            filters.append("hwupload")
+        if filters:
+            command.extend(("-vf", ",".join(filters)))
+
+        command.extend(backend.command_output_args())
+        if projection.output_pixel_format is not None:
+            command.extend(("-pix_fmt", projection.output_pixel_format))
 
         if audio_path is not None and audio_path.exists():
             command.extend(("-c:a", "aac"))
@@ -282,14 +273,6 @@ def _dedupe_param_sets(
         seen.add(key)
         result.append(params)
     return result
-
-
-def _vaapi_device() -> str | None:
-    override = os.environ.get("PIXELLE_FFMPEG_VAAPI_DEVICE", "").strip()
-    if override:
-        return override
-    default = Path("/dev/dri/renderD128")
-    return str(default) if default.exists() else None
 
 
 __all__ = [

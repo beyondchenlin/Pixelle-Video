@@ -49,13 +49,13 @@ class VideoService(_VideoOperations):
     def _h264_encode_params(
         self,
         *,
-        supports_hardware_frames: bool = False,
+        supports_backend_projection: bool = False,
     ) -> dict[str, object]:
         backend = resolve_ffmpeg_h264_backend()
-        # VAAPI needs a device and hwupload filter owned by raw execution paths.
-        # Generic ffmpeg-python graphs therefore begin from CPU unless their
-        # caller explicitly projects software frames into the backend contract.
-        if backend.codec == "h264_vaapi" and not supports_hardware_frames:
+        if (
+            not supports_backend_projection
+            and not backend.legacy_ffmpeg_python_compatible
+        ):
             backend = get_h264_backend("libx264")
         return dict(backend.output_kwargs())
 
@@ -64,14 +64,15 @@ class VideoService(_VideoOperations):
         build_output,
         *,
         quiet=False,
-        supports_hardware_frames: bool = False,
+        supports_backend_projection: bool = False,
     ):
         return self._video_encoder.run_ffmpeg_python(
             build_output,
             quiet=quiet,
             preferred_params=self._h264_encode_params(
-                supports_hardware_frames=supports_hardware_frames
+                supports_backend_projection=supports_backend_projection
             ),
+            supports_backend_projection=supports_backend_projection,
         )
 
     def encode_render_graph(self, build_output, *, quiet: bool = False) -> str:
@@ -81,7 +82,7 @@ class VideoService(_VideoOperations):
         return self._encode_run(
             build_output,
             quiet=quiet,
-            supports_hardware_frames=True,
+            supports_backend_projection=True,
         )
 
     def reject_render_encoder(self, codec: str, *, reason: str) -> None:

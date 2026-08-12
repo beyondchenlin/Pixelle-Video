@@ -20,13 +20,22 @@ jobs:
         include:
           - codec: h264_nvenc
             runner_label: render-h264-nvenc
+            qsv_device: ""
+            vaapi_device: ""
           - codec: h264_qsv
             runner_label: render-h264-qsv
+            qsv_device: /dev/dri/renderD128
+            vaapi_device: ""
           - codec: h264_vaapi
             runner_label: render-h264-vaapi
+            qsv_device: ""
+            vaapi_device: /dev/dri/renderD128
     runs-on: [self-hosted, render-hardware, "${{ matrix.runner_label }}"]
     environment: render-hardware-certification
     timeout-minutes: 30
+    env:
+      PIXELLE_FFMPEG_QSV_DEVICE: ${{ matrix.qsv_device }}
+      PIXELLE_FFMPEG_VAAPI_DEVICE: ${{ matrix.vaapi_device }}
 
     steps:
       - name: Checkout exact revision

@@ -20,10 +20,29 @@ def test_hardware_certification_workflow_is_manual_and_branch_restricted():
     assert device_job["environment"] == "render-hardware-certification"
     assert device_job["strategy"]["fail-fast"] is False
     assert device_job["strategy"]["matrix"]["include"] == [
-        {"codec": "h264_nvenc", "runner_label": "render-h264-nvenc"},
-        {"codec": "h264_qsv", "runner_label": "render-h264-qsv"},
-        {"codec": "h264_vaapi", "runner_label": "render-h264-vaapi"},
+        {
+            "codec": "h264_nvenc",
+            "runner_label": "render-h264-nvenc",
+            "qsv_device": "",
+            "vaapi_device": "",
+        },
+        {
+            "codec": "h264_qsv",
+            "runner_label": "render-h264-qsv",
+            "qsv_device": "/dev/dri/renderD128",
+            "vaapi_device": "",
+        },
+        {
+            "codec": "h264_vaapi",
+            "runner_label": "render-h264-vaapi",
+            "qsv_device": "",
+            "vaapi_device": "/dev/dri/renderD128",
+        },
     ]
+    assert device_job["env"] == {
+        "PIXELLE_FFMPEG_QSV_DEVICE": "${{ matrix.qsv_device }}",
+        "PIXELLE_FFMPEG_VAAPI_DEVICE": "${{ matrix.vaapi_device }}",
+    }
 
 
 def test_hardware_workflow_pins_actions_and_aggregates_same_run_evidence():
