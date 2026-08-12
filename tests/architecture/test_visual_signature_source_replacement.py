@@ -68,7 +68,10 @@ def test_visual_story_prompt_module_exposes_content_route_analysis_only() -> Non
         for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    assert functions == {"render_article_visual_route_analysis_prompt"}
+    assert functions == {
+        "render_article_visual_route_analysis_prompt",
+        "render_article_visual_route_score_repair_prompt",
+    }
 
 
 def test_visual_story_execution_prompt_module_exposes_content_frame_planning_only() -> None:

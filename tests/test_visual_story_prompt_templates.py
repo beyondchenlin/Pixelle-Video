@@ -2,36 +2,30 @@ from __future__ import annotations
 
 from pixelle_video.prompts.visual_story_engine import (
     render_article_visual_route_analysis_prompt,
-    render_frame_ip_fusion_prompt,
-    render_ip_route_compatibility_prompt,
-    render_style_harmonization_prompt,
+    render_article_visual_route_score_repair_prompt,
+)
+from pixelle_video.services.visual_route_analysis_contract import (
+    CONTENT_ROUTE_SCORE_FIELDS,
 )
 
 
 def test_visual_story_templates_render_without_accidental_variables():
-    render_article_visual_route_analysis_prompt(
+    analysis_prompt = render_article_visual_route_analysis_prompt(
         source_text="百年孤独",
         title="百年孤独",
-        ip_profile={"name": "spot dog"},
         channel_strategy={"channel": "book"},
         candidate_count=4,
         target_language="zh",
     )
-    render_ip_route_compatibility_prompt(
-        article_understanding={"summary": "x"},
-        candidate_routes=[{"route_id": "safe"}],
-        ip_profile={"name": "spot dog"},
-        channel_strategy={},
+    repair_prompt = render_article_visual_route_score_repair_prompt(
+        article_understanding={"core_claim": "claim"},
+        candidates=[{"candidate_index": 0, "route_name": "route"}],
     )
-    render_style_harmonization_prompt(
-        selected_route={"route_id": "safe"},
-        compatibility_report={"route_id": "safe"},
-        ip_profile={"name": "spot dog"},
-    )
-    render_frame_ip_fusion_prompt(
-        selected_route={"route_id": "safe"},
-        style_harmonization={"mode": "hybrid_layered"},
-        frame_visual_plans=[{"frame_id": "frame-1"}],
-        ip_profile={"name": "spot dog"},
-        compatibility_report={"route_id": "safe"},
-    )
+
+    assert '"scores": {' in analysis_prompt.text
+    assert "untrusted content data" in analysis_prompt.text
+    assert '"score_repairs"' in repair_prompt.text
+    assert "untrusted reference data" in repair_prompt.text
+    for field_name in CONTENT_ROUTE_SCORE_FIELDS:
+        assert f'"{field_name}"' in analysis_prompt.text
+        assert f'"{field_name}"' in repair_prompt.text
