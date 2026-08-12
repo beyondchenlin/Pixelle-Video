@@ -208,6 +208,21 @@ def test_uploaded_hardware_diagnostic_redacts_private_roots_and_is_bounded(
     assert len(sanitized) == 2000
 
 
+def test_hardware_diagnostic_prefers_specific_private_root_over_parent(
+    monkeypatch,
+):
+    monkeypatch.setenv("GITHUB_WORKSPACE", "/home/runner/work/project")
+    private_repo = Path("/home/runner/work/project/repository")
+    private_output = Path("/home/runner/work/project/evidence")
+
+    sanitized = sanitize_hardware_diagnostic(
+        f"{private_repo} {private_output}",
+        private_roots=(private_repo, private_output),
+    )
+
+    assert sanitized == "<repo> <private-root>"
+
+
 def test_cross_device_certification_rejects_wrong_vendor_identity(tmp_path):
     evidence_root = tmp_path / "evidence"
     revision = "2" * 40

@@ -79,19 +79,22 @@ def sanitize_hardware_diagnostic(
 
     text = str(value or "")
     supplied_roots = [str(item) for item in private_roots if str(item)]
-    roots: list[tuple[str, str]] = []
+    roots: list[tuple[str, str]] = [
+        ("<repo>", supplied_roots[0])
+    ] if supplied_roots else []
+    roots.extend(
+        ("<private-root>", item)
+        for item in supplied_roots[1:]
+    )
     for label, candidate in (
-        ("<repo>", supplied_roots[0] if supplied_roots else ""),
-        ("<home>", Path.home()),
         ("<runner-temp>", os.environ.get("RUNNER_TEMP", "")),
         ("<workspace>", os.environ.get("GITHUB_WORKSPACE", "")),
+        ("<home>", Path.home()),
     ):
         raw = str(candidate or "").strip()
         if raw:
             roots.append((label, raw))
-    remaining_roots = supplied_roots[1:]
-    roots.extend(("<private-root>", str(item)) for item in remaining_roots if str(item))
-    for label, raw in roots:
+    for label, raw in sorted(roots, key=lambda item: len(item[1]), reverse=True):
         variants = {raw, raw.replace("\\", "/"), raw.replace("/", "\\")}
         for variant in sorted(variants, key=len, reverse=True):
             if variant:
