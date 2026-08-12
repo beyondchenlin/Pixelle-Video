@@ -1,13 +1,14 @@
 # Pixelle ComfyUI Backend Scripts
 
-Pixelle defaults to externally managed Desktop mode: the user opens ComfyUI Desktop,
-then tests the connection in Pixelle settings. In this mode Pixelle never starts,
-hides, stops, or restarts the Desktop process, so its window, queue, and outputs remain
-visible.
+Pixelle defaults to managing the complete local ComfyUI service. It starts the service
+when an image or audio workflow needs it, stops it after the complete batch is idle,
+and starts it again only when the next local workflow begins. Process exit is the
+memory-release boundary and does not depend on extension-private cleanup endpoints.
 
-The scripts in this directory are only for an explicit headless-management deployment.
-They run one Pixelle-owned background process for local `selfhost` workflows. They do
-not create a ComfyUI Desktop window, although the browser UI remains available:
+The scripts in this directory start, inspect, and stop the complete configured service.
+They use the configured ComfyUI core, frontend, model paths, and data paths. They do not
+create a ComfyUI Desktop window, although the browser UI remains available while the
+service is running:
 
 ```text
 http://127.0.0.1:8000
@@ -15,15 +16,17 @@ http://127.0.0.1:8000
 
 ## Lifecycle Modes
 
-- Recommended Desktop mode: `backend_management_mode: disabled` and
-  `restart_after_batch: false`. Open Desktop first; Pixelle only probes and submits.
-  Disabled mode overrides each profile's `managed` value, so the Desktop process is
-  never started, stopped, or restarted by Pixelle.
-- Advanced headless mode: set `backend_management_mode` to `auto` or `required` and
-  explicitly set `managed: true`. Only this mode uses the start, stop, and restart scripts.
+- Recommended on-demand mode: `backend_management_mode: required`, `managed: true`,
+  and `stop_after_batch: true`. Pixelle stops only the complete service it started and
+  whose process identity it verified.
+- External mode: `backend_management_mode: disabled`. The user starts the instance;
+  Pixelle only probes and submits work and never stops the external service.
+- Reuse mode: `backend_management_mode: auto`. This may reuse an external service, so
+  it cannot guarantee complete memory release after a batch.
 
-A hidden backend and ComfyUI Desktop are different application forms. Removing the
-hidden-window flag only exposes a console; it does not turn the process into Desktop.
+The Desktop shell and ComfyUI core service are separate lifecycle layers. On-demand
+management controls the complete core service. Its browser interface is available while
+the service runs and exits with the service.
 
 ## Windows Double-Click Entry Points
 

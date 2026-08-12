@@ -81,22 +81,28 @@ async def _maybe_local_comfyui_workflow_session(
     core,
     *,
     backend_role: str = "default",
-    release_after_session: bool = False,
+    stop_after_session: bool = False,
 ):
     session_factory = getattr(core, "local_comfyui_workflow_session", None)
     if callable(session_factory):
         try:
             signature = inspect.signature(session_factory)
         except (TypeError, ValueError):
-            supports_release_after_session = True
+            supports_stop_after_session = True
+            supports_legacy_release_after_session = False
             supports_backend_role = True
         else:
-            supports_release_after_session = (
+            supports_variadic_keywords = any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in signature.parameters.values()
+            )
+            supports_stop_after_session = (
+                "stop_after_session" in signature.parameters
+                or supports_variadic_keywords
+            )
+            supports_legacy_release_after_session = (
                 "release_after_session" in signature.parameters
-                or any(
-                    parameter.kind == inspect.Parameter.VAR_KEYWORD
-                    for parameter in signature.parameters.values()
-                )
+                or supports_variadic_keywords
             )
             supports_backend_role = (
                 "backend_role" in signature.parameters
@@ -107,8 +113,10 @@ async def _maybe_local_comfyui_workflow_session(
             )
 
         session_kwargs = {}
-        if supports_release_after_session:
-            session_kwargs["release_after_session"] = release_after_session
+        if supports_stop_after_session:
+            session_kwargs["stop_after_session"] = stop_after_session
+        elif supports_legacy_release_after_session:
+            session_kwargs["release_after_session"] = stop_after_session
         if supports_backend_role:
             session_kwargs["backend_role"] = backend_role
 
@@ -331,7 +339,7 @@ class FrameProcessor:
             async with _maybe_local_comfyui_workflow_session(
                 self.core,
                 backend_role=tts_backend_role,
-                release_after_session=True,
+                stop_after_session=True,
             ):
                 for index, segment_text in enumerate(segment_texts, start=1):
                     segment_output_path = str(
@@ -364,7 +372,7 @@ class FrameProcessor:
             async with _maybe_local_comfyui_workflow_session(
                 self.core,
                 backend_role=tts_backend_role,
-                release_after_session=True,
+                stop_after_session=True,
             ):
                 await self.core.tts(
                     **self._build_tts_params(
@@ -380,7 +388,7 @@ class FrameProcessor:
                 async with _maybe_local_comfyui_workflow_session(
                     self.core,
                     backend_role=tts_backend_role,
-                    release_after_session=True,
+                    stop_after_session=True,
                 ):
                     audio_path = await self.core.tts(
                         **self._build_tts_params(

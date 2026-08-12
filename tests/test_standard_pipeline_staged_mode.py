@@ -40,7 +40,7 @@ class _DummyCore:
     def __init__(self, *, tts_defaults=None, media_defaults=None):
         self.config = {}
         self.local_comfyui_sessions = []
-        self.local_comfyui_session_release_options = []
+        self.local_comfyui_session_stop_options = []
         self.local_comfyui_session_backend_roles = []
         self.llm = object()
         self.video = object()
@@ -66,10 +66,10 @@ class _DummyCore:
     async def local_comfyui_workflow_session(
         self,
         *,
-        release_after_session=False,
+        stop_after_session=False,
         backend_role="default",
     ):
-        self.local_comfyui_session_release_options.append(release_after_session)
+        self.local_comfyui_session_stop_options.append(stop_after_session)
         self.local_comfyui_session_backend_roles.append(backend_role)
         self.local_comfyui_sessions.append("enter")
         try:
@@ -358,7 +358,7 @@ async def test_produce_assets_batches_default_gguf_media_generation(monkeypatch)
         "enter",
         "exit",
     ]
-    assert core.local_comfyui_session_release_options == [True, True]
+    assert core.local_comfyui_session_stop_options == [True, True]
     assert core.local_comfyui_session_backend_roles == ["tts", "image"]
 
 
@@ -386,7 +386,7 @@ async def test_produce_assets_keeps_non_gguf_selfhost_media_in_batch_session(mon
         "enter",
         "exit",
     ]
-    assert core.local_comfyui_session_release_options == [True, True]
+    assert core.local_comfyui_session_stop_options == [True, True]
     assert core.local_comfyui_session_backend_roles == ["tts", "image"]
 
 
@@ -422,7 +422,7 @@ async def test_staged_media_batch_emits_structured_timing_events(monkeypatch):
             "media_session_policy": "batch",
             "frame_count": 2,
             "generatable_frame_count": 2,
-            "release_after_session": True,
+            "stop_after_session": True,
         },
         {
             "channel": "runtime",
@@ -433,11 +433,11 @@ async def test_staged_media_batch_emits_structured_timing_events(monkeypatch):
             "frame_count": 2,
             "generatable_frame_count": 2,
             "generated_frame_count": 2,
-            "release_after_session": True,
+            "stop_after_session": True,
             "elapsed_ms": 125,
         },
     ]
-    assert core.local_comfyui_session_release_options == [True]
+    assert core.local_comfyui_session_stop_options == [True]
     assert core.local_comfyui_session_backend_roles == ["image"]
 
 
@@ -1010,20 +1010,17 @@ async def test_produce_assets_rejects_partial_existing_frame_audio_before_asset_
 
 
 @pytest.mark.asyncio
-async def test_produce_assets_staged_schedules_image_backend_restart_after_media_batch(
+async def test_produce_assets_staged_uses_stop_boundary_without_immediate_restart(
     monkeypatch,
 ):
-    scheduled = []
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor()
-    core.schedule_comfyui_backend_restart = lambda role, reason: scheduled.append(
-        (role, reason)
+    core.schedule_comfyui_backend_restart = lambda role, reason: pytest.fail(
+        f"stage completion must not immediately restart {role}: {reason}"
     )
     core._get_comfyui_backend_registry = lambda: SimpleNamespace(
         resolve_role_for_tts=lambda workflow_key: "tts",
         resolve_role_for_media=lambda workflow_key, media_type: "image",
-        is_dedicated_backend=lambda role: role == "image",
-        profile=lambda role: SimpleNamespace(restart_after_batch=True),
     )
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
@@ -1031,22 +1028,20 @@ async def test_produce_assets_staged_schedules_image_backend_restart_after_media
 
     await pipeline.produce_assets(ctx)
 
-    assert scheduled == [("image", "post-image-batch")]
+    assert core.local_comfyui_session_stop_options == [True, True]
+    assert core.local_comfyui_session_backend_roles == ["tts", "image"]
 
 
 @pytest.mark.asyncio
-async def test_produce_assets_staged_does_not_restart_default_backend(monkeypatch):
-    scheduled = []
+async def test_produce_assets_staged_uses_stop_boundary_for_default_backend(monkeypatch):
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor()
-    core.schedule_comfyui_backend_restart = lambda role, reason: scheduled.append(
-        (role, reason)
+    core.schedule_comfyui_backend_restart = lambda role, reason: pytest.fail(
+        f"stage completion must not immediately restart {role}: {reason}"
     )
     core._get_comfyui_backend_registry = lambda: SimpleNamespace(
         resolve_role_for_tts=lambda workflow_key: "default",
         resolve_role_for_media=lambda workflow_key, media_type: "default",
-        is_dedicated_backend=lambda role: False,
-        profile=lambda role: SimpleNamespace(restart_after_batch=True),
     )
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
@@ -1054,7 +1049,8 @@ async def test_produce_assets_staged_does_not_restart_default_backend(monkeypatc
 
     await pipeline.produce_assets(ctx)
 
-    assert scheduled == []
+    assert core.local_comfyui_session_stop_options == [True, True]
+    assert core.local_comfyui_session_backend_roles == ["default", "default"]
 
 
 @pytest.mark.asyncio
@@ -1123,7 +1119,7 @@ async def test_produce_assets_stages_mixed_runninghub_tts_and_selfhost_media(mon
         "enter",
         "exit",
     ]
-    assert core.local_comfyui_session_release_options == [True, True]
+    assert core.local_comfyui_session_stop_options == [True, True]
 
 
 @pytest.mark.asyncio

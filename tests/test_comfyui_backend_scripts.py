@@ -184,6 +184,23 @@ def write_fake_reexec_main_py(comfyui_root: Path) -> None:
     )
 
 
+def write_fake_reexec_with_worker_main_py(comfyui_root: Path) -> None:
+    write_fake_reexec_main_py(comfyui_root)
+    main_py = comfyui_root / "main.py"
+    source = main_py.read_text(encoding="utf-8")
+    source = source.replace(
+        "import sys",
+        "import sys\nfrom pathlib import Path",
+    ).replace(
+        "    print('fake child listening', flush=True)",
+        "    worker = subprocess.Popen([sys.executable, '-c', "
+        "'import time; time.sleep(30)'])\n"
+        "    Path(__file__).with_name('worker.pid').write_text(str(worker.pid))\n"
+        "    print('fake child listening', flush=True)",
+    )
+    main_py.write_text(source, encoding="utf-8")
+
+
 def write_fake_unicode_sensitive_main_py(comfyui_root: Path) -> None:
     (comfyui_root / "main.py").write_text(
         "\n".join(
@@ -1152,6 +1169,61 @@ def test_start_backend_tracks_listener_pid_when_launcher_spawns_child(tmp_path: 
         assert stop.returncode == 0, stop.stderr
         stop_payload = json.loads(stop.stdout)
         assert stop_payload["stopped"] is True
+    finally:
+        kill_fake_comfyui_processes(comfyui_root)
+
+
+def test_stop_backend_terminates_owned_service_descendants(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_reexec_with_worker_main_py(comfyui_root)
+    runtime_dir = tmp_path / "runtime"
+    logs_dir = tmp_path / "logs"
+    port = reserve_free_port()
+
+    try:
+        start = run_powershell(
+            SCRIPT_DIR / "start_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-LogsDir",
+            logs_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+            "-ReadyTimeoutSeconds",
+            "8",
+        )
+        assert start.returncode == 0, start.stderr
+
+        worker_pid_file = comfyui_root / "worker.pid"
+        deadline = time.monotonic() + 5
+        while not worker_pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert worker_pid_file.exists()
+        worker_pid = int(worker_pid_file.read_text(encoding="utf-8"))
+        assert windows_process_is_running(worker_pid)
+
+        stop = run_fake_backend_stop(
+            comfyui_root=comfyui_root,
+            data_root=data_root,
+            extra_models_config=extra_models_config,
+            runtime_dir=runtime_dir,
+            port=port,
+        )
+
+        assert stop.returncode == 0, stop.stderr
+        assert json.loads(stop.stdout)["stopped"] is True
+        wait_for_process_exit(worker_pid)
     finally:
         kill_fake_comfyui_processes(comfyui_root)
 

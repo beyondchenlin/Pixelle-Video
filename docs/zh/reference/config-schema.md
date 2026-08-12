@@ -14,7 +14,7 @@ llm:
 
 comfyui:
   comfyui_url: "http://127.0.0.1:8188"
-  backend_management_mode: "auto"
+  backend_management_mode: "required"
   comfyui_api_key: ""  # ComfyUI API 密钥（可选）
   runninghub_api_key: ""
   runninghub_concurrent_limit: 1  # 并发限制 (1-10)
@@ -50,10 +50,10 @@ template:
 ### 基础配置
 
 - `comfyui_url`: 本地 ComfyUI 地址（默认 `http://127.0.0.1:8188`）
-- `backend_management_mode`: ComfyUI 生命周期策略。`"auto"` 优先复用健康的现有后端，只在地址不可用且配置允许时启动新进程；`"required"` 只接受由 Pixelle 启动并拥有的进程；`"disabled"` 只连接外部后端，永不启动、停止或重启 ComfyUI。
+- `backend_management_mode`: ComfyUI 生命周期策略。`"required"` 是本地单机生成的推荐配置，只接受由 Pixelle 验证所有权的完整本地服务；工作流需要时按需启动，批次结束后停止。`"auto"` 可复用外部服务，因此无法保证释放内存；`"disabled"` 是兼容旧部署的默认值，只连接外部服务，永不启动或停止它。
 - `comfyui_api_key`: ComfyUI API 密钥（可选，用于 [Comfy Platform](https://platform.comfy.org/profile/api-keys)）
 
-Pixelle 在提交本地工作流前通过 `/system_stats` 验证后端健康，并只观察共享队列，不中断或清空其他客户端任务。对 Pixelle 自己启动的进程，`restart_after_batch: true` 可以在阶段边界重启并释放显存；对外部启动并被复用的进程，Pixelle 不执行停止、重启或全局队列清理。图片和语音任务仍提交到同一队列，因此可以在现有 ComfyUI 界面查看生成过程和历史记录。严格依赖阶段重启释放显存的部署应使用 `backend_management_mode: "required"`。
+Pixelle 在提交本地工作流前通过 `/system_stats` 验证服务健康，并只观察共享队列，不中断或清空其他客户端任务。对 Pixelle 验证所有权的服务，`stop_after_batch: true` 会在完整图片或音频批次结束且队列为空后停止整个服务；下一批本地工作流才重新启动。进程退出同时释放显存和系统内存，不依赖插件私有的释放接口。对外部启动或所有权无法验证的服务，Pixelle 不执行停止操作。服务运行期间，仍可通过配置地址在浏览器中查看队列、历史和生成内容。
 
 任务运行日志会写入结构化的 `local_media_batch` start/end 事件，包含耗时毫秒数和帧数量；也会写入 `comfyui_memory_release` 事件。ComfyUI `/free` 释放会在 `/system_stats` 可用时记录释放前后的显存快照；IndexTTS2 释放响应中如果包含 CUDA allocated/reserved 的 before/after 快照，也会保存在日志字段里。
 

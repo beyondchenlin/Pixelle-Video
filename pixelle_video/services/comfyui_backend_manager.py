@@ -159,7 +159,7 @@ class ComfyUIBackendController:
                 ownership = "pixelle"
             elif self.management_mode == "disabled" or not self.profile.managed:
                 ownership = "external"
-            elif self.profile.restart_after_batch:
+            elif self.profile.stop_after_batch:
                 state, state_error = await self._inspect_state_safely(
                     reason=f"{reason}:capture-task-start-ownership"
                 )

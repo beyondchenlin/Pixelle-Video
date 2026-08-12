@@ -57,6 +57,26 @@ def _probe_comfyui_connection(base_url: str, api_key: str | None = None) -> dict
     return validate_comfyui_system_stats_payload(response.json())
 
 
+def _apply_backend_lifecycle_policy(
+    backends: dict,
+    backend_management_mode: str,
+) -> dict:
+    """Keep the selected lifecycle mode and per-profile controls consistent."""
+    normalized = {
+        str(name): dict(profile)
+        for name, profile in (backends or {}).items()
+        if isinstance(profile, dict)
+    }
+    if backend_management_mode != "required":
+        return normalized
+
+    for profile in normalized.values():
+        profile.pop("restart_after_batch", None)
+        profile["managed"] = True
+        profile["stop_after_batch"] = True
+    return normalized
+
+
 def render_advanced_settings():
     """Avoid constructing the configured settings form until explicitly opened."""
     is_configured = config_manager.validate()
@@ -436,6 +456,10 @@ def _render_advanced_settings_form():
                     # Save ComfyUI configuration (optional fields, always save what's provided)
                     # Convert checkbox to instance type: True -> "plus", False -> ""
                     instance_type = "plus" if runninghub_48g_enabled else ""
+                    backend_profiles = _apply_backend_lifecycle_policy(
+                        comfyui_config.get("backends", {}),
+                        backend_management_mode,
+                    )
                     config_manager.set_comfyui_config(
                         comfyui_url=comfyui_url if comfyui_url else None,
                         executor_type="" if executor_type == "auto" else executor_type,
@@ -443,7 +467,8 @@ def _render_advanced_settings_form():
                         comfyui_api_key=comfyui_api_key if comfyui_api_key else None,
                         runninghub_api_key=runninghub_api_key if runninghub_api_key else None,
                         runninghub_concurrent_limit=int(runninghub_concurrent_limit),
-                        runninghub_instance_type=instance_type
+                        runninghub_instance_type=instance_type,
+                        backends=backend_profiles,
                     )
                     
                     # Only save to file if LLM config is valid

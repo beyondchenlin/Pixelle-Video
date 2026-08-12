@@ -231,6 +231,11 @@ class ComfyUIMaintenanceClient:
             logger.info("ComfyUI queue is idle before generation")
         return state
 
+    async def wait_until_idle(self) -> ComfyUIQueueState:
+        """Wait until no running or pending prompt remains without mutating the queue."""
+        await self._wait_until_idle()
+        return ComfyUIQueueState(running=0, pending=0)
+
     async def cleanup_before_generation(self) -> ComfyUIQueueState:
         """Compatibility alias for the now non-destructive queue inspection."""
         return await self.inspect_queue_before_generation()
