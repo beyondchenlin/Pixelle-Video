@@ -126,7 +126,7 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     assert config.tts_audio_boundary_fade_ms == 8
     assert config.subtitle_alignment_engine == "qwen_forced_aligner"
     assert config.silence_trim_tool is None
-    assert config.render_backend == "hyperframes_compiled"
+    assert config.render_backend == "ffmpeg_manifest"
 
     manifest = RenderManifest(
         task_id="task-1",

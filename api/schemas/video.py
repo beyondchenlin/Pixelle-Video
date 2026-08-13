@@ -351,7 +351,12 @@ class VideoGenerateRequest(BaseModel):
     template_display: TemplateDisplayRequest = Field(default_factory=TemplateDisplayRequest, description="Template shell display controls. Title and signature/watermark are hidden by default.")
 
     # === Render Backend ===
-    render_backend: Optional[RenderBackend] = Field(None, description="Render backend: 'legacy' or 'hyperframes_compiled'")
+    render_backend: Optional[RenderBackend] = Field(
+        None,
+        description=(
+            "Render backend: 'legacy', 'hyperframes_compiled', or 'ffmpeg_manifest'"
+        ),
+    )
 
     # === Storyboard Planning ===
     world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
