@@ -12,6 +12,8 @@ def test_home_dashboard_returns_before_generation_core_initialization():
 
     assert dashboard_boundary < dashboard_return < core_initialization
     assert (
-        'render_recent_video_gallery(None, key_suffix="_dashboard", show_all=True)'
-        in source
+        'key_suffix="_dashboard"' in source
+        and "show_all=True" in source
+        and "render_limit=visible_count" in source
     )
+    assert "schedule_home_editor_prewarm" in source

@@ -422,7 +422,8 @@ def render_recent_video_gallery(
     *,
     key_suffix: str = "",
     show_all: bool = False,
-) -> None:
+    render_limit: int | None = None,
+) -> int:
     """Render the compact recent-video gallery inside the Home output card."""
     gallery_key = f"{RECENT_VIDEO_GALLERY_KEY}{key_suffix}"
     grid_key = f"{RECENT_VIDEO_GRID_KEY}{key_suffix}"
@@ -441,6 +442,9 @@ def render_recent_video_gallery(
             else fetch_recent_history_video_items_from_index()
         )
     items = merge_recent_video_items(current, history_items, limit=None) if show_all else merge_recent_video_items(current, history_items)
+    total_count = len(items)
+    if render_limit is not None:
+        items = items[: max(0, int(render_limit))]
     title_key = "recent_videos.all_title" if show_all else "recent_videos.title"
 
     with st.container(key=gallery_key):
@@ -450,7 +454,7 @@ def render_recent_video_gallery(
         )
         if not items:
             st.info(tr("recent_videos.empty"))
-            return
+            return total_count
 
         with st.container(key=grid_key):
             for item in items:
@@ -462,6 +466,7 @@ def render_recent_video_gallery(
                     ),
                     key_suffix=key_suffix,
                 )
+    return total_count
 
 
 def render_recent_video_card(

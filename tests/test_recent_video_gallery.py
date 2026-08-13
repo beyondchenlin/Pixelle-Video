@@ -468,6 +468,56 @@ def test_render_dashboard_gallery_requests_all_indexed_videos(monkeypatch):
     assert any("recent_videos.all_title" in body for body in captured["markdown"])
 
 
+def test_render_dashboard_gallery_bounds_initial_card_rendering(monkeypatch):
+    captured = {"items": []}
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        session_state = {}
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    items = [
+        {"task_id": f"task-{index}", "video_path": f"video-{index}.mp4"}
+        for index in range(20)
+    ]
+    monkeypatch.setattr(gallery, "st", _FakeStreamlit())
+    monkeypatch.setattr(gallery, "get_current_recent_video_item", lambda _state: None)
+    monkeypatch.setattr(
+        gallery,
+        "fetch_recent_history_video_items_from_index",
+        lambda *, limit: items,
+    )
+    monkeypatch.setattr(
+        gallery,
+        "render_recent_video_card",
+        lambda item, **_kwargs: captured["items"].append(item),
+    )
+
+    total_count = gallery.render_recent_video_gallery(
+        None,
+        key_suffix="_dashboard",
+        show_all=True,
+        render_limit=12,
+    )
+
+    assert total_count == 20
+    assert len(captured["items"]) == 12
+
+
 def test_render_recent_video_card_activates_inline_player_without_eager_media(monkeypatch):
     captured = {"links": [], "markdown": [], "buttons": []}
 

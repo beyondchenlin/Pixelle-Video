@@ -32,6 +32,7 @@ from web.components.faq import render_faq_sidebar
 from web.components.header import render_header
 from web.components.recent_video_gallery import render_recent_video_gallery
 from web.components.settings import render_advanced_settings
+from web.home_editor_prewarm import schedule_home_editor_prewarm
 from web.i18n import tr
 
 # Import lightweight selector metadata. Implementations are loaded on selection.
@@ -43,6 +44,8 @@ from web.utils.streamlit_helpers import keyed_widget_default_kwargs
 
 HOME_PIPELINE_KEY = "home_active_pipeline"
 HOME_EDITOR_OPEN_KEY = "home_editor_open"
+HOME_DASHBOARD_VISIBLE_COUNT_KEY = "home_dashboard_visible_video_count"
+HOME_DASHBOARD_PAGE_SIZE = 12
 
 # Page config
 st.set_page_config(
@@ -76,7 +79,31 @@ def main():
     )
     if not editor_open:
         st.caption(tr("home.dashboard.caption"))
-        render_recent_video_gallery(None, key_suffix="_dashboard", show_all=True)
+        visible_count = max(
+            HOME_DASHBOARD_PAGE_SIZE,
+            int(
+                st.session_state.get(
+                    HOME_DASHBOARD_VISIBLE_COUNT_KEY,
+                    HOME_DASHBOARD_PAGE_SIZE,
+                )
+            ),
+        )
+        total_count = render_recent_video_gallery(
+            None,
+            key_suffix="_dashboard",
+            show_all=True,
+            render_limit=visible_count,
+        )
+        if total_count > visible_count:
+            st.button(
+                tr("recent_videos.load_more"),
+                key="home_dashboard_load_more",
+                on_click=_load_more_dashboard_videos,
+                width="stretch",
+            )
+        schedule_home_editor_prewarm(
+            str(st.session_state.get(HOME_PIPELINE_KEY) or "quick_create")
+        )
         return
     
     # ========================================================================
@@ -117,6 +144,21 @@ def main():
     if pipeline is None:  # pragma: no cover - entries resolve to registered pipelines
         raise RuntimeError(f"Selected pipeline {selected_name!r} is unavailable")
     pipeline.render(pixelle_video)
+
+
+def _load_more_dashboard_videos() -> None:
+    current_count = max(
+        HOME_DASHBOARD_PAGE_SIZE,
+        int(
+            st.session_state.get(
+                HOME_DASHBOARD_VISIBLE_COUNT_KEY,
+                HOME_DASHBOARD_PAGE_SIZE,
+            )
+        ),
+    )
+    st.session_state[HOME_DASHBOARD_VISIBLE_COUNT_KEY] = (
+        current_count + HOME_DASHBOARD_PAGE_SIZE
+    )
 
 
 if __name__ == "__main__":
