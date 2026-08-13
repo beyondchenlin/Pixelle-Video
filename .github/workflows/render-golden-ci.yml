@@ -10,7 +10,10 @@ on:
       - ".github/workflows/render-hardware-certification.yml"
       - "api/schemas/text_rendering_preview.py"
       - "api/schemas/video.py"
+      - "config.example.yaml"
+      - "pixelle_video/render_backend.py"
       - "pixelle_video/models/media_placement.py"
+      - "pixelle_video/models/size_contract.py"
       - "pixelle_video/models/template_render_context.py"
       - "pixelle_video/models/text_style.py"
       - "pixelle_video/services/ass_style_builder.py"
@@ -19,6 +22,7 @@ on:
       - "pixelle_video/services/frame_html.py"
       - "pixelle_video/services/hyperframes_compiler.py"
       - "pixelle_video/services/hyperframes_project_service.py"
+      - "pixelle_video/services/persistence.py"
       - "pixelle_video/services/render_artifact_analyzer.py"
       - "pixelle_video/services/render_hardware_certification.py"
       - "pixelle_video/services/render_qualification.py"
@@ -39,14 +43,21 @@ on:
       - "tests/test_ffmpeg_manifest_renderer.py"
       - "tests/test_media_placement.py"
       - "tests/test_render_artifact_analyzer.py"
+      - "tests/test_render_backend_defaults.py"
+      - "tests/test_render_backend_ui.py"
+      - "tests/test_render_package_models.py"
       - "tests/test_render_hardware_certification.py"
       - "tests/test_render_hardware_workflow.py"
       - "tests/test_render_qualification.py"
       - "tests/test_run_render_qualification.py"
+      - "tests/test_size_contract.py"
       - "tests/test_text_layout_planner.py"
       - "tests/test_text_style_models.py"
+      - "tests/test_video_api.py"
       - "tests/services/test_video_service_unified_encoder.py"
       - "tools/hyperframes_bridge/**"
+      - "web/i18n/locales/en_US.json"
+      - "web/i18n/locales/zh_CN.json"
       - "pyproject.toml"
       - "uv.lock"
   push:
@@ -58,7 +69,10 @@ on:
       - ".github/workflows/render-hardware-certification.yml"
       - "api/schemas/text_rendering_preview.py"
       - "api/schemas/video.py"
+      - "config.example.yaml"
+      - "pixelle_video/render_backend.py"
       - "pixelle_video/models/media_placement.py"
+      - "pixelle_video/models/size_contract.py"
       - "pixelle_video/models/template_render_context.py"
       - "pixelle_video/models/text_style.py"
       - "pixelle_video/services/ass_style_builder.py"
@@ -67,6 +81,7 @@ on:
       - "pixelle_video/services/frame_html.py"
       - "pixelle_video/services/hyperframes_compiler.py"
       - "pixelle_video/services/hyperframes_project_service.py"
+      - "pixelle_video/services/persistence.py"
       - "pixelle_video/services/render_artifact_analyzer.py"
       - "pixelle_video/services/render_hardware_certification.py"
       - "pixelle_video/services/render_qualification.py"
@@ -87,14 +102,21 @@ on:
       - "tests/test_ffmpeg_manifest_renderer.py"
       - "tests/test_media_placement.py"
       - "tests/test_render_artifact_analyzer.py"
+      - "tests/test_render_backend_defaults.py"
+      - "tests/test_render_backend_ui.py"
+      - "tests/test_render_package_models.py"
       - "tests/test_render_hardware_certification.py"
       - "tests/test_render_hardware_workflow.py"
       - "tests/test_render_qualification.py"
       - "tests/test_run_render_qualification.py"
+      - "tests/test_size_contract.py"
       - "tests/test_text_layout_planner.py"
       - "tests/test_text_style_models.py"
+      - "tests/test_video_api.py"
       - "tests/services/test_video_service_unified_encoder.py"
       - "tools/hyperframes_bridge/**"
+      - "web/i18n/locales/en_US.json"
+      - "web/i18n/locales/zh_CN.json"
       - "pyproject.toml"
       - "uv.lock"
   workflow_dispatch:
@@ -156,12 +178,17 @@ jobs:
             tests/test_hyperframes_project_service.py \
             tests/test_media_placement.py \
             tests/test_render_artifact_analyzer.py \
+            tests/test_render_backend_defaults.py \
+            tests/test_render_backend_ui.py \
+            tests/test_render_package_models.py \
             tests/test_render_hardware_certification.py \
             tests/test_render_hardware_workflow.py \
             tests/test_render_qualification.py \
             tests/test_run_render_qualification.py \
+            tests/test_size_contract.py \
             tests/test_text_layout_planner.py \
             tests/test_text_style_models.py \
+            tests/test_video_api.py \
             tests/services/test_video_service_unified_encoder.py
 
       - name: Run twelve-case final-video golden matrix

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 VALID_ORIENTATIONS = ("landscape", "portrait", "square")
+MAX_GENERATION_EDGE_PX = 4096
+MAX_GENERATION_PIXELS = MAX_GENERATION_EDGE_PX * MAX_GENERATION_EDGE_PX
 
 
 @dataclass(frozen=True)
@@ -12,8 +14,18 @@ class SizeSpec:
     height: int
 
     def __post_init__(self) -> None:
-        if int(self.width) <= 0 or int(self.height) <= 0:
+        width = int(self.width)
+        height = int(self.height)
+        if width <= 0 or height <= 0:
             raise ValueError("size dimensions must be positive")
+        if width > MAX_GENERATION_EDGE_PX or height > MAX_GENERATION_EDGE_PX:
+            raise ValueError(
+                f"size dimensions must not exceed {MAX_GENERATION_EDGE_PX}px per edge"
+            )
+        if width * height > MAX_GENERATION_PIXELS:
+            raise ValueError(
+                f"size dimensions must not exceed {MAX_GENERATION_PIXELS} pixels"
+            )
 
     def as_tuple(self) -> tuple[int, int]:
         return int(self.width), int(self.height)
@@ -301,6 +313,12 @@ class GenerationSizeContract:
     media_orientation: str = DEFAULT_MEDIA_ORIENTATION
     media_resolution_preset: str = DEFAULT_MEDIA_RESOLUTION_PRESET
     sync_media_size_to_canvas: bool = False
+
+    def __post_init__(self) -> None:
+        SizeSpec(self.canvas_width, self.canvas_height)
+        SizeSpec(self.media_width, self.media_height)
+        if self.canvas_width % 2 or self.canvas_height % 2:
+            raise ValueError("video canvas dimensions must be even for yuv420p output")
 
     @classmethod
     def default(cls) -> GenerationSizeContract:

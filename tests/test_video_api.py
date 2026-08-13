@@ -783,6 +783,24 @@ def test_video_generate_request_accepts_size_contract_controls():
     assert request.sync_media_size_to_canvas is False
 
 
+def test_video_generate_request_rejects_canvas_above_render_resource_budget():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            canvas_width=4098,
+            canvas_height=2160,
+        )
+
+
+def test_video_generate_request_rejects_odd_canvas_dimensions():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            canvas_width=1279,
+            canvas_height=720,
+        )
+
+
 def test_internal_video_request_rejects_template_canvas_orientation_mismatch():
     with pytest.raises(ValidationError, match="Template orientation"):
         VideoGenerateInternalRequest(

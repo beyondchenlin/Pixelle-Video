@@ -18,7 +18,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
 import streamlit as st
@@ -64,12 +64,9 @@ from pixelle_video.services.text_style_css_contract import (
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 from pixelle_video.tts_workflow_contract import tts_workflow_missing_required_ref_audio
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
-from pixelle_video.utils.template_util import (
-    get_template_orientation,
-    get_template_preview_path,
-    resolve_template_path,
-)
+from pixelle_video.utils.template_util import get_template_orientation, resolve_template_path
 from web.components.layered_template_state import load_layered_template_spec_into_editor_state
+from web.components.layout_preview_media_source import resolve_layout_preview_media_source
 from web.components.layout_preview_workbench import (
     DefaultLayoutSummary,
     TrustedPreviewHTML,
@@ -363,80 +360,6 @@ def _layout_preview_media_layout_mode(video_params) -> str:
         video_params.get("media_layout_mode"),
         sync_media_size_to_canvas=bool(video_params.get("sync_media_size_to_canvas")),
     )
-
-
-def _local_media_uri(value: object) -> str | None:
-    if value is None:
-        return None
-    source = str(value).strip()
-    if not source:
-        return None
-    if source.startswith(("http://", "https://", "data:", "file://")):
-        return source
-    path = Path(source)
-    if not path.is_absolute():
-        path = Path.cwd() / path
-    if not path.exists():
-        return None
-    return path.resolve().as_uri()
-
-
-def _iter_layout_preview_media_candidates(video_params):
-    for key in (
-        "layout_preview_media_path",
-        "layout_preview_image_path",
-        "preview_media_ref",
-        "preview_media_path",
-        "image_path",
-        "media_path",
-        "composed_image_path",
-    ):
-        yield video_params.get(key)
-
-    template_params = video_params.get("template_params")
-    if isinstance(template_params, dict):
-        for key in ("image", "media", "media_path", "image_path"):
-            yield template_params.get(key)
-
-    for key in ("assets", "image_assets", "character_assets", "goods_assets"):
-        value = video_params.get(key)
-        if isinstance(value, (list, tuple)):
-            yield from value
-
-
-def _resolve_layout_preview_media_source(
-    video_params,
-    *,
-    frame_template: str,
-) -> str:
-    for candidate in _iter_layout_preview_media_candidates(video_params):
-        uri = _local_media_uri(candidate)
-        if uri:
-            return uri
-
-    default_media = _local_media_uri(Path("resources") / "example.png")
-    if default_media:
-        return default_media
-
-    template_preview = get_template_preview_path(frame_template)
-    template_uri = _local_media_uri(template_preview)
-    if template_uri:
-        return template_uri
-
-    return _build_layout_preview_media_placeholder()
-
-
-def _build_layout_preview_media_placeholder() -> str:
-    svg = """
-    <svg xmlns="http://www.w3.org/2000/svg" width="768" height="768" viewBox="0 0 768 768">
-      <rect width="768" height="768" fill="#f6f1e8"/>
-      <rect x="48" y="48" width="672" height="672" rx="28" fill="none" stroke="#b98242" stroke-width="8" stroke-dasharray="24 18" opacity=".55"/>
-      <path d="M188 508 308 388l78 78 86-118 120 160" fill="none" stroke="#8b785e" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" opacity=".7"/>
-      <circle cx="286" cy="268" r="46" fill="#b98242" opacity=".35"/>
-      <text x="384" y="640" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#6a5a43">Media Preview</text>
-    </svg>
-    """
-    return f"data:image/svg+xml;charset=utf-8,{quote(svg)}"
 
 
 def _build_text_rendering_css(text_rendering: dict | None) -> str:
@@ -848,13 +771,15 @@ def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | Non
         )
         title_text = _layout_preview_title(video_params)
         caption_text = _layout_preview_caption(video_params)
+        preview_media = resolve_layout_preview_media_source(
+            video_params,
+            fallback_width=size_contract.media_width,
+            fallback_height=size_contract.media_height,
+        )
         html = generator._build_render_html(
             title=title_text,
             text=caption_text,
-            image=_resolve_layout_preview_media_source(
-                video_params,
-                frame_template=str(frame_template),
-            ),
+            image=preview_media.uri,
             ext={
                 "index": 1,
                 "media_layout_mode": _layout_preview_media_layout_mode(video_params),
@@ -864,8 +789,8 @@ def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | Non
                 st.session_state.get("media_placement"),
             ),
             media_type="image",
-            media_width=size_contract.media_width,
-            media_height=size_contract.media_height,
+            media_width=preview_media.fallback_width,
+            media_height=preview_media.fallback_height,
         )
 
         text_rendering = (
