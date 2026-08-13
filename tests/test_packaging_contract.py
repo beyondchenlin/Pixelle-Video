@@ -224,7 +224,11 @@ def test_golden_workflow_uses_the_locked_browser_instead_of_runner_chrome() -> N
     assert 'node-version: "24.12.0"' in workflow
     assert "PUPPETEER_CACHE_DIR" in workflow
     assert "PIXELLE_REQUIRE_PINNED_BROWSER" in workflow
-    assert "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830" in workflow
+    assert "actions/cache@caa296126883cff596d87d8935842f9db880ef25" in workflow
+    assert (
+        "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f"
+        in workflow
+    )
     assert "hashFiles('tools/hyperframes_bridge/package-lock.json')" in workflow
     assert "npm run browser:install" in workflow
     assert "npm run runtime:verify" in workflow
