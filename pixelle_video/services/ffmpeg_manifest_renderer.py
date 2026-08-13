@@ -15,6 +15,10 @@ import ffmpeg
 from pixelle_video.models.media_placement import MediaBox
 from pixelle_video.models.render_execution_plan import RenderExecutionPlan
 from pixelle_video.models.render_package import RenderManifest, VisualClip
+from pixelle_video.models.size_contract import (
+    MAX_GENERATION_EDGE_PX,
+    MAX_GENERATION_PIXELS,
+)
 from pixelle_video.render_backend import FFMPEG_MANIFEST_RENDER_BACKEND
 from pixelle_video.services.font_discovery import (
     canonical_font_family_name,
@@ -630,6 +634,14 @@ class FfmpegManifestRenderer:
     ) -> float:
         if manifest.canvas_width <= 0 or manifest.canvas_height <= 0:
             raise ValueError("ffmpeg_manifest requires positive canvas dimensions")
+        if manifest.canvas_width % 2 or manifest.canvas_height % 2:
+            raise ValueError("ffmpeg_manifest requires even canvas dimensions")
+        if (
+            manifest.canvas_width > MAX_GENERATION_EDGE_PX
+            or manifest.canvas_height > MAX_GENERATION_EDGE_PX
+            or manifest.canvas_width * manifest.canvas_height > MAX_GENERATION_PIXELS
+        ):
+            raise ValueError("ffmpeg_manifest canvas exceeds the render resource budget")
         if manifest.fps <= 0:
             raise ValueError("ffmpeg_manifest requires a positive frame rate")
         if not clips:

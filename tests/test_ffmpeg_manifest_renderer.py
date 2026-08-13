@@ -320,6 +320,30 @@ def test_renderer_rejects_unresolved_geometry_in_v2_manifest(tmp_path):
         )
 
 
+def test_renderer_rejects_canvas_above_render_resource_budget(tmp_path):
+    manifest = _manifest(tmp_path, clip_count=1)
+    manifest.canvas_width = 4098
+
+    with pytest.raises(ValueError, match="resource budget"):
+        FfmpegManifestRenderer(output_probe=_AcceptingProbe()).render(
+            manifest=manifest,
+            execution_plan=_execution_plan(),
+            output_path=str(tmp_path / "final.mp4"),
+        )
+
+
+def test_renderer_rejects_odd_canvas_dimensions(tmp_path):
+    manifest = _manifest(tmp_path, clip_count=1)
+    manifest.canvas_width = 319
+
+    with pytest.raises(ValueError, match="even canvas dimensions"):
+        FfmpegManifestRenderer(output_probe=_AcceptingProbe()).render(
+            manifest=manifest,
+            execution_plan=_execution_plan(),
+            output_path=str(tmp_path / "final.mp4"),
+        )
+
+
 def test_renderer_rejects_output_that_would_overwrite_an_input(tmp_path):
     manifest = _manifest(tmp_path, clip_count=1)
 

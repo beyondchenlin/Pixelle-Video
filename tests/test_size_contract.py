@@ -1,6 +1,7 @@
 import pytest
 
 from pixelle_video.models.size_contract import (
+    MAX_GENERATION_EDGE_PX,
     GenerationSizeContract,
     SizeSpec,
     has_canvas_size_intent,
@@ -278,6 +279,9 @@ def test_missing_dimensions_uses_landscape_media_defaults():
         {"media_orientation": "landscape", "media_resolution_preset": "768"},
         {"canvas_width": 0, "canvas_height": 720},
         {"media_width": 768, "media_height": -1},
+        {"canvas_width": MAX_GENERATION_EDGE_PX + 1, "canvas_height": 720},
+        {"media_width": 768, "media_height": MAX_GENERATION_EDGE_PX + 1},
+        {"canvas_width": 1279, "canvas_height": 720},
     ],
 )
 def test_invalid_size_contract_inputs_raise_value_error(params):

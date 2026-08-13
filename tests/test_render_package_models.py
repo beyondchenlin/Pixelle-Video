@@ -126,7 +126,7 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     assert config.tts_audio_boundary_fade_ms == 8
     assert config.subtitle_alignment_engine == "qwen_forced_aligner"
     assert config.silence_trim_tool is None
-    assert config.render_backend == "hyperframes_compiled"
+    assert config.render_backend == "ffmpeg_manifest"
 
     manifest = RenderManifest(
         task_id="task-1",
@@ -749,6 +749,24 @@ def test_persistence_loads_historical_hyperframes_backend_as_compiled(tmp_path):
     restored = service._dict_to_config(config)
 
     assert restored.render_backend == "hyperframes_compiled"
+
+
+@pytest.mark.parametrize("persisted_backend", [None, ""])
+def test_persistence_keeps_missing_historical_backend_on_legacy_path(
+    tmp_path,
+    persisted_backend,
+):
+    config = {
+        "media_width": 1080,
+        "media_height": 1920,
+    }
+    if persisted_backend is not None:
+        config["render_backend"] = persisted_backend
+
+    service = PersistenceService(output_dir=str(tmp_path))
+    restored = service._dict_to_config(config)
+
+    assert restored.render_backend == "legacy"
 
 
 def test_render_config_loads_and_saves_through_yaml_round_trip(tmp_path):

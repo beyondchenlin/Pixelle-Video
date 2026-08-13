@@ -43,7 +43,7 @@ from pixelle_video.models.storyboard import (
 )
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
 from pixelle_video.render_backend import (
-    DEFAULT_RENDER_BACKEND,
+    HISTORICAL_MISSING_RENDER_BACKEND,
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
 )
 from pixelle_video.utils.json_safety import to_json_compatible
@@ -512,7 +512,7 @@ class PersistenceService:
             silence_trim_tool=data.get("silence_trim_tool"),
             silence_trim_margin_ms=data.get("silence_trim_margin_ms", 120),
             render_backend=self._normalize_persisted_render_backend(
-                data.get("render_backend", DEFAULT_RENDER_BACKEND)
+                data.get("render_backend")
             ),
             element_animation_enabled=data.get("element_animation_enabled", False),
             element_animation_backend=data.get("element_animation_backend", "hyperframes_canvas"),
@@ -582,7 +582,7 @@ class PersistenceService:
         if render_backend == "hyperframes":
             return HYPERFRAMES_COMPILED_RENDER_BACKEND
         if not render_backend:
-            return DEFAULT_RENDER_BACKEND
+            return HISTORICAL_MISSING_RENDER_BACKEND
         return str(render_backend)
 
     def _frame_to_dict(self, frame: StoryboardFrame) -> Dict[str, Any]:

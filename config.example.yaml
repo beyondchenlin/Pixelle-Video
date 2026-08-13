@@ -213,9 +213,9 @@ template:
 render:
   # Options:
   #   - legacy: existing non-HyperFrames rendering path
-  #   - hyperframes_compiled: stable default compiled HyperFrames rendering path
-  #   - ffmpeg_manifest: experimental manifest-driven FFmpeg path; opt in only
-  backend: hyperframes_compiled
+  #   - hyperframes_compiled: compiled HyperFrames path for browser-rendered motion
+  #   - ffmpeg_manifest: stable default manifest-driven FFmpeg rendering path
+  backend: ffmpeg_manifest
   timing:
     tts_batching_mode: paragraph
     tts_audio_strategy: master_track
