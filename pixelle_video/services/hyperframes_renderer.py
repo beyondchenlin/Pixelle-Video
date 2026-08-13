@@ -140,10 +140,12 @@ class HyperFramesRenderer:
 
     def _build_render_environment(self) -> dict[str, str]:
         environment = os.environ.copy()
-        environment.setdefault(
-            "PUPPETEER_CACHE_DIR",
-            str(self.bridge_root / ".cache" / "puppeteer"),
+        environment["PUPPETEER_CACHE_DIR"] = str(
+            self.bridge_root / ".cache" / "puppeteer"
         )
+        environment.pop("PUPPETEER_EXECUTABLE_PATH", None)
+        environment.pop("PRODUCER_HEADLESS_SHELL_PATH", None)
+        environment["PIXELLE_REQUIRE_PINNED_BROWSER"] = "true"
         return environment
 
     def validate_runtime(self) -> None:
