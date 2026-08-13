@@ -357,6 +357,8 @@ function Resolve-PixelleComfyUIBackendConfig {
         CustomNodeLoading = $resolvedCustomNodeLoading
         AllowedCustomNodeFolders = $resolvedAllowedCustomNodeFolders
         AllowedCustomNodeFoldersBase64 = $resolvedAllowedCustomNodeFoldersBase64
+        EffectiveCustomNodeRoots = [string[]]@()
+        LaunchIdentity = ''
         AcceleratorMutexName = $acceleratorMutexName
         RequestedMinimumFreeCommitGB = $resolvedMinimumFreeCommitGB
         MinimumFreeCommitGB = $resolvedMinimumFreeCommitGB
@@ -511,6 +513,7 @@ function Add-BackendProfilePayloadFields {
     $Payload['resource_policy'] = $Config.ResourcePolicy
     $Payload['custom_node_loading'] = $Config.CustomNodeLoading
     $Payload['allowed_custom_node_folders'] = @($Config.AllowedCustomNodeFolders)
+    $Payload['effective_custom_node_roots'] = @($Config.EffectiveCustomNodeRoots)
     $Payload['accelerator_mutex_name'] = $Config.AcceleratorMutexName
     $Payload['minimum_free_commit_gb'] = if ([double]$Config.MinimumFreeCommitGB -ge 0) {
         $Config.MinimumFreeCommitGB
@@ -523,8 +526,90 @@ function Add-BackendProfilePayloadFields {
     return $Payload
 }
 
+function Invoke-BackendCustomNodeRootResolver {
+    param(
+        [System.Collections.IDictionary]$Config,
+        [int]$TimeoutMilliseconds = 10000
+    )
+
+    $resolverPath = Join-Path $PSScriptRoot 'resolve_custom_node_roots.py'
+    if (-not (Test-Path -LiteralPath $resolverPath -PathType Leaf)) {
+        throw "ComfyUI custom-node root resolver does not exist: $resolverPath"
+    }
+
+    $resolverArguments = [System.Collections.Generic.List[string]]::new()
+    [void]$resolverArguments.Add($resolverPath)
+    [void]$resolverArguments.Add('--comfyui-root')
+    [void]$resolverArguments.Add($Config.ComfyUIRoot)
+    [void]$resolverArguments.Add('--base-directory')
+    [void]$resolverArguments.Add($Config.SharedBasePath)
+    if ($Config.ExtraModelsConfig) {
+        [void]$resolverArguments.Add('--extra-models-config')
+        [void]$resolverArguments.Add($Config.ExtraModelsConfig)
+    }
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $Config.PythonExe
+    $startInfo.WorkingDirectory = $Config.ComfyUIRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.Arguments = ConvertTo-WindowsCommandLine $resolverArguments
+    $startInfo.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
+    $startInfo.EnvironmentVariables['PYTHONDONTWRITEBYTECODE'] = '1'
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            throw "Could not start the ComfyUI custom-node root resolver."
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+            try {
+                if (-not $process.HasExited) {
+                    $process.Kill()
+                }
+            }
+            catch [System.InvalidOperationException] {
+                # The resolver exited between the timeout check and termination.
+            }
+            [void]$process.WaitForExit(5000)
+            throw (
+                "ComfyUI custom-node root resolution exceeded " +
+                "$TimeoutMilliseconds milliseconds and was terminated."
+            )
+        }
+        $resolverText = $stdoutTask.GetAwaiter().GetResult().Trim()
+        [void]$stderrTask.GetAwaiter().GetResult()
+        $resolverExitCode = $process.ExitCode
+    }
+    finally {
+        $process.Dispose()
+    }
+
+    try {
+        $resolverPayload = $resolverText | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "ComfyUI custom-node root resolver returned invalid output."
+    }
+    if ($resolverExitCode -ne 0) {
+        if ($resolverPayload.error -is [string] -and $resolverPayload.error.Trim()) {
+            throw "Could not resolve ComfyUI custom-node roots: $($resolverPayload.error)"
+        }
+        throw "Could not resolve ComfyUI custom-node roots (exit code $resolverExitCode)."
+    }
+    if ($null -eq $resolverPayload.roots) {
+        throw "ComfyUI custom-node root resolver returned no roots."
+    }
+    return $resolverPayload
+}
+
 function Assert-BackendPrerequisites {
-    param([hashtable]$Config)
+    param([System.Collections.IDictionary]$Config)
 
     $mainPy = Join-Path $Config.ComfyUIRoot 'main.py'
     $inputDir = Join-Path $Config.DataRoot 'input'
@@ -550,35 +635,34 @@ function Assert-BackendPrerequisites {
         throw "ComfyUI database URL must use sqlite:///: $($Config.DatabaseUrl)"
     }
     if ($Config.CustomNodeLoading -eq 'allowlist') {
-        $candidateCustomNodeRoots = @(
-            (Join-Path $Config.SharedBasePath 'custom_nodes'),
-            (Join-Path $Config.ComfyUIRoot 'custom_nodes')
-        )
-        $customNodeRoots = New-Object System.Collections.Generic.List[string]
-        $seenCustomNodeRoots = [System.Collections.Generic.HashSet[string]]::new(
-            [System.StringComparer]::OrdinalIgnoreCase
-        )
-        foreach ($candidateRoot in $candidateCustomNodeRoots) {
-            $normalizedRoot = [System.IO.Path]::GetFullPath($candidateRoot)
-            if ($seenCustomNodeRoots.Add($normalizedRoot)) {
-                [void]$customNodeRoots.Add($normalizedRoot)
-            }
+        $identityBeforeResolution = Get-BackendLaunchIdentity $Config
+        $resolverPayload = Invoke-BackendCustomNodeRootResolver $Config
+        $identityAfterResolution = Get-BackendLaunchIdentity $Config
+        if ($identityBeforeResolution -cne $identityAfterResolution) {
+            throw (
+                "ComfyUI path configuration changed while custom-node roots " +
+                "were being resolved. Retry after configuration writes finish."
+            )
         }
+        $Config.LaunchIdentity = $identityAfterResolution
+        $customNodeRoots = @($resolverPayload.roots | ForEach-Object {
+            [System.IO.Path]::GetFullPath([string]$_)
+        })
+        if ($customNodeRoots.Count -ne 1) {
+            throw (
+                "ComfyUI custom-node allowlist mode requires exactly one effective " +
+                "custom_nodes root; resolved $($customNodeRoots.Count): " +
+                ($customNodeRoots -join ', ')
+            )
+        }
+        $Config.EffectiveCustomNodeRoots = [string[]]$customNodeRoots
+
         foreach ($folder in @($Config.AllowedCustomNodeFolders)) {
-            $matchingRoots = @($customNodeRoots | Where-Object {
-                Test-Path -LiteralPath (Join-Path $_ $folder) -PathType Container
-            })
-            if ($matchingRoots.Count -eq 0) {
+            $allowedFolderPath = Join-Path $customNodeRoots[0] $folder
+            if (-not (Test-Path -LiteralPath $allowedFolderPath -PathType Container)) {
                 throw (
-                    "Allowed ComfyUI custom-node folder does not exist below any " +
-                    "configured custom_nodes root: $folder"
-                )
-            }
-            if ($matchingRoots.Count -gt 1) {
-                throw (
-                    "Allowed ComfyUI custom-node folder is ambiguous because the " +
-                    "same name exists below multiple configured custom_nodes roots: " +
-                    "$folder"
+                    "Allowed ComfyUI custom-node folder does not exist below the " +
+                    "effective custom_nodes root: $folder"
                 )
             }
         }
@@ -717,6 +801,61 @@ function Get-BackendArguments {
     return [string[]]$arguments.ToArray()
 }
 
+function Get-BackendArgumentsBase64 {
+    param([System.Collections.IDictionary]$Config)
+
+    $argumentsJson = ConvertTo-Json `
+        -InputObject ([object[]](Get-BackendArguments $Config)) `
+        -Compress
+    return [Convert]::ToBase64String(
+        [Text.Encoding]::UTF8.GetBytes($argumentsJson)
+    )
+}
+
+function Get-BackendLaunchIdentity {
+    param([System.Collections.IDictionary]$Config)
+
+    $pathConfigurations = New-Object System.Collections.Generic.List[object]
+    $configurationPaths = @(
+        (Join-Path $Config.ComfyUIRoot 'extra_model_paths.yaml')
+    )
+    if ($Config.ExtraModelsConfig) {
+        $configurationPaths += $Config.ExtraModelsConfig
+    }
+    foreach ($configurationPath in $configurationPaths) {
+        $exists = Test-Path -LiteralPath $configurationPath -PathType Leaf
+        $pathConfigurations.Add([ordered]@{
+            path = [System.IO.Path]::GetFullPath($configurationPath)
+            exists = [bool]$exists
+            sha256 = if ($exists) {
+                (Get-FileHash -LiteralPath $configurationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            else {
+                $null
+            }
+        })
+    }
+
+    $identityPayload = [ordered]@{
+        version = 1
+        python_executable = $Config.PythonExe
+        working_directory = $Config.ComfyUIRoot
+        arguments = [object[]](Get-BackendArguments $Config)
+        path_configurations = [object[]]$pathConfigurations.ToArray()
+    }
+    $identityJson = ConvertTo-Json -InputObject $identityPayload -Depth 5 -Compress
+    $identityBytes = [Text.Encoding]::UTF8.GetBytes($identityJson)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return [BitConverter]::ToString(
+            $sha256.ComputeHash($identityBytes)
+        ).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+
 function Get-BackendListener {
     param([hashtable]$Config)
 
@@ -760,22 +899,36 @@ function Get-CommandLineValueVariants {
     return [string[]]$variants.ToArray()
 }
 
-function Test-CommandLineContainsValue {
+function Test-CommandLineContainsValueToken {
     param(
         [string]$CommandLine,
         [string]$Value
     )
 
-    if (-not $CommandLine -or -not $Value) {
-        return $false
-    }
-
     foreach ($variant in (Get-CommandLineValueVariants $Value)) {
-        if ($CommandLine.IndexOf($variant, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        if (Test-CommandLineContainsToken $CommandLine $variant) {
             return $true
         }
     }
     return $false
+}
+
+function Test-CommandLineContainsOption {
+    param(
+        [string]$CommandLine,
+        [string]$Name
+    )
+
+    if (-not $CommandLine -or -not $Name) {
+        return $false
+    }
+    $escapedName = [regex]::Escape($Name)
+    $pattern = '(^|\s)(?:"' + $escapedName + '"|' + $escapedName + ')(?=\s|=|$)'
+    return [regex]::IsMatch(
+        $CommandLine,
+        $pattern,
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
 }
 
 function Test-CommandLineArgumentValue {
@@ -790,9 +943,21 @@ function Test-CommandLineArgumentValue {
     }
 
     $escapedName = [regex]::Escape($Name)
+    $namePattern = '(^|\s)(?:"' + $escapedName + '"|' + $escapedName + ')(?=\s|=|$)'
+    $nameMatches = [regex]::Matches(
+        $CommandLine,
+        $namePattern,
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    if ($nameMatches.Count -ne 1) {
+        return $false
+    }
     foreach ($variant in (Get-CommandLineValueVariants $Value)) {
         $escapedValue = [regex]::Escape($variant)
-        $pattern = '(^|\s)' + $escapedName + '(?:(?:\s+)|=)(?:"' + $escapedValue + '"|' + $escapedValue + ')(?=\s|$)'
+        $pattern = (
+            '(^|\s)(?:"' + $escapedName + '"|' + $escapedName + ')' +
+            '(?:(?:\s+)|=)(?:"' + $escapedValue + '"|' + $escapedValue + ')(?=\s|$)'
+        )
         if ([regex]::IsMatch($CommandLine, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
             return $true
         }
@@ -865,6 +1030,36 @@ function Get-CommandLineOptionValues {
     return [string[]]$values.ToArray()
 }
 
+function Test-CommandLineOptionValuesEqual {
+    param(
+        [string]$CommandLine,
+        [string]$Option,
+        [string[]]$ExpectedValues
+    )
+
+    $actualValues = @(Get-CommandLineOptionValues $CommandLine $Option)
+    if ($actualValues.Count -ne $ExpectedValues.Count) {
+        return $false
+    }
+    for ($index = 0; $index -lt $ExpectedValues.Count; $index += 1) {
+        $matches = $false
+        foreach ($variant in (Get-CommandLineValueVariants $ExpectedValues[$index])) {
+            if ([string]::Equals(
+                [string]$actualValues[$index],
+                $variant,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )) {
+                $matches = $true
+                break
+            }
+        }
+        if (-not $matches) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Test-BackendCustomNodePolicyCommandLine {
     param(
         [hashtable]$Config,
@@ -912,14 +1107,41 @@ function Test-ManagedComfyUICommandLine {
     )
 
     $mainPy = Join-Path $Config.ComfyUIRoot 'main.py'
-    $baseDirectoryMatches = Test-CommandLineArgumentValue $CommandLine '--base-directory' $Config.SharedBasePath
-    if (-not $baseDirectoryMatches -and $Config.DataRoot -and $Config.DataRoot -ne $Config.SharedBasePath) {
-        $baseDirectoryMatches = Test-CommandLineArgumentValue $CommandLine '--base-directory' $Config.DataRoot
+    $frontEndMatches = if ($Config.FrontEndRoot) {
+        Test-CommandLineArgumentValue $CommandLine '--front-end-root' $Config.FrontEndRoot
+    }
+    else {
+        -not (Test-CommandLineContainsOption $CommandLine '--front-end-root')
+    }
+    $extraModelsMatches = if ($Config.ExtraModelsConfig) {
+        Test-CommandLineOptionValuesEqual `
+            $CommandLine `
+            '--extra-model-paths-config' `
+            @($Config.ExtraModelsConfig)
+    }
+    else {
+        -not (Test-CommandLineContainsOption $CommandLine '--extra-model-paths-config')
+    }
+    $pinnedMemoryMatches = if ($Config.ResourcePolicy -eq 'memory_safe') {
+        Test-CommandLineContainsToken $CommandLine '--disable-pinned-memory'
+    }
+    else {
+        -not (Test-CommandLineContainsToken $CommandLine '--disable-pinned-memory')
     }
     $backendMatches = (
-        (Test-CommandLineContainsValue $CommandLine $mainPy) -and
-        $baseDirectoryMatches -and
+        (Test-CommandLineContainsValueToken $CommandLine $Config.PythonExe) -and
+        (Test-CommandLineContainsValueToken $CommandLine $mainPy) -and
+        (Test-CommandLineArgumentValue $CommandLine '--user-directory' (Join-Path $Config.DataRoot 'user')) -and
+        (Test-CommandLineArgumentValue $CommandLine '--input-directory' (Join-Path $Config.DataRoot 'input')) -and
+        (Test-CommandLineArgumentValue $CommandLine '--output-directory' (Join-Path $Config.DataRoot 'output')) -and
+        $frontEndMatches -and
+        (Test-CommandLineArgumentValue $CommandLine '--base-directory' $Config.SharedBasePath) -and
+        (Test-CommandLineArgumentValue $CommandLine '--database-url' $Config.DatabaseUrl) -and
+        $extraModelsMatches -and
+        (Test-CommandLineArgumentValue $CommandLine '--listen' $Config.HostAddress) -and
         (Test-CommandLineArgumentValue $CommandLine '--port' ([string]$Config.Port)) -and
+        (Test-CommandLineContainsToken $CommandLine '--normalvram') -and
+        $pinnedMemoryMatches -and
         (Test-BackendCustomNodePolicyCommandLine $Config $CommandLine)
     )
     if ($backendMatches) {
@@ -928,7 +1150,10 @@ function Test-ManagedComfyUICommandLine {
 
     $supervisorPath = Join-Path $PSScriptRoot 'backend_supervisor.ps1'
     return (
-        (Test-CommandLineContainsValue $CommandLine $supervisorPath) -and
+        (Test-CommandLineContainsValueToken $CommandLine $supervisorPath) -and
+        (Test-CommandLineArgumentValue $CommandLine '-PythonExe' $Config.PythonExe) -and
+        (Test-CommandLineArgumentValue $CommandLine '-WorkingDirectory' $Config.ComfyUIRoot) -and
+        (Test-CommandLineArgumentValue $CommandLine '-ArgumentsBase64' (Get-BackendArgumentsBase64 $Config)) -and
         (Test-CommandLineArgumentValue $CommandLine '-ProfileName' $Config.ProfileName) -and
         (Test-CommandLineArgumentValue $CommandLine '-ComfyUIRoot' $Config.ComfyUIRoot) -and
         (Test-CommandLineArgumentValue $CommandLine '-SharedBasePath' $Config.SharedBasePath) -and
@@ -1098,11 +1323,18 @@ function Write-BackendOwnershipRecord {
 
     $ownershipFile = Get-BackendOwnershipFile $Config
     $temporaryFile = "$ownershipFile.$PID.tmp"
+    $launchIdentity = if ($Config.LaunchIdentity) {
+        [string]$Config.LaunchIdentity
+    }
+    else {
+        Get-BackendLaunchIdentity $Config
+    }
     $record = [ordered]@{
-        version = 1
+        version = 2
         profile = $Config.ProfileName
         host = $Config.HostAddress
         port = $Config.Port
+        launch_identity_sha256 = $launchIdentity
         backend_pid = $BackendPid
         backend_creation_time_utc = $backendCreation
         launcher_pid = $LauncherPid
@@ -1144,12 +1376,17 @@ function Test-BackendProcessOwnership {
 
     try {
         $record = Read-BackendOwnershipRecord $Config
-        if (-not $record -or [int]$record.version -ne 1) {
+        if (-not $record -or [int]$record.version -ne 2) {
             return $false
         }
         if ([string]$record.profile -cne [string]$Config.ProfileName -or
             [string]$record.host -cne [string]$Config.HostAddress -or
             [int]$record.port -ne [int]$Config.Port) {
+            return $false
+        }
+        $expectedLaunchIdentity = Get-BackendLaunchIdentity $Config
+        if (-not $expectedLaunchIdentity -or
+            [string]$record.launch_identity_sha256 -cne $expectedLaunchIdentity) {
             return $false
         }
 

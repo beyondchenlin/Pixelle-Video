@@ -119,14 +119,25 @@ the initial attempt by default, while configuration, path, port, and memory fail
 fail immediately. One machine-wide operating-system mutex prevents the
 image and TTS backends from owning the accelerator at the same time.
 
-Every allowlisted plug-in folder name must exist exactly once across the shared
-data and application `custom_nodes` roots. Duplicate installations are rejected
-even when their versions match because load order and node-registration overrides
-would remain ambiguous; keep the maintained copy and remove the duplicate.
+Allowlist mode resolves the effective `custom_nodes` roots using ComfyUI's own
+path rules, including `--base-directory`, the application's built-in
+`extra_model_paths.yaml`, and the explicitly supplied extra-model-paths config.
+Exactly one effective plug-in root is required. An unregistered application copy
+does not cause a false conflict, while a genuinely registered second root is
+rejected before plug-in code executes. The allowlist selects plug-ins; it is not
+a security sandbox, and every allowed plug-in still executes code in the ComfyUI
+process.
 
 If a configured port is occupied by an unmanaged process, `start_backend.ps1` refuses
 to start another backend instead of drifting to a new port.
 
-`stop_backend.ps1` stops a backend only when its PID, process creation time, and configured process identity all match the ownership record. Missing, invalid, stale, legacy, or unrelated records are cleaned without terminating the listener. This prevents PID reuse mistakes, and a backend started by ComfyUI Desktop or another process manager is never taken over based on command-line similarity.
+`stop_backend.ps1` stops a backend only when its PID, process creation time, and
+configured process identity all match the ownership record. Configuration identity
+covers the complete launch arguments and the contents of both built-in and explicit
+extra-path configs. A config change during startup stops the new process and requires
+a retry, while an already-running process is never mistaken for the changed config.
+Missing, invalid, stale, legacy, or unrelated records are cleaned without terminating
+the listener. This prevents PID reuse mistakes and isolates different data roots,
+databases, and plug-in path configurations.
 
 After upgrading from a version without ownership records, an existing process is treated as external. `auto` mode continues to reuse it; `required` mode needs that legacy process to be closed once so the current version can start it and create a record.
