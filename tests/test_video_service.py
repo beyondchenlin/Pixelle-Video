@@ -50,6 +50,102 @@ def _probe_format_duration(path: Path) -> float:
     return float(probe["format"]["duration"])
 
 
+def test_bgm_resource_name_prefers_custom_resource_over_working_directory(
+    monkeypatch,
+    tmp_path,
+):
+    project_root = tmp_path / "project"
+    custom_bgm = project_root / "data" / "bgm" / "music.mp3"
+    custom_bgm.parent.mkdir(parents=True)
+    custom_bgm.write_bytes(b"custom")
+    working_dir = tmp_path / "working"
+    working_dir.mkdir()
+    (working_dir / "music.mp3").write_bytes(b"unrelated")
+    monkeypatch.setenv("PIXELLE_VIDEO_ROOT", str(project_root))
+    monkeypatch.chdir(working_dir)
+
+    resolved = VideoService().resolve_bgm_path("music.mp3")
+
+    assert resolved == str(custom_bgm.resolve())
+
+
+def test_optional_bgm_returns_none_only_when_file_is_missing(monkeypatch, tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("PIXELLE_VIDEO_ROOT", str(project_root))
+    service = VideoService()
+
+    assert service.resolve_optional_bgm_path(None) is None
+    assert service.resolve_optional_bgm_path("") is None
+    assert service.resolve_optional_bgm_path("missing.mp3") is None
+
+    with pytest.raises(ValueError, match="surrounding whitespace"):
+        service.resolve_optional_bgm_path(" missing.mp3 ")
+
+
+def test_bgm_publish_is_atomic_and_preserves_existing_output_on_failure(
+    monkeypatch,
+    tmp_path,
+):
+    video = tmp_path / "video.mp4"
+    bgm = tmp_path / "music.mp3"
+    output = tmp_path / "final.mp4"
+    video.write_bytes(b"video")
+    bgm.write_bytes(b"music")
+    output.write_bytes(b"previous-good-video")
+    service = VideoService()
+
+    def fail_after_partial_write(**kwargs):
+        Path(kwargs["output"]).write_bytes(b"partial")
+        raise RuntimeError("encoder failed")
+
+    monkeypatch.setattr(service, "add_bgm", fail_after_partial_write)
+
+    with pytest.raises(RuntimeError, match="encoder failed"):
+        service._add_bgm_to_video(
+            video=str(video),
+            bgm_path=str(bgm),
+            output=str(output),
+        )
+
+    assert output.read_bytes() == b"previous-good-video"
+    assert list(tmp_path.glob(".*.adding_bgm.mp4")) == []
+
+
+def test_multi_video_bgm_intermediate_is_unique_and_cleaned_on_failure(
+    monkeypatch,
+    tmp_path,
+):
+    service = VideoService()
+    output = tmp_path / "final.webm"
+    intermediate_paths = []
+    monkeypatch.setattr(service, "resolve_optional_bgm_path", lambda value: value)
+
+    def fake_concat(_videos, intermediate):
+        path = Path(intermediate)
+        intermediate_paths.append(path)
+        path.write_bytes(b"concat")
+        return str(path)
+
+    monkeypatch.setattr(service, "_concat_demuxer", fake_concat)
+    monkeypatch.setattr(
+        service,
+        "_add_bgm_to_video",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("mix failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="mix failed"):
+        service.concat_videos(
+            ["one.webm", "two.webm"],
+            str(output),
+            bgm_path="resolved.mp3",
+        )
+
+    assert len(intermediate_paths) == 1
+    assert intermediate_paths[0].suffix == ".webm"
+    assert not intermediate_paths[0].exists()
+
+
 @pytest.mark.parametrize("duration", [1.915646, 1.917])
 def test_create_video_from_image_aligns_output_stream_durations(tmp_path, duration):
     audio_path = tmp_path / "sample.mp3"

@@ -2909,6 +2909,9 @@ class StandardPipeline(LinearVideoPipeline):
         manifest = self._build_render_manifest_for_current_timeline(ctx)
         execution_plan = self._build_render_execution_plan(ctx, manifest=manifest)
         ass_outputs = self._export_ass_for_manifest_if_needed(ctx, manifest)
+        resolved_bgm_path = VideoService().resolve_optional_bgm_path(
+            ctx.params.get("bgm_path")
+        )
 
         from pixelle_video.services.ffmpeg_manifest_renderer import FfmpegManifestRenderer
         from pixelle_video.services.render_snapshot import RenderSnapshotService
@@ -2919,12 +2922,16 @@ class StandardPipeline(LinearVideoPipeline):
             execution_plan=execution_plan,
             supplemental_assets={
                 "ass": ass_outputs.master if ass_outputs is not None else None,
-                "bgm": ctx.params.get("bgm_path"),
+                "bgm": resolved_bgm_path,
             },
-            render_options={
-                "bgm_volume": float(ctx.params.get("bgm_volume", 0.2)),
-                "bgm_mode": str(ctx.params.get("bgm_mode", "loop")),
-            },
+            render_options=(
+                {
+                    "bgm_volume": float(ctx.params.get("bgm_volume", 0.2)),
+                    "bgm_mode": str(ctx.params.get("bgm_mode", "loop")),
+                }
+                if resolved_bgm_path is not None
+                else {}
+            ),
         )
 
         final_video_path = FfmpegManifestRenderer().render(
@@ -2932,7 +2939,7 @@ class StandardPipeline(LinearVideoPipeline):
             execution_plan=execution_plan,
             output_path=ctx.final_video_path,
             ass_path=str(ass_outputs.master) if ass_outputs else None,
-            bgm_path=ctx.params.get("bgm_path"),
+            bgm_path=resolved_bgm_path,
             bgm_volume=ctx.params.get("bgm_volume", 0.2),
             bgm_mode=ctx.params.get("bgm_mode", "loop"),
         )
@@ -3731,9 +3738,13 @@ class StandardPipeline(LinearVideoPipeline):
         if not bgm_path:
             return tracks
 
+        resolved_bgm_path = VideoService().resolve_optional_bgm_path(bgm_path)
+        if resolved_bgm_path is None:
+            return tracks
+
         bgm_output_path = str(Path(master_audio_path).with_name("background_audio.wav"))
         prepared_bgm_path = self._prepare_bgm_audio_for_hyperframes(
-            bgm_path,
+            resolved_bgm_path,
             bgm_output_path,
             duration=duration,
             mode=ctx.params.get("bgm_mode", "loop"),
@@ -3752,13 +3763,18 @@ class StandardPipeline(LinearVideoPipeline):
 
     def _prepare_bgm_audio_for_hyperframes(
         self,
-        input_path: str,
+        resolved_input_path: str,
         output_path: str,
         *,
         duration: float,
         mode: str,
     ) -> str:
-        resolved_bgm = VideoService().resolve_bgm_path(input_path)
+        resolved_bgm = Path(resolved_input_path).resolve()
+        if not resolved_bgm.is_file():
+            raise ValueError(
+                "resolved HyperFrames background music must be an existing file: "
+                f"{resolved_bgm}"
+            )
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
         command = ["ffmpeg"]
@@ -3767,7 +3783,7 @@ class StandardPipeline(LinearVideoPipeline):
         command.extend(
             [
                 "-i",
-                resolved_bgm,
+                str(resolved_bgm),
                 "-t",
                 self._format_ffmpeg_time(duration),
                 "-c:a",

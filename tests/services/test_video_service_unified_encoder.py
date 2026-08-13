@@ -15,6 +15,11 @@ from pixelle_video.utils.ffmpeg_encoder import get_h264_backend
 def test_single_video_with_bgm_does_not_bypass_bgm(monkeypatch) -> None:
     service = VideoService()
     monkeypatch.setattr(service, "_ensure_ffmpeg", lambda: None)
+    monkeypatch.setattr(
+        service,
+        "resolve_optional_bgm_path",
+        lambda value: "resolved-music.mp3" if value == "music.mp3" else None,
+    )
     calls: list[dict[str, object]] = []
 
     def _add_bgm_to_video(**kwargs):
@@ -35,12 +40,31 @@ def test_single_video_with_bgm_does_not_bypass_bgm(monkeypatch) -> None:
     assert calls == [
         {
             "video": "one.mp4",
-            "bgm_path": "music.mp3",
+            "bgm_path": "resolved-music.mp3",
             "output": "out.mp4",
             "volume": 0.3,
             "mode": "loop",
         }
     ]
+
+
+def test_single_video_skips_missing_optional_bgm(monkeypatch, tmp_path) -> None:
+    source = tmp_path / "one.mp4"
+    output = tmp_path / "out.mp4"
+    source.write_bytes(b"video")
+    service = VideoService()
+    monkeypatch.setattr(service, "resolve_optional_bgm_path", lambda _value: None)
+
+    result = service.concat_videos(
+        [str(source)],
+        str(output),
+        bgm_path="missing.mp3",
+        bgm_volume=float("nan"),
+        bgm_mode="invalid",
+    )
+
+    assert result == str(output)
+    assert output.read_bytes() == b"video"
 
 
 def test_filter_concat_injects_silence_for_missing_audio(monkeypatch) -> None:

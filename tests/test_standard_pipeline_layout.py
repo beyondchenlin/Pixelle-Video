@@ -94,3 +94,4 @@ bgm_config.render_bgm_section(collapsible=True)
     assert len(at.exception) == 0
     assert len(at.expander) == 1
     assert at.expander[0].label == "BGM"
+    assert at.selectbox[0].value == "None"

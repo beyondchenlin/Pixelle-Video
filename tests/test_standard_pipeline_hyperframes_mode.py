@@ -256,6 +256,9 @@ class _RecordingVideoService:
 
 
 class _NoPostRenderBgmVideoService:
+    def resolve_optional_bgm_path(self, bgm_path):
+        return bgm_path
+
     def concat_videos(self, videos, output, **kwargs):
         raise AssertionError("legacy concat path should not run in hyperframes mode")
 
@@ -1089,11 +1092,12 @@ async def test_post_production_compiles_bgm_as_hyperframes_audio_track(monkeypat
     ctx.final_video_path = str(final_output)
     ctx.params.update(
         {
-            "bgm_path": "default.mp3",
+            "bgm_path": str(tmp_path / "default.mp3"),
             "bgm_volume": 0.35,
             "bgm_mode": "once",
         }
     )
+    Path(ctx.params["bgm_path"]).write_bytes(b"bgm")
 
     for frame in ctx.storyboard.frames:
         frame.media_type = "image"
@@ -1134,7 +1138,7 @@ async def test_post_production_compiles_bgm_as_hyperframes_audio_track(monkeypat
     assert core.hyperframes_renderer.calls[0]["output_path"] == str(final_output)
     assert bgm_prepare_calls == [
         {
-            "input_path": "default.mp3",
+            "input_path": str(tmp_path / "default.mp3"),
             "output_path": str(Path(ctx.task_dir) / "audio" / "background_audio.wav"),
             "duration": 2.0,
             "mode": "once",
@@ -1154,26 +1158,25 @@ async def test_post_production_compiles_bgm_as_hyperframes_audio_track(monkeypat
     assert ctx.storyboard.final_video_path == str(final_output)
 
 
-def test_prepare_bgm_audio_for_hyperframes_resolves_and_loops_bgm(monkeypatch, tmp_path):
+def test_prepare_bgm_audio_for_hyperframes_requires_resolved_file_and_loops(
+    monkeypatch,
+    tmp_path,
+):
     commands = []
-
-    class _ResolvingVideoService:
-        def resolve_bgm_path(self, bgm_path):
-            assert bgm_path == "default.mp3"
-            return str(tmp_path / "resolved-default.mp3")
+    resolved_bgm = tmp_path / "resolved-default.mp3"
+    resolved_bgm.write_bytes(b"bgm")
 
     def fake_run(command, **kwargs):
         commands.append((command, kwargs))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _ResolvingVideoService)
     monkeypatch.setattr("pixelle_video.pipelines.standard.subprocess.run", fake_run)
 
     pipeline = StandardPipeline(_DummyCore(tmp_path))
     output_path = tmp_path / "task-1" / "audio" / "background_audio.wav"
 
     result = pipeline._prepare_bgm_audio_for_hyperframes(
-        "default.mp3",
+        str(resolved_bgm),
         str(output_path),
         duration=12.5,
         mode="loop",
@@ -1182,13 +1185,41 @@ def test_prepare_bgm_audio_for_hyperframes_resolves_and_loops_bgm(monkeypatch, t
     command, kwargs = commands[0]
     assert result == str(output_path)
     assert command[:4] == ["ffmpeg", "-stream_loop", "-1", "-i"]
-    assert command[4] == str(tmp_path / "resolved-default.mp3")
+    assert command[4] == str(resolved_bgm)
     assert command[command.index("-t") + 1] == "12.5"
     assert command[command.index("-c:a") + 1] == "pcm_s16le"
     assert command[-2:] == ["-y", str(output_path)]
     assert kwargs["capture_output"] is True
     assert kwargs["text"] is True
     assert kwargs["check"] is False
+
+
+def test_hyperframes_omits_missing_optional_bgm(monkeypatch, tmp_path):
+    class _MissingOptionalBgmVideoService:
+        def resolve_optional_bgm_path(self, _bgm_path):
+            return None
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.VideoService",
+        _MissingOptionalBgmVideoService,
+    )
+    pipeline = StandardPipeline(_DummyCore(tmp_path))
+    ctx = _build_storyboard_context(tmp_path)
+    ctx.params.update(
+        {
+            "bgm_path": "missing.mp3",
+            "bgm_volume": float("nan"),
+            "bgm_mode": "invalid",
+        }
+    )
+
+    tracks = pipeline._build_hyperframes_audio_tracks(
+        ctx,
+        master_audio_path=str(tmp_path / "master.wav"),
+        master_audio_duration=2.0,
+    )
+
+    assert [track.id for track in tracks] == ["narration-audio"]
 
 
 @pytest.mark.asyncio

@@ -61,7 +61,7 @@ from pixelle_video.services.reference_image_visual_context_adapter import (
 )
 from pixelle_video.services.timing_planner import TimingPlan
 from pixelle_video.services.vision_llm_service import VisionLLMService
-from pixelle_video.utils.logging_util import bind_log_context
+from pixelle_video.utils.logging_util import bind_log_context, log_exception_once
 
 _REFERENCE_IMAGE_ENABLED_PARAM_NAMES = (
     "reference_image_enabled",
@@ -447,4 +447,4 @@ class LinearVideoPipeline(BasePipeline):
 
     async def handle_exception(self, ctx: PipelineContext, error: Exception):
         """Handle exceptions during pipeline execution."""
-        logger.error(f"Pipeline execution failed: {error}")
+        log_exception_once(error, "Pipeline execution failed")

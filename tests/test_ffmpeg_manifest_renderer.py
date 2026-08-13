@@ -215,6 +215,27 @@ def test_renderer_composes_subtitles_and_bgm_before_the_only_encode(tmp_path):
     assert "final_text_burned.mp4" not in command
 
 
+def test_renderer_ignores_inactive_bgm_options_when_bgm_is_absent(tmp_path):
+    video_service = _RecordingVideoService()
+    manifest = _manifest(tmp_path)
+
+    result = FfmpegManifestRenderer(
+        video_service=video_service,
+        output_probe=_AcceptingProbe(),
+    ).render(
+        manifest=manifest,
+        execution_plan=_execution_plan(),
+        output_path=str(tmp_path / "final.mp4"),
+        bgm_path=None,
+        bgm_volume=float("nan"),
+        bgm_mode="stale-invalid-value",
+    )
+
+    command = " ".join(video_service.commands[0])
+    assert result == str((tmp_path / "final.mp4").resolve())
+    assert "amix=" not in command
+
+
 def test_renderer_consumes_resolved_media_box_instead_of_reinterpreting_geometry(
     tmp_path,
 ):

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -110,6 +111,21 @@ def _build_context(tmp_path: Path) -> PipelineContext:
     return ctx
 
 
+def _prepare_renderable_frames(ctx: PipelineContext, tmp_path: Path) -> tuple[Path, Path]:
+    first_shell = tmp_path / "00_shell.png"
+    second_motion = tmp_path / "01_motion.mp4"
+    first_shell.write_bytes(b"png")
+    second_motion.write_bytes(b"video")
+    ctx.storyboard.frames[0].composed_image_path = str(first_shell)
+    ctx.storyboard.frames[0].image_path = str(tmp_path / "00_raw.png")
+    ctx.storyboard.frames[0].duration = 1.0
+    ctx.storyboard.frames[1].composed_image_path = str(tmp_path / "01_shell.png")
+    ctx.storyboard.frames[1].element_motion_video_path = str(second_motion)
+    ctx.storyboard.frames[1].element_animation_manifest_path = "element/frame_001.json"
+    ctx.storyboard.frames[1].duration = 1.5
+    return first_shell, second_motion
+
+
 @pytest.mark.asyncio
 async def test_post_production_routes_ffmpeg_manifest_to_renderer(monkeypatch, tmp_path):
     calls = {}
@@ -138,17 +154,7 @@ async def test_post_production_routes_ffmpeg_manifest_to_renderer(monkeypatch, t
     ctx.params["bgm_volume"] = 0.4
     ctx.params["bgm_mode"] = "once"
 
-    first_shell = tmp_path / "00_shell.png"
-    second_motion = tmp_path / "01_motion.mp4"
-    first_shell.write_bytes(b"png")
-    second_motion.write_bytes(b"video")
-    ctx.storyboard.frames[0].composed_image_path = str(first_shell)
-    ctx.storyboard.frames[0].image_path = str(tmp_path / "00_raw.png")
-    ctx.storyboard.frames[0].duration = 1.0
-    ctx.storyboard.frames[1].composed_image_path = str(tmp_path / "01_shell.png")
-    ctx.storyboard.frames[1].element_motion_video_path = str(second_motion)
-    ctx.storyboard.frames[1].element_animation_manifest_path = "element/frame_001.json"
-    ctx.storyboard.frames[1].duration = 1.5
+    first_shell, second_motion = _prepare_renderable_frames(ctx, tmp_path)
 
     monkeypatch.setattr(
         pipeline,
@@ -165,6 +171,11 @@ async def test_post_production_routes_ffmpeg_manifest_to_renderer(monkeypatch, t
     assert calls["bgm_path"] == str(bgm_path)
     assert calls["bgm_volume"] == 0.4
     assert calls["bgm_mode"] == "once"
+    inventory = json.loads(
+        (Path(ctx.task_dir) / "render_asset_inventory.json").read_text(encoding="utf-8")
+    )
+    bgm_assets = [asset for asset in inventory["assets"] if asset["role"] == "bgm"]
+    assert [asset["path"] for asset in bgm_assets] == [str(bgm_path.resolve())]
     assert manifest.master_audio_path == str(Path(ctx.master_audio_path))
     assert [(clip.start, clip.end) for clip in manifest.visual_clips] == [
         (0.0, 1.0),
@@ -188,6 +199,48 @@ async def test_post_production_routes_ffmpeg_manifest_to_renderer(monkeypatch, t
     )
     assert ctx.final_video_path == str(tmp_path / "task-1" / "final.mp4")
     assert ctx.storyboard.final_video_path == ctx.final_video_path
+
+
+@pytest.mark.asyncio
+async def test_missing_optional_bgm_is_omitted_from_snapshot_and_render(monkeypatch, tmp_path):
+    calls = {}
+
+    class FakeFfmpegManifestRenderer:
+        def render(self, **kwargs):
+            calls.update(kwargs)
+            output_path = Path(kwargs["output_path"])
+            output_path.write_bytes(b"video")
+            return str(output_path)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.ffmpeg_manifest_renderer.FfmpegManifestRenderer",
+        FakeFfmpegManifestRenderer,
+    )
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = _build_context(tmp_path)
+    _prepare_renderable_frames(ctx, tmp_path)
+    ctx.params.update(
+        {
+            "bgm_path": "definitely-missing-optional-bgm.mp3",
+            "bgm_volume": float("nan"),
+            "bgm_mode": "stale-invalid-mode",
+        }
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_export_ass_for_manifest_if_needed",
+        lambda _context, _manifest: None,
+    )
+
+    await pipeline.post_production(ctx)
+
+    inventory = json.loads(
+        (Path(ctx.task_dir) / "render_asset_inventory.json").read_text(encoding="utf-8")
+    )
+    assert calls["bgm_path"] is None
+    assert all(asset["role"] != "bgm" for asset in inventory["assets"])
+    assert inventory["render_options"] == {}
+    assert Path(ctx.final_video_path).read_bytes() == b"video"
 
 
 def test_resolve_effective_backend_uses_capability_resolver_for_ffmpeg(tmp_path):

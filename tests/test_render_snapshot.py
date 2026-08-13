@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from pixelle_video.models.render_execution_plan import RenderExecutionPlan
 from pixelle_video.models.render_package import RenderManifest, VisualClip
 from pixelle_video.services.render_snapshot import RenderSnapshotService
@@ -113,6 +115,26 @@ def test_render_snapshot_blocks_rerender_after_fixed_asset_changes(tmp_path):
         assert "asset size changed" in str(exc) or "asset content changed" in str(exc)
     else:
         raise AssertionError("changed fixed asset must block rerender")
+
+
+def test_render_snapshot_blocks_rerender_after_fixed_asset_is_deleted(tmp_path):
+    service = RenderSnapshotService()
+    manifest = _snapshot_manifest(tmp_path)
+    paths = service.write(
+        output_dir=tmp_path / "snapshot",
+        manifest=manifest,
+        execution_plan=RenderExecutionPlan(
+            requested_backend="ffmpeg_manifest",
+            effective_backend="ffmpeg_manifest",
+        ),
+    )
+    Path(manifest.visual_clips[0].media_path).unlink()
+
+    with pytest.raises(ValueError, match="render snapshot asset is missing"):
+        service.rerender_ffmpeg(
+            manifest_path=paths.manifest,
+            output_path=tmp_path / "rerender.mp4",
+        )
 
 
 def test_render_snapshot_reuses_saved_subtitle_bgm_and_mix_options(tmp_path):

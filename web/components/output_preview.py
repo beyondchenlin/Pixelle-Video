@@ -63,7 +63,11 @@ from pixelle_video.services.text_style_css_contract import (
 )
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 from pixelle_video.tts_workflow_contract import tts_workflow_missing_required_ref_audio
-from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
+from pixelle_video.utils.logging_util import (
+    build_content_observability,
+    log_exception_once,
+    new_correlation_id,
+)
 from pixelle_video.utils.template_util import get_template_orientation, resolve_template_path
 from web.components.layered_template_state import load_layered_template_spec_into_editor_state
 from web.components.layout_preview_media_source import resolve_layout_preview_media_source
@@ -1652,7 +1656,7 @@ def _render_generation_section(pixelle_video, video_params):
                         status_text.text("")
                         progress_bar.empty()
                         st.error(tr("status.error", error=str(e)))
-                        logger.exception(e)
+                        log_exception_once(e, "Web video generation failed")
                     finally:
                         _reset_single_video_generation_state()
                         render_generate_button(disabled=False, refresh=True)

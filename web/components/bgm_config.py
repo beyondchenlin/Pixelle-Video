@@ -58,14 +58,10 @@ def _render_bgm_controls(key_prefix="", *, help_display="expander"):
 
     bgm_options = [tr("bgm.none")] + bgm_files
 
-    default_index = 0
-    if "default.mp3" in bgm_files:
-        default_index = bgm_options.index("default.mp3")
-
     bgm_choice = st.selectbox(
         "BGM",
         bgm_options,
-        index=default_index,
+        index=0,
         label_visibility="collapsed",
         key=f"{key_prefix}bgm_selector",
     )
