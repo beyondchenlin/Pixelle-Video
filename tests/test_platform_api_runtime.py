@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import ctypes
 import json
+import os
+import subprocess
+import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Thread
 
 import pytest
@@ -72,6 +78,26 @@ def _start_health_server(payload: bytes) -> tuple[ThreadingHTTPServer, Thread]:
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, thread
+
+
+def _windows_process_is_running(pid: int) -> bool:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    kernel32.WaitForSingleObject.restype = ctypes.c_ulong
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+
+    synchronize = 0x00100000
+    wait_timeout = 0x00000102
+    handle = kernel32.OpenProcess(synchronize, False, pid)
+    if not handle:
+        return False
+    try:
+        return kernel32.WaitForSingleObject(handle, 0) == wait_timeout
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def test_builtin_api_contract_has_one_python_source_of_truth() -> None:
@@ -364,6 +390,77 @@ class _FakeProcess:
         assert timeout > 0
         assert self.exit_code is not None
         return self.exit_code
+
+
+def test_main_installs_process_lifetime_guard_before_starting_services(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        launch_web,
+        "_install_process_lifetime_guard",
+        lambda: calls.append("guard"),
+    )
+    monkeypatch.setattr(
+        launch_web,
+        "run_web_stack",
+        lambda: calls.append("services") or 0,
+    )
+
+    assert launch_web.main() == 0
+    assert calls == ["guard", "services"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows job objects are Windows-only")
+def test_windows_lifetime_guard_kills_children_after_forced_launcher_exit(
+    tmp_path: Path,
+) -> None:
+    child_pid_path = tmp_path / "child.pid"
+    helper_source = "\n".join(
+        [
+            "import subprocess",
+            "import sys",
+            "import time",
+            "from pathlib import Path",
+            "from scripts.launch_web import _install_process_lifetime_guard",
+            "_install_process_lifetime_guard()",
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])",
+            f"Path({str(child_pid_path)!r}).write_text(str(child.pid), encoding='ascii')",
+            "time.sleep(120)",
+        ]
+    )
+    base_executable = getattr(sys, "_base_executable", sys.executable)
+    launcher = subprocess.Popen(
+        [base_executable, "-c", helper_source],
+        cwd=launch_web.PROJECT_ROOT,
+    )
+    child_pid: int | None = None
+    try:
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline and not child_pid_path.exists():
+            if launcher.poll() is not None:
+                raise AssertionError(f"lifetime-guard helper exited with {launcher.returncode}")
+            time.sleep(0.05)
+        assert child_pid_path.is_file()
+        child_pid = int(child_pid_path.read_text(encoding="ascii"))
+        assert _windows_process_is_running(child_pid)
+
+        launcher.kill()
+        launcher.wait(timeout=10)
+
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline and _windows_process_is_running(child_pid):
+            time.sleep(0.05)
+        assert not _windows_process_is_running(child_pid)
+    finally:
+        if launcher.poll() is None:
+            launcher.kill()
+            launcher.wait(timeout=10)
+        if child_pid is not None and _windows_process_is_running(child_pid):
+            subprocess.run(
+                ["taskkill", "/PID", str(child_pid), "/T", "/F"],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
 
 
 def test_supervisor_cleans_up_only_the_api_process_it_started(monkeypatch) -> None:

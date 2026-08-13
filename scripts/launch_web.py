@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import http.client
 import ipaddress
 import json
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping
+from ctypes import wintypes
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -31,6 +33,98 @@ EXPECTED_PROJECT_ROOT_ID = EXPECTED_CHECKOUT_ROOT_ID
 API_HEALTH_SERVICE = "Pixelle-Video API"
 STARTUP_TIMEOUT_SECONDS = 30.0
 PROBE_TIMEOUT_SECONDS = 0.75
+_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+_WINDOWS_PROCESS_JOB_HANDLE: int | None = None
+
+
+class _JobObjectBasicLimitInformation(ctypes.Structure):
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_longlong),
+        ("PerJobUserTimeLimit", ctypes.c_longlong),
+        ("LimitFlags", wintypes.DWORD),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", wintypes.DWORD),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", wintypes.DWORD),
+        ("SchedulingClass", wintypes.DWORD),
+    ]
+
+
+class _IoCounters(ctypes.Structure):
+    _fields_ = [
+        ("ReadOperationCount", ctypes.c_ulonglong),
+        ("WriteOperationCount", ctypes.c_ulonglong),
+        ("OtherOperationCount", ctypes.c_ulonglong),
+        ("ReadTransferCount", ctypes.c_ulonglong),
+        ("WriteTransferCount", ctypes.c_ulonglong),
+        ("OtherTransferCount", ctypes.c_ulonglong),
+    ]
+
+
+class _JobObjectExtendedLimitInformation(ctypes.Structure):
+    _fields_ = [
+        ("BasicLimitInformation", _JobObjectBasicLimitInformation),
+        ("IoInfo", _IoCounters),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
+
+
+def _install_process_lifetime_guard() -> None:
+    """Make every child exit when this launcher disappears on Windows."""
+    global _WINDOWS_PROCESS_JOB_HANDLE
+
+    if os.name != "nt" or _WINDOWS_PROCESS_JOB_HANDLE is not None:
+        return
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+    ]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    job_handle = kernel32.CreateJobObjectW(None, None)
+    if not job_handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    limits = _JobObjectExtendedLimitInformation()
+    limits.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    try:
+        if not kernel32.SetInformationJobObject(
+            job_handle,
+            _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+            ctypes.byref(limits),
+            ctypes.sizeof(limits),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not kernel32.AssignProcessToJobObject(
+            job_handle,
+            kernel32.GetCurrentProcess(),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+    except BaseException:
+        kernel32.CloseHandle(job_handle)
+        raise
+
+    # Keep the only non-inheritable job handle open for the launcher's lifetime.
+    # Windows closes it even after an abrupt launcher termination, which then
+    # terminates every child that inherited membership in this job.
+    _WINDOWS_PROCESS_JOB_HANDLE = int(job_handle)
 
 
 class LaunchConfigurationError(ValueError):
@@ -451,6 +545,7 @@ def run_web_stack(environ: dict[str, str] | None = None) -> int:
 
 def main() -> int:
     try:
+        _install_process_lifetime_guard()
         return run_web_stack()
     except KeyboardInterrupt:
         return 130
