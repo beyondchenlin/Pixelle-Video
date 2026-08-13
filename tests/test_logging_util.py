@@ -188,6 +188,18 @@ def test_setup_logging_writes_complete_flat_jsonl_record(tmp_path):
     assert payload["llm_call_count"] == 1
 
 
+def test_setup_logging_preserves_utf8_chinese_and_emoji(tmp_path):
+    sink_ids = setup_logging(service_name="web", config=_logging_config(tmp_path))
+    try:
+        logger.info("🎬 视频生成完成")
+    finally:
+        teardown_logging(sink_ids)
+
+    raw = (tmp_path / "web.jsonl").read_bytes()
+    assert not raw.startswith(b"\xef\xbb\xbf")
+    assert "🎬 视频生成完成" in raw.decode("utf-8")
+
+
 def test_content_observability_uses_hash_length_and_bounded_preview():
     summary = build_content_observability("abcdefghijklmnopqrstuvwxyz", preview_chars=8)
 

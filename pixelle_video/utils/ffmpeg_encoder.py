@@ -244,13 +244,57 @@ def _run_backend_probe(
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False
     if result.returncode != 0:
-        logger.info(
-            "ffmpeg hardware encoder {} failed runtime probe: {}",
+        logger.debug(
+            "ffmpeg hardware encoder candidate {} is unavailable: {}",
             codec,
-            (result.stderr or "").strip()[-500:],
+            _summarize_probe_error(result.stderr),
         )
         return False
     return True
+
+
+def _summarize_probe_error(stderr: str | None, *, limit: int = 240) -> str:
+    """Return a bounded single-line diagnostic for an optional backend probe."""
+
+    normalized = " ".join(str(stderr or "").split())
+    if not normalized:
+        return "probe exited with a non-zero status and no diagnostic output"
+    if len(normalized) <= limit:
+        return normalized
+    return f"...{normalized[-limit:]}"
+
+
+@lru_cache(maxsize=None)
+def _log_backend_selection_once(
+    candidates: tuple[str, ...],
+    override: str,
+) -> None:
+    """Report the effective encoder contract once per distinct selection."""
+
+    selected = candidates[0]
+    fallbacks = candidates[1:]
+    if override and selected == _CPU_ENCODER and override != _CPU_ENCODER:
+        logger.warning(
+            "requested ffmpeg hardware encoder {} is not runnable; "
+            "selected {} instead",
+            override,
+            selected,
+        )
+        return
+
+    if selected == _CPU_ENCODER and not override:
+        logger.warning(
+            "no ffmpeg hardware H.264 encoder passed runtime qualification; "
+            "selected {}",
+            selected,
+        )
+        return
+
+    logger.info(
+        "ffmpeg H.264 encoder selected: {}; fallback order: {}",
+        selected,
+        ", ".join(fallbacks) if fallbacks else "none",
+    )
 
 
 def get_h264_backend(codec: str) -> H264EncoderBackend:
@@ -283,34 +327,29 @@ def available_h264_backends() -> tuple[H264EncoderBackend, ...]:
     if override:
         backend = get_h264_backend(override)
         if not backend.hardware:
-            return (backend,)
+            result = (backend,)
+            _log_backend_selection_once(tuple(item.codec for item in result), override)
+            return result
         if _probe_backend_runtime(backend.codec):
-            return (backend, cpu)
-        return (cpu,)
+            result = (backend, cpu)
+            _log_backend_selection_once(tuple(item.codec for item in result), override)
+            return result
+        result = (cpu,)
+        _log_backend_selection_once(tuple(item.codec for item in result), override)
+        return result
 
     result: list[H264EncoderBackend] = []
     for codec in supported_hardware_h264_codecs():
         if _probe_backend_runtime(codec):
             result.append(_BACKENDS[codec])
     result.append(cpu)
-    return tuple(result)
+    resolved = tuple(result)
+    _log_backend_selection_once(tuple(item.codec for item in resolved), override)
+    return resolved
 
 
 def resolve_ffmpeg_h264_backend() -> H264EncoderBackend:
-    backend = available_h264_backends()[0]
-    override = os.environ.get("PIXELLE_FFMPEG_H264_ENCODER", "").strip()
-    if override:
-        if backend.codec == _CPU_ENCODER and override != _CPU_ENCODER:
-            logger.warning(
-                "requested ffmpeg hardware encoder {} is not runnable; falling back to libx264",
-                override,
-            )
-        else:
-            logger.info(
-                "ffmpeg encoder selected via PIXELLE_FFMPEG_H264_ENCODER={}",
-                backend.codec,
-            )
-    return backend
+    return available_h264_backends()[0]
 
 
 def resolve_ffmpeg_h264_encoder() -> str:
@@ -376,6 +415,7 @@ def ffmpeg_h264_fallback_kwargs() -> dict[str, object]:
 def clear_ffmpeg_encoder_probe_cache() -> None:
     _probe_ffmpeg_encoders.cache_clear()
     _run_backend_probe.cache_clear()
+    _log_backend_selection_once.cache_clear()
 
 
 def _resolve_vaapi_device() -> str | None:

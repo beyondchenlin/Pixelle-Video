@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from pixelle_video.services import persistence as persistence_module
 from pixelle_video.services.persistence import PersistenceService
 
 
@@ -92,6 +94,79 @@ async def test_persistence_rejects_task_path_escape(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="unsafe path"):
         service.get_task_dir("../escape")
     assert await service.delete_task("../escape") is False
+
+
+@pytest.mark.asyncio
+async def test_delete_task_retries_transient_windows_reader_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = PersistenceService(output_dir=str(tmp_path))
+    task_dir = service.get_task_dir("task-locked")
+    task_dir.mkdir()
+    calls = []
+    sleeps = []
+    real_rmtree = shutil.rmtree
+
+    def transient_rmtree(path: Path) -> None:
+        calls.append(path)
+        if len(calls) < 3:
+            error = PermissionError("file is being read")
+            error.winerror = 32
+            raise error
+        real_rmtree(path)
+
+    monkeypatch.setattr(persistence_module.shutil, "rmtree", transient_rmtree)
+    monkeypatch.setattr(persistence_module.time, "sleep", sleeps.append)
+
+    assert await service.delete_task("task-locked") is True
+    assert calls == [task_dir, task_dir, task_dir]
+    assert sleeps == [0.05, 0.1]
+    assert not task_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_task_is_idempotent_under_concurrent_requests(
+    tmp_path: Path,
+) -> None:
+    service = PersistenceService(output_dir=str(tmp_path))
+    task_dir = service.get_task_dir("task-concurrent")
+    task_dir.mkdir()
+    (task_dir / "final.mp4").write_bytes(b"video")
+
+    results = await asyncio.gather(
+        *(service.delete_task("task-concurrent") for _ in range(8))
+    )
+
+    assert results == [True] * 8
+    assert not task_dir.exists()
+    assert await service.list_tasks() == []
+
+
+def test_delete_task_does_not_retry_deterministic_permission_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_dir = tmp_path / "task-denied"
+    task_dir.mkdir()
+    calls = []
+
+    def denied_rmtree(path: Path) -> None:
+        calls.append(path)
+        error = PermissionError("access denied")
+        error.winerror = 5
+        raise error
+
+    monkeypatch.setattr(persistence_module.shutil, "rmtree", denied_rmtree)
+    monkeypatch.setattr(
+        persistence_module.time,
+        "sleep",
+        lambda _delay: pytest.fail("deterministic failures must not be retried"),
+    )
+
+    with pytest.raises(PermissionError, match="access denied"):
+        PersistenceService._delete_task_directory(task_dir)
+    assert calls == [task_dir]
 
 
 @pytest.mark.asyncio

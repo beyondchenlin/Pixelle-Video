@@ -18,6 +18,7 @@ History Page - View generation history and manage tasks
 import os
 import sys
 from datetime import datetime
+from html import escape
 from pathlib import Path
 
 # Add project root to sys.path
@@ -29,11 +30,13 @@ if str(_project_root) not in sys.path:
 import streamlit as st
 
 from pixelle_video.config import config_manager
+from pixelle_video.platform_context import CONFIGURED_API_BASE_URL
 from web.components.header import render_header
 from web.components.style_config import resolve_storyboard_preset_label
 from web.i18n import tr
 from web.state.session import get_pixelle_video, init_i18n, init_session_state
 from web.utils.async_helpers import run_async
+from web.utils.output_media_urls import OutputMediaUrls, build_output_media_urls
 from web.utils.render_backend_ui import (
     format_task_boolean,
     get_task_caption_rendering_summary,
@@ -75,6 +78,48 @@ def build_history_page_css() -> str:
         border-radius: 6px;
         font-size: 0.72rem;
         line-height: 1;
+    }
+    .history-video-cover-link {
+        display: block;
+        position: relative;
+        width: 100%;
+        border-radius: 4px;
+        overflow: hidden;
+        background: #f0f0f0;
+    }
+    .history-video-cover-link:focus-visible {
+        outline: 3px solid #ff4b4b;
+        outline-offset: 2px;
+    }
+    .history-video-cover {
+        display: block;
+        width: 100%;
+        height: 180px;
+        object-fit: cover;
+        transition: transform 160ms ease, filter 160ms ease;
+    }
+    .history-video-cover-link:hover .history-video-cover {
+        transform: scale(1.02);
+        filter: brightness(0.88);
+    }
+    .history-video-cover-play {
+        position: absolute;
+        inset: 50% auto auto 50%;
+        transform: translate(-50%, -50%);
+        display: grid;
+        place-items: center;
+        width: 2.6rem;
+        height: 2.6rem;
+        border-radius: 999px;
+        color: white;
+        background: rgba(15, 23, 42, 0.78);
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.28);
+        pointer-events: none;
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .history-video-cover {
+            transition: none;
+        }
     }
     </style>
     """
@@ -120,6 +165,50 @@ def truncate_text(text: str, max_length: int = 60) -> str:
     if len(text) <= max_length:
         return text
     return text[:max_length] + "..."
+
+
+def build_history_media_urls(
+    media_path: str | Path,
+    *,
+    download_name: str | None = None,
+) -> OutputMediaUrls | None:
+    """Resolve persistent output media through the file-service boundary."""
+
+    return build_output_media_urls(
+        media_path,
+        api_base_url=st.session_state.get(
+            "api_base_url",
+            CONFIGURED_API_BASE_URL,
+        ),
+        download_name=download_name,
+    )
+
+
+def render_history_video_cover(
+    media_urls: OutputMediaUrls,
+    *,
+    title: str,
+) -> bool:
+    """Render a lightweight cover without opening the video during list views."""
+
+    if not media_urls.cover_url:
+        return False
+    stream_url = escape(media_urls.stream_url, quote=True)
+    cover_url = escape(media_urls.cover_url, quote=True)
+    label = escape(title, quote=True)
+    st.markdown(
+        (
+            f'<a class="history-video-cover-link" href="{stream_url}" '
+            'target="_blank" rel="noopener noreferrer" '
+            f'aria-label="{label}">'
+            f'<img class="history-video-cover" src="{cover_url}" alt="{label}" '
+            'loading="lazy" decoding="async" fetchpriority="low" />'
+            '<span class="history-video-cover-play" aria-hidden="true">▶</span>'
+            "</a>"
+        ),
+        unsafe_allow_html=True,
+    )
+    return True
 
 
 def extract_storyboard_planning_snapshot(detail: dict) -> dict:
@@ -326,12 +415,21 @@ def render_sidebar_controls(pixelle_video):
 def render_grid_task_card(task: dict, pixelle_video):
     """Render a compact grid task card"""
     task_id = task["task_id"]
-    title = task.get("title", "Untitled")
+    title = str(task.get("title") or "Untitled")
     status = task.get("status", "unknown")
     created_at = task.get("created_at", "")
     duration = task.get("duration", 0)
     n_frames = task.get("n_frames", 0)
     video_path = task.get("video_path", "")
+    download_stem = title[:-4] if title.casefold().endswith(".mp4") else title
+    media_urls = (
+        build_history_media_urls(
+            video_path,
+            download_name=f"{download_stem[:120]}.mp4",
+        )
+        if video_path
+        else None
+    )
     
     # Status badge
     status_map = {
@@ -352,9 +450,10 @@ def render_grid_task_card(task: dict, pixelle_video):
     # Card container
     with st.container():
         # Video preview at top
-        if video_path and os.path.exists(video_path):
-            st.video(video_path, autoplay=False, loop=False, muted=False)
-        else:
+        if media_urls is None or not render_history_video_cover(
+            media_urls,
+            title=title,
+        ):
             st.markdown(
                 "<div style='background: #f0f0f0; height: 180px; display: flex; align-items: center; "
                 "justify-content: center; border-radius: 4px; font-size: 48px;'>📹</div>",
@@ -381,17 +480,13 @@ def render_grid_task_card(task: dict, pixelle_video):
                     st.rerun()
             
             with col2:
-                if video_path and os.path.exists(video_path):
-                    with open(video_path, "rb") as f:
-                        st.download_button(
-                            "⬇️",
-                            data=f,
-                            file_name=f"{title}.mp4",
-                            mime="video/mp4",
-                            key=f"download_{task_id}",
-                            help=tr("history.task_card.download"),
-                            width="stretch"
-                        )
+                if media_urls is not None:
+                    st.link_button(
+                        "⬇️",
+                        media_urls.download_url,
+                        help=tr("history.task_card.download"),
+                        width="stretch",
+                    )
                 else:
                     st.button("⬇️", key=f"download_disabled_{task_id}", disabled=True, width="stretch")
             
@@ -554,8 +649,13 @@ def render_task_detail_modal(task_id: str, pixelle_video):
                         elif frame.image_path and os.path.exists(frame.image_path):
                             st.image(frame.image_path)
                     with col2:
-                        if frame.video_segment_path and os.path.exists(frame.video_segment_path):
-                            st.video(frame.video_segment_path)
+                        segment_media_urls = (
+                            build_history_media_urls(frame.video_segment_path)
+                            if frame.video_segment_path
+                            else None
+                        )
+                        if segment_media_urls is not None:
+                            st.video(segment_media_urls.stream_url)
                     
                     # Audio player (compact)
                     if frame.audio_path and os.path.exists(frame.audio_path):
@@ -568,8 +668,18 @@ def render_task_detail_modal(task_id: str, pixelle_video):
         st.markdown(f"**🎥 {tr('info.video_information')}**")
         
         video_path = metadata.get("result", {}).get("video_path")
-        if video_path and os.path.exists(video_path):
-            st.video(video_path)
+        title = str(metadata.get("input", {}).get("title") or "video")
+        download_stem = title[:-4] if title.casefold().endswith(".mp4") else title
+        media_urls = (
+            build_history_media_urls(
+                video_path,
+                download_name=f"{download_stem[:120]}.mp4",
+            )
+            if video_path
+            else None
+        )
+        if media_urls is not None:
+            st.video(media_urls.stream_url)
             
             # Video info
             result = metadata.get("result", {})
@@ -578,18 +688,11 @@ def render_task_detail_modal(task_id: str, pixelle_video):
             st.markdown(f"**{tr('info.file_size')}:** {format_file_size(result.get('file_size', 0))}")
 
             # Download button
-            with open(video_path, "rb") as f:
-                # Get title from input (which now includes the generated title)
-                title = metadata.get("input", {}).get("title", "video")
-                if not title:
-                    title = "video"
-                st.download_button(
-                    tr("history.detail.download_video"),
-                    data=f,
-                    file_name=f"{title}.mp4",
-                    mime="video/mp4",
-                    width="stretch"
-                )
+            st.link_button(
+                tr("history.detail.download_video"),
+                media_urls.download_url,
+                width="stretch",
+            )
         else:
             st.warning("Video file not found")
     
