@@ -334,6 +334,12 @@ def build_recent_video_gallery_css(
     .st-key-{grid_key} > div[data-testid="stLayoutWrapper"] {{
         min-width: 0;
     }}
+    @supports (content-visibility: auto) {{
+        .st-key-{grid_key} > div[data-testid="stLayoutWrapper"] {{
+            content-visibility: auto;
+            contain-intrinsic-size: auto 15rem;
+        }}
+    }}
     .st-key-{grid_key} > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"] {{
         padding: 0.5rem !important;
     }}
@@ -564,7 +570,7 @@ def render_recent_video_card(
                     'target="_blank" rel="noopener noreferrer" '
                     f'aria-label="{escape(raw_title, quote=True)}">'
                     f'<img class="recent-video-cover" src="{cover_url}" alt="{escape(raw_title, quote=True)}" '
-                    'loading="lazy" decoding="async" />'
+                    'loading="lazy" decoding="async" fetchpriority="low" />'
                     '</a>'
                 ),
                 unsafe_allow_html=True,
