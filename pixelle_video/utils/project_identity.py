@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import secrets
 import unicodedata
 from pathlib import Path
 
@@ -12,6 +13,8 @@ _PROJECT_ROOT_HASH_DOMAIN = b"Pixelle-Video project root identity v1\0"
 PATH_ID_PREFIX = "pixelle-path-v1:"
 _PATH_ID_PATTERN = re.compile(r"^pixelle-path-v1:[0-9a-f]{64}$")
 _PATH_HASH_DOMAIN = b"Pixelle-Video configured path identity v1\0"
+LAUNCH_ID_PREFIX = "pixelle-launch-v1:"
+_LAUNCH_ID_PATTERN = re.compile(r"^pixelle-launch-v1:[0-9a-f]{32}$")
 
 
 def resolve_project_root(project_root: str | os.PathLike[str]) -> Path:
@@ -53,12 +56,25 @@ def is_path_id(value: object) -> bool:
     return isinstance(value, str) and _PATH_ID_PATTERN.fullmatch(value) is not None
 
 
+def new_launch_id() -> str:
+    """Build an opaque identifier for one launcher-owned process tree."""
+    return f"{LAUNCH_ID_PREFIX}{secrets.token_hex(16)}"
+
+
+def is_launch_id(value: object) -> bool:
+    """Return whether a value follows the versioned launch identity contract."""
+    return isinstance(value, str) and _LAUNCH_ID_PATTERN.fullmatch(value) is not None
+
+
 __all__ = [
     "PATH_ID_PREFIX",
     "PROJECT_ROOT_ID_PREFIX",
+    "LAUNCH_ID_PREFIX",
     "build_path_id",
     "build_project_root_id",
+    "is_launch_id",
     "is_path_id",
     "is_project_root_id",
+    "new_launch_id",
     "resolve_project_root",
 ]

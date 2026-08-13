@@ -11,8 +11,10 @@ from pixelle_video.utils.configured_path import resolve_configured_path
 from pixelle_video.utils.project_identity import (
     build_path_id,
     build_project_root_id,
+    is_launch_id,
     is_path_id,
     is_project_root_id,
+    new_launch_id,
 )
 
 
@@ -51,6 +53,23 @@ def test_project_root_id_validation_accepts_generated_value(tmp_path: Path) -> N
     assert is_project_root_id(build_project_root_id(tmp_path)) is True
 
 
+def test_launch_id_is_unique_and_follows_the_versioned_contract() -> None:
+    first = new_launch_id()
+    second = new_launch_id()
+
+    assert is_launch_id(first) is True
+    assert is_launch_id(second) is True
+    assert first != second
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, "", "invalid", "pixelle-launch-v1:" + ("0" * 31)],
+)
+def test_launch_id_validation_rejects_malformed_values(value: object) -> None:
+    assert is_launch_id(value) is False
+
+
 def test_configured_path_id_supports_a_not_yet_created_target(tmp_path: Path) -> None:
     target = tmp_path / "not-created" / "output"
 
@@ -86,6 +105,11 @@ def test_api_runtime_distinguishes_checkout_code_from_configured_project_data(
     assert context.checkout_root == checkout_root
     assert context.project_root == project_root
     assert context.checkout_root_id != context.project_root_id
+
+
+def test_api_runtime_rejects_an_invalid_launch_identity(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="PIXELLE_LAUNCH_ID"):
+        build_api_runtime_context(tmp_path, checkout_root=tmp_path, launch_id="invalid")
 
 
 def test_relative_configured_paths_are_anchored_to_project_root(
@@ -154,6 +178,7 @@ def test_health_exposes_only_opaque_runtime_fingerprints() -> None:
     assert payload["checkout_root_id"] == context.checkout_root_id
     assert payload["project_root_id"] == context.project_root_id
     assert payload["output_root_id"] == context.output_root_id
+    assert payload["launch_id"] == context.launch_id
     assert is_project_root_id(payload["checkout_root_id"]) is True
     assert is_project_root_id(payload["project_root_id"]) is True
     assert is_path_id(payload["output_root_id"]) is True
