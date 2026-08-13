@@ -11,13 +11,18 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_DIR = REPO_ROOT / "scripts" / "comfyui"
 POWERSHELL = "powershell"
+TEST_ACCELERATOR_MUTEX_NAME = rf"Local\Pixelle-Test-{uuid.uuid4().hex}"
 
 
 def ps_single_quote(value: object) -> str:
     return str(value).replace("'", "''")
 
 
-def run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def run_powershell(
+    script: Path,
+    *args: str,
+    isolate_backend_mutex: bool = True,
+) -> subprocess.CompletedProcess[str]:
     command = [
         POWERSHELL,
         "-NoProfile",
@@ -27,6 +32,12 @@ def run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]
         str(script),
         *map(str, args),
     ]
+    if (
+        isolate_backend_mutex
+        and script.name in {"start_backend.ps1", "check_backend.ps1", "stop_backend.ps1"}
+        and "-AcceleratorMutexName" not in args
+    ):
+        command.extend(["-AcceleratorMutexName", TEST_ACCELERATOR_MUTEX_NAME])
     return subprocess.run(
         command,
         cwd=REPO_ROOT,
@@ -329,21 +340,64 @@ def wait_for_process_exit(process_id: int) -> None:
     raise AssertionError(f"Timed out waiting for process {process_id} to exit")
 
 
-def kill_fake_comfyui_processes(comfyui_root: Path) -> None:
-    escaped = str(comfyui_root / "main.py").replace("'", "''")
-    cleanup = (
-        "Get-CimInstance Win32_Process | "
-        f"Where-Object {{ $_.CommandLine -like '*{escaped}*' }} | "
-        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+def wait_for_accelerator_mutex_release() -> None:
+    escaped_mutex_name = TEST_ACCELERATOR_MUTEX_NAME.replace("'", "''")
+    wait_command = "\n".join(
+        [
+            f"$mutex = [System.Threading.Mutex]::new($false, '{escaped_mutex_name}')",
+            "$acquired = $false",
+            "try {",
+            "  try { $acquired = $mutex.WaitOne([TimeSpan]::FromSeconds(10)) }",
+            "  catch [System.Threading.AbandonedMutexException] { $acquired = $true }",
+            "  if (-not $acquired) { throw 'Timed out waiting for accelerator mutex.' }",
+            "  $mutex.ReleaseMutex()",
+            "}",
+            "finally { $mutex.Dispose() }",
+        ]
     )
-    subprocess.run(
-        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cleanup],
+    result = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            wait_command,
+        ],
         cwd=REPO_ROOT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=15,
         check=False,
     )
+    assert result.returncode == 0, result.stderr
+
+
+def kill_fake_comfyui_processes(comfyui_root: Path) -> None:
+    escaped = str(comfyui_root / "main.py").replace("'", "''")
+    cleanup = (
+        f"$target = '{escaped}'; "
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { "
+        "$_.ProcessId -ne $PID -and $_.CommandLine -and "
+        "$_.CommandLine.IndexOf($target, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 "
+        "} | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+    )
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cleanup],
+        cwd=REPO_ROOT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    wait_for_accelerator_mutex_release()
 
 
 def fake_listening_comfyui_command(
@@ -703,6 +757,7 @@ def test_start_backend_dry_run_loads_only_allowed_custom_nodes(tmp_path: Path) -
         "allowlist",
         "-AllowedCustomNodeFoldersBase64",
         encoded_folders,
+        isolate_backend_mutex=False,
     )
 
     assert result.returncode == 0, result.stderr
@@ -1858,6 +1913,7 @@ def test_start_backend_forces_utf8_child_output_encoding(tmp_path: Path) -> None
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
         assert payload["started"] is True
+        assert payload["accelerator_mutex_name"] == TEST_ACCELERATOR_MUTEX_NAME
         assert (logs_dir / "comfyui-backend.stdout.log").read_text(
             encoding="utf-8"
         ).startswith("\U0001f389 fake comfyui started")
@@ -2287,6 +2343,7 @@ def test_start_backend_cleans_up_when_backend_never_listens(tmp_path: Path) -> N
         assert "did not listen" in (result.stdout + result.stderr)
         assert not (runtime_dir / "comfyui-backend.pid").exists()
         assert not (runtime_dir / "comfyui-backend.launcher.pid").exists()
+        wait_for_accelerator_mutex_release()
 
         check = run_powershell(
             SCRIPT_DIR / "check_backend.ps1",

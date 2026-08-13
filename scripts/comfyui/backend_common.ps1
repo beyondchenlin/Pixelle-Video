@@ -269,7 +269,8 @@ function Resolve-PixelleComfyUIBackendConfig {
         [string]$ResourcePolicy = '',
         [double]$MinimumFreeCommitGB = -1,
         [string]$CustomNodeLoading = 'all',
-        [string]$AllowedCustomNodeFoldersBase64 = ''
+        [string]$AllowedCustomNodeFoldersBase64 = '',
+        [string]$AcceleratorMutexName = ''
     )
 
     $repoRoot = Get-PixelleRepoRoot
@@ -316,7 +317,15 @@ function Resolve-PixelleComfyUIBackendConfig {
     $resolvedAllowedCustomNodeFoldersBase64 = [Convert]::ToBase64String(
         [Text.Encoding]::UTF8.GetBytes($allowedFoldersJson)
     )
-    $acceleratorMutexName = 'Global\Pixelle-ComfyUI-Accelerator-v1'
+    $resolvedAcceleratorMutexName = if ([string]::IsNullOrWhiteSpace($AcceleratorMutexName)) {
+        'Global\Pixelle-ComfyUI-Accelerator-v1'
+    }
+    else {
+        $AcceleratorMutexName.Trim()
+    }
+    if ($resolvedAcceleratorMutexName -notmatch '^(Global|Local)\\[A-Za-z0-9._-]{1,180}$') {
+        throw "Invalid ComfyUI accelerator mutex name: $resolvedAcceleratorMutexName"
+    }
     $resolvedMinimumFreeCommitGB = Resolve-BackendDouble `
         $MinimumFreeCommitGB `
         'PIXELLE_COMFYUI_MINIMUM_FREE_COMMIT_GB' `
@@ -360,7 +369,7 @@ function Resolve-PixelleComfyUIBackendConfig {
         CustomNodeLoading = $resolvedCustomNodeLoading
         AllowedCustomNodeFolders = $resolvedAllowedCustomNodeFolders
         AllowedCustomNodeFoldersBase64 = $resolvedAllowedCustomNodeFoldersBase64
-        AcceleratorMutexName = $acceleratorMutexName
+        AcceleratorMutexName = $resolvedAcceleratorMutexName
         RequestedMinimumFreeCommitGB = $resolvedMinimumFreeCommitGB
         MinimumFreeCommitGB = $resolvedMinimumFreeCommitGB
         MinimumFreeCommitMode = if ($resolvedMinimumFreeCommitGB -ge 0) { 'configured' } else { 'automatic' }
@@ -1063,7 +1072,7 @@ function Stop-ProcessTreeOwnedByLaunch {
 
     $processTreeIds = @(Get-ProcessTreeIds -RootProcessId $RootProcessId)
     if ($processTreeIds.Count -eq 0) {
-        return
+        return $true
     }
 
     $descendants = @($processTreeIds | Where-Object { $_ -ne $RootProcessId })
@@ -1074,6 +1083,19 @@ function Stop-ProcessTreeOwnedByLaunch {
     # re-parent descendants and make a later process-tree walk unable to confirm
     # that the complete owned service exited.
     Stop-Process -Id $RootProcessId -Force -ErrorAction SilentlyContinue
+
+    $deadline = (Get-Date).AddSeconds(5)
+    do {
+        $remainingProcessIds = @(
+            $processTreeIds | Where-Object { Get-ProcessInfo $_ }
+        )
+        if ($remainingProcessIds.Count -eq 0) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 100
+    } while ((Get-Date) -lt $deadline)
+
+    return $false
 }
 
 function Get-ProcessCreationIdentity {

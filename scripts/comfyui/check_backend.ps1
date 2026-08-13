@@ -17,6 +17,9 @@ param(
     [ValidateSet('', 'all', 'allowlist', 'none')]
     [string]$CustomNodeLoading = '',
     [string]$AllowedCustomNodeFoldersBase64 = '',
+    [Parameter(DontShow = $true)]
+    [ValidatePattern('^$|^(Global|Local)\\[A-Za-z0-9._-]{1,180}$')]
+    [string]$AcceleratorMutexName = '',
     [switch]$Json
 )
 
@@ -40,7 +43,8 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -ResourcePolicy $ResourcePolicy `
     -MinimumFreeCommitGB $MinimumFreeCommitGB `
     -CustomNodeLoading $CustomNodeLoading `
-    -AllowedCustomNodeFoldersBase64 $AllowedCustomNodeFoldersBase64
+    -AllowedCustomNodeFoldersBase64 $AllowedCustomNodeFoldersBase64 `
+    -AcceleratorMutexName $AcceleratorMutexName
 
 $listener = Get-BackendListener $config
 $managedPid = Read-BackendPid $config
