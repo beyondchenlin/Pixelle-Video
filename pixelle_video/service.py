@@ -127,6 +127,14 @@ _EXTENSION_RELEASE_CONTEXTS: dict[ComfyUIExtensionName, str] = {
     "gguf": "gguf",
     "omnivoice": "omnivoice",
 }
+_COMFYUI_BACKEND_ALREADY_ABSENT_REASONS = frozenset(
+    {
+        "backend_absent",
+        "pid_file_missing",
+        "pid_file_invalid",
+        "process_missing",
+    }
+)
 _WORKFLOW_PROMPT_PARAM_KEYS = (
     "prompt",
     "positive_prompt",
@@ -2072,21 +2080,19 @@ class PixelleVideoCore:
                     )
 
     async def _stop_idle_managed_comfyui_backends(self, *, reason: str) -> list[str]:
+        candidate_roles = tuple(self._recent_local_comfyui_backend_roles.keys())
+        if not candidate_roles:
+            logger.debug(
+                "Skipping managed ComfyUI backend cleanup; no local backend was used "
+                f"since the previous lifecycle settlement ({reason})"
+            )
+            return []
+
         registry = self._get_comfyui_backend_registry()
         stopped_roles: list[str] = []
         processed_roles: set[str] = set()
         errors: list[str] = []
         seen_endpoints: set[tuple[str, str, int | None]] = set()
-        routed_roles = (
-            registry.config.workflow_routing.image,
-            registry.config.workflow_routing.tts,
-            registry.config.workflow_routing.default,
-        )
-        candidate_roles = (
-            tuple(self._recent_local_comfyui_backend_roles.keys())
-            if self._recent_local_comfyui_backend_roles
-            else routed_roles
-        )
         ordered_roles = list(
             dict.fromkeys(
                 [
@@ -2149,13 +2155,26 @@ class PixelleVideoCore:
                     )
                 continue
             if not payload.get("stopped"):
-                logger.warning(
-                    "Skipping ComfyUI backend stop after generation for role "
-                    f"'{normalized_role}'; Pixelle does not own a running backend: "
-                    f"{payload}"
-                )
-                if payload.get("reason") == "external_backend_not_owned":
+                skip_reason = str(payload.get("reason") or "unknown").strip()
+                if skip_reason in _COMFYUI_BACKEND_ALREADY_ABSENT_REASONS:
+                    logger.debug(
+                        "ComfyUI backend was already absent after generation; "
+                        f"role='{normalized_role}', reason='{skip_reason}'"
+                    )
                     processed_roles.add(normalized_role)
+                    await self._close_comfykit_instance(normalized_role)
+                    continue
+                if skip_reason == "external_backend_not_owned":
+                    logger.info(
+                        "Preserving externally managed ComfyUI backend after generation; "
+                        f"role='{normalized_role}'"
+                    )
+                    processed_roles.add(normalized_role)
+                    continue
+                logger.warning(
+                    "ComfyUI backend stop after generation was not confirmed; "
+                    f"role='{normalized_role}', reason='{skip_reason}'"
+                )
                 continue
 
             processed_roles.add(normalized_role)
@@ -2324,12 +2343,7 @@ class PixelleVideoCore:
         result = await backend.stop(reason=reason)
         payload = result.payload or {}
         stopped = bool(payload.get("stopped"))
-        already_absent = payload.get("reason") in {
-            "backend_absent",
-            "pid_file_missing",
-            "pid_file_invalid",
-            "process_missing",
-        }
+        already_absent = payload.get("reason") in _COMFYUI_BACKEND_ALREADY_ABSENT_REASONS
         if not stopped and not already_absent:
             return False
 

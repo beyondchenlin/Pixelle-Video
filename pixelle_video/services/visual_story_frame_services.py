@@ -8,7 +8,10 @@ from loguru import logger
 
 from pixelle_video.models.llm_interaction_trace import trace_context_with_prompt_template
 from pixelle_video.models.visual_story_engine import FrameVisualPlan
-from pixelle_video.prompts.visual_story_execution import render_frame_visual_plan_batch_prompt
+from pixelle_video.prompts.visual_story_execution import (
+    render_frame_visual_plan_batch_prompt,
+    render_frame_visual_plan_batch_repair_prompt,
+)
 from pixelle_video.services.frame_batch_contract import (
     FrameBatchContractError,
     frame_ids_from_records,
@@ -87,25 +90,47 @@ class FrameVisualPlanBatchService:
             target_language=target_language,
         )
         try:
-            response = await llm_service(
-                prompt=rendered_prompt.text,
-                response_type=dict,
-                temperature=0.2,
-                max_tokens=2500,
-                trace_context=_stage_trace_context(
-                    trace_context,
-                    rendered_prompt=rendered_prompt,
-                    stage="frame_visual_plan_batch",
-                    batch_payload=batch_payload,
-                ),
-                trace_recorder=trace_recorder,
-            )
-            plans = parse_frame_batch_response(
-                response,
-                primary_key="frame_visual_plans",
-                expected_frame_ids=expected_frame_ids,
-                stage="frame_visual_plan_response",
-            )
+            active_prompt = rendered_prompt
+            for attempt in (1, 2):
+                response = await llm_service(
+                    prompt=active_prompt.text,
+                    response_type=dict,
+                    temperature=0.2 if attempt == 1 else 0.0,
+                    max_tokens=2500,
+                    trace_context=_stage_trace_context(
+                        trace_context,
+                        rendered_prompt=active_prompt,
+                        stage=(
+                            "frame_visual_plan_batch"
+                            if attempt == 1
+                            else "frame_visual_plan_batch_repair"
+                        ),
+                        batch_payload=batch_payload,
+                        attempt=attempt,
+                    ),
+                    trace_recorder=trace_recorder,
+                )
+                try:
+                    plans = parse_frame_batch_response(
+                        response,
+                        primary_key="frame_visual_plans",
+                        expected_frame_ids=expected_frame_ids,
+                        stage="frame_visual_plan_response",
+                    )
+                    break
+                except FrameBatchContractError as exc:
+                    if attempt == 2:
+                        raise
+                    logger.info(
+                        "Frame visual plan response violated its contract; "
+                        "requesting one bounded schema repair: {}",
+                        exc.code,
+                    )
+                    active_prompt = render_frame_visual_plan_batch_repair_prompt(
+                        original_request=rendered_prompt,
+                        expected_frame_ids=expected_frame_ids,
+                        error_code=exc.code,
+                    )
             normalized_plans = tuple(
                 FrameVisualPlan.from_mapping(item).to_dict()
                 for item in plans
@@ -146,6 +171,7 @@ def _stage_trace_context(
     rendered_prompt: Any,
     stage: str,
     batch_payload: Mapping[str, Any],
+    attempt: int = 1,
 ) -> Any:
     if trace_context is None:
         return None
@@ -154,7 +180,7 @@ def _stage_trace_context(
         return trace_context_with_prompt_template(
             trace_context,
             rendered_prompt=rendered_prompt,
-            attempt=1,
+            attempt=attempt,
             stage=stage,
             metadata={"frame_ids": frame_ids},
         )

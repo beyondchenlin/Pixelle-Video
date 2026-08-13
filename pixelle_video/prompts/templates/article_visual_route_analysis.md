@@ -1,8 +1,8 @@
 ---
 prompt_id: article_visual_route_analysis
-version: 7
+version: 8
 stage: article_visual_route_analysis
-purpose: Analyze source text and recommend content-only visual-story routes before final visual prompting.
+purpose: Analyze source text and recommend scored content-only visual-story routes before deterministic ranking and final visual prompting.
 output_contract: JSON object. article_understanding must be a JSON object with input_kind, summary, core_claim, central_problem, tone, key_subjects, cognitive_opportunities, metaphor_opportunities, unsafe_or_sensitive_flags, evidence_spans. candidates must be a JSON array of content-route objects. Do not output recurring-IP fields or model-computed final scores.
 ---
 
@@ -43,7 +43,8 @@ Requirements:
 - Do not evaluate recurring-IP compatibility.
 - Do not recommend recurring-IP roles or visibility.
 - Do not output ip_compatibility, recommended_ip_role, ip_fit_reason, or equivalent fields.
-- Do not output final or final_score. Runtime code owns the final content-route score so model self-scoring cannot bypass the deterministic gate.
+- Do output the five required component scores for every candidate.
+- Do not output final or final_score. Runtime code owns only the aggregate ranking score, so model self-scoring cannot bypass the deterministic gate.
 - Every candidate's scores value must be a nested JSON object. All five score values must be JSON numbers from 0 to 1, never strings, field names, null, booleans, arrays, or flattened candidate fields.
 
 Return a JSON object with these top-level keys:
@@ -71,9 +72,8 @@ Return a JSON object with these top-level keys:
   - sample_frame_premise
   - scores: object with content_fit, memorability, channel_consistency, production_reliability, risk (all 0-1)
 
-The required score shape for every candidate is:
+The required score shape for every candidate is the following JSON object fragment. Return it inside each candidate; do not return markdown fences:
 
-```json
 {{
   "scores": {{
     "content_fit": 0.82,
@@ -83,7 +83,6 @@ The required score shape for every candidate is:
     "risk": 0.12
   }}
 }}
-```
 
 Score meaning:
 - content_fit: how accurately the route represents the article.

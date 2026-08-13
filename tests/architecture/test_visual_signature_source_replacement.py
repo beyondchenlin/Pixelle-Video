@@ -81,7 +81,10 @@ def test_visual_story_execution_prompt_module_exposes_content_frame_planning_onl
         for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    assert functions == {"render_frame_visual_plan_batch_prompt"}
+    assert functions == {
+        "render_frame_visual_plan_batch_prompt",
+        "render_frame_visual_plan_batch_repair_prompt",
+    }
 
 
 def test_article_concretization_cannot_decide_visual_signature_role() -> None:
