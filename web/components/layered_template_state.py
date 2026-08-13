@@ -11,6 +11,7 @@ from pixelle_video.models.layered_template import (
     RectSpec,
     TemplateLayer,
 )
+from pixelle_video.models.media_placement import calculate_media_box
 from pixelle_video.models.size_contract import GenerationSizeContract
 
 LAYERED_TEMPLATE_EDITOR_STATE_KEY = "layered_template_editor_state"
@@ -77,16 +78,21 @@ class LayeredTemplateEditorState:
         return self._append_layer(layer)
 
     def append_image_layer(self, name: str) -> LayeredTemplateEditorState:
-        side = max(1, min(self.media_width, self.media_height, self.canvas_width, self.canvas_height))
+        media_box = calculate_media_box(
+            canvas_width=self.canvas_width,
+            canvas_height=self.canvas_height,
+            media_source_width=self.media_width,
+            media_source_height=self.media_height,
+        )
         layer = TemplateLayer(
             id=_new_layer_id(),
             type="image",
             name=name,
             rect=RectSpec(
-                x=(self.canvas_width - side) / 2,
-                y=(self.canvas_height - side) / 2,
-                width=side,
-                height=side,
+                x=media_box.left,
+                y=media_box.top,
+                width=media_box.width,
+                height=media_box.height,
             ),
             z_index=_next_z_index(self.layers),
             opacity=1.0,

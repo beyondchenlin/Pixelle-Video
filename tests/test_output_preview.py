@@ -2,8 +2,10 @@ import ast
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import unquote
 
 import pytest
+from PIL import Image
 
 from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.size_contract import GenerationSizeContract
@@ -3093,8 +3095,8 @@ def test_build_layout_preview_html_uses_default_frame_template_without_layered_s
             "frame_template": "1920x1080/image_landscape_minimal.html",
             "canvas_width": 1280,
             "canvas_height": 720,
-            "media_width": 768,
-            "media_height": 768,
+            "media_width": 1280,
+            "media_height": 720,
             "media_placement": {
                 "basis": "canvas",
                 "fit": "contain",
@@ -3121,10 +3123,73 @@ def test_build_layout_preview_html_uses_default_frame_template_without_layered_s
         "canvas_height": 720,
     }
     assert captured["render_kwargs"]["media_placement"]["scale_percent"] == 90
-    assert captured["render_kwargs"]["media_width"] == 768
-    assert captured["render_kwargs"]["media_height"] == 768
-    assert captured["render_kwargs"]["image"] == Path("resources/example.png").resolve().as_uri()
+    assert captured["render_kwargs"]["media_width"] == 1280
+    assert captured["render_kwargs"]["media_height"] == 720
+    placeholder_uri = captured["render_kwargs"]["image"]
+    assert placeholder_uri.startswith("data:image/svg+xml")
+    placeholder_svg = unquote(placeholder_uri.split(",", 1)[1])
+    assert 'viewBox="0 0 1280 720"' in placeholder_svg
+    assert Path("resources/example.png").resolve().as_uri() not in placeholder_uri
     assert captured["render_kwargs"]["ext"]["media_layout_mode"] == "template"
+
+
+def test_layout_preview_placeholder_uses_selected_landscape_media_geometry():
+    html = output_preview._build_layout_preview_html(
+        {
+            "title": "横屏预览",
+            "text": "等待真实素材",
+            "frame_template": "1920x1080/image_landscape_minimal.html",
+            "canvas_width": 1280,
+            "canvas_height": 720,
+            "media_width": 1280,
+            "media_height": 720,
+            "media_placement": {
+                "basis": "canvas",
+                "fit": "contain",
+                "scale_percent": 100,
+                "offset_x": 0,
+                "offset_y": 0,
+            },
+        }
+    )
+
+    assert html is not None
+    assert "--pixelle-media-display-width: 1920px" in html.html
+    assert "--pixelle-media-display-height: 1080px" in html.html
+    assert "--pixelle-media-left: 0px" in html.html
+    assert "--pixelle-media-top: 0px" in html.html
+    assert Path("resources/example.png").resolve().as_uri() not in html.html
+
+
+def test_layout_preview_keeps_natural_geometry_for_real_square_media(tmp_path):
+    media_path = tmp_path / "real-square.png"
+    Image.new("RGB", (512, 512), "white").save(media_path)
+
+    html = output_preview._build_layout_preview_html(
+        {
+            "title": "真实素材",
+            "frame_template": "1920x1080/image_landscape_minimal.html",
+            "canvas_width": 1280,
+            "canvas_height": 720,
+            "media_width": 1280,
+            "media_height": 720,
+            "layout_preview_media_path": str(media_path),
+            "media_placement": {
+                "basis": "canvas",
+                "fit": "contain",
+                "scale_percent": 100,
+                "offset_x": 0,
+                "offset_y": 0,
+            },
+        }
+    )
+
+    assert html is not None
+    assert media_path.resolve().as_uri() in html.html
+    assert "--pixelle-media-display-width: 1080px" in html.html
+    assert "--pixelle-media-display-height: 1080px" in html.html
+    assert "--pixelle-media-left: 420px" in html.html
+    assert "--pixelle-media-top: 0px" in html.html
 
 
 def test_render_single_output_preserves_ui_size_contract_when_generating(
