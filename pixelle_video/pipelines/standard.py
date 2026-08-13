@@ -118,9 +118,11 @@ from pixelle_video.services.reference_image_visual_context_adapter import (
     ReferenceImageVisualContextAdapter,
 )
 from pixelle_video.services.render_capability_resolver import (
+    HyperFramesTemplateCapabilities,
     RenderCapabilityInput,
     RenderCapabilityResolver,
     RenderCapabilityResult,
+    load_hyperframes_template_capabilities,
 )
 from pixelle_video.services.script_generation import ScriptGenerationService
 from pixelle_video.services.storyboard_generation import StoryboardGenerationService
@@ -1542,6 +1544,22 @@ class StandardPipeline(LinearVideoPipeline):
             self._get_hyperframes_template_unavailable_reason(ctx)
         )
         has_hyperframes_native_template = hyperframes_template_unavailable_reason is None
+        template_id = self._resolve_hyperframes_template_id(ctx.config)
+        template_dir = (
+            Path(__file__).resolve().parents[2]
+            / "resources"
+            / "hyperframes"
+            / "templates"
+            / template_id
+        )
+        template_capabilities = (
+            load_hyperframes_template_capabilities(
+                template_dir,
+                template_id=template_id,
+            )
+            if requested_backend != LEGACY_RENDER_BACKEND
+            else HyperFramesTemplateCapabilities()
+        )
         template_prerendered = (
             execution_mode.template_type == "image"
             and execution_mode.media_domain == "image"
@@ -1567,6 +1585,9 @@ class StandardPipeline(LinearVideoPipeline):
                 template_prerendered=template_prerendered,
                 element_motion_backend=element_motion_backend,
                 has_hyperframes_native_template=has_hyperframes_native_template,
+                template_requires_browser_timeline=(
+                    template_capabilities.browser_timeline_required
+                ),
                 has_layered_template_spec=bool(
                     getattr(ctx.config, "layered_template_spec", None)
                 ),
@@ -2694,6 +2715,10 @@ class StandardPipeline(LinearVideoPipeline):
                 logger.info(f"✅ Frame {i+1} completed ({processed_frame.duration:.2f}s)")
 
     async def _produce_assets_hyperframes(self, ctx: PipelineContext):
+        if self.core.hyperframes_renderer is None:
+            raise RuntimeError("HyperFrames renderer is not initialized")
+        await asyncio.to_thread(self.core.hyperframes_renderer.validate_runtime)
+
         execution_mode = self._resolve_asset_execution_mode(ctx)
         media_session_policy = execution_mode.local_media_session_policy
         if media_session_policy == "none" and execution_mode.media_domain != "static":

@@ -136,18 +136,57 @@ test("resolveBrowserExecutable rejects a stale explicit override", async () => {
   );
 });
 
-test("resolveBrowserExecutable prefers the pinned Puppeteer browser over system candidates", async () => {
+test("resolveBrowserExecutable uses the pinned Puppeteer browser", async () => {
   const resolved = await resolveBrowserExecutable(
     {},
     {
       environment: {},
       platform: process.platform,
       puppeteerExecutablePath: () => process.execPath,
-      systemBrowserCandidates: () => [path.join(tmpdir(), "unused-system-browser")],
     },
   );
 
   assert.equal(resolved, path.resolve(process.execPath));
+});
+
+test("resolveBrowserExecutable awaits the Puppeteer 25 executable path", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "pixelle-browser-path-"));
+  const browserPath = path.join(tempRoot, "async-chrome.exe");
+  await writeFile(browserPath, "browser");
+
+  const resolved = await resolveBrowserExecutable({}, {
+    environment: {},
+    platform: "win32",
+    puppeteerExecutablePath: async () => browserPath,
+  });
+
+  assert.equal(resolved, path.resolve(browserPath));
+});
+
+test("resolveBrowserExecutable treats Puppeteer's executable override as explicit", async () => {
+  await assert.rejects(
+    () =>
+      resolveBrowserExecutable({}, {
+        environment: {
+          PUPPETEER_EXECUTABLE_PATH: path.join(tmpdir(), "missing-explicit-browser"),
+        },
+        platform: process.platform,
+        puppeteerExecutablePath: () => process.execPath,
+      }),
+    /does not exist or is not executable/u,
+  );
+});
+
+test("resolveBrowserExecutable does not silently fall back to a system browser", async () => {
+  await assert.rejects(
+    () =>
+      resolveBrowserExecutable({}, {
+        environment: { PATH: path.dirname(process.execPath) },
+        platform: process.platform,
+        puppeteerExecutablePath: async () => path.join(tmpdir(), "missing-pinned-browser"),
+      }),
+    /browser pinned by Puppeteer is not installed/u,
+  );
 });
 
 test("resolveRenderRequest rejects malformed manifest task ids before deriving output paths", async () => {

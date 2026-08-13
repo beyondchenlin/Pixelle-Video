@@ -3,14 +3,17 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "scripts": {
+    "browser:install": "puppeteer browsers install chrome",
+    "runtime:verify": "node src/verify-runtime.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "@hyperframes/producer": "0.4.44",
-    "puppeteer": "24.42.0"
+    "@hyperframes/producer": "0.7.107",
+    "puppeteer": "25.6.0",
+    "yauzl": "3.4.0"
   },
   "overrides": {
     "@hono/node-server": "2.1.0",

@@ -1,11 +1,39 @@
 # Pixelle-Video Docker Image
-# Based on Python 3.11 slim for smaller image size
 
-FROM python:3.11-slim
+FROM node:24.12.0-bookworm-slim@sha256:7326fb2dbdce998edd72140946851be64ef4a643e8715e138ca467e8e9d92c99 AS hyperframes-runtime
+
+WORKDIR /bridge
+COPY tools/hyperframes_bridge/package.json tools/hyperframes_bridge/package-lock.json ./
+ENV PUPPETEER_CACHE_DIR="/bridge/.cache/puppeteer" \
+    PUPPETEER_SKIP_DOWNLOAD="true" \
+    PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD="true" \
+    PIXELLE_REQUIRE_PINNED_BROWSER="true"
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+        if npm ci --omit=dev; then exit 0; fi; \
+        if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+        sleep $((attempt * 5)); \
+    done
+COPY tools/hyperframes_bridge/src ./src
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+        if npm run browser:install; then exit 0; fi; \
+        if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+        sleep $((attempt * 5)); \
+    done
+RUN npm run runtime:verify
+
+FROM ghcr.io/astral-sh/uv:0.10.7@sha256:edd1fd89f3e5b005814cc8f777610445d7b7e3ed05361f9ddfae67bebfe8456a AS uv-runtime
+FROM python:3.11.15-slim-bookworm@sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3
+
+COPY --from=uv-runtime /uv /uvx /bin/
+COPY --from=hyperframes-runtime /usr/local/bin/node /usr/local/bin/node
 
 # Build arguments for mirror configuration
 # USE_CN_MIRROR: whether to use China mirrors (true/false)
 ARG USE_CN_MIRROR=false
+ARG PIXELLE_UID=1000
+ARG PIXELLE_GID=1000
 
 # Set working directory
 WORKDIR /app
@@ -17,42 +45,44 @@ RUN if [ "$USE_CN_MIRROR" = "true" ]; then \
     sed -i 's|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources; \
     fi
 
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources && \
+    printf '%s\n' \
+        'Acquire::Retries "5";' \
+        'Acquire::http::Timeout "60";' \
+        'Acquire::https::Timeout "60";' \
+        > /etc/apt/apt.conf.d/80-pixelle-network
+
 # Install system dependencies
 # - curl: for health checks and downloads
 # - ffmpeg: for video/audio processing
 # - fonts-noto-cjk: for CJK character support
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ffmpeg \
     fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv package manager
-# For China: use pip to install uv from mirror (faster and more stable)
-# For International: use official installer script
-RUN if [ "$USE_CN_MIRROR" = "true" ]; then \
-        pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ uv; \
-    else \
-        curl -LsSf https://astral.sh/uv/install.sh | sh; \
-    fi
-ENV PATH="/root/.local/bin:$PATH"
 RUN uv --version
 
 # Copy dependency files and source code for building
 # Note: pixelle_video is needed for hatchling to build the package
 COPY pyproject.toml uv.lock README.md ./
 COPY pixelle_video ./pixelle_video
+ENV PLAYWRIGHT_BROWSERS_PATH="/app/tools/playwright" \
+    PUPPETEER_CACHE_DIR="/app/tools/hyperframes_bridge/.cache/puppeteer" \
+    PIXELLE_REQUIRE_PINNED_BROWSER="true"
 
 # Create virtual environment and install dependencies
 # Use -i flag to specify mirror when USE_CN_MIRROR=true
 RUN export UV_HTTP_TIMEOUT=300 && \
-    uv venv && \
     if [ "$USE_CN_MIRROR" = "true" ]; then \
-        uv pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple; \
+        uv sync --frozen --no-dev --index-url https://pypi.tuna.tsinghua.edu.cn/simple; \
     else \
-        uv pip install -e .; \
+        uv sync --frozen --no-dev; \
     fi && \
     uv run playwright install --with-deps chromium
+
+COPY --from=hyperframes-runtime /bridge ./tools/hyperframes_bridge
 
 # Copy rest of application code
 COPY api ./api
@@ -78,7 +108,15 @@ RUN mkdir -p \
     /app/data \
     "$TMP" \
     "$UV_CACHE_DIR" \
-    "$RUFF_CACHE_DIR"
+    "$RUFF_CACHE_DIR" && \
+    groupadd --gid "$PIXELLE_GID" pixelle && \
+    useradd --uid "$PIXELLE_UID" --gid "$PIXELLE_GID" --create-home pixelle && \
+    chown -R pixelle:pixelle /app
+
+USER pixelle
+
+RUN cd tools/hyperframes_bridge && \
+    node src/verify-runtime.mjs
 
 # Expose ports
 # 8000: API service

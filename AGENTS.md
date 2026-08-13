@@ -15,7 +15,7 @@
 - 任务分支默认使用 `codex/<任务名>`；需要隔离时，linked worktree 放在已忽略的 `.worktrees/` 下。
 - 代理工作流初始化入口：Windows 使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-bootstrap.ps1`，其他系统使用 `sh scripts/agent-bootstrap.sh`。
 - 代理基础验证入口：Windows 使用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-verify.ps1`，其他系统使用 `sh scripts/agent-verify.sh`。
-- 应用开发环境使用 `uv sync` 初始化；通用测试使用 `uv run pytest`；Python 静态检查使用 `uv run ruff check <改动路径>`。
+- 应用开发环境使用 `scripts/install-runtime-dependencies.ps1` 或 `scripts/install-runtime-dependencies.sh` 完整初始化；通用测试使用 `uv run pytest`；Python 静态检查使用 `uv run ruff check <改动路径>`。
 - 分支流程、任务写法和项目长参考分别见 `docs/agent/branch-workflow.md`、`docs/agent/prompting-workflow.md`、`docs/agent/project-reference.md`；贡献流程见 `docs/zh/development/contributing.md`。
 
 ## 3. 安全底线

@@ -8,7 +8,8 @@ This page will guide you through installing Pixelle-Video.
 
 ### Required
 
-- **Python**: 3.10 or higher
+- **Python**: 3.11 or higher
+- **Node.js**: 22.12.0 or higher
 - **Operating System**: Windows, macOS, or Linux
 - **Package Manager**: uv (recommended) or pip
 
@@ -49,33 +50,14 @@ cd Pixelle-Video
 
 ### Step 2: Install Dependencies
 
-!!! tip "Recommended: Use uv"
-    This project uses `uv` as the package manager, which is faster and more reliable than traditional pip.
-
-#### Using uv (Recommended)
+The complete installer uses both lock files, downloads the browser pinned by Puppeteer, and verifies the HyperFrames bridge before it succeeds:
 
 ```bash
-# Install uv if you haven't already
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-runtime-dependencies.ps1
 
-# Install project dependencies (uv will create a virtual environment automatically)
-uv sync
-```
-
-#### Using pip
-
-```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-source venv/bin/activate
-
-# Install dependencies
-pip install -e .
+# macOS / Linux
+sh scripts/install-runtime-dependencies.sh
 ```
 
 ---
@@ -98,8 +80,6 @@ uv run uvicorn api.app:app --host 127.0.0.1 --port 6789
 # Then start the Web UI manually (terminal 2)
 uv run streamlit run web/app.py
 
-# Or using pip (activate virtual environment first)
-streamlit run web/app.py
 ```
 
 Your browser should automatically open `http://localhost:8501` and display the Pixelle-Video web interface. The Pixelle API runs on `http://localhost:6789` by default, with health check at `http://localhost:6789/health` and Swagger docs at `http://localhost:6789/docs`.

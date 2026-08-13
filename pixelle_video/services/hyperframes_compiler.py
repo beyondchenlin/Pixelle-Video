@@ -5,7 +5,6 @@ from dataclasses import dataclass, replace
 from hashlib import sha1
 from html import escape
 from pathlib import Path
-from shutil import copy2
 
 from loguru import logger
 
@@ -31,6 +30,14 @@ from pixelle_video.services.text_style_css_contract import (
     resolve_text_style_layout,
 )
 from pixelle_video.services.text_style_resolver import TextStyleResolver
+from pixelle_video.utils.filesystem import (
+    copy_file,
+    ensure_directory,
+    path_exists,
+    path_is_dir,
+    read_text_file,
+    write_text_file,
+)
 
 
 @dataclass(frozen=True)
@@ -81,7 +88,7 @@ class HyperFramesCompiler:
             context.layered_template_spec
         )
         if layered_template_spec is not None:
-            (project_dir / "compositions").mkdir(parents=True, exist_ok=True)
+            ensure_directory(project_dir / "compositions")
             self._copy_runtime_assets(project_dir)
             self._copy_custom_font_assets(
                 project_dir,
@@ -96,14 +103,14 @@ class HyperFramesCompiler:
             return
 
         template_dir = self.template_root / context.template_id
-        index_template = (template_dir / "index.template.html").read_text(encoding="utf-8")
-        captions_template = (
+        index_template = read_text_file(template_dir / "index.template.html")
+        captions_template = read_text_file(
             template_dir / "compositions" / "captions.template.html"
-        ).read_text(encoding="utf-8")
+        )
         text_layer_template_path = template_dir / "compositions" / "text_layer.template.html"
         text_layer_template = (
-            text_layer_template_path.read_text(encoding="utf-8")
-            if text_layer_template_path.exists()
+            read_text_file(text_layer_template_path)
+            if path_exists(text_layer_template_path)
             else '<div id="text-layer">__TEXT_CUES__</div><script>__TEXT_TIMELINE__</script>'
         )
 
@@ -131,7 +138,7 @@ class HyperFramesCompiler:
             ),
         }
 
-        (project_dir / "compositions").mkdir(parents=True, exist_ok=True)
+        ensure_directory(project_dir / "compositions")
         self._copy_runtime_assets(project_dir)
         custom_fonts = self._copy_custom_font_assets(
             project_dir,
@@ -153,14 +160,14 @@ class HyperFramesCompiler:
             custom_fonts,
             font_url_prefix="../runtime/custom_fonts",
         )
-        (project_dir / "index.html").write_text(compiled_index, encoding="utf-8")
-        (project_dir / "compositions" / "captions.html").write_text(
+        write_text_file(project_dir / "index.html", compiled_index)
+        write_text_file(
+            project_dir / "compositions" / "captions.html",
             compiled_captions,
-            encoding="utf-8",
         )
-        (project_dir / "compositions" / "text_layer.html").write_text(
+        write_text_file(
+            project_dir / "compositions" / "text_layer.html",
             compiled_text_layer,
-            encoding="utf-8",
         )
 
     def _render_visuals(
@@ -619,19 +626,18 @@ class HyperFramesCompiler:
         )
 
     def _copy_runtime_assets(self, project_dir: Path) -> None:
-        if not self.runtime_root.exists():
+        if not path_exists(self.runtime_root):
             return
 
         for source_path in self.runtime_root.rglob("*"):
             relative_path = source_path.relative_to(self.runtime_root)
             target_path = project_dir / "runtime" / relative_path
 
-            if source_path.is_dir():
-                target_path.mkdir(parents=True, exist_ok=True)
+            if path_is_dir(source_path):
+                ensure_directory(target_path)
                 continue
 
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            copy2(source_path, target_path)
+            copy_file(source_path, target_path)
 
     def _copy_custom_font_assets(
         self,
@@ -664,9 +670,8 @@ class HyperFramesCompiler:
             if key in copied_by_key:
                 continue
 
-            target_dir.mkdir(parents=True, exist_ok=True)
             file_name = self._custom_font_file_name(source_path)
-            copy2(source_path, target_dir / file_name)
+            copy_file(source_path, target_dir / file_name)
             copied_by_key[key] = _CustomFontAsset(
                 family=family,
                 file_name=file_name,

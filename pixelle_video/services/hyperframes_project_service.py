@@ -8,7 +8,6 @@ import hashlib
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
-from shutil import copy2
 
 from pixelle_video.models.render_package import (
     AudioBlock,
@@ -30,6 +29,13 @@ from pixelle_video.models.text_style import DEFAULT_CAPTION_STYLE_ID, DEFAULT_TI
 from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences
 from pixelle_video.services.hyperframes_asset_materializer import HyperFramesAssetMaterializer
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
+from pixelle_video.utils.filesystem import (
+    copy_file,
+    ensure_directory,
+    open_file,
+    path_exists,
+    read_text_file,
+)
 from pixelle_video.utils.os_util import get_output_path
 from pixelle_video.utils.path_safety import resolve_task_dir
 
@@ -270,7 +276,7 @@ class HyperFramesProjectService:
 
     def _build_project_paths(self, task_id: str) -> HyperFramesProjectPaths:
         data_dir = self.get_data_dir(task_id)
-        data_dir.mkdir(parents=True, exist_ok=True)
+        ensure_directory(data_dir)
         return HyperFramesProjectPaths(
             task_dir=self.get_task_dir(task_id),
             project_dir=self.get_project_dir(task_id),
@@ -388,10 +394,10 @@ class HyperFramesProjectService:
             return None
 
         source_manifest_path = Path(manifest_path)
-        if not source_manifest_path.exists():
+        if not path_exists(source_manifest_path):
             return None
 
-        payload = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+        payload = json.loads(read_text_file(source_manifest_path))
         asset_path_prefix = "assets/element_animation"
         asset_dir = project_dir / asset_path_prefix
         if asset_namespace:
@@ -445,7 +451,7 @@ class HyperFramesProjectService:
         else:
             target_manifest_path = data_dir / "element_animation" / manifest_name
             localized_manifest_path = f"data/element_animation/{manifest_name}"
-        target_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_directory(target_manifest_path.parent)
         self._write_json(target_manifest_path, payload)
         return localized_manifest_path
 
@@ -467,7 +473,7 @@ class HyperFramesProjectService:
         source_path = Path(str(value))
         if not source_path.is_absolute():
             source_path = source_manifest_path.parent / source_path
-        if not source_path.exists():
+        if not path_exists(source_path):
             return
 
         source_key = str(source_path.resolve())
@@ -476,14 +482,14 @@ class HyperFramesProjectService:
             payload[key] = localized_path
             return
 
-        asset_dir.mkdir(parents=True, exist_ok=True)
+        ensure_directory(asset_dir)
         target_filename = self._resolve_element_animation_asset_filename(
             source_path,
             source_key=source_key,
             localized_filenames=localized_filenames,
         )
         target_path = asset_dir / target_filename
-        copy2(source_path, target_path)
+        copy_file(source_path, target_path)
         localized_path = f"{asset_path_prefix}/{target_filename}"
         localized_assets[source_key] = localized_path
         payload[key] = localized_path
@@ -686,10 +692,10 @@ class HyperFramesProjectService:
         template_id: str,
     ) -> TemplateTextCapabilities | None:
         path = self.compiler.template_root / template_id / "text_capabilities.json"
-        if not path.exists():
+        if not path_exists(path):
             return None
         return TemplateTextCapabilities.from_dict(
-            json.loads(path.read_text(encoding="utf-8"))
+            json.loads(read_text_file(path))
         )
 
     def _validate_text_capabilities(self, manifest: RenderManifest) -> None:
@@ -719,5 +725,5 @@ class HyperFramesProjectService:
             )
 
     def _write_json(self, path: Path, payload: dict) -> None:
-        with open(path, "w", encoding="utf-8") as handle:
+        with open_file(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, ensure_ascii=False)

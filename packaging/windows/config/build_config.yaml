@@ -10,20 +10,32 @@ package:
 python:
   version: "3.11.9"
   download_url: "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
+  sha256: "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b"
   # Mirror for China users (optional)
   mirror_url: "https://mirrors.huaweicloud.com/python/3.11.9/python-3.11.9-embed-amd64.zip"
 
 # FFmpeg configuration
 ffmpeg:
-  version: "6.1.1"
-  download_url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+  # Pin one immutable stable-branch build. Development snapshots can remove
+  # deprecated options before the renderer has completed a compatibility migration.
+  version: "8.1.2-34-g9b6c8969e0"
+  download_url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-12-13-15/ffmpeg-n8.1.2-34-g9b6c8969e0-win64-gpl-8.1.zip"
+  sha256: "0bfebe51fced76c6cd5a42420fc2fc6e4646f95a556c59b0d7d298fcc24c6849"
   # Alternative mirror
-  mirror_url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+  mirror_url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-12-13-15/ffmpeg-n8.1.2-34-g9b6c8969e0-win64-gpl-8.1.zip"
 
-# Playwright configuration (for HTML template rendering)
-playwright:
-  install_browsers: true  # Run 'playwright install chromium' during build
-  note: "Playwright manages its own Chromium binary, no system Chrome needed"
+# Node.js configuration (for the HyperFrames rendering bridge)
+node:
+  version: "24.12.0"
+  download_url: "https://nodejs.org/dist/v24.12.0/node-v24.12.0-win-x64.zip"
+  mirror_url: "https://nodejs.org/dist/v24.12.0/node-v24.12.0-win-x64.zip"
+  sha256: "9c125f61ae947b52e779095830f9cac267846a043ef7192183c84016aaad2812"
+
+# Python dependency installer
+uv:
+  version: "0.10.7"
+  download_url: "https://files.pythonhosted.org/packages/e3/1f/74f4d625db838f716a555908d41777b6357bacc141ddef117a01855e5ef9/uv-0.10.7-py3-none-win_amd64.whl"
+  sha256: "ad0d0ddd9f5407ad8699e3b20fe6c18406cd606336743e246b16914801cfd8b0"
 
 # Build options
 build:
@@ -31,6 +43,9 @@ build:
   exclude_patterns:
     - ".git"
     - ".github"
+    - ".claude"
+    - ".devcontainer"
+    - ".oceans"
     - "__pycache__"
     - "*.pyc"
     - ".pytest_cache"
@@ -42,24 +57,21 @@ build:
     - "_runtime/*"
     - "plans/*"  # Don't include planning docs
     - "repositories/*"  # Don't include referenced repos
-    - "docs/en/*"  # Don't include English docs
-    - "docs/zh/*"  # Don't include Chinese docs
-    - "docs/gallery/*"  # Don't include gallery docs
-    - "docs/stylesheets/*"  # Don't include doc stylesheets
-    # Note: FAQ.md and FAQ_CN.md are included for in-app FAQ feature
+    - "docs/*"  # Runtime FAQs are copied back explicitly; omit development assets
+    - "tests"
+    - "HyperFrames"  # Upstream reference source; runtime uses the locked npm package
+    - "scripts/*"  # Runtime launcher is copied back explicitly; omit development tooling
     - "test_*.py"  # Don't include test files
     - ".venv"
     - "venv"
     - "node_modules"
+    - "tools/hyperframes_bridge/node_modules"
+    - "tools/hyperframes_bridge/.cache"
     - "uv.lock"
     - "config.yaml"  # User configuration file (sensitive)
     - "config.yaml.bak"  # Configuration backup
     - "*.yaml.bak"  # All YAML backups
     - ".env"  # Environment variables
-  
-  # Dependencies installation
-  use_uv: true  # Use uv for faster dependency installation
-  pre_install_deps: true  # Install deps during build (recommended for end users)
   
   # Output
   output_dir: "dist/windows"

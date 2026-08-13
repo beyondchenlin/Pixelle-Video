@@ -21,11 +21,14 @@ Thank you for your interest in contributing to Pixelle-Video!
 git clone https://github.com/your-username/Pixelle-Video.git
 cd Pixelle-Video
 
-# Install development dependencies
-uv sync
+# Install locked application and HyperFrames dependencies
+sh scripts/install-runtime-dependencies.sh
+
+# Install test and lint tools
+uv sync --frozen --extra dev
 
 # Run tests
-pytest
+uv run pytest
 ```
 
 ---

@@ -166,45 +166,6 @@ function buildJobConfig(options, manifest) {
   return jobConfig;
 }
 
-function systemBrowserCandidates(platform, environment) {
-  const candidates = [];
-  if (platform === "win32") {
-    for (const environmentName of ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"]) {
-      const basePath = environmentValue(environment, environmentName);
-      if (!basePath) continue;
-      candidates.push(
-        path.join(basePath, "Google", "Chrome", "Application", "chrome.exe"),
-        path.join(basePath, "Microsoft", "Edge", "Application", "msedge.exe"),
-      );
-    }
-  } else if (platform === "darwin") {
-    candidates.push(
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-      "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    );
-  }
-
-  const executableNames =
-    platform === "win32"
-      ? ["chrome.exe", "msedge.exe"]
-      : [
-          "google-chrome",
-          "google-chrome-stable",
-          "chromium",
-          "chromium-browser",
-          "microsoft-edge",
-          "msedge",
-        ];
-  const pathValue = environmentValue(environment, "PATH") ?? "";
-  for (const directory of pathValue.split(path.delimiter).filter(Boolean)) {
-    for (const executableName of executableNames) {
-      candidates.push(path.join(directory, executableName));
-    }
-  }
-  return [...new Set(candidates.map((candidate) => path.resolve(candidate)))];
-}
-
 async function isUsableBrowserExecutable(candidate, platform) {
   if (!candidate || candidate.trim().length === 0) return false;
   try {
@@ -222,7 +183,9 @@ export async function resolveBrowserExecutable(options = {}, dependencies = {}) 
   const environment = dependencies.environment ?? process.env;
   const platform = dependencies.platform ?? process.platform;
   const explicitlyConfigured =
-    options.chromePath ?? environmentValue(environment, "PRODUCER_HEADLESS_SHELL_PATH");
+    options.chromePath ??
+    environmentValue(environment, "PRODUCER_HEADLESS_SHELL_PATH") ??
+    environmentValue(environment, "PUPPETEER_EXECUTABLE_PATH");
   if (explicitlyConfigured?.trim()) {
     const explicitPath = path.resolve(explicitlyConfigured.trim());
     if (!(await isUsableBrowserExecutable(explicitPath, platform))) {
@@ -234,7 +197,7 @@ export async function resolveBrowserExecutable(options = {}, dependencies = {}) 
   const puppeteerExecutablePath =
     dependencies.puppeteerExecutablePath ?? (() => puppeteer.executablePath());
   try {
-    const pinnedPath = path.resolve(puppeteerExecutablePath());
+    const pinnedPath = path.resolve(await puppeteerExecutablePath());
     if (await isUsableBrowserExecutable(pinnedPath, platform)) {
       return pinnedPath;
     }
@@ -242,19 +205,11 @@ export async function resolveBrowserExecutable(options = {}, dependencies = {}) 
     // Continue to system browsers and report one consolidated diagnostic below.
   }
 
-  const candidates =
-    dependencies.systemBrowserCandidates?.(platform, environment) ??
-    systemBrowserCandidates(platform, environment);
-  for (const candidate of candidates) {
-    if (await isUsableBrowserExecutable(candidate, platform)) {
-      return path.resolve(candidate);
-    }
-  }
-
   throw new Error(
-    "No compatible Chrome, Chromium, or Edge executable was found. " +
-      "Install the pinned browser with `npx puppeteer browsers install chrome` " +
-      "or set PRODUCER_HEADLESS_SHELL_PATH to an existing executable.",
+    "The browser pinned by Puppeteer is not installed. " +
+      "Run `npm run browser:install` in tools/hyperframes_bridge " +
+      "or explicitly set PRODUCER_HEADLESS_SHELL_PATH or PUPPETEER_EXECUTABLE_PATH " +
+      "to an existing executable.",
   );
 }
 

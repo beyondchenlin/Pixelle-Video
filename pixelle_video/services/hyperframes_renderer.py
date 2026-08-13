@@ -12,6 +12,7 @@ import re
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from fractions import Fraction
@@ -19,6 +20,18 @@ from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
+
+from pixelle_video.utils.filesystem import (
+    copy_file,
+    ensure_directory,
+    extended_length_path,
+    open_file,
+    path_exists,
+    path_is_dir,
+    path_is_file,
+    read_text_file,
+)
+from pixelle_video.utils.secret_redaction import redact_credentials_in_text
 
 _SAFE_MANIFEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _REMOTE_SCRIPT_RE = re.compile(
@@ -34,6 +47,20 @@ _DEFAULT_RENDER_TIMEOUT_SECONDS = 300.0
 _RENDER_TIMEOUT_BASE_SECONDS = 120.0
 _RENDER_TIMEOUT_PER_MEDIA_SECOND = 30.0
 _MAX_RENDER_TIMEOUT_SECONDS = 6 * 60 * 60.0
+_RUNTIME_PREFLIGHT_TIMEOUT_SECONDS = 30.0
+_MAX_RUNTIME_DIAGNOSTIC_CHARS = 4096
+
+
+def _runtime_dependency_recovery_guidance(bridge_root: Path) -> str:
+    repo_root = bridge_root.parent.parent
+    if os.name == "nt":
+        installer = repo_root / "scripts" / "install-runtime-dependencies.ps1"
+        return (
+            "Run the complete runtime installer from the project root: "
+            f"powershell -NoProfile -ExecutionPolicy Bypass -File {installer}"
+        )
+    installer = repo_root / "scripts" / "install-runtime-dependencies.sh"
+    return f"Run the complete runtime installer from the project root: sh {installer}"
 
 
 @dataclass(frozen=True)
@@ -104,6 +131,88 @@ class HyperFramesRenderer:
         )
         self.render_timeout_seconds = render_timeout_seconds
         self.use_gpu = self._resolve_use_gpu(use_gpu)
+        self._runtime_validation_lock = threading.Lock()
+        self._runtime_validated = False
+
+    @property
+    def bridge_root(self) -> Path:
+        return self.bridge_script.parent.parent
+
+    def _build_render_environment(self) -> dict[str, str]:
+        environment = os.environ.copy()
+        environment.setdefault(
+            "PUPPETEER_CACHE_DIR",
+            str(self.bridge_root / ".cache" / "puppeteer"),
+        )
+        return environment
+
+    def validate_runtime(self) -> None:
+        """Fail before asset generation when the locked bridge runtime is incomplete."""
+        if self._runtime_validated:
+            return
+
+        with self._runtime_validation_lock:
+            if self._runtime_validated:
+                return
+
+            bridge_root = self.bridge_root
+            required_files = (
+                self.bridge_script,
+                bridge_root / "package.json",
+                bridge_root / "package-lock.json",
+                bridge_root / "src" / "runtime_contract.mjs",
+                bridge_root / "src" / "verify-runtime.mjs",
+                bridge_root / "node_modules" / "@hyperframes" / "producer" / "package.json",
+                bridge_root / "node_modules" / "puppeteer" / "package.json",
+                bridge_root / "node_modules" / "yauzl" / "package.json",
+            )
+            missing = [str(path) for path in required_files if not path_is_file(path)]
+            if missing:
+                raise RuntimeError(
+                    "HyperFrames runtime is incomplete; missing locked files: "
+                    f"{', '.join(missing)}. "
+                    f"{_runtime_dependency_recovery_guidance(bridge_root)}"
+                )
+
+            node_path = shutil.which(self.node_executable)
+            if node_path is None:
+                raise RuntimeError(
+                    f"HyperFrames requires Node.js 22.12.0 or newer. "
+                    f"{_runtime_dependency_recovery_guidance(bridge_root)}"
+                )
+
+            try:
+                completed = subprocess.run(
+                    [
+                        node_path,
+                        str(bridge_root / "src" / "verify-runtime.mjs"),
+                    ],
+                    cwd=bridge_root,
+                    env=self._build_render_environment(),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=_RUNTIME_PREFLIGHT_TIMEOUT_SECONDS,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise RuntimeError(
+                    "HyperFrames runtime validation could not complete. "
+                    f"{_runtime_dependency_recovery_guidance(bridge_root)}"
+                ) from exc
+
+            if completed.returncode != 0:
+                raw_detail = (completed.stderr or completed.stdout or "unknown error").strip()
+                detail = redact_credentials_in_text(raw_detail)
+                if len(detail) > _MAX_RUNTIME_DIAGNOSTIC_CHARS:
+                    detail = detail[:_MAX_RUNTIME_DIAGNOSTIC_CHARS] + "...[truncated]"
+                raise RuntimeError(
+                    "HyperFrames runtime validation failed: "
+                    f"{detail}. {_runtime_dependency_recovery_guidance(bridge_root)}"
+                )
+
+            self._runtime_validated = True
 
     @staticmethod
     def _resolve_use_gpu(explicit: Optional[bool]) -> bool:
@@ -133,6 +242,7 @@ class HyperFramesRenderer:
         expect_audio: bool = False,
         use_gpu: Optional[bool] = None,
     ) -> str:
+        self.validate_runtime()
         request = self._prepare_render_request(
             project_dir,
             output_path=output_path,
@@ -163,6 +273,7 @@ class HyperFramesRenderer:
         Cancellation and timeout both terminate the complete bridge process tree,
         including browser and encoder descendants.
         """
+        await asyncio.to_thread(self.validate_runtime)
         request = self._prepare_render_request(
             project_dir,
             output_path=output_path,
@@ -197,7 +308,7 @@ class HyperFramesRenderer:
         resolved_use_gpu = use_gpu if use_gpu is not None else self.use_gpu
 
         project_path = Path(project_dir).resolve()
-        if not project_path.is_dir():
+        if not path_is_dir(project_path):
             raise FileNotFoundError(f"HyperFrames project directory not found: {project_path}")
 
         has_compiled_entrypoint = self._has_compiled_entrypoint(project_path)
@@ -219,9 +330,9 @@ class HyperFramesRenderer:
             / "renders"
             / f'{self._resolve_task_id(project_path, manifest)}.mp4'
         )
-        resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_directory(resolved_output_path.parent)
 
-        render_environment = os.environ.copy()
+        render_environment = self._build_render_environment()
         command = [
             self.node_executable,
             str(self.bridge_script),
@@ -236,7 +347,7 @@ class HyperFramesRenderer:
             command.extend(("--fps", str(int(fps))))
 
         logs_dir = project_path / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
+        ensure_directory(logs_dir)
         return _RenderRequest(
             project_path=project_path,
             output_path=resolved_output_path,
@@ -263,7 +374,7 @@ class HyperFramesRenderer:
             )
 
         final_output_path = self._parse_output_path(stdout, request.output_path)
-        if not Path(final_output_path).is_file():
+        if not path_is_file(final_output_path):
             raise RuntimeError(
                 "HyperFrames bridge reported success but the output file is missing: "
                 f"{final_output_path}. Logs: {request.stdout_log} ; {request.stderr_log}"
@@ -297,8 +408,12 @@ class HyperFramesRenderer:
 
     def _run_bridge_sync(self, request: _RenderRequest) -> int:
         process: subprocess.Popen[str] | None = None
-        with request.stdout_log.open("w", encoding="utf-8", errors="replace") as stdout_file:
-            with request.stderr_log.open("w", encoding="utf-8", errors="replace") as stderr_file:
+        with open_file(
+            request.stdout_log, "w", encoding="utf-8", errors="replace"
+        ) as stdout_file:
+            with open_file(
+                request.stderr_log, "w", encoding="utf-8", errors="replace"
+            ) as stderr_file:
                 try:
                     process = subprocess.Popen(
                         request.command,
@@ -325,8 +440,12 @@ class HyperFramesRenderer:
 
     async def _run_bridge_async(self, request: _RenderRequest) -> int:
         process: asyncio.subprocess.Process | None = None
-        with request.stdout_log.open("w", encoding="utf-8", errors="replace") as stdout_file:
-            with request.stderr_log.open("w", encoding="utf-8", errors="replace") as stderr_file:
+        with open_file(
+            request.stdout_log, "w", encoding="utf-8", errors="replace"
+        ) as stdout_file:
+            with open_file(
+                request.stderr_log, "w", encoding="utf-8", errors="replace"
+            ) as stderr_file:
                 try:
                     process = await asyncio.create_subprocess_exec(
                         *request.command,
@@ -449,7 +568,7 @@ class HyperFramesRenderer:
 
     def _read_log_tail(self, path: Path) -> str:
         try:
-            with path.open("rb") as handle:
+            with open_file(path, "rb") as handle:
                 handle.seek(0, os.SEEK_END)
                 size = handle.tell()
                 handle.seek(max(0, size - _MAX_DIAGNOSTIC_BYTES))
@@ -464,12 +583,12 @@ class HyperFramesRenderer:
         required: bool = True,
     ) -> dict[str, Any] | None:
         manifest_path = project_dir / "data" / "render_manifest.json"
-        if not manifest_path.exists():
+        if not path_exists(manifest_path):
             if required:
                 raise FileNotFoundError(f"HyperFrames manifest not found: {manifest_path}")
             return None
 
-        with open(manifest_path, "r", encoding="utf-8") as handle:
+        with open_file(manifest_path, "r", encoding="utf-8") as handle:
             return json.load(handle)
 
     def _resolve_task_id(
@@ -484,26 +603,25 @@ class HyperFramesRenderer:
 
     def _materialize_template(self, project_dir: Path, template_id: str) -> None:
         template_dir = self.template_root / template_id
-        if not template_dir.exists():
+        if not path_exists(template_dir):
             raise FileNotFoundError(f"HyperFrames template not found: {template_dir}")
 
         self._copy_tree_contents(template_dir, project_dir)
-        if self.runtime_root.is_dir():
+        if path_is_dir(self.runtime_root):
             self._copy_tree_contents(self.runtime_root, project_dir / "runtime")
 
     def _copy_tree_contents(self, source_root: Path, target_root: Path) -> None:
         for source_path in source_root.rglob("*"):
             relative_path = source_path.relative_to(source_root)
             target_path = target_root / relative_path
-            if source_path.is_dir():
-                target_path.mkdir(parents=True, exist_ok=True)
+            if path_is_dir(source_path):
+                ensure_directory(target_path)
             else:
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source_path, target_path)
+                copy_file(source_path, target_path)
 
     def _assert_local_executable_dependencies(self, project_dir: Path) -> None:
-        for html_path in project_dir.rglob("*.html"):
-            content = html_path.read_text(encoding="utf-8", errors="replace")
+        for html_path in extended_length_path(project_dir).rglob("*.html"):
+            content = read_text_file(html_path, errors="replace")
             if _REMOTE_SCRIPT_RE.search(content) or _REMOTE_LINK_RE.search(content):
                 raise RuntimeError(
                     "HyperFrames projects may not load executable scripts or stylesheets "
@@ -512,8 +630,8 @@ class HyperFramesRenderer:
 
     def _has_compiled_entrypoint(self, project_dir: Path) -> bool:
         return (
-            (project_dir / "index.html").exists()
-            and (project_dir / "compositions" / "captions.html").exists()
+            path_exists(project_dir / "index.html")
+            and path_exists(project_dir / "compositions" / "captions.html")
         )
 
     def _probe_output(self, output_path: str) -> dict[str, Any]:

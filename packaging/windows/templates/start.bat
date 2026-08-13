@@ -9,7 +9,7 @@ echo.
 
 :: Set environment variables
 set "PYTHON_HOME=%~dp0python\python311"
-set "PATH=%PYTHON_HOME%;%PYTHON_HOME%\Scripts;%~dp0tools\ffmpeg\bin;%PATH%"
+set "PATH=%PYTHON_HOME%;%PYTHON_HOME%\Scripts;%~dp0tools\ffmpeg\bin;%~dp0tools\node;%PATH%"
 set "PROJECT_ROOT=%~dp0Pixelle-Video"
 
 :: Change to project directory
@@ -20,6 +20,8 @@ set "PYTHONPATH=%PROJECT_ROOT%"
 
 :: Set PIXELLE_VIDEO_ROOT environment variable for reliable path resolution
 set "PIXELLE_VIDEO_ROOT=%PROJECT_ROOT%"
+set "PUPPETEER_CACHE_DIR=%~dp0tools\puppeteer"
+set "PIXELLE_REQUIRE_PINNED_BROWSER=true"
 set "PIXELLE_VIDEO_RUNTIME_ROOT=%PROJECT_ROOT%\_runtime"
 set "TMP=%PIXELLE_VIDEO_RUNTIME_ROOT%\tmp"
 set "TEMP=%PIXELLE_VIDEO_RUNTIME_ROOT%\tmp"

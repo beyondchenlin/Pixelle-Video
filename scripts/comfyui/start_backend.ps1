@@ -17,6 +17,9 @@ param(
     [ValidateSet('', 'all', 'allowlist', 'none')]
     [string]$CustomNodeLoading = '',
     [string]$AllowedCustomNodeFoldersBase64 = '',
+    [Parameter(DontShow = $true)]
+    [ValidatePattern('^$|^(Global|Local)\\[A-Za-z0-9._-]{1,180}$')]
+    [string]$AcceleratorMutexName = '',
     [int]$ReadyTimeoutSeconds = 90,
     [switch]$DryRun,
     [switch]$Json
@@ -42,7 +45,8 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -ResourcePolicy $ResourcePolicy `
     -MinimumFreeCommitGB $MinimumFreeCommitGB `
     -CustomNodeLoading $CustomNodeLoading `
-    -AllowedCustomNodeFoldersBase64 $AllowedCustomNodeFoldersBase64
+    -AllowedCustomNodeFoldersBase64 $AllowedCustomNodeFoldersBase64 `
+    -AcceleratorMutexName $AcceleratorMutexName
 
 Assert-BackendPrerequisites $config
 Assert-BackendResourcePolicySupport $config
@@ -323,8 +327,17 @@ try {
 }
 catch {
     if (-not $started) {
-        Stop-ProcessTreeOwnedByLaunch $process.Id
+        $startupError = $_
+        $launchTreeStopped = Stop-ProcessTreeOwnedByLaunch $process.Id
         Remove-BackendPidFiles $config
+        if (-not $launchTreeStopped) {
+            throw (
+                "$($startupError.Exception.Message)`n" +
+                "[PIXELLE_CLEANUP_TIMEOUT] Timed out waiting for failed backend " +
+                "launch tree rooted at PID $($process.Id) to exit."
+            )
+        }
+        throw $startupError
     }
     throw
 }

@@ -218,7 +218,7 @@ Pixelle-Video 采用模块化设计，整个视频生成流程清晰简洁：
 
 #### 前置环境依赖
 
-在开始之前，需要先安装 Python 包管理器 `uv` 和视频处理工具 `ffmpeg`：
+在开始之前，需要先安装 Python 包管理器 `uv`、`Node.js 22.12.0` 或更高版本，以及视频处理工具 `ffmpeg`：
 
 ##### 安装 uv
 
@@ -248,36 +248,37 @@ sudo apt install ffmpeg
 
 ##### 准备 Chrome（用于视频渲染与 HTML 帧预览）
 
-项目使用 Puppeteer 驱动 Chrome 进行视频帧渲染，并使用 Playwright 生成 HTML 帧和文字预览。两条链路都遵循“显式配置优先、依赖锁定版本其次、系统浏览器最后”的规则，不会把会自动升级的系统浏览器放在锁定版本之前。
+项目使用 Puppeteer 驱动 Chrome 进行视频帧渲染，并使用 Playwright 生成 HTML 帧和文字预览。HyperFrames 视频渲染只接受显式配置或依赖锁定的浏览器，禁止在锁定版本缺失时静默切换到会自动升级的系统浏览器。
 
 HyperFrames 渲染器按以下顺序选择浏览器：
 
-1. 环境变量 `PRODUCER_HEADLESS_SHELL_PATH` 指定的浏览器。
+1. 环境变量 `PRODUCER_HEADLESS_SHELL_PATH` 或 `PUPPETEER_EXECUTABLE_PATH` 显式指定的浏览器。
 2. Puppeteer 缓存中与当前依赖版本锁定的 Chrome。
-3. Windows、macOS 或 Linux 常见安装位置中的系统 Chrome、Edge 或 Chromium。
 
-系统已经安装 Chrome、Edge 或 Chromium 时，不需要重复下载。Windows 可以先检查常用的 Chrome 路径：
+需要使用系统 Chrome、Edge 或 Chromium 时，必须显式指定其可执行文件路径。Windows 可以先检查常用的 Chrome 路径：
 
 ```powershell
 Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'
 ```
 
-返回 `True` 后，该浏览器可以作为锁定版本缺失时的后备。浏览器安装在自定义位置时，在启动 Pixelle 前显式指定：
+返回 `True` 后，在启动 Pixelle 前显式指定该浏览器：
 
 ```powershell
 $env:PRODUCER_HEADLESS_SHELL_PATH='D:\Apps\Chrome\chrome.exe'
 .\start_web.bat
 ```
 
-推荐安装 Puppeteer 锁定的专用版本，以避免系统浏览器自动升级改变渲染结果：
+使用项目统一安装脚本安装 Python 依赖、锁定的 HyperFrames 依赖和专用浏览器：
 
 ```bash
-cd tools/hyperframes_bridge
-npx puppeteer browsers install chrome
-cd ../..
+# Windows
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-runtime-dependencies.ps1
+
+# macOS / Linux
+sh scripts/install-runtime-dependencies.sh
 ```
 
-出现 `Could not find Chrome` 时，先检查浏览器路径和 `PRODUCER_HEADLESS_SHELL_PATH`，再执行下载命令。
+脚本会在安装结束前实际导入桥接模块并解析浏览器；任一步失败都会终止安装。
 
 HTML 帧和文字预览按以下顺序选择浏览器：
 

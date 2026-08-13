@@ -8,7 +8,8 @@
 
 ### 必需条件
 
-- **Python**: 3.10 或更高版本
+- **Python**: 3.11 或更高版本
+- **Node.js**: 22.12.0 或更高版本
 - **操作系统**: Windows、macOS 或 Linux
 - **包管理器**: uv（推荐）或 pip
 
@@ -49,33 +50,14 @@ cd Pixelle-Video
 
 ### 第二步：安装依赖
 
-!!! tip "推荐使用 uv"
-    本项目使用 `uv` 作为包管理器，它比传统的 pip 更快、更可靠。
-
-#### 使用 uv（推荐）
+完整安装脚本会使用两份锁定文件，安装 Puppeteer 锁定的浏览器，并在成功前验证 HyperFrames 桥接：
 
 ```bash
-# 如果还没有安装 uv，先安装它
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-runtime-dependencies.ps1
 
-# 安装项目依赖（uv 会自动创建虚拟环境）
-uv sync
-```
-
-#### 使用 pip
-
-```bash
-# 创建虚拟环境
-python -m venv venv
-
-# 激活虚拟环境
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-source venv/bin/activate
-
-# 安装依赖
-pip install -e .
+# macOS / Linux
+sh scripts/install-runtime-dependencies.sh
 ```
 
 ---
@@ -98,8 +80,6 @@ uv run uvicorn api.app:app --host 127.0.0.1 --port 6789
 # 再手动启动 Web 界面（终端 2）
 uv run streamlit run web/app.py
 
-# 或使用 pip（需先激活虚拟环境）
-streamlit run web/app.py
 ```
 
 浏览器应该会自动打开 `http://localhost:8501`，显示 Pixelle-Video 的 Web 界面。Pixelle API 默认运行在 `http://localhost:6789`，健康检查地址为 `http://localhost:6789/health`，Swagger 文档地址为 `http://localhost:6789/docs`。

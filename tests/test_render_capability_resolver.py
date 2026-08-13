@@ -1,6 +1,11 @@
+import json
+
+import pytest
+
 from pixelle_video.services.render_capability_resolver import (
     RenderCapabilityInput,
     RenderCapabilityResolver,
+    load_hyperframes_template_capabilities,
 )
 
 
@@ -82,6 +87,31 @@ def test_resolver_routes_hyperframes_canvas_motion_to_hyperframes():
 
     assert result.effective_backend == "hyperframes_compiled"
     assert "hyperframes_canvas" in result.fallback_reason
+
+
+def test_resolver_routes_declared_browser_timeline_to_hyperframes():
+    result = RenderCapabilityResolver().resolve(
+        RenderCapabilityInput(
+            requested_backend="ffmpeg_manifest",
+            template_type="image",
+            media_domain="image",
+            template_prerendered=True,
+            element_motion_backend=None,
+            has_hyperframes_native_template=True,
+            template_requires_browser_timeline=True,
+        )
+    )
+
+    assert result.effective_backend == "hyperframes_compiled"
+    assert "browser timeline" in result.fallback_reason
+
+
+def test_template_capability_loader_rejects_non_object_manifest(tmp_path):
+    capability_path = tmp_path / "render_capabilities.json"
+    capability_path.write_text(json.dumps([]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must be an object"):
+        load_hyperframes_template_capabilities(tmp_path, template_id="template")
 
 
 def test_resolver_falls_back_unknown_backend_to_legacy():
