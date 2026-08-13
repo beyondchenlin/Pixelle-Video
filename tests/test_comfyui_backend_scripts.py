@@ -68,6 +68,7 @@ def write_fake_backend_ownership(
             f"-PythonExe '{ps_single_quote(sys.executable)}' "
             f"-ComfyUIRoot '{ps_single_quote(comfyui_root)}' "
             f"-DataRoot '{ps_single_quote(data_root)}' "
+            f"-SharedBasePath '{ps_single_quote(data_root)}' "
             f"-ExtraModelsConfig '{ps_single_quote(extra_models_config)}' "
             f"-RuntimeDir '{ps_single_quote(runtime_dir)}' "
             "-HostAddress '127.0.0.1' "
@@ -98,8 +99,68 @@ def make_fake_comfyui(tmp_path: Path) -> tuple[Path, Path, Path]:
     data_root = tmp_path / "ComfyUIData"
     comfyui_root.mkdir()
     (comfyui_root / "comfy").mkdir()
-    (comfyui_root / "comfy" / "cli_args.py").write_text(
-        "--disable-pinned-memory --disable-async-offload --cache-none",
+    (comfyui_root / "comfy" / "__init__.py").write_text("", encoding="utf-8")
+    (comfyui_root / "comfy" / "options.py").write_text(
+        "args_parsing = False\n"
+        "def enable_args_parsing(enable=True):\n"
+        "    global args_parsing\n"
+        "    args_parsing = enable\n",
+        encoding="utf-8",
+    )
+    write_fake_comfyui_cli_args(comfyui_root)
+    (comfyui_root / "folder_paths.py").write_text(
+        "import os\n"
+        "from comfy.cli_args import args\n"
+        "base_path = os.path.abspath(args.base_directory)\n"
+        "folder_names_and_paths = {\n"
+        "    'custom_nodes': ([os.path.join(base_path, 'custom_nodes')], set())\n"
+        "}\n"
+        "def add_model_folder_path(folder_name, full_folder_path, is_default=False):\n"
+        "    paths, _ = folder_names_and_paths.setdefault(folder_name, ([], set()))\n"
+        "    if full_folder_path in paths:\n"
+        "        if is_default and paths[0] != full_folder_path:\n"
+        "            paths.remove(full_folder_path)\n"
+        "            paths.insert(0, full_folder_path)\n"
+        "    elif is_default:\n"
+        "        paths.insert(0, full_folder_path)\n"
+        "    else:\n"
+        "        paths.append(full_folder_path)\n"
+        "def get_folder_paths(folder_name):\n"
+        "    return folder_names_and_paths[folder_name][0][:]\n",
+        encoding="utf-8",
+    )
+    (comfyui_root / "utils").mkdir()
+    (comfyui_root / "utils" / "__init__.py").write_text("", encoding="utf-8")
+    (comfyui_root / "utils" / "extra_config.py").write_text(
+        "import os\n"
+        "import yaml\n"
+        "import folder_paths\n"
+        "def load_extra_path_config(yaml_path):\n"
+        "    with open(yaml_path, 'r', encoding='utf-8') as stream:\n"
+        "        config = yaml.safe_load(stream)\n"
+        "    yaml_dir = os.path.dirname(os.path.abspath(yaml_path))\n"
+        "    for name in config:\n"
+        "        section = config[name]\n"
+        "        if section is None:\n"
+        "            continue\n"
+        "        base_path = section.pop('base_path', None)\n"
+        "        if base_path is not None:\n"
+        "            base_path = os.path.expandvars(os.path.expanduser(base_path))\n"
+        "            if not os.path.isabs(base_path):\n"
+        "                base_path = os.path.abspath(os.path.join(yaml_dir, base_path))\n"
+        "        is_default = section.pop('is_default', False)\n"
+        "        for folder_name, configured_paths in section.items():\n"
+        "            for configured_path in configured_paths.split('\\n'):\n"
+        "                if not configured_path:\n"
+        "                    continue\n"
+        "                full_path = configured_path\n"
+        "                if base_path:\n"
+        "                    full_path = os.path.join(base_path, full_path)\n"
+        "                elif not os.path.isabs(full_path):\n"
+        "                    full_path = os.path.abspath(os.path.join(yaml_dir, full_path))\n"
+        "                folder_paths.add_model_folder_path(\n"
+        "                    folder_name, os.path.normpath(full_path), is_default\n"
+        "                )\n",
         encoding="utf-8",
     )
     (comfyui_root / "web_custom_versions" / "desktop_app").mkdir(parents=True)
@@ -109,6 +170,27 @@ def make_fake_comfyui(tmp_path: Path) -> tuple[Path, Path, Path]:
     extra_models_config = tmp_path / "extra_models_config.yaml"
     extra_models_config.write_text("pixelle:\n  base_path: E:/ComfyUIData\n", encoding="utf-8")
     return comfyui_root, data_root, extra_models_config
+
+
+def write_fake_comfyui_cli_args(
+    comfyui_root: Path,
+    supported_flags: str = (
+        "--disable-pinned-memory --disable-async-offload --cache-none"
+    ),
+) -> None:
+    (comfyui_root / "comfy" / "cli_args.py").write_text(
+        "import argparse\n"
+        "import comfy.options\n"
+        f"# Supported options: {supported_flags}\n"
+        "parser = argparse.ArgumentParser()\n"
+        "parser.add_argument('--base-directory')\n"
+        "args = (\n"
+        "    parser.parse_args()\n"
+        "    if comfy.options.args_parsing\n"
+        "    else parser.parse_args([])\n"
+        ")\n",
+        encoding="utf-8",
+    )
 
 
 def write_fake_listening_main_py(comfyui_root: Path) -> None:
@@ -405,6 +487,8 @@ def fake_listening_comfyui_command(
     data_root: Path,
     port: int,
 ) -> list[str]:
+    extra_models_config = comfyui_root.parent / "extra_models_config.yaml"
+    database_url = f"sqlite:///{(data_root / 'user' / 'comfyui.db').as_posix()}"
     return [
         sys.executable,
         str(comfyui_root / "main.py"),
@@ -416,10 +500,16 @@ def fake_listening_comfyui_command(
         str(data_root / "output"),
         "--base-directory",
         str(data_root),
+        "--database-url",
+        database_url,
+        "--extra-model-paths-config",
+        str(extra_models_config),
         "--listen",
         "127.0.0.1",
         "--port",
         str(port),
+        "--normalvram",
+        "--disable-pinned-memory",
     ]
 
 
@@ -442,7 +532,11 @@ def run_fake_backend_stop(
     extra_models_config: Path,
     runtime_dir: Path,
     port: int,
+    shared_base_path: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    shared_base_arguments: list[object] = []
+    if shared_base_path is not None:
+        shared_base_arguments = ["-SharedBasePath", shared_base_path]
     return run_powershell(
         SCRIPT_DIR / "stop_backend.ps1",
         "-Json",
@@ -452,6 +546,7 @@ def run_fake_backend_stop(
         comfyui_root,
         "-DataRoot",
         data_root,
+        *shared_base_arguments,
         "-ExtraModelsConfig",
         extra_models_config,
         "-RuntimeDir",
@@ -672,6 +767,212 @@ def test_process_with_same_data_root_but_different_port_is_not_managed(
     assert result.stdout.strip() == "unmanaged"
 
 
+def test_managed_process_identity_covers_every_behavioral_launch_argument(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    probe_script = tmp_path / "probe-complete-process-identity.ps1"
+    probe_script.write_text(
+        f"""
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. '{ps_single_quote(SCRIPT_DIR / "backend_common.ps1")}'
+$config = Resolve-PixelleComfyUIBackendConfig `
+    -PythonExe '{ps_single_quote(sys.executable)}' `
+    -ComfyUIRoot '{ps_single_quote(comfyui_root)}' `
+    -DataRoot '{ps_single_quote(data_root)}' `
+    -SharedBasePath '{ps_single_quote(data_root)}' `
+    -ExtraModelsConfig '{ps_single_quote(extra_models_config)}' `
+    -RuntimeDir '{ps_single_quote(tmp_path / "runtime")}' `
+    -HostAddress '127.0.0.1' `
+    -Port 65510
+$arguments = @($config.PythonExe) + @(Get-BackendArguments $config)
+$exact = ConvertTo-WindowsCommandLine $arguments
+$resolvedInterpreter = [object[]]$arguments.Clone()
+$resolvedInterpreter[0] = 'C:\\Program Files\\Python\\python.exe'
+$wrongData = [object[]]$arguments.Clone()
+$wrongData[3] = '{ps_single_quote(tmp_path / "other-user")}'
+$wrongExtra = [object[]]$arguments.Clone()
+$wrongExtra[($wrongExtra.IndexOf('--extra-model-paths-config') + 1)] = `
+    '{ps_single_quote(tmp_path / "other-paths.yaml")}'
+$additionalExtra = [System.Collections.Generic.List[string]]::new()
+foreach ($argument in $arguments) {{ [void]$additionalExtra.Add([string]$argument) }}
+$additionalExtra.Insert(
+    $additionalExtra.IndexOf('--extra-model-paths-config') + 2,
+    '{ps_single_quote(tmp_path / "additional-paths.yaml")}'
+)
+$wrongDatabase = [object[]]$arguments.Clone()
+$wrongDatabase[($wrongDatabase.IndexOf('--database-url') + 1)] = `
+    'sqlite:///D:/other.db'
+$duplicatePort = @($arguments) + @('--port', '65510')
+@{{
+    exact = Test-ManagedComfyUICommandLine $config $exact
+    resolved_interpreter = Test-ManagedComfyUICommandLine `
+        $config (ConvertTo-WindowsCommandLine $resolvedInterpreter)
+    wrong_data = Test-ManagedComfyUICommandLine `
+        $config (ConvertTo-WindowsCommandLine $wrongData)
+    wrong_extra = Test-ManagedComfyUICommandLine `
+        $config (ConvertTo-WindowsCommandLine $wrongExtra)
+    additional_extra = Test-ManagedComfyUICommandLine `
+        $config (ConvertTo-WindowsCommandLine $additionalExtra)
+    wrong_database = Test-ManagedComfyUICommandLine `
+        $config (ConvertTo-WindowsCommandLine $wrongDatabase)
+    duplicate_port = Test-ManagedComfyUICommandLine `
+        $config (ConvertTo-WindowsCommandLine $duplicatePort)
+}} | ConvertTo-Json -Compress
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = run_powershell(probe_script)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "exact": True,
+        "resolved_interpreter": True,
+        "wrong_data": False,
+        "wrong_extra": False,
+        "additional_extra": False,
+        "wrong_database": False,
+        "duplicate_port": False,
+    }
+
+
+def test_backend_launch_identity_changes_when_path_config_content_changes(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    probe_script = tmp_path / "probe-launch-identity.ps1"
+    probe_script.write_text(
+        f"""
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. '{ps_single_quote(SCRIPT_DIR / "backend_common.ps1")}'
+$config = Resolve-PixelleComfyUIBackendConfig `
+    -PythonExe '{ps_single_quote(sys.executable)}' `
+    -ComfyUIRoot '{ps_single_quote(comfyui_root)}' `
+    -DataRoot '{ps_single_quote(data_root)}' `
+    -SharedBasePath '{ps_single_quote(data_root)}' `
+    -ExtraModelsConfig '{ps_single_quote(extra_models_config)}' `
+    -RuntimeDir '{ps_single_quote(tmp_path / "runtime")}' `
+    -Port 65511
+$before = Get-BackendLaunchIdentity $config
+Set-Content `
+    -LiteralPath '{ps_single_quote(extra_models_config)}' `
+    -Value "pixelle:`n  base_path: D:/changed" `
+    -Encoding UTF8
+$after = Get-BackendLaunchIdentity $config
+@{{ before = $before; after = $after }} | ConvertTo-Json -Compress
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = run_powershell(probe_script)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert len(payload["before"]) == 64
+    assert len(payload["after"]) == 64
+    assert payload["before"] != payload["after"]
+
+
+def test_supervisor_process_identity_uses_the_launch_identity(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    probe_script = tmp_path / "probe-supervisor-identity.ps1"
+    probe_script.write_text(
+        f"""
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. '{ps_single_quote(SCRIPT_DIR / "backend_common.ps1")}'
+$config = Resolve-PixelleComfyUIBackendConfig `
+    -PythonExe '{ps_single_quote(sys.executable)}' `
+    -ComfyUIRoot '{ps_single_quote(comfyui_root)}' `
+    -DataRoot '{ps_single_quote(data_root)}' `
+    -SharedBasePath '{ps_single_quote(data_root)}' `
+    -ExtraModelsConfig '{ps_single_quote(extra_models_config)}' `
+    -RuntimeDir '{ps_single_quote(tmp_path / "runtime")}' `
+    -Port 65513
+$launchIdentity = Get-BackendLaunchIdentity $config
+$arguments = @(
+    '{ps_single_quote(SCRIPT_DIR / "backend_supervisor.ps1")}',
+    '-PythonExe', $config.PythonExe,
+    '-WorkingDirectory', $config.ComfyUIRoot,
+    '-ArgumentsBase64', 'opaque-serialization',
+    '-LaunchIdentity', $launchIdentity,
+    '-ProfileName', $config.ProfileName,
+    '-ComfyUIRoot', $config.ComfyUIRoot,
+    '-SharedBasePath', $config.SharedBasePath,
+    '-CustomNodeLoading', $config.CustomNodeLoading,
+    '-AllowedCustomNodeFoldersBase64', $config.AllowedCustomNodeFoldersBase64,
+    '-AcceleratorMutexName', $config.AcceleratorMutexName,
+    '-Port', [string]$config.Port
+)
+$exact = Test-ManagedComfyUICommandLine `
+    $config (ConvertTo-WindowsCommandLine $arguments)
+$arguments[$arguments.IndexOf('-LaunchIdentity') + 1] = ('0' * 64)
+$wrongIdentity = Test-ManagedComfyUICommandLine `
+    $config (ConvertTo-WindowsCommandLine $arguments)
+@{{ exact = $exact; wrong_identity = $wrongIdentity }} |
+    ConvertTo-Json -Compress
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = run_powershell(probe_script)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "exact": True,
+        "wrong_identity": False,
+    }
+
+
+def test_backend_ownership_rejects_path_config_changed_after_launch(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    probe_script = tmp_path / "probe-ownership-config-change.ps1"
+    probe_script.write_text(
+        f"""
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. '{ps_single_quote(SCRIPT_DIR / "backend_common.ps1")}'
+$config = Resolve-PixelleComfyUIBackendConfig `
+    -PythonExe '{ps_single_quote(sys.executable)}' `
+    -ComfyUIRoot '{ps_single_quote(comfyui_root)}' `
+    -DataRoot '{ps_single_quote(data_root)}' `
+    -SharedBasePath '{ps_single_quote(data_root)}' `
+    -ExtraModelsConfig '{ps_single_quote(extra_models_config)}' `
+    -RuntimeDir '{ps_single_quote(runtime_dir)}' `
+    -Port 65512
+Write-BackendOwnershipRecord $config $PID $PID
+$before = Test-BackendProcessOwnership $config $PID 'backend'
+Set-Content `
+    -LiteralPath '{ps_single_quote(extra_models_config)}' `
+    -Value "pixelle:`n  base_path: D:/changed-after-launch" `
+    -Encoding UTF8
+$after = Test-BackendProcessOwnership $config $PID 'backend'
+$record = Read-BackendOwnershipRecord $config
+@{{ before = $before; after = $after; version = $record.version }} |
+    ConvertTo-Json -Compress
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = run_powershell(probe_script)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "before": True,
+        "after": False,
+        "version": 2,
+    }
+
+
 def test_start_backend_dry_run_uses_headless_safe_args(tmp_path: Path) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     result = run_powershell(
@@ -716,9 +1017,9 @@ def test_start_backend_dry_run_uses_headless_safe_args(tmp_path: Path) -> None:
 
 def test_start_backend_dry_run_loads_only_allowed_custom_nodes(tmp_path: Path) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
-    (comfyui_root / "comfy" / "cli_args.py").write_text(
+    write_fake_comfyui_cli_args(
+        comfyui_root,
         "--disable-pinned-memory --disable-all-custom-nodes --whitelist-custom-nodes",
-        encoding="utf-8",
     )
     custom_nodes_root = data_root / "custom_nodes"
     custom_nodes_root.mkdir()
@@ -830,9 +1131,9 @@ $duplicateOption = Test-BackendCustomNodePolicyCommandLine `
 
 def test_start_backend_rejects_missing_allowed_custom_node(tmp_path: Path) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
-    (comfyui_root / "comfy" / "cli_args.py").write_text(
+    write_fake_comfyui_cli_args(
+        comfyui_root,
         "--disable-pinned-memory --disable-all-custom-nodes --whitelist-custom-nodes",
-        encoding="utf-8",
     )
     encoded_folders = base64.b64encode(
         json.dumps(["Missing-Custom-Node"]).encode("utf-8")
@@ -923,12 +1224,14 @@ def test_backend_diagnostic_tail_reads_utf8_without_a_byte_order_mark(
     assert "插件加载错误" in decoded_tail
 
 
-def test_start_backend_rejects_ambiguous_allowed_custom_node(tmp_path: Path) -> None:
+def test_start_backend_ignores_unregistered_application_custom_node_copy(
+    tmp_path: Path,
+) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
-    (comfyui_root / "comfy" / "cli_args.py").write_text(
+    write_fake_comfyui_cli_args(
+        comfyui_root,
         "--disable-pinned-memory --disable-all-custom-nodes "
         "--whitelist-custom-nodes",
-        encoding="utf-8",
     )
     folder = "ComfyUI-GGUF"
     (comfyui_root / "custom_nodes" / folder).mkdir(parents=True)
@@ -961,19 +1264,31 @@ def test_start_backend_rejects_ambiguous_allowed_custom_node(tmp_path: Path) -> 
         encoded_folder,
     )
 
-    assert result.returncode != 0
-    assert "ambiguous" in (result.stdout + result.stderr)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["effective_custom_node_roots"] == [
+        str((data_root / "custom_nodes").resolve())
+    ]
+    assert payload["allowed_custom_node_folders"] == [folder]
 
 
 def test_start_backend_deduplicates_the_same_custom_node_root(tmp_path: Path) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
-    (comfyui_root / "comfy" / "cli_args.py").write_text(
+    write_fake_comfyui_cli_args(
+        comfyui_root,
         "--disable-pinned-memory --disable-all-custom-nodes "
         "--whitelist-custom-nodes",
-        encoding="utf-8",
     )
     folder = "ComfyUI-GGUF"
-    (comfyui_root / "custom_nodes" / folder).mkdir(parents=True)
+    custom_nodes_root = data_root / "custom_nodes"
+    (custom_nodes_root / folder).mkdir(parents=True)
+    (comfyui_root / "extra_model_paths.yaml").write_text(
+        "external_comfyui:\n"
+        f"  base_path: {data_root.as_posix()}\n"
+        "  is_default: true\n"
+        "  custom_nodes: custom_nodes/\n",
+        encoding="utf-8",
+    )
     encoded_folder = base64.b64encode(json.dumps([folder]).encode("utf-8")).decode(
         "ascii"
     )
@@ -989,7 +1304,7 @@ def test_start_backend_deduplicates_the_same_custom_node_root(tmp_path: Path) ->
         "-DataRoot",
         data_root,
         "-SharedBasePath",
-        comfyui_root,
+        data_root,
         "-ExtraModelsConfig",
         extra_models_config,
         "-RuntimeDir",
@@ -1003,7 +1318,200 @@ def test_start_backend_deduplicates_the_same_custom_node_root(tmp_path: Path) ->
     )
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["allowed_custom_node_folders"] == [folder]
+    payload = json.loads(result.stdout)
+    assert payload["effective_custom_node_roots"] == [str(custom_nodes_root.resolve())]
+    assert payload["allowed_custom_node_folders"] == [folder]
+
+
+def test_start_backend_rejects_a_second_effective_custom_node_root(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_comfyui_cli_args(
+        comfyui_root,
+        "--disable-pinned-memory --disable-all-custom-nodes "
+        "--whitelist-custom-nodes",
+    )
+    folder = "ComfyUI-GGUF"
+    (data_root / "custom_nodes" / folder).mkdir(parents=True)
+    second_root = tmp_path / "SecondComfyUIData"
+    (second_root / "custom_nodes").mkdir(parents=True)
+    (comfyui_root / "extra_model_paths.yaml").write_text(
+        "external_comfyui:\n"
+        f"  base_path: {second_root.as_posix()}\n"
+        "  custom_nodes: custom_nodes/\n",
+        encoding="utf-8",
+    )
+    encoded_folder = base64.b64encode(json.dumps([folder]).encode("utf-8")).decode(
+        "ascii"
+    )
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-SharedBasePath",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-CustomNodeLoading",
+        "allowlist",
+        "-AllowedCustomNodeFoldersBase64",
+        encoded_folder,
+    )
+
+    assert result.returncode != 0
+    diagnostic = result.stdout + result.stderr
+    assert "requires exactly one effective custom_nodes root" in diagnostic
+    assert "ComfyUIData\\custom_nodes" in diagnostic
+    assert "SecondComfyUIData\\custom_nodes" in diagnostic
+
+
+def test_start_backend_rejects_case_aliases_of_the_effective_custom_node_root(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_comfyui_cli_args(
+        comfyui_root,
+        "--disable-pinned-memory --disable-all-custom-nodes "
+        "--whitelist-custom-nodes",
+    )
+    folder = "ComfyUI-GGUF"
+    (data_root / "custom_nodes" / folder).mkdir(parents=True)
+    (comfyui_root / "extra_model_paths.yaml").write_text(
+        "external_comfyui:\n"
+        f"  base_path: {str(data_root).swapcase().replace(os.sep, '/')}\n"
+        "  custom_nodes: custom_nodes/\n",
+        encoding="utf-8",
+    )
+    encoded_folder = base64.b64encode(json.dumps([folder]).encode("utf-8")).decode(
+        "ascii"
+    )
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-SharedBasePath",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-CustomNodeLoading",
+        "allowlist",
+        "-AllowedCustomNodeFoldersBase64",
+        encoded_folder,
+    )
+
+    assert result.returncode != 0
+    assert "resolved 2" in (result.stdout + result.stderr)
+
+
+def test_custom_node_root_error_does_not_leak_configuration_contents(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_comfyui_cli_args(
+        comfyui_root,
+        "--disable-pinned-memory --disable-all-custom-nodes "
+        "--whitelist-custom-nodes",
+    )
+    folder = "ComfyUI-GGUF"
+    (data_root / "custom_nodes" / folder).mkdir(parents=True)
+    secret = "path-secret-must-not-leak"
+    (comfyui_root / "extra_model_paths.yaml").write_text(
+        f"broken: [{secret}\n",
+        encoding="utf-8",
+    )
+    encoded_folder = base64.b64encode(json.dumps([folder]).encode("utf-8")).decode(
+        "ascii"
+    )
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-SharedBasePath",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-CustomNodeLoading",
+        "allowlist",
+        "-AllowedCustomNodeFoldersBase64",
+        encoded_folder,
+    )
+
+    diagnostic = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "could not load ComfyUI path configuration" in diagnostic
+    assert secret not in diagnostic
+
+
+def test_custom_node_root_resolver_timeout_is_bounded(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    (comfyui_root / "comfy" / "options.py").write_text(
+        "import time\n"
+        "time.sleep(5)\n"
+        "args_parsing = False\n"
+        "def enable_args_parsing(enable=True):\n"
+        "    global args_parsing\n"
+        "    args_parsing = enable\n",
+        encoding="utf-8",
+    )
+    probe_script = tmp_path / "probe-resolver-timeout.ps1"
+    probe_script.write_text(
+        "\n".join(
+            [
+                f". '{ps_single_quote(SCRIPT_DIR / 'backend_common.ps1')}'",
+                "$config = Resolve-PixelleComfyUIBackendConfig "
+                f"-PythonExe '{ps_single_quote(sys.executable)}' "
+                f"-ComfyUIRoot '{ps_single_quote(comfyui_root)}' "
+                f"-DataRoot '{ps_single_quote(data_root)}' "
+                f"-SharedBasePath '{ps_single_quote(data_root)}' "
+                f"-ExtraModelsConfig '{ps_single_quote(extra_models_config)}' "
+                f"-RuntimeDir '{ps_single_quote(tmp_path / 'runtime')}'",
+                "Invoke-BackendCustomNodeRootResolver $config 300",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    started_at = time.monotonic()
+    result = run_powershell(probe_script)
+    elapsed = time.monotonic() - started_at
+
+    assert result.returncode != 0
+    assert elapsed < 4
+    assert "exceeded 300 milliseconds" in (result.stdout + result.stderr)
 
 
 def test_start_backend_memory_safe_policy_preserves_batch_reuse_and_offload(
@@ -1725,7 +2233,8 @@ def test_start_backend_preserves_supervisor_arguments_with_spaces(
             "8",
         )
         assert start.returncode == 0, start.stderr
-        assert json.loads(start.stdout)["started"] is True
+        start_payload = json.loads(start.stdout)
+        assert start_payload["started"] is True
 
         stop = run_fake_backend_stop(
             comfyui_root=comfyui_root,
@@ -1736,6 +2245,7 @@ def test_start_backend_preserves_supervisor_arguments_with_spaces(
         )
         assert stop.returncode == 0, stop.stderr
         assert json.loads(stop.stdout)["stopped"] is True
+        wait_for_process_exit(start_payload["launched_pid"])
     finally:
         kill_fake_comfyui_processes(comfyui_root)
 
@@ -1863,6 +2373,7 @@ def test_stop_backend_stops_owned_launcher_after_listener_crashes(tmp_path: Path
             extra_models_config=extra_models_config,
             runtime_dir=runtime_dir,
             port=port,
+            shared_base_path=data_root,
         )
 
         assert stop.returncode == 0, stop.stderr
@@ -1981,22 +2492,7 @@ def test_stop_backend_preserves_legacy_pid_record_without_ownership_file(
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir()
     port = reserve_free_port()
-    command = [
-        sys.executable,
-        str(comfyui_root / "main.py"),
-        "--user-directory",
-        str(data_root / "user"),
-        "--input-directory",
-        str(data_root / "input"),
-        "--output-directory",
-        str(data_root / "output"),
-        "--base-directory",
-        str(data_root),
-        "--listen",
-        "127.0.0.1",
-        "--port",
-        str(port),
-    ]
+    command = fake_listening_comfyui_command(comfyui_root, data_root, port)
     process = subprocess.Popen(command)
 
     try:
@@ -2014,6 +2510,8 @@ def test_stop_backend_preserves_legacy_pid_record_without_ownership_file(
             "-ComfyUIRoot",
             comfyui_root,
             "-DataRoot",
+            data_root,
+            "-SharedBasePath",
             data_root,
             "-ExtraModelsConfig",
             extra_models_config,
@@ -2093,6 +2591,7 @@ def test_stop_backend_preserves_matching_pid_when_creation_time_changed(
             extra_models_config=extra_models_config,
             runtime_dir=runtime_dir,
             port=port,
+            shared_base_path=data_root,
         )
 
         assert stop.returncode == 0, stop.stderr
@@ -2117,6 +2616,7 @@ def test_stop_backend_preserves_matching_pid_when_creation_time_changed(
             extra_models_config=extra_models_config,
             runtime_dir=runtime_dir,
             port=port,
+            shared_base_path=data_root,
         )
 
         assert malformed_stop.returncode == 0, malformed_stop.stderr
@@ -2136,23 +2636,13 @@ def test_stop_backend_does_not_kill_unmanaged_parent_launcher(tmp_path: Path) ->
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir()
     port = reserve_free_port()
+    listener_arguments = fake_listening_comfyui_command(
+        comfyui_root,
+        data_root,
+        port,
+    )[2:]
     launcher = subprocess.Popen(
-        [
-            sys.executable,
-            str(launcher_path),
-            "--user-directory",
-            str(data_root / "user"),
-            "--input-directory",
-            str(data_root / "input"),
-            "--output-directory",
-            str(data_root / "output"),
-            "--base-directory",
-            str(data_root),
-            "--listen",
-            "127.0.0.1",
-            "--port",
-            str(port),
-        ]
+        [sys.executable, str(launcher_path), *listener_arguments]
     )
 
     try:
@@ -2192,6 +2682,7 @@ def test_stop_backend_does_not_kill_unmanaged_parent_launcher(tmp_path: Path) ->
             extra_models_config=extra_models_config,
             runtime_dir=runtime_dir,
             port=port,
+            shared_base_path=data_root,
         )
 
         assert stop.returncode == 0, stop.stderr
@@ -2258,6 +2749,7 @@ def test_stop_backend_cleans_owned_orphan_and_preserves_external_listener(
             extra_models_config=owned_models,
             runtime_dir=runtime_dir,
             port=port,
+            shared_base_path=owned_data,
         )
 
         assert stop.returncode == 0, stop.stderr
@@ -2448,6 +2940,76 @@ def test_backend_supervisor_writes_its_own_startup_failure_log(tmp_path: Path) -
     assert supervisor_stderr_log.exists()
     assert supervisor_stderr_log.read_text(encoding="utf-8").strip()
     assert not exit_code_file.exists()
+
+
+def test_backend_supervisor_waits_for_a_transient_accelerator_handoff(
+    tmp_path: Path,
+) -> None:
+    mutex_name = f"Local\\Pixelle-Test-{uuid.uuid4().hex}"
+    ready_file = tmp_path / "holder-ready"
+    holder_script = tmp_path / "hold-mutex.ps1"
+    holder_script.write_text(
+        "\n".join(
+            [
+                f"$mutex = [Threading.Mutex]::new($false, '{mutex_name}')",
+                "$acquired = $mutex.WaitOne()",
+                f"Set-Content -LiteralPath '{ps_single_quote(ready_file)}' -Value ready",
+                "Start-Sleep -Milliseconds 500",
+                "if ($acquired) { $mutex.ReleaseMutex() }",
+                "$mutex.Dispose()",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    holder = subprocess.Popen(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(holder_script),
+        ]
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not ready_file.exists() and time.monotonic() < deadline:
+            if holder.poll() is not None:
+                raise AssertionError("mutex holder exited before signaling readiness")
+            time.sleep(0.05)
+        assert ready_file.exists()
+
+        arguments_base64 = base64.b64encode(
+            json.dumps(["-c", "pass"]).encode("utf-8")
+        ).decode("ascii")
+        started_at = time.monotonic()
+        result = run_powershell(
+            SCRIPT_DIR / "backend_supervisor.ps1",
+            "-PythonExe",
+            sys.executable,
+            "-WorkingDirectory",
+            tmp_path,
+            "-StdoutLog",
+            tmp_path / "backend.stdout.log",
+            "-StderrLog",
+            tmp_path / "backend.stderr.log",
+            "-SupervisorStderrLog",
+            tmp_path / "supervisor.stderr.log",
+            "-ExitCodeFile",
+            tmp_path / "backend.exit-code",
+            "-ArgumentsBase64",
+            arguments_base64,
+            "-AcceleratorMutexName",
+            mutex_name,
+            "-AcceleratorMutexWaitMilliseconds",
+            "3000",
+        )
+        elapsed = time.monotonic() - started_at
+    finally:
+        holder.wait(timeout=10)
+
+    assert result.returncode == 0, result.stderr
+    assert 0.2 <= elapsed < 3
 
 
 def test_backend_supervisor_allows_only_one_accelerator_owner(
