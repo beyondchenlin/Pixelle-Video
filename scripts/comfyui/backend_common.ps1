@@ -1,5 +1,6 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'backend_command_line.ps1')
 
 function Get-PixelleRepoRoot {
     return (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
@@ -81,6 +82,11 @@ function Resolve-AllowedCustomNodeFolders {
         try {
             $jsonBytes = [Convert]::FromBase64String($FoldersBase64.Trim())
             $json = [Text.Encoding]::UTF8.GetString($jsonBytes)
+            $trimmedJson = $json.Trim()
+            if (-not $trimmedJson.StartsWith('[') -or
+                -not $trimmedJson.EndsWith(']')) {
+                throw "Custom-node folder JSON must be an array."
+            }
             $folders = ConvertFrom-Json -InputObject $json
         }
         catch {
@@ -307,7 +313,7 @@ function Resolve-PixelleComfyUIBackendConfig {
     $resolvedAllowedCustomNodeFoldersBase64 = [Convert]::ToBase64String(
         [Text.Encoding]::UTF8.GetBytes($allowedFoldersJson)
     )
-    $acceleratorMutexName = 'Local\Pixelle-ComfyUI-Accelerator-v1'
+    $acceleratorMutexName = 'Global\Pixelle-ComfyUI-Accelerator-v1'
     $resolvedMinimumFreeCommitGB = Resolve-BackendDouble `
         $MinimumFreeCommitGB `
         'PIXELLE_COMFYUI_MINIMUM_FREE_COMMIT_GB' `
@@ -407,7 +413,13 @@ function Get-BackendDiagnosticTail {
             continue
         }
         try {
-            $lines = @(Get-Content -LiteralPath $path -Tail $TailLines -ErrorAction Stop)
+            $lines = @(
+                Get-Content `
+                    -LiteralPath $path `
+                    -Encoding UTF8 `
+                    -Tail $TailLines `
+                    -ErrorAction Stop
+            )
         }
         catch {
             continue
@@ -421,13 +433,13 @@ function Get-BackendDiagnosticTail {
     $tail = $sections -join "`n"
     $tail = [regex]::Replace(
         $tail,
-        '(?im)(authorization\s*:\s*)[^\r\n]+',
-        '$1[REDACTED]'
+        '(?im)(?<prefix>"?authorization"?\s*:\s*)(?:"[^"\r\n]*"|''[^''\r\n]*''|[^\r\n,;}]+)',
+        '${prefix}[REDACTED]'
     )
     $tail = [regex]::Replace(
         $tail,
-        '(?im)((?:api[_-]?key|access[_-]?token|password|secret)(?:\s*[:=]\s*))[^\s,;]+',
-        '$1[REDACTED]'
+        '(?im)(?<prefix>"?(?:api[_-]?key|access[_-]?token|password|secret)"?\s*[:=]\s*)(?:"[^"\r\n]*"|''[^''\r\n]*''|[^\s,;}\r\n]+)',
+        '${prefix}[REDACTED]'
     )
     if ($tail.Length -gt $MaximumCharacters) {
         return $tail.Substring($tail.Length - $MaximumCharacters)
@@ -538,18 +550,35 @@ function Assert-BackendPrerequisites {
         throw "ComfyUI database URL must use sqlite:///: $($Config.DatabaseUrl)"
     }
     if ($Config.CustomNodeLoading -eq 'allowlist') {
-        $customNodeRoots = @(
+        $candidateCustomNodeRoots = @(
             (Join-Path $Config.SharedBasePath 'custom_nodes'),
             (Join-Path $Config.ComfyUIRoot 'custom_nodes')
         )
+        $customNodeRoots = New-Object System.Collections.Generic.List[string]
+        $seenCustomNodeRoots = [System.Collections.Generic.HashSet[string]]::new(
+            [System.StringComparer]::OrdinalIgnoreCase
+        )
+        foreach ($candidateRoot in $candidateCustomNodeRoots) {
+            $normalizedRoot = [System.IO.Path]::GetFullPath($candidateRoot)
+            if ($seenCustomNodeRoots.Add($normalizedRoot)) {
+                [void]$customNodeRoots.Add($normalizedRoot)
+            }
+        }
         foreach ($folder in @($Config.AllowedCustomNodeFolders)) {
-            $folderExists = @($customNodeRoots | Where-Object {
+            $matchingRoots = @($customNodeRoots | Where-Object {
                 Test-Path -LiteralPath (Join-Path $_ $folder) -PathType Container
-            }).Count -gt 0
-            if (-not $folderExists) {
+            })
+            if ($matchingRoots.Count -eq 0) {
                 throw (
                     "Allowed ComfyUI custom-node folder does not exist below any " +
                     "configured custom_nodes root: $folder"
+                )
+            }
+            if ($matchingRoots.Count -gt 1) {
+                throw (
+                    "Allowed ComfyUI custom-node folder is ambiguous because the " +
+                    "same name exists below multiple configured custom_nodes roots: " +
+                    "$folder"
                 )
             }
         }
@@ -789,25 +818,51 @@ function Test-CommandLineContainsToken {
     )
 }
 
-function Test-CommandLineEndsWithExactTokens {
+function Get-CommandLineOptionValues {
     param(
         [string]$CommandLine,
-        [string[]]$Tokens
+        [string]$Option
     )
 
-    if (-not $CommandLine -or $Tokens.Count -eq 0) {
-        return $false
+    if (-not $CommandLine -or -not $Option) {
+        return
     }
-    $tokenPatterns = @($Tokens | ForEach-Object {
-        $escaped = [regex]::Escape($_)
-        '(?:"' + $escaped + '"|' + $escaped + ')'
-    })
-    $pattern = '(?:^|\s)' + ($tokenPatterns -join '\s+') + '\s*$'
-    return [regex]::IsMatch(
+    $escapedOption = [regex]::Escape($Option)
+    $optionPattern = '(?:^|\s)(?:"' + $escapedOption + '"|' + $escapedOption + ')(?=\s|$)'
+    $optionMatches = [regex]::Matches(
         $CommandLine,
-        $pattern,
+        $optionPattern,
         [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
     )
+    if ($optionMatches.Count -ne 1) {
+        return
+    }
+
+    $remaining = $CommandLine.Substring(
+        $optionMatches[0].Index + $optionMatches[0].Length
+    )
+    $values = New-Object System.Collections.Generic.List[string]
+    while ($remaining) {
+        $tokenMatch = [regex]::Match(
+            $remaining,
+            '^\s+(?:"(?<quoted>[^"]*)"|(?<bare>\S+))'
+        )
+        if (-not $tokenMatch.Success) {
+            break
+        }
+        $token = if ($tokenMatch.Groups['quoted'].Success) {
+            $tokenMatch.Groups['quoted'].Value
+        }
+        else {
+            $tokenMatch.Groups['bare'].Value
+        }
+        if ($token.StartsWith('-')) {
+            break
+        }
+        [void]$values.Add($token)
+        $remaining = $remaining.Substring($tokenMatch.Length)
+    }
+    return [string[]]$values.ToArray()
 }
 
 function Test-BackendCustomNodePolicyCommandLine {
@@ -831,10 +886,23 @@ function Test-BackendCustomNodePolicyCommandLine {
     if (-not $disableAll -or -not $hasAllowlist) {
         return $false
     }
-    $expectedSuffix = @('--whitelist-custom-nodes') + @(
-        $Config.AllowedCustomNodeFolders
+    $actualFolders = @(
+        Get-CommandLineOptionValues $CommandLine '--whitelist-custom-nodes'
     )
-    return Test-CommandLineEndsWithExactTokens $CommandLine $expectedSuffix
+    $expectedFolders = @($Config.AllowedCustomNodeFolders)
+    if ($actualFolders.Count -ne $expectedFolders.Count) {
+        return $false
+    }
+    for ($index = 0; $index -lt $expectedFolders.Count; $index += 1) {
+        if (-not [string]::Equals(
+            [string]$actualFolders[$index],
+            [string]$expectedFolders[$index],
+            [System.StringComparison]::OrdinalIgnoreCase
+        )) {
+            return $false
+        }
+    }
+    return $true
 }
 
 function Test-ManagedComfyUICommandLine {

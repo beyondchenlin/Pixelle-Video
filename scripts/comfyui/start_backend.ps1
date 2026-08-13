@@ -176,12 +176,21 @@ try {
         [string]$config.Port
     )
     $powerShellExe = (Get-Process -Id $PID).Path
-    $process = Start-Process `
-        -FilePath $powerShellExe `
-        -ArgumentList $supervisorArguments `
-        -WorkingDirectory $PSScriptRoot `
-        -WindowStyle Hidden `
-        -PassThru
+    $supervisorStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $supervisorStartInfo.FileName = $powerShellExe
+    $supervisorStartInfo.WorkingDirectory = $PSScriptRoot
+    # Shell execution detaches the long-lived supervisor from this command's
+    # redirected stdout/stderr handles. Without that detachment, callers that
+    # capture this script's output wait for the supervisor lifetime even after
+    # this script has returned its JSON result.
+    $supervisorStartInfo.UseShellExecute = $true
+    $supervisorStartInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $supervisorStartInfo.Arguments = ConvertTo-WindowsCommandLine $supervisorArguments
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $supervisorStartInfo
+    if (-not $process.Start()) {
+        throw "Failed to start the ComfyUI backend supervisor process."
+    }
 }
 finally {
     if ($null -eq $previousPythonIoEncoding) {

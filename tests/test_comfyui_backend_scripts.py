@@ -160,6 +160,7 @@ def write_fake_failing_main_py(comfyui_root: Path) -> None:
     (comfyui_root / "main.py").write_text(
         "import sys\n"
         "print('deliberate backend failure api_key=do-not-expose', file=sys.stderr, flush=True)\n"
+        "print('{\"comfyui_api_key\": \"json-do-not-expose\", \"Authorization\": \"Bearer bearer-do-not-expose\"}', file=sys.stderr, flush=True)\n"
         "sys.exit(23)\n",
         encoding="utf-8",
     )
@@ -712,7 +713,7 @@ def test_start_backend_dry_run_loads_only_allowed_custom_nodes(tmp_path: Path) -
     ]
     assert (
         payload["accelerator_mutex_name"]
-        == "Local\\Pixelle-ComfyUI-Accelerator-v1"
+        == "Global\\Pixelle-ComfyUI-Accelerator-v1"
     )
     assert "--disable-all-custom-nodes" in argv
     allowlist_index = argv.index("--whitelist-custom-nodes")
@@ -743,7 +744,18 @@ $exact = Test-BackendCustomNodePolicyCommandLine `
 $extra = Test-BackendCustomNodePolicyCommandLine `
     $config `
     'python main.py --disable-all-custom-nodes --whitelist-custom-nodes ComfyUI-GGUF ComfyUI-Easy-Use ComfyUI-nunchaku'
-@{{ exact = $exact; extra = $extra }} | ConvertTo-Json -Compress
+$laterFlag = Test-BackendCustomNodePolicyCommandLine `
+    $config `
+    'python main.py --disable-all-custom-nodes --whitelist-custom-nodes ComfyUI-GGUF ComfyUI-Easy-Use --preview-method auto'
+$duplicateOption = Test-BackendCustomNodePolicyCommandLine `
+    $config `
+    'python main.py --disable-all-custom-nodes --whitelist-custom-nodes ComfyUI-GGUF ComfyUI-Easy-Use --whitelist-custom-nodes ComfyUI-GGUF ComfyUI-Easy-Use'
+@{{
+    exact = $exact
+    extra = $extra
+    later_flag = $laterFlag
+    duplicate_option = $duplicateOption
+}} | ConvertTo-Json -Compress
 """.strip(),
         encoding="utf-8",
     )
@@ -751,7 +763,12 @@ $extra = Test-BackendCustomNodePolicyCommandLine `
     result = run_powershell(probe_script)
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"exact": True, "extra": False}
+    assert json.loads(result.stdout) == {
+        "exact": True,
+        "extra": False,
+        "later_flag": True,
+        "duplicate_option": False,
+    }
 
 
 def test_start_backend_rejects_missing_allowed_custom_node(tmp_path: Path) -> None:
@@ -790,6 +807,146 @@ def test_start_backend_rejects_missing_allowed_custom_node(tmp_path: Path) -> No
 
     assert result.returncode != 0
     assert "does not exist" in (result.stdout + result.stderr)
+
+
+def test_start_backend_rejects_scalar_custom_node_payload(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    encoded_folder = base64.b64encode(
+        json.dumps("ComfyUI-GGUF").encode("utf-8")
+    ).decode("ascii")
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-CustomNodeLoading",
+        "allowlist",
+        "-AllowedCustomNodeFoldersBase64",
+        encoded_folder,
+    )
+
+    assert result.returncode != 0
+    assert "base64 JSON" in (result.stdout + result.stderr)
+
+
+def test_backend_diagnostic_tail_reads_utf8_without_a_byte_order_mark(
+    tmp_path: Path,
+) -> None:
+    diagnostic_log = tmp_path / "diagnostic.log"
+    diagnostic_log.write_bytes("插件加载错误\n".encode("utf-8"))
+    probe_script = tmp_path / "probe-diagnostic-tail.ps1"
+    probe_script.write_text(
+        "\n".join(
+            [
+                f". '{ps_single_quote(SCRIPT_DIR / 'backend_common.ps1')}'",
+                "$tail = Get-BackendDiagnosticTail -Paths "
+                f"@('{ps_single_quote(diagnostic_log)}')",
+                "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($tail))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_powershell(probe_script)
+
+    assert result.returncode == 0, result.stderr
+    decoded_tail = base64.b64decode(result.stdout.strip()).decode("utf-8")
+    assert "插件加载错误" in decoded_tail
+
+
+def test_start_backend_rejects_ambiguous_allowed_custom_node(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    (comfyui_root / "comfy" / "cli_args.py").write_text(
+        "--disable-pinned-memory --disable-all-custom-nodes "
+        "--whitelist-custom-nodes",
+        encoding="utf-8",
+    )
+    folder = "ComfyUI-GGUF"
+    (comfyui_root / "custom_nodes" / folder).mkdir(parents=True)
+    (data_root / "custom_nodes" / folder).mkdir(parents=True)
+    encoded_folder = base64.b64encode(json.dumps([folder]).encode("utf-8")).decode(
+        "ascii"
+    )
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root / "profile",
+        "-SharedBasePath",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-CustomNodeLoading",
+        "allowlist",
+        "-AllowedCustomNodeFoldersBase64",
+        encoded_folder,
+    )
+
+    assert result.returncode != 0
+    assert "ambiguous" in (result.stdout + result.stderr)
+
+
+def test_start_backend_deduplicates_the_same_custom_node_root(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    (comfyui_root / "comfy" / "cli_args.py").write_text(
+        "--disable-pinned-memory --disable-all-custom-nodes "
+        "--whitelist-custom-nodes",
+        encoding="utf-8",
+    )
+    folder = "ComfyUI-GGUF"
+    (comfyui_root / "custom_nodes" / folder).mkdir(parents=True)
+    encoded_folder = base64.b64encode(json.dumps([folder]).encode("utf-8")).decode(
+        "ascii"
+    )
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-SharedBasePath",
+        comfyui_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-CustomNodeLoading",
+        "allowlist",
+        "-AllowedCustomNodeFoldersBase64",
+        encoded_folder,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["allowed_custom_node_folders"] == [folder]
 
 
 def test_start_backend_memory_safe_policy_preserves_batch_reuse_and_offload(
@@ -1476,6 +1633,56 @@ def test_start_backend_tracks_listener_pid_when_launcher_spawns_child(tmp_path: 
         kill_fake_comfyui_processes(comfyui_root)
 
 
+def test_start_backend_preserves_supervisor_arguments_with_spaces(
+    tmp_path: Path,
+) -> None:
+    spaced_root = tmp_path / "installation with spaces"
+    spaced_root.mkdir()
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(spaced_root)
+    write_fake_listening_main_py(comfyui_root)
+    runtime_dir = spaced_root / "runtime files"
+    logs_dir = spaced_root / "log files"
+    port = reserve_free_port()
+
+    try:
+        start = run_powershell(
+            SCRIPT_DIR / "start_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-LogsDir",
+            logs_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+            "-ReadyTimeoutSeconds",
+            "8",
+        )
+        assert start.returncode == 0, start.stderr
+        assert json.loads(start.stdout)["started"] is True
+
+        stop = run_fake_backend_stop(
+            comfyui_root=comfyui_root,
+            data_root=data_root,
+            extra_models_config=extra_models_config,
+            runtime_dir=runtime_dir,
+            port=port,
+        )
+        assert stop.returncode == 0, stop.stderr
+        assert json.loads(stop.stdout)["stopped"] is True
+    finally:
+        kill_fake_comfyui_processes(comfyui_root)
+
+
 def test_stop_backend_terminates_owned_service_descendants(tmp_path: Path) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     write_fake_reexec_with_worker_main_py(comfyui_root)
@@ -2144,6 +2351,8 @@ def test_start_backend_reports_early_backend_exit_without_waiting_for_timeout(
     assert "deliberate backend failure" in combined_output
     assert "api_key=[REDACTED]" in combined_output
     assert "do-not-expose" not in combined_output
+    assert "json-do-not-expose" not in combined_output
+    assert "bearer-do-not-expose" not in combined_output
     assert "comfyui-backend.stderr.log" in combined_output
     assert not (runtime_dir / "comfyui-backend.pid").exists()
     assert not (runtime_dir / "comfyui-backend.launcher.pid").exists()
