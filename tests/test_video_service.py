@@ -226,6 +226,111 @@ def test_create_video_from_image_handles_tiny_positive_pad_duration(tmp_path):
     assert abs(durations["video"] - durations["audio"]) <= 0.005
 
 
+@pytest.mark.parametrize(
+    ("fps", "sample_rate"),
+    [
+        (30, 24000),
+        (30, 48000),
+        (60, 24000),
+        (60, 48000),
+    ],
+)
+def test_create_video_from_image_preserves_audio_tail_across_mp4_time_bases(
+    tmp_path,
+    fps,
+    sample_rate,
+):
+    frame_count = 61
+    sample_count = sample_rate * frame_count // fps - 1
+    audio_path = tmp_path / f"tail-{fps}-{sample_rate}.wav"
+    output_path = tmp_path / f"segment-{fps}-{sample_rate}.mp4"
+    _create_silent_wav(
+        audio_path,
+        sample_count=sample_count,
+        sample_rate=sample_rate,
+    )
+    raw_audio_duration = _probe_format_duration(audio_path)
+
+    VideoService().create_video_from_image(
+        image=str(Path("resources/example.png")),
+        audio=str(audio_path),
+        output=str(output_path),
+        fps=fps,
+    )
+
+    durations = _probe_stream_durations(output_path)
+    output_duration = _probe_format_duration(output_path)
+
+    assert output_duration >= raw_audio_duration
+    assert output_duration - raw_audio_duration < (1 / fps) + 0.005
+    assert abs(durations["video"] - durations["audio"]) <= 0.005
+
+
+def test_iso_base_media_movie_timescale_uses_frame_and_sample_boundaries():
+    probe = {
+        "streams": [
+            {"codec_type": "video"},
+            {"codec_type": "audio", "sample_rate": "44100"},
+        ]
+    }
+
+    assert (
+        VideoService._resolve_iso_base_media_movie_timescale(
+            output="segment.mp4",
+            fps=60,
+            probe=probe,
+        )
+        == 44_100
+    )
+    assert (
+        VideoService._resolve_iso_base_media_movie_timescale(
+            output="segment.m4v",
+            fps=64,
+            probe=probe,
+        )
+        == 705_600
+    )
+    assert (
+        VideoService._resolve_iso_base_media_movie_timescale(
+            output="segment.webm",
+            fps=60,
+            probe={"streams": []},
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("sample_rate", [None, "0", "not-a-number"])
+def test_iso_base_media_movie_timescale_rejects_invalid_sample_rate(sample_rate):
+    probe = {
+        "streams": [
+            {"codec_type": "audio", "sample_rate": sample_rate},
+        ]
+    }
+
+    with pytest.raises(ValueError, match="sample rate"):
+        VideoService._resolve_iso_base_media_movie_timescale(
+            output="segment.mov",
+            fps=60,
+            probe=probe,
+        )
+
+
+def test_iso_base_media_movie_timescale_rejects_integer_overflow():
+    probe = {
+        "streams": [
+            {"codec_type": "audio", "sample_rate": "2147483647"},
+        ]
+    }
+
+    with pytest.raises(ValueError, match="timescale limit"):
+        VideoService._resolve_iso_base_media_movie_timescale(
+            output="segment.mp4",
+            fps=2,
+            probe=probe,
+        )
+
+
 def test_burn_ass_subtitles_rejects_same_input_and_output(tmp_path):
     video = tmp_path / "final.mp4"
     ass = tmp_path / "master.ass"

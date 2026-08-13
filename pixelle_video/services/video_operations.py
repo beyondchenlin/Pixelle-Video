@@ -127,6 +127,44 @@ class VideoService:
             self._ffmpeg_checked = True
 
     @staticmethod
+    def _resolve_iso_base_media_movie_timescale(
+        *,
+        output: str,
+        fps: int,
+        probe: dict,
+    ) -> int | None:
+        if Path(output).suffix.lower() not in {".mp4", ".m4v", ".mov"}:
+            return None
+
+        audio_stream = next(
+            (
+                stream
+                for stream in probe.get("streams", ())
+                if stream.get("codec_type") == "audio"
+            ),
+            None,
+        )
+        raw_sample_rate = audio_stream.get("sample_rate") if audio_stream else None
+        try:
+            sample_rate = int(raw_sample_rate)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "audio sample rate is required for ISO base media output"
+            ) from exc
+        if sample_rate <= 0:
+            raise ValueError(
+                "audio sample rate must be positive for ISO base media output"
+            )
+
+        movie_timescale = math.lcm(fps, sample_rate)
+        if movie_timescale > 2_147_483_647:
+            raise ValueError(
+                "combined video frame rate and audio sample rate exceed the "
+                "ISO base media movie timescale limit"
+            )
+        return movie_timescale
+
+    @staticmethod
     def _h264_encode_params() -> dict[str, object]:
         vcodec = resolve_ffmpeg_h264_encoder()
         params: dict[str, object] = {
@@ -827,6 +865,11 @@ class VideoService:
             target_frame_count = max(1, math.ceil(audio_duration * fps))
             target_duration = target_frame_count / fps
             pad_duration = max(0.0, target_duration - audio_duration)
+            movie_timescale = self._resolve_iso_base_media_movie_timescale(
+                output=output,
+                fps=fps,
+                probe=probe,
+            )
             logger.debug(
                 f"Audio duration: {audio_duration:.3f}s, "
                 f"target frames: {target_frame_count}, "
@@ -847,6 +890,11 @@ class VideoService:
             # Combine image and audio
             # Drive both streams to the same snapped duration.
             def _make_output(**kw):
+                muxer_options = (
+                    {"movie_timescale": movie_timescale}
+                    if movie_timescale is not None
+                    else {}
+                )
                 return (
                     ffmpeg.output(
                         input_image.video,
@@ -857,6 +905,7 @@ class VideoService:
                         pix_fmt="yuv420p",
                         audio_bitrate="192k",
                         **{"b:v": "2M"},
+                        **muxer_options,
                         **kw,
                     )
                     .overwrite_output()
