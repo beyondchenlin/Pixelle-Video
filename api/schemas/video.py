@@ -47,6 +47,7 @@ from pixelle_video.models.series_visual_signature_request import (
 )
 from pixelle_video.models.series_visual_signature_strategy import SeriesVisualSignatureStrategy
 from pixelle_video.models.size_contract import (
+    MAX_GENERATION_EDGE_PX,
     STANDARD_VIDEO_SIZE_PRESETS,
     GenerationSizeContract,
     has_canvas_size_intent,
@@ -332,10 +333,10 @@ class VideoGenerateRequest(BaseModel):
     llm_prompt_batch_concurrent_limit: Optional[int] = Field(None, ge=PROMPT_BATCH_CONCURRENT_LIMIT_MIN, le=PROMPT_BATCH_CONCURRENT_LIMIT_MAX, description="Request-scoped LLM prompt batch concurrency override")
 
     # === Size Parameters ===
-    canvas_width: Optional[int] = Field(None, ge=1, description="Final video canvas width. Defaults to the selected video preset.")
-    canvas_height: Optional[int] = Field(None, ge=1, description="Final video canvas height. Defaults to the selected video preset.")
-    media_width: Optional[int] = Field(None, ge=1, description="Generated image/media width. Defaults to the selected media preset.")
-    media_height: Optional[int] = Field(None, ge=1, description="Generated image/media height. Defaults to the selected media preset.")
+    canvas_width: Optional[int] = Field(None, ge=1, le=MAX_GENERATION_EDGE_PX, multiple_of=2, description="Final video canvas width. Defaults to the selected video preset.")
+    canvas_height: Optional[int] = Field(None, ge=1, le=MAX_GENERATION_EDGE_PX, multiple_of=2, description="Final video canvas height. Defaults to the selected video preset.")
+    media_width: Optional[int] = Field(None, ge=1, le=MAX_GENERATION_EDGE_PX, description="Generated image/media width. Defaults to the selected media preset.")
+    media_height: Optional[int] = Field(None, ge=1, le=MAX_GENERATION_EDGE_PX, description="Generated image/media height. Defaults to the selected media preset.")
     video_orientation: Optional[VideoOrientation] = Field(None, description="Final video orientation preset group.")
     video_resolution_preset: Optional[VideoResolutionPreset] = Field(None, description="Final video resolution preset.")
     media_orientation: Optional[VideoOrientation] = Field(None, description="Generated image/media orientation preset group.")

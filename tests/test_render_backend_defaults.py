@@ -73,9 +73,14 @@ def test_default_backend_changes_trigger_the_render_golden_gate():
 
     for guarded_path in (
         "config.example.yaml",
+        "pixelle_video/models/size_contract.py",
         "pixelle_video/render_backend.py",
+        "pixelle_video/services/persistence.py",
         "tests/test_render_backend_defaults.py",
         "tests/test_render_backend_ui.py",
+        "tests/test_render_package_models.py",
+        "tests/test_size_contract.py",
+        "tests/test_video_api.py",
         "web/i18n/locales/en_US.json",
         "web/i18n/locales/zh_CN.json",
     ):
@@ -89,3 +94,9 @@ def test_default_backend_changes_trigger_the_render_golden_gate():
     assert any(
         line.startswith("tests/test_render_backend_ui.py") for line in workflow_lines
     )
+    assert any(
+        line.startswith("tests/test_render_package_models.py")
+        for line in workflow_lines
+    )
+    assert any(line.startswith("tests/test_size_contract.py") for line in workflow_lines)
+    assert any(line.startswith("tests/test_video_api.py") for line in workflow_lines)
