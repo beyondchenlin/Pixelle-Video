@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ctypes
 import http.client
 import ipaddress
 import json
@@ -12,7 +11,6 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping
-from ctypes import wintypes
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -20,11 +18,14 @@ from urllib.parse import urlsplit
 
 from pixelle_video.platform_defaults import configured_api_base_url, configured_api_port
 from pixelle_video.utils.configured_path import resolve_configured_path
+from pixelle_video.utils.process_lifetime import install_process_tree_lifetime_guard
 from pixelle_video.utils.project_identity import (
     build_path_id,
     build_project_root_id,
+    is_launch_id,
     is_path_id,
     is_project_root_id,
+    new_launch_id,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -33,98 +34,6 @@ EXPECTED_PROJECT_ROOT_ID = EXPECTED_CHECKOUT_ROOT_ID
 API_HEALTH_SERVICE = "Pixelle-Video API"
 STARTUP_TIMEOUT_SECONDS = 30.0
 PROBE_TIMEOUT_SECONDS = 0.75
-_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
-_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
-_WINDOWS_PROCESS_JOB_HANDLE: int | None = None
-
-
-class _JobObjectBasicLimitInformation(ctypes.Structure):
-    _fields_ = [
-        ("PerProcessUserTimeLimit", ctypes.c_longlong),
-        ("PerJobUserTimeLimit", ctypes.c_longlong),
-        ("LimitFlags", wintypes.DWORD),
-        ("MinimumWorkingSetSize", ctypes.c_size_t),
-        ("MaximumWorkingSetSize", ctypes.c_size_t),
-        ("ActiveProcessLimit", wintypes.DWORD),
-        ("Affinity", ctypes.c_size_t),
-        ("PriorityClass", wintypes.DWORD),
-        ("SchedulingClass", wintypes.DWORD),
-    ]
-
-
-class _IoCounters(ctypes.Structure):
-    _fields_ = [
-        ("ReadOperationCount", ctypes.c_ulonglong),
-        ("WriteOperationCount", ctypes.c_ulonglong),
-        ("OtherOperationCount", ctypes.c_ulonglong),
-        ("ReadTransferCount", ctypes.c_ulonglong),
-        ("WriteTransferCount", ctypes.c_ulonglong),
-        ("OtherTransferCount", ctypes.c_ulonglong),
-    ]
-
-
-class _JobObjectExtendedLimitInformation(ctypes.Structure):
-    _fields_ = [
-        ("BasicLimitInformation", _JobObjectBasicLimitInformation),
-        ("IoInfo", _IoCounters),
-        ("ProcessMemoryLimit", ctypes.c_size_t),
-        ("JobMemoryLimit", ctypes.c_size_t),
-        ("PeakProcessMemoryUsed", ctypes.c_size_t),
-        ("PeakJobMemoryUsed", ctypes.c_size_t),
-    ]
-
-
-def _install_process_lifetime_guard() -> None:
-    """Make every child exit when this launcher disappears on Windows."""
-    global _WINDOWS_PROCESS_JOB_HANDLE
-
-    if os.name != "nt" or _WINDOWS_PROCESS_JOB_HANDLE is not None:
-        return
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
-    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
-    kernel32.SetInformationJobObject.argtypes = [
-        wintypes.HANDLE,
-        ctypes.c_int,
-        wintypes.LPVOID,
-        wintypes.DWORD,
-    ]
-    kernel32.SetInformationJobObject.restype = wintypes.BOOL
-    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
-    kernel32.GetCurrentProcess.argtypes = []
-    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel32.CloseHandle.restype = wintypes.BOOL
-
-    job_handle = kernel32.CreateJobObjectW(None, None)
-    if not job_handle:
-        raise ctypes.WinError(ctypes.get_last_error())
-
-    limits = _JobObjectExtendedLimitInformation()
-    limits.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-    try:
-        if not kernel32.SetInformationJobObject(
-            job_handle,
-            _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
-            ctypes.byref(limits),
-            ctypes.sizeof(limits),
-        ):
-            raise ctypes.WinError(ctypes.get_last_error())
-        if not kernel32.AssignProcessToJobObject(
-            job_handle,
-            kernel32.GetCurrentProcess(),
-        ):
-            raise ctypes.WinError(ctypes.get_last_error())
-    except BaseException:
-        kernel32.CloseHandle(job_handle)
-        raise
-
-    # Keep the only non-inheritable job handle open for the launcher's lifetime.
-    # Windows closes it even after an abrupt launcher termination, which then
-    # terminates every child that inherited membership in this job.
-    _WINDOWS_PROCESS_JOB_HANDLE = int(job_handle)
 
 
 class LaunchConfigurationError(ValueError):
@@ -136,6 +45,7 @@ class LocalApiState(str, Enum):
     READY = "ready"
     OCCUPIED = "occupied"
     IDENTITY_MISMATCH = "identity_mismatch"
+    OWNERSHIP_MISMATCH = "ownership_mismatch"
     INCOMPATIBLE = "incompatible"
 
 
@@ -144,6 +54,7 @@ class LocalApiIdentity:
     checkout_root_id: str
     project_root_id: str
     output_root_id: str
+    launch_id: str
 
 
 @dataclass(frozen=True)
@@ -164,14 +75,17 @@ def build_local_api_identity(environ: Mapping[str, str]) -> LocalApiIdentity:
         )
     except (OSError, ValueError) as exc:
         raise LaunchConfigurationError(str(exc)) from exc
+    launch_id = environ.get("PIXELLE_LAUNCH_ID")
+    if not is_launch_id(launch_id):
+        raise LaunchConfigurationError(
+            "PIXELLE_LAUNCH_ID must be generated by the web-stack launcher."
+        )
     return LocalApiIdentity(
         checkout_root_id=EXPECTED_CHECKOUT_ROOT_ID,
         project_root_id=EXPECTED_PROJECT_ROOT_ID,
         output_root_id=build_path_id(output_root),
+        launch_id=launch_id,
     )
-
-
-DEFAULT_LOCAL_API_IDENTITY = build_local_api_identity(os.environ)
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -259,7 +173,7 @@ def build_runtime_target(environ: Mapping[str, str]) -> RuntimeTarget:
 def probe_local_api(
     port: int,
     *,
-    expected_identity: LocalApiIdentity | None = None,
+    expected_identity: LocalApiIdentity,
     timeout: float = PROBE_TIMEOUT_SECONDS,
 ) -> LocalApiState:
     try:
@@ -293,22 +207,25 @@ def probe_local_api(
     ):
         return LocalApiState.OCCUPIED
 
-    expected = expected_identity or DEFAULT_LOCAL_API_IDENTITY
     checkout_root_id = payload.get("checkout_root_id")
     project_root_id = payload.get("project_root_id")
     output_root_id = payload.get("output_root_id")
+    launch_id = payload.get("launch_id")
     if (
         not is_project_root_id(checkout_root_id)
         or not is_project_root_id(project_root_id)
         or not is_path_id(output_root_id)
+        or not is_launch_id(launch_id)
     ):
         return LocalApiState.INCOMPATIBLE
     if (
-        checkout_root_id != expected.checkout_root_id
-        or project_root_id != expected.project_root_id
-        or output_root_id != expected.output_root_id
+        checkout_root_id != expected_identity.checkout_root_id
+        or project_root_id != expected_identity.project_root_id
+        or output_root_id != expected_identity.output_root_id
     ):
         return LocalApiState.IDENTITY_MISMATCH
+    if launch_id != expected_identity.launch_id:
+        return LocalApiState.OWNERSHIP_MISMATCH
     return LocalApiState.READY
 
 
@@ -317,24 +234,23 @@ def wait_for_local_api(
     *,
     timeout: float,
     process: subprocess.Popen[bytes] | subprocess.Popen[str] | None = None,
-    expected_identity: LocalApiIdentity | None = None,
+    expected_identity: LocalApiIdentity,
 ) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         state = probe_local_api(port, expected_identity=expected_identity)
         if state is LocalApiState.READY:
             return True
-        if state in {LocalApiState.IDENTITY_MISMATCH, LocalApiState.INCOMPATIBLE}:
+        if state in {
+            LocalApiState.IDENTITY_MISMATCH,
+            LocalApiState.OWNERSHIP_MISMATCH,
+            LocalApiState.INCOMPATIBLE,
+        }:
             return False
         if process is not None and process.poll() is not None:
-            return (
-                probe_local_api(port, expected_identity=expected_identity)
-                is LocalApiState.READY
-            )
+            return probe_local_api(port, expected_identity=expected_identity) is LocalApiState.READY
         time.sleep(0.2)
-    return (
-        probe_local_api(port, expected_identity=expected_identity) is LocalApiState.READY
-    )
+    return probe_local_api(port, expected_identity=expected_identity) is LocalApiState.READY
 
 
 def _raise_for_api_identity_conflict(state: LocalApiState, *, port: int) -> None:
@@ -344,10 +260,16 @@ def _raise_for_api_identity_conflict(state: LocalApiState, *, port: int) -> None
             "or output root. "
             "Stop that checkout's API or configure this checkout to use a different local port."
         )
+    if state in {LocalApiState.READY, LocalApiState.OWNERSHIP_MISMATCH}:
+        raise LaunchConfigurationError(
+            f"Port {port} is running {API_HEALTH_SERVICE} from another launcher. "
+            "Stop the existing local web stack before starting a new one, or configure "
+            "an explicit remote API origin."
+        )
     if state is LocalApiState.INCOMPATIBLE:
         raise LaunchConfigurationError(
-            f"Port {port} is running {API_HEALTH_SERVICE} without a compatible project identity. "
-            "Restart that API with the current code before reusing the port."
+            f"Port {port} is running an outdated or incompatible {API_HEALTH_SERVICE}. "
+            "Stop that local API before starting this web stack."
         )
 
 
@@ -427,6 +349,7 @@ def _prepare_runtime_environment(environ: dict[str, str], target: RuntimeTarget)
             "PIXELLE_API_PORT": str(target.port),
             "PIXELLE_WEB_PORT": str(target.web_port),
             "PIXELLE_API_BASE_URL": target.api_base_url,
+            "PIXELLE_LAUNCH_ID": new_launch_id(),
             "TMP": str(temporary_root),
             "TEMP": str(temporary_root),
             "TMPDIR": str(temporary_root),
@@ -453,61 +376,44 @@ def run_web_stack(environ: dict[str, str] | None = None) -> int:
             )
             _raise_for_api_identity_conflict(state, port=target.port)
             if state is LocalApiState.OCCUPIED:
-                if wait_for_local_api(
-                    target.port,
-                    timeout=2.0,
-                    expected_identity=expected_api_identity,
-                ):
-                    state = LocalApiState.READY
-                else:
-                    state = probe_local_api(
-                        target.port,
-                        expected_identity=expected_api_identity,
-                    )
-                    _raise_for_api_identity_conflict(state, port=target.port)
-                    raise LaunchConfigurationError(
-                        f"Port {target.port} is occupied by a service that is not a healthy "
-                        f"{API_HEALTH_SERVICE}. Stop that service or set both "
-                        "PIXELLE_API_PORT and PIXELLE_API_BASE_URL explicitly."
-                    )
-
-            if state is LocalApiState.READY:
-                print(f"Reusing the healthy {API_HEALTH_SERVICE} on port {target.port}.")
-            else:
-                print(f"Starting {API_HEALTH_SERVICE} on http://127.0.0.1:{target.port} ...")
-                api_process = _start_process(
-                    [
-                        sys.executable,
-                        "-m",
-                        "uvicorn",
-                        "api.app:app",
-                        "--host",
-                        "127.0.0.1",
-                        "--port",
-                        str(target.port),
-                    ],
-                    environ=child_environ,
+                raise LaunchConfigurationError(
+                    f"Port {target.port} is occupied by a service that is not a healthy "
+                    f"{API_HEALTH_SERVICE}. Stop that service or set both "
+                    "PIXELLE_API_PORT and PIXELLE_API_BASE_URL explicitly."
                 )
-                if not wait_for_local_api(
+
+            print(f"Starting {API_HEALTH_SERVICE} on http://127.0.0.1:{target.port} ...")
+            api_process = _start_process(
+                [
+                    sys.executable,
+                    "-m",
+                    "uvicorn",
+                    "api.app:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(target.port),
+                ],
+                environ=child_environ,
+            )
+            if not wait_for_local_api(
+                target.port,
+                timeout=target.startup_timeout_seconds,
+                process=api_process,
+                expected_identity=expected_api_identity,
+            ):
+                state = probe_local_api(
                     target.port,
-                    timeout=target.startup_timeout_seconds,
-                    process=api_process,
                     expected_identity=expected_api_identity,
-                ):
-                    state = probe_local_api(
-                        target.port,
-                        expected_identity=expected_api_identity,
-                    )
-                    _raise_for_api_identity_conflict(state, port=target.port)
-                    raise RuntimeError(
-                        f"{API_HEALTH_SERVICE} did not become healthy within "
-                        f"{target.startup_timeout_seconds:.1f} seconds."
-                    )
-                if api_process.poll() is not None:
-                    api_process = None
-                    print(f"Reusing a concurrently started {API_HEALTH_SERVICE}.")
-                else:
-                    print(f"{API_HEALTH_SERVICE} is healthy.")
+                )
+                _raise_for_api_identity_conflict(state, port=target.port)
+                raise RuntimeError(
+                    f"{API_HEALTH_SERVICE} did not become healthy within "
+                    f"{target.startup_timeout_seconds:.1f} seconds."
+                )
+            if api_process.poll() is not None:
+                raise RuntimeError(f"The supervised {API_HEALTH_SERVICE} exited during startup.")
+            print(f"{API_HEALTH_SERVICE} is healthy.")
         else:
             print(
                 "Using the explicitly configured remote API origin: "
@@ -545,7 +451,7 @@ def run_web_stack(environ: dict[str, str] | None = None) -> int:
 
 def main() -> int:
     try:
-        _install_process_lifetime_guard()
+        install_process_tree_lifetime_guard()
         return run_web_stack()
     except KeyboardInterrupt:
         return 130

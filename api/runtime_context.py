@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from pixelle_video.utils.os_util import get_pixelle_video_root_path
 from pixelle_video.utils.project_identity import (
     build_path_id,
     build_project_root_id,
+    is_launch_id,
     resolve_project_root,
 )
 
@@ -25,6 +27,7 @@ class ApiRuntimeContext:
     checkout_root_id: str
     project_root_id: str
     output_root_id: str
+    launch_id: str | None
 
 
 def build_api_runtime_context(
@@ -32,6 +35,7 @@ def build_api_runtime_context(
     *,
     checkout_root: str | Path | None = None,
     output_root: str | Path | None = None,
+    launch_id: str | None = None,
 ) -> ApiRuntimeContext:
     resolved_checkout_root = resolve_project_root(checkout_root or API_CHECKOUT_ROOT)
     resolved_root = resolve_project_root(project_root or get_pixelle_video_root_path())
@@ -40,6 +44,8 @@ def build_api_runtime_context(
         project_root=resolved_root,
         setting_name="PIXELLE_ARTIFACT_BASE_PATH",
     )
+    if launch_id is not None and not is_launch_id(launch_id):
+        raise ValueError("PIXELLE_LAUNCH_ID has an invalid process-ownership identity.")
     return ApiRuntimeContext(
         checkout_root=resolved_checkout_root,
         project_root=resolved_root,
@@ -47,10 +53,13 @@ def build_api_runtime_context(
         checkout_root_id=build_project_root_id(resolved_checkout_root),
         project_root_id=build_project_root_id(resolved_root),
         output_root_id=build_path_id(resolved_output_root),
+        launch_id=launch_id,
     )
 
 
-_API_RUNTIME_CONTEXT = build_api_runtime_context()
+_API_RUNTIME_CONTEXT = build_api_runtime_context(
+    launch_id=os.environ.get("PIXELLE_LAUNCH_ID")
+)
 
 
 def get_api_runtime_context() -> ApiRuntimeContext:

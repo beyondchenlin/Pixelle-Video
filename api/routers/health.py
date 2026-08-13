@@ -37,6 +37,9 @@ class HealthResponse(BaseModel):
     output_root_id: str = Field(
         default_factory=lambda: get_api_runtime_context().output_root_id
     )
+    launch_id: str | None = Field(
+        default_factory=lambda: get_api_runtime_context().launch_id
+    )
 
 
 class CapabilitiesResponse(BaseModel):
@@ -63,4 +66,3 @@ async def get_version():
     Returns version information.
     """
     return HealthResponse()
-

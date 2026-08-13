@@ -508,7 +508,7 @@ $env:PIXELLE_WEB_PORT='8510'
 .\start_web.bat
 ```
 
-The launcher never switches ports silently. It first verifies whether the service on `6789` is a healthy Pixelle API: a matching service is safely reused, a foreign service causes an explicit failure, and an unused port starts a new process. The Web UI starts only after the health check passes. The launcher cleans up only the API process it created and never terminates a reused process.
+The launcher never switches ports silently and never reuses an existing local Pixelle API. Every launch assigns one ownership identifier to the Web UI and its local API. The Web UI starts only after the API passes both runtime-identity and launch-ownership checks. If either target port belongs to a stale process, another checkout, or another service, startup fails explicitly instead of attaching the new Web UI to a process outside the launcher's lifecycle.
 
 Then use:
 
@@ -516,7 +516,7 @@ Then use:
 - Pixelle API health check: `http://localhost:8890/health`
 - API documentation: `http://localhost:8890/docs`
 
-The supervisor derives a matching `PIXELLE_API_BASE_URL` from `PIXELLE_API_PORT`; do not set it separately. Both port overrides affect only the current PowerShell session and its children. If either target port is occupied, startup fails explicitly instead of attaching to an unknown stale process.
+The supervisor derives a matching `PIXELLE_API_BASE_URL` from `PIXELLE_API_PORT`; do not set it separately. Both port overrides affect only the current PowerShell session and its children. Normal shutdown stops the local API and its descendants on every supported platform; on Windows, the complete managed process tree also exits after forced launcher termination. To use an independently managed API, configure an explicit remote `PIXELLE_API_BASE_URL`; the launcher never terminates that external service.
 
 API cross-origin access is derived from `PIXELLE_WEB_PORT` and restricted to the current local Web addresses. Arbitrary websites can no longer call the local API. When the Web application is hosted on separate domains, list every trusted origin explicitly as a comma-separated value:
 
