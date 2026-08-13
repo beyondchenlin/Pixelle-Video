@@ -751,6 +751,24 @@ def test_persistence_loads_historical_hyperframes_backend_as_compiled(tmp_path):
     assert restored.render_backend == "hyperframes_compiled"
 
 
+@pytest.mark.parametrize("persisted_backend", [None, ""])
+def test_persistence_keeps_missing_historical_backend_on_legacy_path(
+    tmp_path,
+    persisted_backend,
+):
+    config = {
+        "media_width": 1080,
+        "media_height": 1920,
+    }
+    if persisted_backend is not None:
+        config["render_backend"] = persisted_backend
+
+    service = PersistenceService(output_dir=str(tmp_path))
+    restored = service._dict_to_config(config)
+
+    assert restored.render_backend == "legacy"
+
+
 def test_render_config_loads_and_saves_through_yaml_round_trip(tmp_path):
     config_path = tmp_path / "config.yaml"
     saved_path = tmp_path / "saved-config.yaml"

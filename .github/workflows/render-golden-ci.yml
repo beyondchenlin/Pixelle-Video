@@ -21,6 +21,7 @@ on:
       - "pixelle_video/services/frame_html.py"
       - "pixelle_video/services/hyperframes_compiler.py"
       - "pixelle_video/services/hyperframes_project_service.py"
+      - "pixelle_video/services/persistence.py"
       - "pixelle_video/services/render_artifact_analyzer.py"
       - "pixelle_video/services/render_hardware_certification.py"
       - "pixelle_video/services/render_qualification.py"
@@ -43,6 +44,7 @@ on:
       - "tests/test_render_artifact_analyzer.py"
       - "tests/test_render_backend_defaults.py"
       - "tests/test_render_backend_ui.py"
+      - "tests/test_render_package_models.py"
       - "tests/test_render_hardware_certification.py"
       - "tests/test_render_hardware_workflow.py"
       - "tests/test_render_qualification.py"
@@ -75,6 +77,7 @@ on:
       - "pixelle_video/services/frame_html.py"
       - "pixelle_video/services/hyperframes_compiler.py"
       - "pixelle_video/services/hyperframes_project_service.py"
+      - "pixelle_video/services/persistence.py"
       - "pixelle_video/services/render_artifact_analyzer.py"
       - "pixelle_video/services/render_hardware_certification.py"
       - "pixelle_video/services/render_qualification.py"
@@ -97,6 +100,7 @@ on:
       - "tests/test_render_artifact_analyzer.py"
       - "tests/test_render_backend_defaults.py"
       - "tests/test_render_backend_ui.py"
+      - "tests/test_render_package_models.py"
       - "tests/test_render_hardware_certification.py"
       - "tests/test_render_hardware_workflow.py"
       - "tests/test_render_qualification.py"
@@ -170,6 +174,7 @@ jobs:
             tests/test_render_artifact_analyzer.py \
             tests/test_render_backend_defaults.py \
             tests/test_render_backend_ui.py \
+            tests/test_render_package_models.py \
             tests/test_render_hardware_certification.py \
             tests/test_render_hardware_workflow.py \
             tests/test_render_qualification.py \
