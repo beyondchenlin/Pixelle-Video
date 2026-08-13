@@ -34,33 +34,35 @@ class HomeEditorWarmupStatus(StrEnum):
 
 @dataclass(frozen=True)
 class HomeEditorWarmupSnapshot:
-    pipeline_name: str
+    target: str | None
     status: HomeEditorWarmupStatus
     import_duration_ms: int | None = None
 
 
 _WARMUP_LOCK = Lock()
-_WARMUP_QUEUE: deque[str] = deque()
-_WARMUP_SNAPSHOTS: dict[str, HomeEditorWarmupSnapshot] = {}
+_WARMUP_QUEUE: deque[str | None] = deque()
+_WARMUP_SNAPSHOTS: dict[str | None, HomeEditorWarmupSnapshot] = {}
 _WARMUP_WORKER_RUNNING = False
 
 
-def _trusted_warmup_modules(pipeline_name: str) -> tuple[str, ...] | None:
-    entry = get_pipeline_catalog_entry(pipeline_name)
+def _trusted_warmup_modules(target: str | None) -> tuple[str, ...] | None:
+    if target is None:
+        return _CORE_IMPORT_MODULES
+    entry = get_pipeline_catalog_entry(target)
     if entry is None:
         return None
-    return (entry.module_name, *_CORE_IMPORT_MODULES)
+    return (*_CORE_IMPORT_MODULES, entry.module_name)
 
 
 def _execute_home_editor_warmup(
-    pipeline_name: str,
+    target: str | None,
     *,
     module_importer: Callable[[str], object] = import_module,
 ) -> HomeEditorWarmupSnapshot:
-    modules = _trusted_warmup_modules(pipeline_name)
+    modules = _trusted_warmup_modules(target)
     if modules is None:
         return HomeEditorWarmupSnapshot(
-            pipeline_name=pipeline_name,
+            target=target,
             status=HomeEditorWarmupStatus.FAILED,
         )
 
@@ -71,63 +73,84 @@ def _execute_home_editor_warmup(
     except Exception:
         logger.exception("Home editor import warmup failed")
         return HomeEditorWarmupSnapshot(
-            pipeline_name=pipeline_name,
+            target=target,
             status=HomeEditorWarmupStatus.FAILED,
         )
 
     return HomeEditorWarmupSnapshot(
-        pipeline_name=pipeline_name,
+        target=target,
         status=HomeEditorWarmupStatus.SUCCEEDED,
         import_duration_ms=round((time.perf_counter() - started_at) * 1000),
     )
 
 
+def _discard_pending_warmups_locked() -> None:
+    while _WARMUP_QUEUE:
+        target = _WARMUP_QUEUE.popleft()
+        snapshot = _WARMUP_SNAPSHOTS.get(target)
+        if snapshot is not None and snapshot.status is HomeEditorWarmupStatus.PENDING:
+            _WARMUP_SNAPSHOTS.pop(target, None)
+
+
 def _run_home_editor_warmup_queue(*, initial_delay_seconds: float) -> None:
     global _WARMUP_WORKER_RUNNING
 
-    if initial_delay_seconds > 0:
-        time.sleep(initial_delay_seconds)
+    try:
+        if initial_delay_seconds > 0:
+            time.sleep(initial_delay_seconds)
 
-    while True:
-        with _WARMUP_LOCK:
-            if not _WARMUP_QUEUE:
-                _WARMUP_WORKER_RUNNING = False
-                return
-            pipeline_name = _WARMUP_QUEUE.popleft()
-            _WARMUP_SNAPSHOTS[pipeline_name] = HomeEditorWarmupSnapshot(
-                pipeline_name=pipeline_name,
-                status=HomeEditorWarmupStatus.RUNNING,
-            )
+        while True:
+            with _WARMUP_LOCK:
+                if not _WARMUP_QUEUE:
+                    _WARMUP_WORKER_RUNNING = False
+                    return
+                target = _WARMUP_QUEUE.popleft()
+                _WARMUP_SNAPSHOTS[target] = HomeEditorWarmupSnapshot(
+                    target=target,
+                    status=HomeEditorWarmupStatus.RUNNING,
+                )
 
-        snapshot = _execute_home_editor_warmup(pipeline_name)
+            try:
+                snapshot = _execute_home_editor_warmup(target)
+            except Exception:
+                logger.exception("Home editor warmup worker failed unexpectedly")
+                snapshot = HomeEditorWarmupSnapshot(
+                    target=target,
+                    status=HomeEditorWarmupStatus.FAILED,
+                )
+            with _WARMUP_LOCK:
+                _WARMUP_SNAPSHOTS[target] = snapshot
+            if snapshot.status is HomeEditorWarmupStatus.SUCCEEDED:
+                logger.info(
+                    f"Home editor imports warmed in {snapshot.import_duration_ms} ms"
+                )
+    except Exception:
         with _WARMUP_LOCK:
-            _WARMUP_SNAPSHOTS[pipeline_name] = snapshot
-        if snapshot.status is HomeEditorWarmupStatus.SUCCEEDED:
-            logger.info(
-                f"Home editor imports warmed in {snapshot.import_duration_ms} ms"
-            )
+            _discard_pending_warmups_locked()
+            _WARMUP_WORKER_RUNNING = False
+        logger.exception("Home editor warmup worker stopped unexpectedly")
 
 
 def schedule_home_editor_warmup(
-    pipeline_name: str = "quick_create",
+    target: str | None = "quick_create",
     *,
     initial_delay_seconds: float = HOME_EDITOR_WARMUP_DELAY_SECONDS,
 ) -> bool:
-    """Queue one allowlisted pipeline warmup without constructing runtime services."""
+    """Queue one bounded warmup without constructing runtime services."""
     global _WARMUP_WORKER_RUNNING
 
-    if _trusted_warmup_modules(pipeline_name) is None:
+    if _trusted_warmup_modules(target) is None:
         logger.warning("Ignored Home editor warmup request for unknown pipeline")
         return False
 
     with _WARMUP_LOCK:
-        if pipeline_name in _WARMUP_SNAPSHOTS:
+        if target in _WARMUP_SNAPSHOTS:
             return False
-        _WARMUP_SNAPSHOTS[pipeline_name] = HomeEditorWarmupSnapshot(
-            pipeline_name=pipeline_name,
+        _WARMUP_SNAPSHOTS[target] = HomeEditorWarmupSnapshot(
+            target=target,
             status=HomeEditorWarmupStatus.PENDING,
         )
-        _WARMUP_QUEUE.append(pipeline_name)
+        _WARMUP_QUEUE.append(target)
         if _WARMUP_WORKER_RUNNING:
             return True
         _WARMUP_WORKER_RUNNING = True
@@ -142,8 +165,7 @@ def schedule_home_editor_warmup(
         worker.start()
     except Exception:
         with _WARMUP_LOCK:
-            _WARMUP_QUEUE.clear()
-            _WARMUP_SNAPSHOTS.pop(pipeline_name, None)
+            _discard_pending_warmups_locked()
             _WARMUP_WORKER_RUNNING = False
         logger.exception("Unable to start Home editor warmup worker")
         return False
@@ -151,10 +173,10 @@ def schedule_home_editor_warmup(
 
 
 def get_home_editor_warmup_snapshot(
-    pipeline_name: str,
+    target: str | None,
 ) -> HomeEditorWarmupSnapshot | None:
     with _WARMUP_LOCK:
-        return _WARMUP_SNAPSHOTS.get(pipeline_name)
+        return _WARMUP_SNAPSHOTS.get(target)
 
 
 __all__ = [

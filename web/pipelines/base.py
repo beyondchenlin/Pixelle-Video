@@ -16,7 +16,8 @@ Pipeline UI Base & Registry
 Defines the PipelineUI protocol and the registration mechanism.
 """
 
-from typing import Any, Dict, List, Type
+from threading import RLock
+from typing import Any
 
 
 class PipelineUI:
@@ -42,17 +43,24 @@ class PipelineUI:
 
 # ==================== Registry ====================
 
-_pipeline_uis: Dict[str, PipelineUI] = {}
+_pipeline_uis: dict[str, PipelineUI] = {}
+_pipeline_uis_lock = RLock()
 
-def register_pipeline_ui(ui_class: Type[PipelineUI]):
+
+def register_pipeline_ui(ui_class: type[PipelineUI]) -> None:
     """Register a pipeline UI class"""
     instance = ui_class()
-    _pipeline_uis[instance.name] = instance
+    with _pipeline_uis_lock:
+        _pipeline_uis[instance.name] = instance
 
-def get_pipeline_ui(name: str) -> PipelineUI:
+
+def get_pipeline_ui(name: str) -> PipelineUI | None:
     """Get a pipeline UI instance by name"""
-    return _pipeline_uis.get(name)
+    with _pipeline_uis_lock:
+        return _pipeline_uis.get(name)
 
-def get_all_pipeline_uis() -> List[PipelineUI]:
+
+def get_all_pipeline_uis() -> list[PipelineUI]:
     """Get all registered pipeline UI instances"""
-    return list(_pipeline_uis.values())
+    with _pipeline_uis_lock:
+        return list(_pipeline_uis.values())

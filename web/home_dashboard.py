@@ -29,16 +29,18 @@ def change_dashboard_page(
     session_state[state_key] = max(0, current_page + int(delta))
 
 
-def resolve_dashboard_warmup_pipeline(value: Any) -> str:
+def resolve_dashboard_warmup_target(value: Any) -> str | None:
     candidate = str(value or "")
     if get_pipeline_catalog_entry(candidate) is not None:
         return candidate
-    return DEFAULT_HOME_PIPELINE
+    if not candidate:
+        return DEFAULT_HOME_PIPELINE
+    return None
 
 
 __all__ = [
     "DEFAULT_HOME_PIPELINE",
     "change_dashboard_page",
     "normalize_dashboard_page",
-    "resolve_dashboard_warmup_pipeline",
+    "resolve_dashboard_warmup_target",
 ]

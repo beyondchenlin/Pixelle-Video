@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from dataclasses import dataclass
 from datetime import datetime
@@ -72,6 +73,21 @@ def _stable_key(value: Any) -> str:
     return hashlib.sha1(str(value).encode("utf-8")).hexdigest()[:12]
 
 
+def _coerce_nonnegative_float(value: Any) -> float:
+    try:
+        normalized = float(value or 0.0)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return normalized if math.isfinite(normalized) and normalized >= 0 else 0.0
+
+
+def _coerce_nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def normalize_recent_video_item(
     item: dict[str, Any],
     *,
@@ -89,8 +105,8 @@ def normalize_recent_video_item(
         "title": title,
         "video_path": str(video_path),
         "cover_path": item.get("cover_path"),
-        "duration": float(item.get("duration") or 0.0),
-        "n_frames": int(item.get("n_frames") or 0),
+        "duration": _coerce_nonnegative_float(item.get("duration")),
+        "n_frames": _coerce_nonnegative_int(item.get("n_frames")),
         "created_at": item.get("created_at") or item.get("completed_at") or "",
         "completed_at": item.get("completed_at") or item.get("created_at") or "",
         "source": source,
@@ -473,7 +489,12 @@ def render_recent_video_gallery(
             history_items = fetch_recent_history_video_items_from_index(limit=None)
         else:
             history_items = fetch_recent_history_video_items_from_index()
-    items = merge_recent_video_items(current, history_items, limit=None) if show_all else merge_recent_video_items(current, history_items)
+    merge_limit = (
+        None
+        if show_all or normalized_page_size is not None
+        else RECENT_VIDEO_LIMIT
+    )
+    items = merge_recent_video_items(current, history_items, limit=merge_limit)
     window_end = (
         None
         if normalized_page_size is None

@@ -35,7 +35,7 @@ from web.components.settings import render_advanced_settings
 from web.home_dashboard import (
     change_dashboard_page,
     normalize_dashboard_page,
-    resolve_dashboard_warmup_pipeline,
+    resolve_dashboard_warmup_target,
 )
 from web.home_editor_warmup import schedule_home_editor_warmup
 from web.i18n import tr
@@ -120,7 +120,7 @@ def main():
                     width="stretch",
                 )
         schedule_home_editor_warmup(
-            resolve_dashboard_warmup_pipeline(st.session_state.get(HOME_PIPELINE_KEY))
+            resolve_dashboard_warmup_target(st.session_state.get(HOME_PIPELINE_KEY))
         )
         return
 

@@ -1,7 +1,7 @@
 from web.home_dashboard import (
     change_dashboard_page,
     normalize_dashboard_page,
-    resolve_dashboard_warmup_pipeline,
+    resolve_dashboard_warmup_target,
 )
 
 
@@ -23,7 +23,8 @@ def test_change_dashboard_page_never_moves_before_first_page():
     assert state["page"] == 1
 
 
-def test_warmup_pipeline_resolution_accepts_only_builtin_catalog_entries():
-    assert resolve_dashboard_warmup_pipeline("image_to_video") == "image_to_video"
-    assert resolve_dashboard_warmup_pipeline("third_party_extension") == "quick_create"
-    assert resolve_dashboard_warmup_pipeline("../../unsafe") == "quick_create"
+def test_warmup_target_resolution_avoids_preloading_an_unselected_builtin():
+    assert resolve_dashboard_warmup_target(None) == "quick_create"
+    assert resolve_dashboard_warmup_target("image_to_video") == "image_to_video"
+    assert resolve_dashboard_warmup_target("third_party_extension") is None
+    assert resolve_dashboard_warmup_target("../../unsafe") is None
