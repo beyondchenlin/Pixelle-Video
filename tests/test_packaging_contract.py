@@ -252,6 +252,19 @@ def test_golden_workflow_covers_the_complete_hyperframes_render_chain() -> None:
         assert workflow.count(f'- "{guarded_path}"') == 2
 
 
+def test_video_encoding_workflow_runs_the_video_service_regressions() -> None:
+    workflow = (PROJECT_ROOT / ".github/workflows/video-encoding-ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert workflow.count('- "tests/test_video_service.py"') == 2
+    assert "tests=(tests/test_ffmpeg_encoder.py tests/test_video_service.py)" in workflow
+    assert "tests/test_video_service.py" in workflow.split(
+        "- name: Ruff video encoding scope",
+        maxsplit=1,
+    )[1]
+
+
 def test_changed_runtime_workflows_pin_third_party_actions_by_commit() -> None:
     for workflow_name in ("render-golden-ci.yml", "video-encoding-ci.yml"):
         workflow = (PROJECT_ROOT / ".github/workflows" / workflow_name).read_text(

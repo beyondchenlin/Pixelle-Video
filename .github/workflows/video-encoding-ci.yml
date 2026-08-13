@@ -14,6 +14,7 @@ on:
       - "pixelle_video/services/element_animation_renderer.py"
       - "tools/hyperframes_bridge/**"
       - "tests/test_ffmpeg_encoder.py"
+      - "tests/test_video_service.py"
       - "tests/services/test_video_encoder_executor.py"
       - "tests/services/test_video_service_unified_encoder.py"
   push:
@@ -29,6 +30,7 @@ on:
       - "pixelle_video/services/element_animation_renderer.py"
       - "tools/hyperframes_bridge/**"
       - "tests/test_ffmpeg_encoder.py"
+      - "tests/test_video_service.py"
       - "tests/services/test_video_encoder_executor.py"
       - "tests/services/test_video_service_unified_encoder.py"
   workflow_dispatch:
@@ -85,7 +87,7 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          tests=(tests/test_ffmpeg_encoder.py)
+          tests=(tests/test_ffmpeg_encoder.py tests/test_video_service.py)
           for candidate in \
             tests/services/test_video_encoder_executor.py \
             tests/services/test_video_service_unified_encoder.py; do
@@ -98,7 +100,11 @@ jobs:
       - name: Ruff video encoding scope
         shell: bash
         run: |
-          files=(pixelle_video/utils/ffmpeg_encoder.py tests/test_ffmpeg_encoder.py)
+          files=(
+            pixelle_video/utils/ffmpeg_encoder.py
+            tests/test_ffmpeg_encoder.py
+            tests/test_video_service.py
+          )
           for candidate in \
             pixelle_video/services/video.py \
             pixelle_video/services/video_operations.py \
