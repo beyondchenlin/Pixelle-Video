@@ -16,15 +16,36 @@ from pixelle_video.services.hyperframes_renderer import HyperFramesRenderer
 
 
 def _write_bridge_runtime(bridge_root: Path) -> Path:
+    dependencies = {
+        "@hyperframes/producer": "0.7.107",
+        "puppeteer": "25.6.0",
+        "yauzl": "3.4.0",
+    }
     bridge_script = bridge_root / "src" / "render.mjs"
     bridge_script.parent.mkdir(parents=True, exist_ok=True)
     bridge_script.write_text("// bridge placeholder", encoding="utf-8")
-    (bridge_root / "package.json").write_text("{}", encoding="utf-8")
-    (bridge_root / "package-lock.json").write_text("{}", encoding="utf-8")
-    for dependency in (("@hyperframes", "producer"), ("puppeteer",)):
-        manifest = bridge_root / "node_modules" / Path(*dependency) / "package.json"
+    for script_name in ("runtime_contract.mjs", "verify-runtime.mjs"):
+        (bridge_root / "src" / script_name).write_text(
+            "// runtime verifier placeholder",
+            encoding="utf-8",
+        )
+    (bridge_root / "package.json").write_text(
+        json.dumps({"dependencies": dependencies}),
+        encoding="utf-8",
+    )
+    (bridge_root / "package-lock.json").write_text(
+        json.dumps({"packages": {"": {"dependencies": dependencies}}}),
+        encoding="utf-8",
+    )
+    for dependency_name, version in dependencies.items():
+        manifest = (
+            bridge_root
+            / "node_modules"
+            / Path(*dependency_name.split("/"))
+            / "package.json"
+        )
         manifest.parent.mkdir(parents=True, exist_ok=True)
-        manifest.write_text("{}", encoding="utf-8")
+        manifest.write_text(json.dumps({"version": version}), encoding="utf-8")
     return bridge_script
 
 
@@ -63,6 +84,8 @@ def _write_template(template_root: Path) -> None:
 
 
 def _stub_successful_bridge(monkeypatch, renderer, output_path: Path, captured=None) -> None:
+    renderer._runtime_validated = True
+
     def fake_run(request):
         if captured is not None:
             captured["command"] = list(request.command)
@@ -177,8 +200,10 @@ def test_validate_runtime_checks_bridge_browser_once_and_reuses_bridge_cache(
 
     assert captured["calls"] == 1
     assert captured["cwd"] == bridge_root
-    assert captured["command"][-1] == bridge_script.as_uri()
-    assert "resolveBrowserExecutable" in captured["command"][-2]
+    assert captured["command"] == [
+        "node-resolved",
+        str(bridge_root / "src" / "verify-runtime.mjs"),
+    ]
     assert captured["env"]["PUPPETEER_CACHE_DIR"] == str(
         bridge_root / ".cache" / "puppeteer"
     )
@@ -190,7 +215,7 @@ def test_validate_runtime_reports_missing_locked_dependency_before_node_launch(
 ):
     bridge_root = tmp_path / "tools" / "hyperframes_bridge"
     bridge_script = _write_bridge_runtime(bridge_root)
-    (bridge_root / "node_modules" / "puppeteer" / "package.json").unlink()
+    (bridge_root / "node_modules" / "yauzl" / "package.json").unlink()
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -229,6 +254,49 @@ def test_validate_runtime_redacts_and_does_not_cache_failure(monkeypatch, tmp_pa
 
     renderer.validate_runtime()
     assert calls == 2
+
+
+def test_render_public_entrypoint_cannot_bypass_runtime_validation(monkeypatch):
+    renderer = HyperFramesRenderer()
+    calls = 0
+
+    def validate_runtime():
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr(renderer, "validate_runtime", validate_runtime)
+    monkeypatch.setattr(
+        renderer,
+        "_prepare_render_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("request stopped")),
+    )
+
+    with pytest.raises(RuntimeError, match="request stopped"):
+        renderer.render("unused")
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_render_async_public_entrypoint_cannot_bypass_runtime_validation(monkeypatch):
+    renderer = HyperFramesRenderer()
+    calls = 0
+
+    def validate_runtime():
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr(renderer, "validate_runtime", validate_runtime)
+    monkeypatch.setattr(
+        renderer,
+        "_prepare_render_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("request stopped")),
+    )
+
+    with pytest.raises(RuntimeError, match="request stopped"):
+        await renderer.render_async("unused")
+
+    assert calls == 1
 
 
 def test_render_allows_compiled_project_without_manifest_when_output_path_is_explicit(
@@ -420,6 +488,7 @@ def test_render_timeout_terminates_bridge_and_reports_log_paths(tmp_path):
         bridge_script=str(bridge_script),
         render_timeout_seconds=0.2,
     )
+    renderer._runtime_validated = True
 
     with pytest.raises(RuntimeError, match=r"timed out.*Logs"):
         renderer.render(

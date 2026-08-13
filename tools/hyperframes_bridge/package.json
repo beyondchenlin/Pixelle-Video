@@ -6,6 +6,8 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "browser:install": "puppeteer browsers install chrome",
+    "runtime:verify": "node src/verify-runtime.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {

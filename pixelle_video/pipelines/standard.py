@@ -118,6 +118,7 @@ from pixelle_video.services.reference_image_visual_context_adapter import (
     ReferenceImageVisualContextAdapter,
 )
 from pixelle_video.services.render_capability_resolver import (
+    HyperFramesTemplateCapabilities,
     RenderCapabilityInput,
     RenderCapabilityResolver,
     RenderCapabilityResult,
@@ -1551,9 +1552,13 @@ class StandardPipeline(LinearVideoPipeline):
             / "templates"
             / template_id
         )
-        template_capabilities = load_hyperframes_template_capabilities(
-            template_dir,
-            template_id=template_id,
+        template_capabilities = (
+            load_hyperframes_template_capabilities(
+                template_dir,
+                template_id=template_id,
+            )
+            if requested_backend != LEGACY_RENDER_BACKEND
+            else HyperFramesTemplateCapabilities()
         )
         template_prerendered = (
             execution_mode.template_type == "image"

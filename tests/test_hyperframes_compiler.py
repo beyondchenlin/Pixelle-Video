@@ -1542,6 +1542,8 @@ def test_life_insights_template_preserves_declared_browser_motion():
     assert 'tl.fromTo(' in content
     assert '".pixelle-media-clip"' in content
     assert '".header, .bottom-section, .author"' in content
+    assert "Math.min(0.6, duration)" in content
+    assert "Math.min(1.2, duration)" in content
 
 
 def test_landscape_template_assets_and_inventory_exist():

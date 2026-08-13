@@ -466,6 +466,27 @@ def test_ffmpeg_request_keeps_static_default_template_on_ffmpeg(tmp_path):
     assert pipeline._get_render_backend_fallback_reason(ctx) is None
 
 
+def test_legacy_backend_does_not_read_hyperframes_capability_metadata(
+    monkeypatch,
+    tmp_path,
+):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1080x1920/image_life_insights_light.html",
+    )
+    ctx.config.render_backend = "legacy"
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.load_hyperframes_template_capabilities",
+        lambda *_args, **_kwargs: pytest.fail(
+            "legacy rendering must not depend on HyperFrames capability metadata"
+        ),
+    )
+
+    assert pipeline._resolve_effective_render_backend(ctx) == "legacy"
+
+
 @pytest.mark.parametrize(
     "frame_template, expected_template_id",
     [

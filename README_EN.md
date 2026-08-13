@@ -244,21 +244,20 @@ After installation, run `ffmpeg -version` in the terminal to verify successful i
 
 ##### Prepare Chrome for video rendering and HTML frame previews
 
-Pixelle uses Puppeteer to drive Chrome for video rendering and Playwright for HTML frames and text previews. Both paths prefer explicit configuration, then a dependency-pinned build, and only then a system browser. An auto-updating system installation never takes precedence over a pinned build.
+Pixelle uses Puppeteer to drive Chrome for video rendering and Playwright for HTML frames and text previews. HyperFrames video rendering accepts only an explicitly configured browser or the dependency-pinned build. It never silently switches to an auto-updating system browser when the pinned build is missing.
 
 The HyperFrames renderer selects a browser in this order:
 
-1. A browser explicitly set through `PRODUCER_HEADLESS_SHELL_PATH`.
+1. A browser explicitly set through `PRODUCER_HEADLESS_SHELL_PATH` or `PUPPETEER_EXECUTABLE_PATH`.
 2. The Chrome build pinned to the installed Puppeteer dependency.
-3. System Chrome, Edge, or Chromium in common Windows, macOS, or Linux installation paths.
 
-If Chrome, Edge, or Chromium is already installed, no additional download is required. On Windows, check the common Chrome path first:
+To use system Chrome, Edge, or Chromium, explicitly configure its executable path. On Windows, check the common Chrome path first:
 
 ```powershell
 Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'
 ```
 
-When this returns `True`, the browser is available as a fallback if the pinned build is missing. If the browser is installed in a custom location, set it explicitly before launching Pixelle:
+When this returns `True`, set the browser explicitly before launching Pixelle:
 
 ```powershell
 $env:PRODUCER_HEADLESS_SHELL_PATH='D:\Apps\Chrome\chrome.exe'

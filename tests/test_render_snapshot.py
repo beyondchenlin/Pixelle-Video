@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,25 @@ import pytest
 from pixelle_video.models.render_execution_plan import RenderExecutionPlan
 from pixelle_video.models.render_package import RenderManifest, VisualClip
 from pixelle_video.services.render_snapshot import RenderSnapshotService
+from pixelle_video.utils.filesystem import extended_length_path
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows extended-length path contract")
+def test_write_json_atomic_supports_windows_paths_beyond_max_path(tmp_path: Path):
+    target = (
+        tmp_path
+        / ("a" * 80)
+        / ("b" * 80)
+        / ("c" * 80)
+        / "render_manifest.json"
+    )
+    assert len(str(target.resolve(strict=False))) > 260
+
+    RenderSnapshotService._write_json_atomic(target, {"ok": True})
+
+    assert json.loads(extended_length_path(target).read_text(encoding="utf-8")) == {
+        "ok": True
+    }
 
 
 def _snapshot_manifest(tmp_path: Path) -> RenderManifest:

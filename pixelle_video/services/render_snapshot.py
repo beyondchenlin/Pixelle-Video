@@ -12,6 +12,13 @@ from pixelle_video.models.render_execution_plan import RenderExecutionPlan
 from pixelle_video.models.render_package import RenderManifest
 from pixelle_video.services.ffmpeg_manifest_renderer import FfmpegManifestRenderer
 from pixelle_video.services.font_discovery import resolve_font_file
+from pixelle_video.utils.filesystem import (
+    ensure_directory,
+    extended_length_path,
+    open_file,
+    read_text_file,
+    write_text_file,
+)
 
 
 @dataclass(frozen=True)
@@ -38,7 +45,7 @@ class RenderSnapshotService:
         render_options: Mapping[str, object] | None = None,
     ) -> RenderSnapshotPaths:
         target = Path(output_dir).resolve()
-        target.mkdir(parents=True, exist_ok=True)
+        ensure_directory(target)
         paths = RenderSnapshotPaths(
             manifest=target / self.MANIFEST_NAME,
             execution_plan=target / self.EXECUTION_PLAN_NAME,
@@ -56,10 +63,10 @@ class RenderSnapshotService:
 
     def load(self, manifest_path: str | Path) -> RenderManifest:
         path = Path(manifest_path).resolve()
-        if not path.is_file():
+        if not extended_length_path(path).is_file():
             raise ValueError(f"render manifest must be an existing file: {path}")
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = json.loads(read_text_file(path))
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError(f"render manifest is not valid UTF-8 JSON: {path}") from exc
         if not isinstance(payload, dict):
@@ -124,12 +131,12 @@ class RenderSnapshotService:
     def verify_assets(self, manifest_path: str | Path) -> dict:
         manifest = Path(manifest_path).resolve()
         inventory_path = manifest.with_name(self.ASSET_INVENTORY_NAME)
-        if not inventory_path.is_file():
+        if not extended_length_path(inventory_path).is_file():
             raise ValueError(
                 f"fixed-asset rerender requires an asset inventory: {inventory_path}"
             )
         try:
-            payload = json.loads(inventory_path.read_text(encoding="utf-8"))
+            payload = json.loads(read_text_file(inventory_path))
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError(f"render asset inventory is invalid: {inventory_path}") from exc
         if payload.get("version") != "render_asset_inventory.v1":
@@ -141,9 +148,10 @@ class RenderSnapshotService:
             if not isinstance(item, dict):
                 raise ValueError("render asset inventory entry must be an object")
             path = Path(str(item.get("path") or "")).resolve()
-            if not path.is_file():
+            filesystem_path = extended_length_path(path)
+            if not filesystem_path.is_file():
                 raise ValueError(f"render snapshot asset is missing: {path}")
-            if path.stat().st_size != int(item.get("size") or -1):
+            if filesystem_path.stat().st_size != int(item.get("size") or -1):
                 raise ValueError(f"render snapshot asset size changed: {path}")
             if self._sha256(path) != str(item.get("sha256") or ""):
                 raise ValueError(f"render snapshot asset content changed: {path}")
@@ -175,7 +183,8 @@ class RenderSnapshotService:
         entries = []
         digests_by_path: dict[Path, str] = {}
         for role, path in assets:
-            if not path.is_file():
+            filesystem_path = extended_length_path(path)
+            if not filesystem_path.is_file():
                 raise ValueError(f"render snapshot asset must exist: {path}")
             digest = digests_by_path.get(path)
             if digest is None:
@@ -185,7 +194,7 @@ class RenderSnapshotService:
                 {
                     "role": role,
                     "path": str(path),
-                    "size": path.stat().st_size,
+                    "size": filesystem_path.stat().st_size,
                     "sha256": digest,
                 }
             )
@@ -215,7 +224,7 @@ class RenderSnapshotService:
     @staticmethod
     def _sha256(path: Path) -> str:
         digest = hashlib.sha256()
-        with path.open("rb") as handle:
+        with open_file(path, "rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
         return digest.hexdigest()
@@ -223,15 +232,16 @@ class RenderSnapshotService:
     @staticmethod
     def _write_json_atomic(path: Path, payload: dict) -> None:
         temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        temporary_filesystem_path = extended_length_path(temporary)
         try:
-            temporary.write_text(
+            write_text_file(
+                temporary,
                 json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
             )
-            os.replace(temporary, path)
+            os.replace(temporary_filesystem_path, extended_length_path(path))
         finally:
-            if temporary.exists():
-                temporary.unlink()
+            if temporary_filesystem_path.exists():
+                temporary_filesystem_path.unlink()
 
 
 __all__ = ["RenderSnapshotPaths", "RenderSnapshotService"]

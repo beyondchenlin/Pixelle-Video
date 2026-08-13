@@ -47,10 +47,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
           cache: pip
@@ -118,12 +118,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: "22"
+          node-version: "22.12.0"
           cache: npm
           cache-dependency-path: tools/hyperframes_bridge/package-lock.json
 
@@ -131,7 +131,8 @@ jobs:
         working-directory: tools/hyperframes_bridge
         env:
           PUPPETEER_SKIP_DOWNLOAD: "true"
-        run: npm ci
+          PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD: "true"
+        run: npm ci --omit=dev
 
       - name: Run bridge tests
         working-directory: tools/hyperframes_bridge

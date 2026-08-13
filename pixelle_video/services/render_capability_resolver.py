@@ -45,6 +45,8 @@ def load_hyperframes_template_capabilities(
         return HyperFramesTemplateCapabilities()
 
     payload = json.loads(capability_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Render capability manifest must be an object: {capability_path}")
     if payload.get("schema_version") != 1:
         raise ValueError(f"Unsupported render capability schema: {capability_path}")
     if payload.get("template_id") != template_id:

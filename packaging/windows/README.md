@@ -9,6 +9,7 @@ Automated build system for creating Windows portable packages of Pixelle-Video.
 - Python 3.11+ (for running the build script)
 - PyYAML: `pip install pyyaml`
 - Internet connection (for downloading Python, FFmpeg, Node.js, and the pinned browser)
+- A Windows build host; cross-platform builds are rejected because compiled wheels must match the bundled Windows interpreter
 
 ### Build Package
 
@@ -28,7 +29,7 @@ python packaging/windows/build.py --output /path/to/output
 Edit `config/build_config.yaml` to customize:
 
 - Python version
-- FFmpeg version
+- Authenticated Python, FFmpeg, uv, and Node.js inputs
 - Node.js version and digest
 - Excluded files/folders
 - Build options
@@ -42,7 +43,7 @@ The build process creates:
 dist/windows/
 ├── Pixelle-Video-v*-win64/             # Build directory (version number varies)
 │   ├── python/                         # Python embedded
-│   ├── tools/                          # FFmpeg and Node.js
+│   ├── tools/                          # FFmpeg, Node.js, and the pinned browser
 │   ├── Pixelle-Video/                  # Project files and HyperFrames runtime
 │   ├── data/                           # User data (empty)
 │   ├── output/                         # Output (empty)
@@ -59,10 +60,11 @@ dist/windows/
 The builder performs these steps:
 
 1. **Download Phase**
-   - Python embedded distribution
-   - FFmpeg portable
+   - Authenticated Python embedded distribution
+   - Authenticated dated FFmpeg portable build
    - Authenticated Node.js portable distribution
-   - Cached in `.cache/` for reuse
+   - Authenticated uv wheel
+   - Cached in `.cache/` only after SHA-256 verification
 
 2. **Extract Phase**
    - Extract Python to `build/python/`
@@ -75,7 +77,7 @@ The builder performs these steps:
    - Install uv (if configured)
 
 4. **Install Phase**
-   - Install project dependencies using uv/pip
+   - Export the exact Python graph from `uv.lock` and install it with required hashes
    - Install the locked HyperFrames bridge and Puppeteer browser
    - Import the bridge and resolve the bundled browser before packaging
 
@@ -108,12 +110,13 @@ Downloaded files are cached in `.cache/`:
 ```
 .cache/
 ├── python-3.11.9-embed-amd64.zip
-├── ffmpeg-6.1.1-win64.zip
+├── ffmpeg-8.1.2-34-g9b6c8969e0-win64.zip
 ├── node-v24.12.0-win-x64.zip
-└── get-pip.py
+├── uv-0.10.7-win-amd64.whl
+└── puppeteer-25.6.0/
 ```
 
-Delete cache to force re-download.
+Every cache hit is re-hashed. Delete cache to force re-download; a mutable upstream artifact that no longer matches the recorded digest fails the build until the configuration is deliberately reviewed and updated.
 
 ## Troubleshooting
 
@@ -194,8 +197,9 @@ Edit `config/build_config.yaml`:
 
 ```yaml
 ffmpeg:
-  version: "6.2.0"
+  version: "8.1.2-34-g9b6c8969e0"
   download_url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/..."
+  sha256: "<GitHub release asset digest>"
 ```
 
 ## Distribution

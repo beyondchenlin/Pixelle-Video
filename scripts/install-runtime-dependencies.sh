@@ -31,17 +31,19 @@ if [ "$node_major" -lt 22 ] || { [ "$node_major" -eq 22 ] && [ "$node_minor" -lt
   exit 1
 fi
 
-export PUPPETEER_CACHE_DIR="${PUPPETEER_CACHE_DIR:-$bridge_root/.cache/puppeteer}"
+export PUPPETEER_CACHE_DIR="$bridge_root/.cache/puppeteer"
 export PUPPETEER_SKIP_DOWNLOAD=true
 export PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD=true
+export PIXELLE_REQUIRE_PINNED_BROWSER=true
+unset PUPPETEER_EXECUTABLE_PATH PRODUCER_HEADLESS_SHELL_PATH
 
 cd "$repo_root"
 uv sync --frozen
 npm ci --omit=dev --prefix "$bridge_root"
 (
   cd "$bridge_root"
-  node ./node_modules/puppeteer/lib/puppeteer/node/cli.js browsers install chrome
-  node --input-type=module -e "const bridge = await import('./src/render.mjs'); await bridge.resolveBrowserExecutable();"
+  npm run browser:install
+  npm run runtime:verify
 )
 
 printf '[OK] Runtime dependencies installed and HyperFrames bridge verified.\n'

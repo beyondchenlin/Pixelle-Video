@@ -28,7 +28,7 @@ sh scripts/install-runtime-dependencies.sh
 uv sync --frozen --extra dev
 
 # Run tests
-pytest
+uv run pytest
 ```
 
 ---

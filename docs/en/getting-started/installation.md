@@ -8,7 +8,7 @@ This page will guide you through installing Pixelle-Video.
 
 ### Required
 
-- **Python**: 3.10 or higher
+- **Python**: 3.11 or higher
 - **Node.js**: 22.12.0 or higher
 - **Operating System**: Windows, macOS, or Linux
 - **Package Manager**: uv (recommended) or pip

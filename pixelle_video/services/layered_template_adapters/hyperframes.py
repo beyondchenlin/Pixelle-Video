@@ -21,6 +21,7 @@ from pixelle_video.services.text_style_css_contract import (
     text_style_lines,
 )
 from pixelle_video.services.text_style_resolver import TextStyleResolver
+from pixelle_video.utils.filesystem import ensure_directory, write_text_file
 
 _HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 _UNSAFE_FONT_CHARS = {'"', "'", ";", ":", "{", "}", "(", ")", "\\", "/"}
@@ -44,19 +45,19 @@ class LayeredTemplateHyperFramesAdapter:
             raise ValueError("layered template HyperFrames adapter requires a spec")
 
         spec = LayeredTemplateSpec.from_dict(context.layered_template_spec)
-        project_dir.mkdir(parents=True, exist_ok=True)
-        (project_dir / "compositions").mkdir(parents=True, exist_ok=True)
-        (project_dir / "index.html").write_text(
+        ensure_directory(project_dir)
+        ensure_directory(project_dir / "compositions")
+        write_text_file(
+            project_dir / "index.html",
             self._build_index_html(spec=spec, context=context),
-            encoding="utf-8",
         )
-        (project_dir / "compositions" / "captions.html").write_text(
+        write_text_file(
+            project_dir / "compositions" / "captions.html",
             self._build_captions_html(spec=spec, context=context),
-            encoding="utf-8",
         )
-        (project_dir / "compositions" / "text_layer.html").write_text(
+        write_text_file(
+            project_dir / "compositions" / "text_layer.html",
             self._build_text_layer_html(spec=spec, context=context),
-            encoding="utf-8",
         )
 
     def _build_index_html(

@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import stat
@@ -26,8 +27,9 @@ import tempfile
 import time
 import zipfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Optional
+from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
 try:
@@ -35,6 +37,12 @@ try:
 except ImportError:
     print("ERROR: PyYAML is required. Install it with: pip install pyyaml")
     sys.exit(1)
+
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{number}" for number in range(1, 10)}
+    | {f"LPT{number}" for number in range(1, 10)}
+)
 
 
 class Color:
@@ -92,6 +100,86 @@ class WindowsPackageBuilder:
         return version.strip()
 
     @staticmethod
+    def _sha256_file(path: Path) -> str:
+        """Hash large build artifacts without loading them into memory."""
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _safe_extract_zip(zip_path: Path, target_dir: Path) -> None:
+        """Extract a ZIP without allowing traversal, drive paths, or symlinks."""
+        resolved_target = target_dir.resolve()
+        resolved_target.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            for member in archive.infolist():
+                member_path = PurePosixPath(member.filename.replace("\\", "/"))
+                if (
+                    member_path.is_absolute()
+                    or ".." in member_path.parts
+                    or any(":" in part for part in member_path.parts)
+                    or any(part.endswith((" ", ".")) for part in member_path.parts)
+                    or any(
+                        part.split(".", 1)[0].upper()
+                        in _WINDOWS_RESERVED_NAMES
+                        for part in member_path.parts
+                    )
+                ):
+                    raise RuntimeError(
+                        f"Unsafe ZIP member path in {zip_path}: {member.filename}"
+                    )
+                unix_mode = member.external_attr >> 16
+                if stat.S_ISLNK(unix_mode):
+                    raise RuntimeError(
+                        f"ZIP symlinks are not allowed in build inputs: {member.filename}"
+                    )
+
+                output_path = resolved_target.joinpath(*member_path.parts).resolve()
+                try:
+                    output_path.relative_to(resolved_target)
+                except ValueError as exc:
+                    raise RuntimeError(
+                        f"ZIP member escapes extraction root: {member.filename}"
+                    ) from exc
+                if member.is_dir():
+                    output_path.mkdir(parents=True, exist_ok=True)
+                    continue
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(member, "r") as source, output_path.open("wb") as target:
+                    shutil.copyfileobj(source, target)
+
+    def _install_uv_wheel(self, wheel_path: Path, python_dir: Path) -> None:
+        """Install the authenticated uv wheel using the standard wheel path mapping."""
+        expected_version = str(self.config["uv"]["version"])
+        with tempfile.TemporaryDirectory(prefix="pixelle-uv-wheel-") as temporary_dir:
+            extraction_root = Path(temporary_dir)
+            self._safe_extract_zip(wheel_path, extraction_root)
+            package_dir = extraction_root / "uv"
+            dist_info_dir = extraction_root / f"uv-{expected_version}.dist-info"
+            scripts_dir = (
+                extraction_root
+                / f"uv-{expected_version}.data"
+                / "scripts"
+            )
+            for required_path in (package_dir, dist_info_dir, scripts_dir):
+                if not required_path.is_dir():
+                    raise RuntimeError(f"uv wheel payload is incomplete: {required_path}")
+
+            site_packages = python_dir / "Lib" / "site-packages"
+            target_scripts = python_dir / "Scripts"
+            site_packages.mkdir(parents=True, exist_ok=True)
+            target_scripts.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(package_dir, site_packages / package_dir.name)
+            shutil.copytree(dist_info_dir, site_packages / dist_info_dir.name)
+            for executable_name in ("uv.exe", "uvw.exe", "uvx.exe"):
+                source = scripts_dir / executable_name
+                if not source.is_file():
+                    raise RuntimeError(f"uv wheel executable is missing: {source}")
+                shutil.copy2(source, target_scripts / executable_name)
+
+    @staticmethod
     def _extended_length_path(path: Path) -> Path:
         """Return a Windows path that remains addressable beyond MAX_PATH."""
         resolved_path = path.resolve()
@@ -144,6 +232,8 @@ class WindowsPackageBuilder:
     
     def download_file(self, url: str, output_path: Path, description: str = "", max_retries: int = 3) -> bool:
         """Download file with progress indication and retry support"""
+        if urlparse(url).scheme.lower() != "https":
+            raise RuntimeError(f"Refusing non-HTTPS build input: {url}")
         for attempt in range(max_retries):
             try:
                 if attempt > 0:
@@ -173,69 +263,43 @@ class WindowsPackageBuilder:
                     return self._download_with_curl(url, output_path, description)
         
         return False
-    
-    def _find_suitable_python(self) -> Optional[str]:
-        """Find a suitable Python 3.11+ for installing dependencies"""
-        candidates = [
-            # Try common locations for newer Python versions
-            '/Users/puke/miniforge3/bin/python3',  # User's conda
-            '/opt/homebrew/bin/python3',           # Homebrew
-            '/usr/local/bin/python3',              # Manual install
-        ]
-        
-        # Also check what's in PATH
-        for i in range(11, 14):  # Python 3.11, 3.12, 3.13
-            for py_name in [f'python3.{i}', f'python{i}']:
-                found = shutil.which(py_name)
-                if found and found not in candidates:
-                    candidates.append(found)
-        
-        # Check generic python3
-        python3_path = shutil.which('python3')
-        if python3_path and '.venv' not in python3_path:
-            candidates.append(python3_path)
-        
-        # Test each candidate
-        for candidate in candidates:
-            try:
-                if not candidate:
-                    continue
-                    
-                # Skip if in project venv
-                if '.venv' in candidate or 'venv' in candidate:
-                    continue
-                
-                # Check if path exists
-                if not os.path.exists(candidate):
-                    continue
-                
-                # Check Python version
-                result = subprocess.run(
-                    [candidate, '-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-                
-                if result.returncode == 0:
-                    version = result.stdout.strip()
-                    major, minor = map(int, version.split('.'))
-                    
-                    # Need Python 3.11+
-                    if major == 3 and minor >= 11:
-                        # Check if pip is available
-                        pip_check = subprocess.run(
-                            [candidate, '-m', 'pip', '--version'],
-                            capture_output=True,
-                            timeout=5
-                        )
-                        if pip_check.returncode == 0:
-                            self.log(f"Found Python {version} at {candidate}", "SUCCESS")
-                            return candidate
-            except Exception:
-                continue
-        
-        return None
+
+    def _download_verified_artifact(
+        self,
+        *,
+        cache_file: Path,
+        expected_digest: str,
+        download_url: str,
+        description: str,
+    ) -> Path:
+        """Return an authenticated artifact or fail closed on any drift."""
+        normalized_digest = expected_digest.strip().lower()
+        if (
+            len(normalized_digest) != 64
+            or any(character not in "0123456789abcdef" for character in normalized_digest)
+        ):
+            raise RuntimeError(f"Invalid SHA-256 for {description}: {expected_digest}")
+
+        if cache_file.exists():
+            actual_digest = self._sha256_file(cache_file)
+            if actual_digest == normalized_digest:
+                self.log(f"Using verified cached {description}: {cache_file}")
+                return cache_file
+            cache_file.unlink()
+
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        if not self.download_file(download_url, cache_file, description):
+            cache_file.unlink(missing_ok=True)
+            raise RuntimeError(f"Failed to download {description}")
+
+        actual_digest = self._sha256_file(cache_file)
+        if actual_digest != normalized_digest:
+            cache_file.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"{description} SHA-256 mismatch: "
+                f"expected {normalized_digest}, got {actual_digest}"
+            )
+        return cache_file
     
     def _download_with_curl(self, url: str, output_path: Path, description: str = "") -> bool:
         """Fallback download method using curl"""
@@ -258,80 +322,51 @@ class WindowsPackageBuilder:
         return False
     
     def download_python(self) -> Path:
-        """Download Python embedded distribution"""
+        """Download and authenticate the Python embedded distribution."""
         python_config = self.config['python']
         cache_file = self.cache_dir / f"python-{python_config['version']}-embed-amd64.zip"
-        
-        if cache_file.exists():
-            self.log(f"Using cached Python: {cache_file}")
-            return cache_file
-        
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Choose URL based on mirror setting
         url = python_config['mirror_url'] if self.config['mirrors']['use_cn_mirror'] else python_config['download_url']
-        
-        if self.download_file(url, cache_file, f"Python {python_config['version']}"):
-            return cache_file
-        else:
-            raise RuntimeError("Failed to download Python")
+        return self._download_verified_artifact(
+            cache_file=cache_file,
+            expected_digest=python_config['sha256'],
+            download_url=url,
+            description=f"Python {python_config['version']}",
+        )
     
     def download_ffmpeg(self) -> Path:
-        """Download FFmpeg portable"""
+        """Download and authenticate the pinned FFmpeg portable build."""
         ffmpeg_config = self.config['ffmpeg']
         cache_file = self.cache_dir / f"ffmpeg-{ffmpeg_config['version']}-win64.zip"
-        
-        if cache_file.exists():
-            self.log(f"Using cached FFmpeg: {cache_file}")
-            return cache_file
-        
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
         url = ffmpeg_config['mirror_url'] if self.config['mirrors']['use_cn_mirror'] else ffmpeg_config['download_url']
-        
-        if self.download_file(url, cache_file, f"FFmpeg {ffmpeg_config['version']}"):
-            return cache_file
-        else:
-            raise RuntimeError("Failed to download FFmpeg")
+        return self._download_verified_artifact(
+            cache_file=cache_file,
+            expected_digest=ffmpeg_config['sha256'],
+            download_url=url,
+            description=f"FFmpeg {ffmpeg_config['version']}",
+        )
 
     def download_node(self) -> Path:
         """Download and authenticate the pinned Node.js portable distribution."""
         node_config = self.config['node']
         cache_file = self.cache_dir / f"node-v{node_config['version']}-win-x64.zip"
-        expected_digest = str(node_config['sha256']).strip().lower()
-
-        if cache_file.exists():
-            actual_digest = hashlib.sha256(cache_file.read_bytes()).hexdigest()
-            if actual_digest == expected_digest:
-                self.log(f"Using verified cached Node.js: {cache_file}")
-                return cache_file
-            cache_file.unlink()
-
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
         url = (
             node_config['mirror_url']
             if self.config['mirrors']['use_cn_mirror']
             else node_config['download_url']
         )
-        if not self.download_file(url, cache_file, f"Node.js {node_config['version']}"):
-            raise RuntimeError("Failed to download Node.js")
-
-        actual_digest = hashlib.sha256(cache_file.read_bytes()).hexdigest()
-        if actual_digest != expected_digest:
-            cache_file.unlink(missing_ok=True)
-            raise RuntimeError(
-                "Node.js SHA-256 mismatch: "
-                f"expected {expected_digest}, got {actual_digest}"
-            )
-        return cache_file
+        return self._download_verified_artifact(
+            cache_file=cache_file,
+            expected_digest=node_config['sha256'],
+            download_url=url,
+            description=f"Node.js {node_config['version']}",
+        )
     
     def extract_python(self, zip_path: Path, target_dir: Path):
         """Extract Python embedded distribution"""
         self.log(f"Extracting Python to {target_dir}...")
         target_dir.mkdir(parents=True, exist_ok=True)
         
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(target_dir)
+        self._safe_extract_zip(zip_path, target_dir)
         
         # Add execute permissions to .exe files (needed on Unix systems)
         if os.name != 'nt':  # Not on Windows
@@ -348,8 +383,7 @@ class WindowsPackageBuilder:
         temp_extract = target_dir.parent / "ffmpeg_temp"
         temp_extract.mkdir(parents=True, exist_ok=True)
         
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(temp_extract)
+        self._safe_extract_zip(zip_path, temp_extract)
         
         # Find the bin directory (FFmpeg archive has nested structure)
         bin_dir = None
@@ -362,9 +396,61 @@ class WindowsPackageBuilder:
             target_dir.mkdir(parents=True, exist_ok=True)
             shutil.copytree(bin_dir, target_dir, dirs_exist_ok=True)
             shutil.rmtree(temp_extract)
+            self._verify_ffmpeg_runtime(target_dir)
             self.log("FFmpeg extracted successfully", "SUCCESS")
         else:
             raise RuntimeError("FFmpeg bin directory not found in archive")
+
+    def _verify_ffmpeg_runtime(self, target_dir: Path) -> None:
+        """Verify the pinned build identity and one renderer-critical option."""
+        ffmpeg_executable = target_dir / "ffmpeg.exe"
+        ffprobe_executable = target_dir / "ffprobe.exe"
+        for executable in (ffmpeg_executable, ffprobe_executable):
+            if not executable.is_file():
+                raise RuntimeError(f"FFmpeg runtime executable is missing: {executable}")
+
+        version_result = subprocess.run(
+            [str(ffmpeg_executable), "-version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        expected_version = str(self.config["ffmpeg"]["version"]).lower()
+        version_line = version_result.stdout.splitlines()[0].lower()
+        if expected_version not in version_line:
+            raise RuntimeError(
+                "FFmpeg runtime version mismatch: "
+                f"expected {expected_version}, got {version_line}"
+            )
+
+        compatibility_result = subprocess.run(
+            [
+                str(ffmpeg_executable),
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=size=16x16:rate=1:duration=0.1",
+                "-frames:v",
+                "1",
+                "-vsync",
+                "0",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if compatibility_result.returncode != 0:
+            detail = compatibility_result.stderr.strip() or "no diagnostic output"
+            raise RuntimeError(
+                "FFmpeg runtime is incompatible with the current render graph: "
+                f"{detail}"
+            )
 
     def extract_node(
         self,
@@ -377,8 +463,7 @@ class WindowsPackageBuilder:
         temp_extract = temporary_dir / "node"
         temp_extract.mkdir(parents=True, exist_ok=True)
 
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(temp_extract)
+        self._safe_extract_zip(zip_path, temp_extract)
 
         node_executable = next(temp_extract.rglob("node.exe"), None)
         if node_executable is None:
@@ -409,22 +494,48 @@ class WindowsPackageBuilder:
             npm_cli,
             bridge_dir / "package-lock.json",
             bridge_dir / "src" / "render.mjs",
+            bridge_dir / "src" / "verify-runtime.mjs",
         ):
             if not required_path.is_file():
                 raise RuntimeError(f"Portable HyperFrames input is missing: {required_path}")
 
+        bridge_manifest = json.loads(
+            (bridge_dir / "package.json").read_text(encoding="utf-8")
+        )
+        puppeteer_version = bridge_manifest.get("dependencies", {}).get("puppeteer")
+        if not isinstance(puppeteer_version, str) or not puppeteer_version:
+            raise RuntimeError("Portable HyperFrames manifest must pin Puppeteer")
+        build_browser_cache = self.cache_dir / f"puppeteer-{puppeteer_version}"
+        target_browser_cache = node_dir.parent / "puppeteer"
+        source_browser_cache = (
+            self.project_root
+            / "tools"
+            / "hyperframes_bridge"
+            / ".cache"
+            / "puppeteer"
+        )
+        if not build_browser_cache.exists() and source_browser_cache.is_dir():
+            self.log("Seeding the reusable browser cache from the verified source runtime...")
+            shutil.copytree(source_browser_cache, build_browser_cache)
+
         environment = os.environ.copy()
         environment["PATH"] = f"{node_dir}{os.pathsep}{environment.get('PATH', '')}"
-        environment["PUPPETEER_CACHE_DIR"] = str(
-            bridge_dir / ".cache" / "puppeteer"
-        )
+        environment["PUPPETEER_CACHE_DIR"] = str(build_browser_cache)
         environment["PUPPETEER_SKIP_DOWNLOAD"] = "true"
         environment["PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD"] = "true"
-        for variable_name in (
-            "PUPPETEER_SKIP_CHROME_DOWNLOAD",
-            "npm_config_ignore_scripts",
-        ):
-            environment.pop(variable_name, None)
+        environment["PIXELLE_REQUIRE_PINNED_BROWSER"] = "true"
+        removed_environment_names = {
+            name.lower()
+            for name in (
+                "PUPPETEER_SKIP_CHROME_DOWNLOAD",
+                "npm_config_ignore_scripts",
+                "PUPPETEER_EXECUTABLE_PATH",
+                "PRODUCER_HEADLESS_SHELL_PATH",
+            )
+        }
+        for variable_name in tuple(environment):
+            if variable_name.lower() in removed_environment_names:
+                environment.pop(variable_name, None)
 
         self.log("Installing locked HyperFrames dependencies...")
         subprocess.run(
@@ -441,18 +552,9 @@ class WindowsPackageBuilder:
         subprocess.run(
             [
                 str(node_executable),
-                str(
-                    bridge_dir
-                    / "node_modules"
-                    / "puppeteer"
-                    / "lib"
-                    / "puppeteer"
-                    / "node"
-                    / "cli.js"
-                ),
-                "browsers",
-                "install",
-                "chrome",
+                str(npm_cli),
+                "run",
+                "browser:install",
             ],
             cwd=bridge_dir,
             env=environment,
@@ -461,201 +563,140 @@ class WindowsPackageBuilder:
         subprocess.run(
             [
                 str(node_executable),
-                "--input-type=module",
-                "-e",
-                (
-                    "const bridge = await import('./src/render.mjs'); "
-                    "await bridge.resolveBrowserExecutable()"
-                ),
+                str(npm_cli),
+                "run",
+                "runtime:verify",
             ],
             cwd=bridge_dir,
             env=environment,
             check=True,
         )
-        self.log("HyperFrames runtime installed and verified", "SUCCESS")
+        build_chrome_cache = build_browser_cache / "chrome"
+        if not build_chrome_cache.is_dir():
+            raise RuntimeError(
+                f"Verified Puppeteer cache does not contain Chrome: {build_chrome_cache}"
+            )
+        shutil.copytree(build_chrome_cache, target_browser_cache / "chrome")
+        environment["PUPPETEER_CACHE_DIR"] = str(target_browser_cache)
+        subprocess.run(
+            [
+                str(node_executable),
+                str(npm_cli),
+                "run",
+                "runtime:verify",
+            ],
+            cwd=bridge_dir,
+            env=environment,
+            check=True,
+        )
+        self.log("HyperFrames runtime installed and verified in the final package", "SUCCESS")
     
     def prepare_python_environment(self, python_dir: Path):
-        """Prepare Python environment: enable site-packages"""
+        """Enable the embedded Python import path used by the portable runtime."""
         self.log("Preparing Python environment...")
-        
-        # Modify python311._pth to enable site-packages
         pth_file = python_dir / "python311._pth"
-        if pth_file.exists():
-            with open(pth_file, 'r') as f:
-                lines = f.readlines()
-            
-            # Uncomment "import site" line or add it
-            modified = False
-            for i, line in enumerate(lines):
-                if line.strip().startswith('#import site'):
-                    lines[i] = 'import site\n'
-                    modified = True
-                    break
-            
-            if not modified and 'import site' not in ''.join(lines):
-                lines.append('import site\n')
+        if not pth_file.is_file():
+            raise RuntimeError(f"Embedded Python path contract is missing: {pth_file}")
+        lines = pth_file.read_text(encoding="utf-8").splitlines(keepends=True)
+        modified = False
+        for index, line in enumerate(lines):
+            if line.strip().startswith("#import site"):
+                lines[index] = "import site\n"
+                modified = True
+                break
+        if not modified and "import site" not in {line.strip() for line in lines}:
+            lines.append("import site\n")
 
-            portable_project_path = r"..\..\Pixelle-Video"
-            if portable_project_path not in {line.strip() for line in lines}:
-                site_import_index = next(
-                    index
-                    for index, line in enumerate(lines)
-                    if line.strip() == "import site"
-                )
-                lines.insert(site_import_index, f"{portable_project_path}\n")
-            
-            with open(pth_file, 'w') as f:
-                f.writelines(lines)
-            
-            self.log("Enabled site-packages and portable project imports", "SUCCESS")
-        
-        # Note: On non-Windows systems, we can't run python.exe directly
-        # Pip and dependencies will be installed using system Python
-        if os.name == 'nt':
-            # On Windows, we can install pip directly
-            python_exe = python_dir / "python.exe"
-            get_pip_path = self.cache_dir / "get-pip.py"
-            
-            if not get_pip_path.exists():
-                self.log("Downloading get-pip.py...")
-                pip_url = "https://bootstrap.pypa.io/get-pip.py"
-                self.download_file(pip_url, get_pip_path, "get-pip.py")
-            
-            self.log("Installing pip...")
-            result = subprocess.run(
-                [str(python_exe), str(get_pip_path)],
-                capture_output=True,
-                text=True
+        portable_project_path = r"..\..\Pixelle-Video"
+        if portable_project_path not in {line.strip() for line in lines}:
+            site_import_index = next(
+                index
+                for index, line in enumerate(lines)
+                if line.strip() == "import site"
             )
-            
-            if result.returncode == 0:
-                self.log("Pip installed successfully", "SUCCESS")
-            else:
-                self.log(f"Pip installation warning: {result.stderr}", "WARNING")
-        else:
-            self.log("Cross-platform build detected (building on non-Windows)", "INFO")
-            self.log("Dependencies will be installed using system Python", "INFO")
+            lines.insert(site_import_index, f"{portable_project_path}\n")
+        pth_file.write_text("".join(lines), encoding="utf-8")
+        self.log("Enabled site-packages and portable project imports", "SUCCESS")
     
     def install_dependencies(self, python_dir: Path):
-        """Install project dependencies"""
-        self.log("Installing project dependencies...")
-        
-        # Determine target directory for site-packages
-        site_packages = python_dir / "Lib" / "site-packages"
-        site_packages.mkdir(parents=True, exist_ok=True)
-        
-        if os.name == 'nt':
-            # On Windows, use the embedded Python
-            python_exe = python_dir / "python.exe"
-            
-            # Install uv first if configured
-            if self.config['build'].get('use_uv', True):
-                self.log("Installing uv...")
-                subprocess.run(
-                    [str(python_exe), "-m", "pip", "install", "uv"],
-                    check=True
-                )
-            
-            # Install dependencies
-            if self.config['build'].get('use_uv', True):
-                cmd = [
+        """Install the exact Python graph exported from uv.lock with hashes."""
+        self.log("Installing locked project dependencies...")
+        python_exe = python_dir / "python.exe"
+        uv_config = self.config["uv"]
+        uv_wheel = self._download_verified_artifact(
+            cache_file=self.cache_dir / f"uv-{uv_config['version']}-win-amd64.whl",
+            expected_digest=uv_config["sha256"],
+            download_url=uv_config["download_url"],
+            description=f"uv {uv_config['version']} Windows wheel",
+        )
+        self._install_uv_wheel(uv_wheel, python_dir)
+        subprocess.run(
+            [
+                str(python_exe),
+                "-m",
+                "uv",
+                "--version",
+            ],
+            check=True,
+        )
+
+        clean_environment = os.environ.copy()
+        for variable_name in tuple(clean_environment):
+            if variable_name.upper().startswith(("PIP_", "UV_")):
+                clean_environment.pop(variable_name, None)
+        clean_environment["UV_NO_CONFIG"] = "1"
+
+        with tempfile.TemporaryDirectory(prefix="pixelle-python-lock-") as temporary_dir:
+            requirements_path = Path(temporary_dir) / "requirements.txt"
+            subprocess.run(
+                [
                     str(python_exe),
                     "-m",
                     "uv",
-                    "pip",
-                    "install",
-                    "--link-mode",
-                    "copy",
-                    str(self.project_root),
-                ]
-                if self.config['mirrors']['use_cn_mirror']:
-                    cmd.extend(["--index-url", self.config['mirrors']['pypi_mirror']])
-            else:
-                cmd = [
-                    str(python_exe),
-                    "-m",
-                    "pip",
-                    "install",
-                    str(self.project_root),
-                ]
-                if self.config['mirrors']['use_cn_mirror']:
-                    cmd.extend(["--index-url", self.config['mirrors']['pypi_mirror']])
-            
-            self.log(f"Running: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                self.log("Dependencies installed successfully", "SUCCESS")
-            else:
-                self.log(f"Dependency installation failed:\n{result.stderr}", "ERROR")
-                raise RuntimeError("Failed to install dependencies")
-        else:
-            # Cross-platform build: use system Python to install to target directory
-            self.log("Cross-platform build: using system Python to install dependencies")
-            
-            # Find a Python 3.11+ executable (not from project venv)
-            python_cmd = self._find_suitable_python()
-            
-            if not python_cmd:
-                self.log("No suitable Python 3.11+ found. Please install Python 3.11+ or use Windows to build.", "ERROR")
-                raise RuntimeError("Python 3.11+ required for cross-platform build")
-            
-            self.log(f"Using Python: {python_cmd}")
-            
-            # Use pip with --target to install to specific directory
-            cmd = [
-                python_cmd, "-m", "pip", "install",
-                "--target", str(site_packages),
-                "--no-user",
-                "--no-warn-script-location"
+                    "--no-config",
+                    "--quiet",
+                    "export",
+                    "--frozen",
+                    "--no-dev",
+                    "--no-emit-project",
+                    "--format",
+                    "requirements-txt",
+                    "--output-file",
+                    str(requirements_path),
+                ],
+                cwd=self.project_root,
+                env=clean_environment,
+                check=True,
+            )
+            install_command = [
+                str(python_exe),
+                "-m",
+                "uv",
+                "--no-config",
+                "pip",
+                "install",
+                "--python",
+                str(python_exe),
+                "--link-mode",
+                "copy",
+                "--require-hashes",
+                "--no-deps",
+                "--requirements",
+                str(requirements_path),
+                "--default-index",
+                (
+                    self.config["mirrors"]["pypi_mirror"]
+                    if self.config["mirrors"]["use_cn_mirror"]
+                    else "https://pypi.org/simple"
+                ),
             ]
-            
-            # Read dependencies from pyproject.toml
-            try:
-                import tomllib
-            except ImportError:
-                try:
-                    import tomli as tomllib
-                except ImportError:
-                    self.log("tomllib/tomli not available, trying simple parsing", "WARNING")
-                    tomllib = None
-            
-            if tomllib:
-                pyproject_path = self.project_root / "pyproject.toml"
-                with open(pyproject_path, 'rb') as f:
-                    pyproject = tomllib.load(f)
-                    deps = pyproject.get('project', {}).get('dependencies', [])
-            else:
-                # Simple fallback: read from pyproject.toml manually
-                import re
-                pyproject_path = self.project_root / "pyproject.toml"
-                with open(pyproject_path, 'r') as f:
-                    content = f.read()
-                    # Find dependencies section
-                    deps_match = re.search(r'dependencies\s*=\s*\[(.*?)\]', content, re.DOTALL)
-                    if deps_match:
-                        deps_str = deps_match.group(1)
-                        deps = [dep.strip(' "\',\n') for dep in deps_str.split('\n') if dep.strip() and not dep.strip().startswith('#')]
-                    else:
-                        deps = []
-            
-            if deps:
-                cmd.extend(deps)
-                
-                if self.config['mirrors']['use_cn_mirror']:
-                    cmd.extend(["--index-url", self.config['mirrors']['pypi_mirror']])
-                
-                self.log(f"Installing {len(deps)} dependencies...")
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                
-                if result.returncode == 0:
-                    self.log("Dependencies installed successfully", "SUCCESS")
-                else:
-                    self.log(f"Dependency installation output:\n{result.stdout}", "INFO")
-                    if result.stderr:
-                        self.log(f"Warnings: {result.stderr}", "WARNING")
-            else:
-                self.log("No dependencies found in pyproject.toml", "WARNING")
+            subprocess.run(
+                install_command,
+                cwd=self.project_root,
+                env=clean_environment,
+                check=True,
+            )
+        self.log("Locked dependencies installed successfully", "SUCCESS")
     
     def copy_project_files(self, target_dir: Path):
         """Copy project files to build directory"""
@@ -708,6 +749,23 @@ class WindowsPackageBuilder:
                 ])
                 # Count files in copied directory
                 copied_count += sum(1 for _ in target_path.rglob('*') if _.is_file())
+
+        runtime_docs_dir = target_dir / "docs"
+        runtime_docs_dir.mkdir(parents=True, exist_ok=True)
+        for faq_name in ("FAQ.md", "FAQ_CN.md"):
+            faq_source = self.project_root / "docs" / faq_name
+            if not faq_source.is_file():
+                raise RuntimeError(f"Required runtime FAQ is missing: {faq_source}")
+            shutil.copy2(faq_source, runtime_docs_dir / faq_name)
+            copied_count += 1
+
+        launcher_source = self.project_root / "scripts" / "launch_web.py"
+        if not launcher_source.is_file():
+            raise RuntimeError(f"Required runtime launcher is missing: {launcher_source}")
+        runtime_scripts_dir = target_dir / "scripts"
+        runtime_scripts_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(launcher_source, runtime_scripts_dir / launcher_source.name)
+        copied_count += 1
         
         self.log(f"Copied {copied_count} files", "SUCCESS")
     
@@ -780,8 +838,7 @@ class WindowsPackageBuilder:
         # Calculate file size and hash
         size_mb = zip_path.stat().st_size / (1024 * 1024)
         
-        with open(zip_path, 'rb') as f:
-            file_hash = hashlib.sha256(f.read()).hexdigest()
+        file_hash = self._sha256_file(zip_path)
         
         self.log(f"ZIP package created: {zip_path}", "SUCCESS")
         self.log(f"Size: {size_mb:.2f} MB")
@@ -794,6 +851,11 @@ class WindowsPackageBuilder:
     
     def build(self):
         """Main build process"""
+        if os.name != "nt":
+            raise RuntimeError(
+                "Windows portable packages must be built on Windows so compiled wheels "
+                "match the bundled interpreter"
+            )
         self.log("=" * 60, "HEADER")
         self.log(f"Building {self.package_name}", "HEADER")
         self.log("=" * 60, "HEADER")
@@ -827,9 +889,8 @@ class WindowsPackageBuilder:
                 # Prepare Python environment
                 self.prepare_python_environment(python_dir)
 
-                # Install dependencies
-                if self.config['build'].get('pre_install_deps', True):
-                    self.install_dependencies(python_dir)
+                # Install the exact Python dependency graph from uv.lock.
+                self.install_dependencies(python_dir)
 
                 # Copy project files
                 project_target = self.build_dir / "Pixelle-Video"

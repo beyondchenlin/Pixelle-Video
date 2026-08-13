@@ -271,18 +271,30 @@
       (function bootstrapMainTimeline() {
         const root = document.getElementById("main-comp");
         const duration = Math.max(Number(root?.dataset?.duration || 0), 0);
+        const copyEntranceDuration = Math.min(0.6, duration);
+        const mediaEntranceDuration = Math.min(1.2, duration);
         const tl = gsap.timeline({ paused: true });
 
         tl.fromTo(
           ".header, .bottom-section, .author",
           { y: 24, autoAlpha: 0 },
-          { y: 0, autoAlpha: 1, duration: 0.6, ease: "power2.out" },
+          {
+            y: 0,
+            autoAlpha: 1,
+            duration: copyEntranceDuration,
+            ease: "power2.out",
+          },
           0,
         );
         tl.fromTo(
           ".pixelle-media-clip",
           { scale: 1.05, autoAlpha: 0.88 },
-          { scale: 1, autoAlpha: 1, duration: 1.2, ease: "power2.out" },
+          {
+            scale: 1,
+            autoAlpha: 1,
+            duration: mediaEntranceDuration,
+            ease: "power2.out",
+          },
           0,
         );
 

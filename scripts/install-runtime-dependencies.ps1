@@ -30,13 +30,28 @@ if ([int]$Matches.major -lt 22 -or ([int]$Matches.major -eq 22 -and [int]$Matche
     Fail "Node.js 22.12.0 or newer is required; found $nodeVersion"
 }
 
-$previousBrowserCache = $env:PUPPETEER_CACHE_DIR
-$previousSkipDownload = $env:PUPPETEER_SKIP_DOWNLOAD
-$previousSkipHeadlessShell = $env:PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD
+$managedEnvironment = @(
+    'PUPPETEER_CACHE_DIR',
+    'PUPPETEER_SKIP_DOWNLOAD',
+    'PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD',
+    'PUPPETEER_EXECUTABLE_PATH',
+    'PRODUCER_HEADLESS_SHELL_PATH',
+    'PIXELLE_REQUIRE_PINNED_BROWSER'
+)
+$previousEnvironment = @{}
+foreach ($variableName in $managedEnvironment) {
+    $previousEnvironment[$variableName] = [Environment]::GetEnvironmentVariable(
+        $variableName,
+        'Process'
+    )
+}
 try {
     $env:PUPPETEER_CACHE_DIR = Join-Path $bridgeRoot '.cache\puppeteer'
     $env:PUPPETEER_SKIP_DOWNLOAD = 'true'
     $env:PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD = 'true'
+    $env:PIXELLE_REQUIRE_PINNED_BROWSER = 'true'
+    [Environment]::SetEnvironmentVariable('PUPPETEER_EXECUTABLE_PATH', $null, 'Process')
+    [Environment]::SetEnvironmentVariable('PRODUCER_HEADLESS_SHELL_PATH', $null, 'Process')
 
     Push-Location $repoRoot
     try {
@@ -52,11 +67,11 @@ try {
 
         Push-Location $bridgeRoot
         try {
-            & node .\node_modules\puppeteer\lib\puppeteer\node\cli.js browsers install chrome
+            & npm run browser:install
             if ($LASTEXITCODE -ne 0) {
                 exit $LASTEXITCODE
             }
-            & node --input-type=module -e "const bridge = await import('./src/render.mjs'); await bridge.resolveBrowserExecutable();"
+            & npm run runtime:verify
             if ($LASTEXITCODE -ne 0) {
                 exit $LASTEXITCODE
             }
@@ -70,23 +85,12 @@ try {
     }
 }
 finally {
-    if ($null -eq $previousBrowserCache) {
-        Remove-Item Env:PUPPETEER_CACHE_DIR -ErrorAction SilentlyContinue
-    }
-    else {
-        $env:PUPPETEER_CACHE_DIR = $previousBrowserCache
-    }
-    if ($null -eq $previousSkipDownload) {
-        Remove-Item Env:PUPPETEER_SKIP_DOWNLOAD -ErrorAction SilentlyContinue
-    }
-    else {
-        $env:PUPPETEER_SKIP_DOWNLOAD = $previousSkipDownload
-    }
-    if ($null -eq $previousSkipHeadlessShell) {
-        Remove-Item Env:PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD -ErrorAction SilentlyContinue
-    }
-    else {
-        $env:PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD = $previousSkipHeadlessShell
+    foreach ($variableName in $managedEnvironment) {
+        [Environment]::SetEnvironmentVariable(
+            $variableName,
+            $previousEnvironment[$variableName],
+            'Process'
+        )
     }
 }
 

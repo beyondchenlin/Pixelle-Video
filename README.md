@@ -248,21 +248,20 @@ sudo apt install ffmpeg
 
 ##### 准备 Chrome（用于视频渲染与 HTML 帧预览）
 
-项目使用 Puppeteer 驱动 Chrome 进行视频帧渲染，并使用 Playwright 生成 HTML 帧和文字预览。两条链路都遵循“显式配置优先、依赖锁定版本其次、系统浏览器最后”的规则，不会把会自动升级的系统浏览器放在锁定版本之前。
+项目使用 Puppeteer 驱动 Chrome 进行视频帧渲染，并使用 Playwright 生成 HTML 帧和文字预览。HyperFrames 视频渲染只接受显式配置或依赖锁定的浏览器，禁止在锁定版本缺失时静默切换到会自动升级的系统浏览器。
 
 HyperFrames 渲染器按以下顺序选择浏览器：
 
-1. 环境变量 `PRODUCER_HEADLESS_SHELL_PATH` 指定的浏览器。
+1. 环境变量 `PRODUCER_HEADLESS_SHELL_PATH` 或 `PUPPETEER_EXECUTABLE_PATH` 显式指定的浏览器。
 2. Puppeteer 缓存中与当前依赖版本锁定的 Chrome。
-3. Windows、macOS 或 Linux 常见安装位置中的系统 Chrome、Edge 或 Chromium。
 
-系统已经安装 Chrome、Edge 或 Chromium 时，不需要重复下载。Windows 可以先检查常用的 Chrome 路径：
+需要使用系统 Chrome、Edge 或 Chromium 时，必须显式指定其可执行文件路径。Windows 可以先检查常用的 Chrome 路径：
 
 ```powershell
 Test-Path 'C:\Program Files\Google\Chrome\Application\chrome.exe'
 ```
 
-返回 `True` 后，该浏览器可以作为锁定版本缺失时的后备。浏览器安装在自定义位置时，在启动 Pixelle 前显式指定：
+返回 `True` 后，在启动 Pixelle 前显式指定该浏览器：
 
 ```powershell
 $env:PRODUCER_HEADLESS_SHELL_PATH='D:\Apps\Chrome\chrome.exe'

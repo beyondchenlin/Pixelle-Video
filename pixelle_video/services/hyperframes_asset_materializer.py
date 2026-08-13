@@ -1,6 +1,7 @@
 from pathlib import Path
-from shutil import copy2
 from typing import Dict
+
+from pixelle_video.utils.filesystem import copy_file, ensure_directory
 
 
 class HyperFramesAssetMaterializer:
@@ -18,13 +19,13 @@ class HyperFramesAssetMaterializer:
         video_dir = assets_dir / "video"
 
         for directory in (audio_dir, image_dir, video_dir):
-            directory.mkdir(parents=True, exist_ok=True)
+            ensure_directory(directory)
 
         def _copy_group(group: Dict[str, Path], target_dir: Path, prefix: str) -> Dict[str, str]:
             results: Dict[str, str] = {}
             for filename, source in group.items():
                 target = target_dir / filename
-                copy2(source, target)
+                copy_file(source, target)
                 results[filename] = f"assets/{prefix}/{filename}"
             return results
 

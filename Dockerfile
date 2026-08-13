@@ -1,12 +1,13 @@
 # Pixelle-Video Docker Image
 
-FROM node:24.12.0-bookworm-slim AS hyperframes-runtime
+FROM node:24.12.0-bookworm-slim@sha256:7326fb2dbdce998edd72140946851be64ef4a643e8715e138ca467e8e9d92c99 AS hyperframes-runtime
 
 WORKDIR /bridge
 COPY tools/hyperframes_bridge/package.json tools/hyperframes_bridge/package-lock.json ./
 ENV PUPPETEER_CACHE_DIR="/bridge/.cache/puppeteer" \
     PUPPETEER_SKIP_DOWNLOAD="true" \
-    PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD="true"
+    PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD="true" \
+    PIXELLE_REQUIRE_PINNED_BROWSER="true"
 RUN set -eu; \
     for attempt in 1 2 3; do \
         if npm ci --omit=dev; then exit 0; fi; \
@@ -16,14 +17,14 @@ RUN set -eu; \
 COPY tools/hyperframes_bridge/src ./src
 RUN set -eu; \
     for attempt in 1 2 3; do \
-        if node ./node_modules/puppeteer/lib/puppeteer/node/cli.js browsers install chrome; then exit 0; fi; \
+        if npm run browser:install; then exit 0; fi; \
         if [ "$attempt" -eq 3 ]; then exit 1; fi; \
         sleep $((attempt * 5)); \
     done
-RUN node --input-type=module -e "const bridge = await import('./src/render.mjs'); await bridge.resolveBrowserExecutable()"
+RUN npm run runtime:verify
 
-FROM ghcr.io/astral-sh/uv:0.10.7 AS uv-runtime
-FROM python:3.11-slim
+FROM ghcr.io/astral-sh/uv:0.10.7@sha256:edd1fd89f3e5b005814cc8f777610445d7b7e3ed05361f9ddfae67bebfe8456a AS uv-runtime
+FROM python:3.11.15-slim-bookworm@sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3
 
 COPY --from=uv-runtime /uv /uvx /bin/
 COPY --from=hyperframes-runtime /usr/local/bin/node /usr/local/bin/node
@@ -68,7 +69,8 @@ RUN uv --version
 COPY pyproject.toml uv.lock README.md ./
 COPY pixelle_video ./pixelle_video
 ENV PLAYWRIGHT_BROWSERS_PATH="/app/tools/playwright" \
-    PUPPETEER_CACHE_DIR="/app/tools/hyperframes_bridge/.cache/puppeteer"
+    PUPPETEER_CACHE_DIR="/app/tools/hyperframes_bridge/.cache/puppeteer" \
+    PIXELLE_REQUIRE_PINNED_BROWSER="true"
 
 # Create virtual environment and install dependencies
 # Use -i flag to specify mirror when USE_CN_MIRROR=true
@@ -114,7 +116,7 @@ RUN mkdir -p \
 USER pixelle
 
 RUN cd tools/hyperframes_bridge && \
-    node --input-type=module -e "const bridge = await import('./src/render.mjs'); await bridge.resolveBrowserExecutable()"
+    node src/verify-runtime.mjs
 
 # Expose ports
 # 8000: API service
