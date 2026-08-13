@@ -226,6 +226,38 @@ def test_create_video_from_image_handles_tiny_positive_pad_duration(tmp_path):
     assert abs(durations["video"] - durations["audio"]) <= 0.005
 
 
+def test_create_video_from_image_pads_decoded_audio_when_container_duration_is_inflated(
+    monkeypatch,
+    tmp_path,
+):
+    sample_rate = 22050
+    audio_path = tmp_path / "inflated-metadata.wav"
+    output_path = tmp_path / "segment.mp4"
+    _create_silent_wav(
+        audio_path,
+        sample_count=sample_rate * 19 // 10,
+        sample_rate=sample_rate,
+    )
+
+    real_probe = ffmpeg.probe
+    inflated_probe = real_probe(str(audio_path))
+    inflated_probe["format"]["duration"] = "1.970000"
+
+    with monkeypatch.context() as context:
+        context.setattr(ffmpeg, "probe", lambda _path: inflated_probe)
+        VideoService().create_video_from_image(
+            image=str(Path("resources/example.png")),
+            audio=str(audio_path),
+            output=str(output_path),
+            fps=30,
+        )
+
+    durations = _probe_stream_durations(output_path)
+
+    assert abs(durations["video"] - durations["audio"]) <= 0.005
+    assert durations["audio"] >= 1.97
+
+
 @pytest.mark.parametrize(
     ("fps", "sample_rate"),
     [

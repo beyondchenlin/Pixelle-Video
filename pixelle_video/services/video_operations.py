@@ -864,7 +864,6 @@ class VideoService:
             audio_duration = float(probe["format"]["duration"])
             target_frame_count = max(1, math.ceil(audio_duration * fps))
             target_duration = target_frame_count / fps
-            pad_duration = max(0.0, target_duration - audio_duration)
             movie_timescale = self._resolve_iso_base_media_movie_timescale(
                 output=output,
                 fps=fps,
@@ -880,10 +879,11 @@ class VideoService:
             # Use framerate to set input framerate
             input_image = ffmpeg.input(image, loop=1, framerate=fps)
             input_audio = ffmpeg.input(audio)
-            audio_stream = input_audio.audio
-            if pad_duration > 0:
-                audio_stream = audio_stream.filter("apad", pad_dur=_ffmpeg_duration(pad_duration))
-            audio_stream = audio_stream.filter(
+            # Container duration may include codec delay and trailing padding. Let
+            # apad provide an unlimited tail, then trim the decoded timeline to
+            # the shared frame boundary instead of trusting metadata to calculate
+            # a finite padding amount.
+            audio_stream = input_audio.audio.filter("apad").filter(
                 "atrim", duration=_ffmpeg_duration(target_duration)
             ).filter("asetpts", "N/SR/TB")
 
