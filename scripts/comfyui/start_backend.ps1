@@ -47,6 +47,9 @@ $config = Resolve-PixelleComfyUIBackendConfig `
 Assert-BackendPrerequisites $config
 Assert-BackendResourcePolicySupport $config
 Assert-BackendCustomNodePolicySupport $config
+if (-not $config.LaunchIdentity) {
+    $config.LaunchIdentity = Get-BackendLaunchIdentity $config
+}
 $config.MemorySnapshot = Get-SystemMemorySnapshot
 Set-BackendEffectiveMinimumFreeCommit $config
 
@@ -136,10 +139,7 @@ $previousPythonIoEncoding = $env:PYTHONIOENCODING
 $env:PYTHONIOENCODING = 'utf-8'
 try {
     $supervisorPath = Join-Path $PSScriptRoot 'backend_supervisor.ps1'
-    $argumentsJson = ConvertTo-Json -InputObject ([object[]]$arguments) -Compress
-    $argumentsBase64 = [Convert]::ToBase64String(
-        [Text.Encoding]::UTF8.GetBytes($argumentsJson)
-    )
+    $argumentsBase64 = Get-BackendArgumentsBase64 $config
     $supervisorArguments = @(
         '-NoProfile',
         '-ExecutionPolicy',
@@ -268,6 +268,13 @@ try {
             $listenerPid = [int]$listener.OwningProcess
             if (-not (Test-ManagedComfyUIProcess $config $listenerPid)) {
                 throw "Port $($config.HostAddress):$($config.Port) became occupied by PID $listenerPid, but it is not the process started by this operation."
+            }
+            if ((Get-BackendLaunchIdentity $config) -cne $config.LaunchIdentity) {
+                throw (
+                    "ComfyUI path configuration changed while the backend was " +
+                    "starting. The new process will be stopped; retry after " +
+                    "configuration writes finish."
+                )
             }
 
             Set-Content -LiteralPath $pidFile -Value ([string]$listenerPid) -Encoding ASCII
