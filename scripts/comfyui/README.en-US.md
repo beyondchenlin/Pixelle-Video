@@ -117,7 +117,9 @@ launchers operate the `image` and `tts` profiles. Each profile may use
 only `allowed_custom_node_folders`. Transient startup timeouts retry three times after
 the initial attempt by default, while configuration, path, port, and memory failures
 fail immediately. One machine-wide operating-system mutex prevents the
-image and TTS backends from owning the accelerator at the same time.
+image and TTS backends from owning the accelerator at the same time. During
+shutdown handoff, a new backend waits up to five seconds for that mutex and
+then fails explicitly if the previous owner still has not released it.
 
 Allowlist mode resolves the effective `custom_nodes` roots using ComfyUI's own
 path rules, including `--base-directory`, the application's built-in

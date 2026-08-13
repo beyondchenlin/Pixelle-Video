@@ -160,6 +160,8 @@ try {
         $exitCodeFile,
         '-ArgumentsBase64',
         $argumentsBase64,
+        '-LaunchIdentity',
+        $config.LaunchIdentity,
         '-ProfileName',
         $config.ProfileName,
         '-ComfyUIRoot',

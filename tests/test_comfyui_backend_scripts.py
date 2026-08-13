@@ -820,6 +820,59 @@ $after = Get-BackendLaunchIdentity $config
     assert payload["before"] != payload["after"]
 
 
+def test_supervisor_process_identity_uses_the_launch_identity(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    probe_script = tmp_path / "probe-supervisor-identity.ps1"
+    probe_script.write_text(
+        f"""
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. '{ps_single_quote(SCRIPT_DIR / "backend_common.ps1")}'
+$config = Resolve-PixelleComfyUIBackendConfig `
+    -PythonExe '{ps_single_quote(sys.executable)}' `
+    -ComfyUIRoot '{ps_single_quote(comfyui_root)}' `
+    -DataRoot '{ps_single_quote(data_root)}' `
+    -SharedBasePath '{ps_single_quote(data_root)}' `
+    -ExtraModelsConfig '{ps_single_quote(extra_models_config)}' `
+    -RuntimeDir '{ps_single_quote(tmp_path / "runtime")}' `
+    -Port 65513
+$launchIdentity = Get-BackendLaunchIdentity $config
+$arguments = @(
+    '{ps_single_quote(SCRIPT_DIR / "backend_supervisor.ps1")}',
+    '-PythonExe', $config.PythonExe,
+    '-WorkingDirectory', $config.ComfyUIRoot,
+    '-ArgumentsBase64', 'opaque-serialization',
+    '-LaunchIdentity', $launchIdentity,
+    '-ProfileName', $config.ProfileName,
+    '-ComfyUIRoot', $config.ComfyUIRoot,
+    '-SharedBasePath', $config.SharedBasePath,
+    '-CustomNodeLoading', $config.CustomNodeLoading,
+    '-AllowedCustomNodeFoldersBase64', $config.AllowedCustomNodeFoldersBase64,
+    '-AcceleratorMutexName', $config.AcceleratorMutexName,
+    '-Port', [string]$config.Port
+)
+$exact = Test-ManagedComfyUICommandLine `
+    $config (ConvertTo-WindowsCommandLine $arguments)
+$arguments[$arguments.IndexOf('-LaunchIdentity') + 1] = ('0' * 64)
+$wrongIdentity = Test-ManagedComfyUICommandLine `
+    $config (ConvertTo-WindowsCommandLine $arguments)
+@{{ exact = $exact; wrong_identity = $wrongIdentity }} |
+    ConvertTo-Json -Compress
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = run_powershell(probe_script)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "exact": True,
+        "wrong_identity": False,
+    }
+
+
 def test_backend_ownership_rejects_path_config_changed_after_launch(
     tmp_path: Path,
 ) -> None:
@@ -2123,7 +2176,8 @@ def test_start_backend_preserves_supervisor_arguments_with_spaces(
             "8",
         )
         assert start.returncode == 0, start.stderr
-        assert json.loads(start.stdout)["started"] is True
+        start_payload = json.loads(start.stdout)
+        assert start_payload["started"] is True
 
         stop = run_fake_backend_stop(
             comfyui_root=comfyui_root,
@@ -2134,6 +2188,7 @@ def test_start_backend_preserves_supervisor_arguments_with_spaces(
         )
         assert stop.returncode == 0, stop.stderr
         assert json.loads(stop.stdout)["stopped"] is True
+        wait_for_process_exit(start_payload["launched_pid"])
     finally:
         kill_fake_comfyui_processes(comfyui_root)
 
@@ -2826,6 +2881,76 @@ def test_backend_supervisor_writes_its_own_startup_failure_log(tmp_path: Path) -
     assert supervisor_stderr_log.exists()
     assert supervisor_stderr_log.read_text(encoding="utf-8").strip()
     assert not exit_code_file.exists()
+
+
+def test_backend_supervisor_waits_for_a_transient_accelerator_handoff(
+    tmp_path: Path,
+) -> None:
+    mutex_name = f"Local\\Pixelle-Test-{uuid.uuid4().hex}"
+    ready_file = tmp_path / "holder-ready"
+    holder_script = tmp_path / "hold-mutex.ps1"
+    holder_script.write_text(
+        "\n".join(
+            [
+                f"$mutex = [Threading.Mutex]::new($false, '{mutex_name}')",
+                "$acquired = $mutex.WaitOne()",
+                f"Set-Content -LiteralPath '{ps_single_quote(ready_file)}' -Value ready",
+                "Start-Sleep -Milliseconds 500",
+                "if ($acquired) { $mutex.ReleaseMutex() }",
+                "$mutex.Dispose()",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    holder = subprocess.Popen(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(holder_script),
+        ]
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not ready_file.exists() and time.monotonic() < deadline:
+            if holder.poll() is not None:
+                raise AssertionError("mutex holder exited before signaling readiness")
+            time.sleep(0.05)
+        assert ready_file.exists()
+
+        arguments_base64 = base64.b64encode(
+            json.dumps(["-c", "pass"]).encode("utf-8")
+        ).decode("ascii")
+        started_at = time.monotonic()
+        result = run_powershell(
+            SCRIPT_DIR / "backend_supervisor.ps1",
+            "-PythonExe",
+            sys.executable,
+            "-WorkingDirectory",
+            tmp_path,
+            "-StdoutLog",
+            tmp_path / "backend.stdout.log",
+            "-StderrLog",
+            tmp_path / "backend.stderr.log",
+            "-SupervisorStderrLog",
+            tmp_path / "supervisor.stderr.log",
+            "-ExitCodeFile",
+            tmp_path / "backend.exit-code",
+            "-ArgumentsBase64",
+            arguments_base64,
+            "-AcceleratorMutexName",
+            mutex_name,
+            "-AcceleratorMutexWaitMilliseconds",
+            "3000",
+        )
+        elapsed = time.monotonic() - started_at
+    finally:
+        holder.wait(timeout=10)
+
+    assert result.returncode == 0, result.stderr
+    assert 0.2 <= elapsed < 3
 
 
 def test_backend_supervisor_allows_only_one_accelerator_owner(

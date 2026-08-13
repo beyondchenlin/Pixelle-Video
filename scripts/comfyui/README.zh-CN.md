@@ -103,7 +103,7 @@ $env:PIXELLE_COMFYUI_PORT = '8001'
 
 默认不传入 `--enable-cors-header *`。Pixelle 通过服务端访问 ComfyUI，不需要向任意网页来源开放本机接口。
 
-`start_image_backend.bat`、`start_tts_backend.bat` 及对应检查、停止文件分别操作 `image` 与 `tts` 配置。每个配置可用 `custom_node_loading: allowlist` 限制插件；启动器会先禁用全部自定义节点，再只加载 `allowed_custom_node_folders` 中列出的目录。瞬时启动超时在首次失败后默认再重试三次，配置、路径、端口和内存错误不会盲目重试。本机所有登录会话共用一个系统互斥锁，因此图片与语音后端不能同时占用显卡。
+`start_image_backend.bat`、`start_tts_backend.bat` 及对应检查、停止文件分别操作 `image` 与 `tts` 配置。每个配置可用 `custom_node_loading: allowlist` 限制插件；启动器会先禁用全部自定义节点，再只加载 `allowed_custom_node_folders` 中列出的目录。瞬时启动超时在首次失败后默认再重试三次，配置、路径、端口和内存错误不会盲目重试。本机所有登录会话共用一个系统互斥锁，因此图片与语音后端不能同时占用显卡；前一个后端退出时，新后端最多等待五秒完成显卡锁交接，超过上限才明确失败。
 
 白名单模式按照 ComfyUI 自身的路径规则计算实际生效的 `custom_nodes` 根目录，包括 `--base-directory`、程序自带的 `extra_model_paths.yaml` 和显式传入的额外模型路径配置。最终必须只有一个实际生效的插件根目录：没有被注册的程序目录副本不会造成误报；真正注册第二个插件根目录时，启动器会在执行插件代码前拒绝启动。白名单只是插件选择机制，不是安全沙箱；获准加载的插件仍会在 ComfyUI 进程中执行代码。
 
