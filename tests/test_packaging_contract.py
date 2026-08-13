@@ -232,6 +232,22 @@ def test_golden_workflow_uses_the_locked_browser_instead_of_runner_chrome() -> N
     assert "PUPPETEER_EXECUTABLE_PATH" not in workflow
 
 
+def test_golden_workflow_covers_the_complete_hyperframes_render_chain() -> None:
+    workflow = (PROJECT_ROOT / ".github/workflows/render-golden-ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    for guarded_path in (
+        "pixelle_video/services/hyperframes_*.py",
+        "pixelle_video/services/layered_template_adapters/**",
+        "pixelle_video/services/render_*.py",
+        "pixelle_video/utils/filesystem.py",
+        "tests/test_hyperframes_*.py",
+        "tests/test_render_*.py",
+    ):
+        assert workflow.count(f'- "{guarded_path}"') == 2
+
+
 def test_changed_runtime_workflows_pin_third_party_actions_by_commit() -> None:
     for workflow_name in ("render-golden-ci.yml", "video-encoding-ci.yml"):
         workflow = (PROJECT_ROOT / ".github/workflows" / workflow_name).read_text(
