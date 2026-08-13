@@ -21,6 +21,23 @@ def test_normalize_history_task_skips_missing_video_file(tmp_path):
     assert gallery.normalize_recent_video_item(task, file_exists=lambda value: Path(value).exists()) is None
 
 
+def test_normalize_history_task_contains_corrupted_numeric_metadata(tmp_path):
+    video = tmp_path / "final.mp4"
+    video.write_bytes(b"video")
+
+    item = gallery.normalize_recent_video_item(
+        {
+            "video_path": str(video),
+            "duration": "not-a-number",
+            "n_frames": float("inf"),
+        }
+    )
+
+    assert item is not None
+    assert item["duration"] == 0.0
+    assert item["n_frames"] == 0
+
+
 def test_merge_recent_video_items_puts_current_first_and_dedupes(tmp_path):
     video = tmp_path / "final.mp4"
     video.write_bytes(b"video")
@@ -466,6 +483,165 @@ def test_render_dashboard_gallery_requests_all_indexed_videos(monkeypatch):
     assert captured["limits"] == [None]
     assert len(captured["items"]) == gallery.RECENT_VIDEO_LIMIT + 2
     assert any("recent_videos.all_title" in body for body in captured["markdown"])
+
+
+def test_render_dashboard_gallery_bounds_initial_card_rendering(monkeypatch):
+    captured = {"items": []}
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        session_state = {}
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    items = [
+        {"task_id": f"task-{index}", "video_path": f"video-{index}.mp4"}
+        for index in range(20)
+    ]
+    monkeypatch.setattr(gallery, "st", _FakeStreamlit())
+    monkeypatch.setattr(gallery, "get_current_recent_video_item", lambda _state: None)
+    monkeypatch.setattr(
+        gallery,
+        "fetch_recent_history_video_items_from_index",
+        lambda *, limit: items,
+    )
+    monkeypatch.setattr(
+        gallery,
+        "render_recent_video_card",
+        lambda item, **_kwargs: captured["items"].append(item),
+    )
+
+    result = gallery.render_recent_video_gallery(
+        None,
+        key_suffix="_dashboard",
+        show_all=True,
+        page_size=12,
+    )
+
+    assert result.rendered_count == 12
+    assert result.has_previous is False
+    assert result.has_next is True
+    assert len(captured["items"]) == 12
+
+
+def test_render_dashboard_gallery_renders_a_bounded_second_page(monkeypatch):
+    captured = {"limits": [], "items": []}
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        session_state = {}
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    items = [
+        {"task_id": f"task-{index}", "video_path": f"video-{index}.mp4"}
+        for index in range(25)
+    ]
+    monkeypatch.setattr(gallery, "st", _FakeStreamlit())
+    monkeypatch.setattr(gallery, "get_current_recent_video_item", lambda _state: None)
+
+    def _fetch_page(*, limit):
+        captured["limits"].append(limit)
+        return items[:limit]
+
+    monkeypatch.setattr(
+        gallery,
+        "fetch_recent_history_video_items_from_index",
+        _fetch_page,
+    )
+    monkeypatch.setattr(
+        gallery,
+        "render_recent_video_card",
+        lambda item, **_kwargs: captured["items"].append(item),
+    )
+
+    result = gallery.render_recent_video_gallery(
+        None,
+        key_suffix="_dashboard",
+        show_all=True,
+        item_offset=12,
+        page_size=12,
+    )
+
+    assert captured["limits"] == [25]
+    assert [item["task_id"] for item in captured["items"]] == [
+        f"task-{index}" for index in range(12, 24)
+    ]
+    assert result.rendered_count == 12
+    assert result.has_previous is True
+    assert result.has_next is True
+
+
+def test_paginated_compact_gallery_honors_page_size_above_compact_limit(monkeypatch):
+    captured = []
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        session_state = {}
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    items = [
+        {"task_id": f"task-{index}", "video_path": f"video-{index}.mp4"}
+        for index in range(13)
+    ]
+    monkeypatch.setattr(gallery, "st", _FakeStreamlit())
+    monkeypatch.setattr(gallery, "get_current_recent_video_item", lambda _state: None)
+    monkeypatch.setattr(
+        gallery,
+        "fetch_recent_history_video_items_from_index",
+        lambda *, limit: items[:limit],
+    )
+    monkeypatch.setattr(
+        gallery,
+        "render_recent_video_card",
+        lambda item, **_kwargs: captured.append(item),
+    )
+
+    result = gallery.render_recent_video_gallery(None, page_size=12)
+
+    assert len(captured) == 12
+    assert result.rendered_count == 12
+    assert result.has_next is True
 
 
 def test_render_recent_video_card_activates_inline_player_without_eager_media(monkeypatch):
