@@ -1,6 +1,6 @@
 ---
 prompt_id: frame_visual_plan_batch
-version: 2
+version: 3
 stage: frame_visual_plan_batch
 purpose: Produce bounded content-bound visual plans for one execution batch.
 output_contract: JSON object with frame_visual_plans array.
@@ -51,4 +51,31 @@ Rules:
 - Do not solve IP presence by inventing a sticker, logo, corner badge, watermark, bookmark, label, stamp, bookplate, surface mark, or small decorative card.
 - If the current article point is serious or sensitive, use a neutral explanation space such as an archive desk, model table, relationship map, or evidence wall. Do not place the recurring IP inside a literal disaster, crime, mourning, medical, financial, or political-conflict scene.
 - Keep each field concise and provider-safe.
-- Return JSON only.
+- Return one top-level JSON object with exactly one frame_visual_plans array.
+- Return JSON only, without markdown fences, commentary, or alternative wrapper keys.
+
+Required response shape:
+
+{{
+  "frame_visual_plans": [
+    {{
+      "frame_id": "copy the exact frame_id from the batch",
+      "frame_index": 1,
+      "source_text": "copy the source text for this frame",
+      "local_claim": "the local article claim",
+      "visual_task": "the visual communication task",
+      "visual_logic": "how this frame applies the selected route",
+      "cognitive_anchor": "one mental action",
+      "physical_metaphor": "one concrete physical metaphor",
+      "scene_arena": "one concrete scene arena",
+      "ip_action_affordance": "a natural later action affordance",
+      "required_subjects": [],
+      "forbidden_losses": [],
+      "forbidden_ip_forms": [],
+      "evidence_refs": [],
+      "visible_text_policy": "no_visible_text"
+    }}
+  ]
+}}
+
+The array must contain exactly one object for every requested frame_id, with no duplicates or extra frame IDs.

@@ -498,3 +498,131 @@ def test_shared_routed_profile_remains_backward_compatible():
 
     assert config.comfyui.workflow_routing.image == "shared"
     assert config.comfyui.workflow_routing.tts == "shared"
+
+
+@pytest.mark.parametrize(
+    ("image_url", "tts_url"),
+    (
+        ("http://localhost:8001", "http://127.0.0.1:8001"),
+        ("http://127.0.0.1:8001/api", "http://127.0.0.1:8001/"),
+    ),
+)
+def test_distinct_routed_profiles_reject_equivalent_listener_endpoints(
+    image_url,
+    tts_url,
+):
+    with pytest.raises(ValueError, match="url"):
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {
+                        "image": {"url": image_url},
+                        "tts": {"url": tts_url},
+                    },
+                    "workflow_routing": {
+                        "image": "image",
+                        "tts": "tts",
+                        "default": "image",
+                    },
+                }
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "image_value", "tts_value"),
+    (
+        (
+            "data_root",
+            "E:/ComfyUIData/shared",
+            "E:/ComfyUIData/image/../shared",
+        ),
+        (
+            "runtime_dir",
+            "_runtime/comfyui/shared",
+            "_runtime/comfyui/tts/../shared",
+        ),
+        (
+            "logs_dir",
+            "logs/comfyui/shared",
+            "logs/comfyui/tts/../shared",
+        ),
+        (
+            "database_url",
+            "sqlite:///E:/ComfyUIData/shared/user/comfyui.db",
+            "sqlite:///E:/ComfyUIData/image/../shared/user/comfyui.db?timeout=30",
+        ),
+    ),
+)
+def test_distinct_routed_profiles_reject_equivalent_filesystem_identities(
+    field_name,
+    image_value,
+    tts_value,
+):
+    image = {"url": "http://127.0.0.1:8001", field_name: image_value}
+    tts = {"url": "http://127.0.0.1:8002", field_name: tts_value}
+
+    with pytest.raises(ValueError, match=field_name):
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {"image": image, "tts": tts},
+                    "workflow_routing": {
+                        "image": "image",
+                        "tts": "tts",
+                        "default": "image",
+                    },
+                }
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "https://127.0.0.1:8001",
+        "http://192.168.1.10:8001",
+        "http://user:password@127.0.0.1:8001",
+        "http://127.0.0.1:8001/api",
+        "http://127.0.0.1:8001?token=value",
+        "http://127.0.0.1:8188",
+        "http://127.0.0.1:0",
+    ),
+)
+def test_required_management_rejects_urls_the_launcher_cannot_own(url):
+    with pytest.raises(ValueError, match="backend_management_mode=required"):
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backend_management_mode": "required",
+                    "backends": {"image": {"url": url}},
+                    "workflow_routing": {
+                        "image": "image",
+                        "tts": "image",
+                        "default": "image",
+                    },
+                }
+            }
+        )
+
+
+def test_required_management_rejects_routed_profile_without_ownership():
+    with pytest.raises(ValueError, match="managed=true"):
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backend_management_mode": "required",
+                    "backends": {
+                        "image": {
+                            "url": "http://127.0.0.1:8001",
+                            "managed": False,
+                        }
+                    },
+                    "workflow_routing": {
+                        "image": "image",
+                        "tts": "image",
+                        "default": "image",
+                    },
+                }
+            }
+        )

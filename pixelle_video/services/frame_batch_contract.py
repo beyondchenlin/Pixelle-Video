@@ -7,7 +7,17 @@ from typing import Any
 
 from pixelle_video.utils.json_parsing import parse_llm_json_response
 
-DEFAULT_FRAME_COLLECTION_ALIASES = ("frames", "plans", "data", "items")
+DEFAULT_FRAME_COLLECTION_ALIASES = (
+    "frame_plans",
+    "visual_plans",
+    "frame_visual_plan",
+    "frames",
+    "plans",
+    "data",
+    "items",
+)
+_FRAME_RESPONSE_WRAPPER_KEYS = ("result", "output", "response")
+_MAX_FRAME_RESPONSE_WRAPPER_DEPTH = 4
 
 
 class FrameBatchContractError(ValueError):
@@ -197,6 +207,7 @@ def _select_collection(
     primary_key: str,
     aliases: Sequence[str],
     stage: str,
+    depth: int = 0,
 ) -> Any:
     if not isinstance(payload, Mapping):
         return payload
@@ -204,7 +215,34 @@ def _select_collection(
         return payload[primary_key]
     for alias in aliases:
         if alias in payload:
-            return payload[alias]
+            candidate = payload[alias]
+            if (
+                alias == "data"
+                and depth < _MAX_FRAME_RESPONSE_WRAPPER_DEPTH
+                and isinstance(candidate, Mapping)
+            ):
+                return _select_collection(
+                    candidate,
+                    primary_key=primary_key,
+                    aliases=aliases,
+                    stage=stage,
+                    depth=depth + 1,
+                )
+            return candidate
+    if depth < _MAX_FRAME_RESPONSE_WRAPPER_DEPTH:
+        for wrapper_key in _FRAME_RESPONSE_WRAPPER_KEYS:
+            candidate = payload.get(wrapper_key)
+            if isinstance(candidate, Mapping | Sequence) and not isinstance(
+                candidate,
+                str | bytes | bytearray,
+            ):
+                return _select_collection(
+                    candidate,
+                    primary_key=primary_key,
+                    aliases=aliases,
+                    stage=stage,
+                    depth=depth + 1,
+                )
     if _has_frame_id(payload):
         return payload
     if payload and all(isinstance(value, Mapping) for value in payload.values()):

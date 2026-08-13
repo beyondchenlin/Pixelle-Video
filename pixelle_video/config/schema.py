@@ -15,6 +15,7 @@ Configuration schema with Pydantic models
 
 Single source of truth for all configuration defaults and validation.
 """
+import ntpath
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -45,6 +46,10 @@ from pixelle_video.models.storyboard_planning import ContentMode, ShotOverridePo
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, RenderBackend
 from pixelle_video.tts_audio_strategy import DEFAULT_TTS_AUDIO_STRATEGY, TTSAudioStrategy
 from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, TtsSplitMode
+from pixelle_video.utils.comfyui_endpoint import (
+    comfyui_listener_identity,
+    validate_pixelle_managed_comfyui_url,
+)
 from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
 
 
@@ -651,6 +656,23 @@ def _validate_backend_profile_name(profile_name: str) -> None:
         )
 
 
+def _backend_filesystem_identity(path: str | None) -> str:
+    text = str(path or "").strip().replace("/", "\\")
+    if not text:
+        return ""
+    return ntpath.normcase(ntpath.normpath(text))
+
+
+def _backend_database_identity(database_url: str | None) -> str:
+    text = str(database_url or "").strip()
+    sqlite_prefix = "sqlite:///"
+    if text.casefold().startswith(sqlite_prefix):
+        database_path = text[len(sqlite_prefix) :]
+        database_path = database_path.split("?", 1)[0].split("#", 1)[0]
+        return sqlite_prefix + _backend_filesystem_identity(database_path)
+    return text.casefold()
+
+
 def _default_backend_profile_payload(profile_name: str, fallback_url: str) -> dict[str, Any]:
     data_root = f"E:/ComfyUIData/pixelle-{profile_name}"
     return {
@@ -811,38 +833,44 @@ class ComfyUIConfig(BaseModel):
                 for field_name in ("image", "tts", "default")
             )
         )
-        profile_identities: dict[str, dict[str, str]] = {}
+        if self.backend_management_mode == "required":
+            for profile_name in active_profile_names:
+                profile = self.backends[profile_name]
+                if not profile.managed:
+                    raise ValueError(
+                        "backend_management_mode=required requires every routed "
+                        f"profile to set managed=true: {profile_name!r}"
+                    )
+                try:
+                    validate_pixelle_managed_comfyui_url(profile.url)
+                except ValueError as exc:
+                    raise ValueError(
+                        "backend_management_mode=required has an invalid routed "
+                        f"profile {profile_name!r}: {exc}"
+                    ) from exc
+
+        profile_identities: dict[str, dict[str, Any]] = {}
         for profile_name in active_profile_names:
             profile = self.backends[profile_name]
             identities = {
-                "url": str(profile.url or "").strip().rstrip("/").casefold(),
+                "url": comfyui_listener_identity(profile.url),
             }
             if profile.managed:
                 identities.update(
                     {
-                        "data_root": str(profile.data_root or "")
-                        .strip()
-                        .replace("\\", "/")
-                        .rstrip("/")
-                        .casefold(),
-                        "runtime_dir": str(profile.runtime_dir or "")
-                        .strip()
-                        .replace("\\", "/")
-                        .rstrip("/")
-                        .casefold(),
-                        "logs_dir": str(profile.logs_dir or "")
-                        .strip()
-                        .replace("\\", "/")
-                        .rstrip("/")
-                        .casefold(),
-                        "database_url": str(profile.database_url or "")
-                        .strip()
-                        .casefold(),
+                        "data_root": _backend_filesystem_identity(profile.data_root),
+                        "runtime_dir": _backend_filesystem_identity(
+                            profile.runtime_dir
+                        ),
+                        "logs_dir": _backend_filesystem_identity(profile.logs_dir),
+                        "database_url": _backend_database_identity(
+                            profile.database_url
+                        ),
                     }
                 )
             profile_identities[profile_name] = identities
 
-        identity_owners: dict[tuple[str, str], str] = {}
+        identity_owners: dict[tuple[str, Any], str] = {}
         for profile_name, identities in profile_identities.items():
             for identity_kind, identity_value in identities.items():
                 if not identity_value:

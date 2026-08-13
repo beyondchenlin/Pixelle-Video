@@ -26,7 +26,6 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse
 
 from comfykit import ComfyKit
 from loguru import logger
@@ -102,6 +101,7 @@ from pixelle_video.tts_workflow_param_contract import (
     workflow_params_look_like_tts_generation,
 )
 from pixelle_video.utils.asyncio_util import await_cancel_safe_cleanup
+from pixelle_video.utils.comfyui_endpoint import comfyui_listener_identity
 from pixelle_video.utils.os_util import get_output_path
 from pixelle_video.workflow_content_contracts import (
     WORKFLOW_FILE_TRACE_KEYS,
@@ -127,6 +127,14 @@ _EXTENSION_RELEASE_CONTEXTS: dict[ComfyUIExtensionName, str] = {
     "gguf": "gguf",
     "omnivoice": "omnivoice",
 }
+_COMFYUI_BACKEND_ALREADY_ABSENT_REASONS = frozenset(
+    {
+        "backend_absent",
+        "pid_file_missing",
+        "pid_file_invalid",
+        "process_missing",
+    }
+)
 _WORKFLOW_PROMPT_PARAM_KEYS = (
     "prompt",
     "positive_prompt",
@@ -2072,21 +2080,19 @@ class PixelleVideoCore:
                     )
 
     async def _stop_idle_managed_comfyui_backends(self, *, reason: str) -> list[str]:
+        candidate_roles = tuple(self._recent_local_comfyui_backend_roles.keys())
+        if not candidate_roles:
+            logger.debug(
+                "Skipping managed ComfyUI backend cleanup; no local backend was used "
+                f"since the previous lifecycle settlement ({reason})"
+            )
+            return []
+
         registry = self._get_comfyui_backend_registry()
         stopped_roles: list[str] = []
         processed_roles: set[str] = set()
         errors: list[str] = []
         seen_endpoints: set[tuple[str, str, int | None]] = set()
-        routed_roles = (
-            registry.config.workflow_routing.image,
-            registry.config.workflow_routing.tts,
-            registry.config.workflow_routing.default,
-        )
-        candidate_roles = (
-            tuple(self._recent_local_comfyui_backend_roles.keys())
-            if self._recent_local_comfyui_backend_roles
-            else routed_roles
-        )
         ordered_roles = list(
             dict.fromkeys(
                 [
@@ -2101,7 +2107,7 @@ class PixelleVideoCore:
                 profile = registry.profile(normalized_role)
             except ValueError:
                 continue
-            endpoint = self._comfyui_backend_endpoint_key(profile.url)
+            endpoint = comfyui_listener_identity(profile.url)
 
             controller_factory = getattr(registry, "backend_controller", None)
             if not callable(controller_factory):
@@ -2149,13 +2155,26 @@ class PixelleVideoCore:
                     )
                 continue
             if not payload.get("stopped"):
-                logger.warning(
-                    "Skipping ComfyUI backend stop after generation for role "
-                    f"'{normalized_role}'; Pixelle does not own a running backend: "
-                    f"{payload}"
-                )
-                if payload.get("reason") == "external_backend_not_owned":
+                skip_reason = str(payload.get("reason") or "unknown").strip()
+                if skip_reason in _COMFYUI_BACKEND_ALREADY_ABSENT_REASONS:
+                    logger.debug(
+                        "ComfyUI backend was already absent after generation; "
+                        f"role='{normalized_role}', reason='{skip_reason}'"
+                    )
                     processed_roles.add(normalized_role)
+                    await self._close_comfykit_instance(normalized_role)
+                    continue
+                if skip_reason == "external_backend_not_owned":
+                    logger.info(
+                        "Preserving externally managed ComfyUI backend after generation; "
+                        f"role='{normalized_role}'"
+                    )
+                    processed_roles.add(normalized_role)
+                    continue
+                logger.warning(
+                    "ComfyUI backend stop after generation was not confirmed; "
+                    f"role='{normalized_role}', reason='{skip_reason}'"
+                )
                 continue
 
             processed_roles.add(normalized_role)
@@ -2169,19 +2188,6 @@ class PixelleVideoCore:
             raise RuntimeError("; ".join(errors))
 
         return stopped_roles
-
-    @staticmethod
-    def _comfyui_backend_endpoint_key(url: str | None) -> tuple[str, str, int | None]:
-        parsed = urlparse(str(url or "").strip())
-        scheme = (parsed.scheme or "http").lower()
-        host = (parsed.hostname or "").lower()
-        port = parsed.port
-        if port is None:
-            if scheme == "https":
-                port = 443
-            elif scheme == "http":
-                port = 80
-        return scheme, host, port
 
     async def _close_comfykit_instance(self, backend_role: str | None = None) -> None:
         if backend_role is None:
@@ -2324,12 +2330,7 @@ class PixelleVideoCore:
         result = await backend.stop(reason=reason)
         payload = result.payload or {}
         stopped = bool(payload.get("stopped"))
-        already_absent = payload.get("reason") in {
-            "backend_absent",
-            "pid_file_missing",
-            "pid_file_invalid",
-            "process_missing",
-        }
+        already_absent = payload.get("reason") in _COMFYUI_BACKEND_ALREADY_ABSENT_REASONS
         if not stopped and not already_absent:
             return False
 

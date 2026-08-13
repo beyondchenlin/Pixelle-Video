@@ -532,7 +532,7 @@ async def test_core_alignment_cleanup_never_replaces_business_outcome():
 
 
 @pytest.mark.asyncio
-async def test_core_stop_idle_managed_comfyui_backends_prefers_routed_roles_and_dedupes():
+async def test_core_stop_idle_managed_comfyui_backends_uses_recent_roles_and_dedupes():
     stop_calls = []
     close_calls = []
 
@@ -569,6 +569,11 @@ async def test_core_stop_idle_managed_comfyui_backends_prefers_routed_roles_and_
 
     core = PixelleVideoCore()
     core._get_comfyui_backend_registry = lambda: _Registry()
+    core._recent_local_comfyui_backend_roles = {
+        "image_backend": None,
+        "tts_backend": None,
+        "default": None,
+    }
 
     async def _close_comfykit_instance(role=None):
         close_calls.append(role)
@@ -583,6 +588,18 @@ async def test_core_stop_idle_managed_comfyui_backends_prefers_routed_roles_and_
         ("tts_backend", "test generation resource release"),
     ]
     assert close_calls == ["image_backend", "tts_backend"]
+
+
+@pytest.mark.asyncio
+async def test_core_stop_idle_backends_does_not_probe_unused_routed_backends():
+    core = PixelleVideoCore()
+
+    def _unexpected_registry_access():
+        raise AssertionError("unused routed backends must not be inspected")
+
+    core._get_comfyui_backend_registry = _unexpected_registry_access
+
+    assert await core._stop_idle_managed_comfyui_backends(reason="test") == []
 
 
 @pytest.mark.asyncio
@@ -615,6 +632,7 @@ async def test_generation_cleanup_waits_for_accelerator_before_delegating_stop()
 
     core = PixelleVideoCore()
     core._get_comfyui_backend_registry = lambda: _Registry()
+    core._recent_local_comfyui_backend_roles = {"default": None}
     async def _close_comfykit_instance(role=None):
         return None
 
@@ -680,6 +698,119 @@ async def test_core_stop_idle_managed_comfyui_backends_uses_recent_roles_when_av
     assert stopped == ["tts_backend"]
     assert stop_calls == ["tts_backend"]
     assert core._recent_local_comfyui_backend_roles == {}
+
+
+@pytest.mark.asyncio
+async def test_core_stop_idle_backends_treats_absence_as_idempotent_success():
+    close_calls = []
+
+    class _Backend:
+        def can_manage(self):
+            return True
+
+        async def stop(self, *, reason):
+            return SimpleNamespace(
+                payload={
+                    "stopped": False,
+                    "skipped": True,
+                    "reason": "backend_absent",
+                    "sensitive_state": "must-not-be-logged",
+                }
+            )
+
+    class _Registry:
+        config = SimpleNamespace(
+            workflow_routing=SimpleNamespace(
+                image="default",
+                tts="default",
+                default="default",
+            ),
+            backends={"default": SimpleNamespace(url="http://127.0.0.1:8000")},
+        )
+
+        def profile(self, role):
+            return self.config.backends[role]
+
+        def managed_backend(self, role):
+            return _Backend()
+
+    core = PixelleVideoCore()
+    core._get_comfyui_backend_registry = lambda: _Registry()
+    core._recent_local_comfyui_backend_roles = {"default": None}
+
+    async def _close_comfykit_instance(role=None):
+        close_calls.append(role)
+
+    core._close_comfykit_instance = _close_comfykit_instance
+    warning_messages = []
+    sink_id = service_module.logger.add(
+        lambda message: warning_messages.append(str(message)),
+        level="WARNING",
+    )
+    try:
+        stopped = await core._stop_idle_managed_comfyui_backends(reason="test")
+    finally:
+        service_module.logger.remove(sink_id)
+
+    assert stopped == []
+    assert close_calls == ["default"]
+    assert core._recent_local_comfyui_backend_roles == {}
+    assert warning_messages == []
+
+
+@pytest.mark.asyncio
+async def test_core_stop_idle_backends_warns_safely_for_unknown_stop_result():
+    class _Backend:
+        def can_manage(self):
+            return True
+
+        async def stop(self, *, reason):
+            return SimpleNamespace(
+                payload={
+                    "stopped": False,
+                    "reason": "unexpected_state",
+                    "sensitive_state": "must-not-be-logged",
+                }
+            )
+
+    class _Registry:
+        config = SimpleNamespace(
+            workflow_routing=SimpleNamespace(
+                image="default",
+                tts="default",
+                default="default",
+            ),
+            backends={"default": SimpleNamespace(url="http://127.0.0.1:8000")},
+        )
+
+        def profile(self, role):
+            return self.config.backends[role]
+
+        def managed_backend(self, role):
+            return _Backend()
+
+    core = PixelleVideoCore()
+    core._get_comfyui_backend_registry = lambda: _Registry()
+    core._recent_local_comfyui_backend_roles = {"default": None}
+
+    async def _close_comfykit_instance(role=None):
+        return None
+
+    core._close_comfykit_instance = _close_comfykit_instance
+    warning_messages = []
+    sink_id = service_module.logger.add(
+        lambda message: warning_messages.append(str(message)),
+        level="WARNING",
+    )
+    try:
+        stopped = await core._stop_idle_managed_comfyui_backends(reason="test")
+    finally:
+        service_module.logger.remove(sink_id)
+
+    assert stopped == []
+    assert len(warning_messages) == 1
+    assert "unexpected_state" in warning_messages[0]
+    assert "must-not-be-logged" not in warning_messages[0]
 
 
 @pytest.mark.asyncio
