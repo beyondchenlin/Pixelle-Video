@@ -170,3 +170,8 @@ def test_cleanup_requires_explicit_allow_cleanup(tmp_path):
 
     with pytest.raises(ResourceResolverError, match="cleanup is disabled"):
         store.cleanup()
+
+
+def test_reference_image_upload_store_rejects_ambiguous_relative_root():
+    with pytest.raises(ValueError, match="base_dir must be absolute"):
+        ReferenceImageUploadStore(base_dir="_runtime/reference_image_uploads")

@@ -15,8 +15,9 @@ Health check and system info endpoints
 """
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from api.runtime_context import get_api_runtime_context
 from pixelle_video import __version__
 
 router = APIRouter(tags=["Health"])
@@ -27,6 +28,15 @@ class HealthResponse(BaseModel):
     status: str = "healthy"
     version: str = __version__
     service: str = "Pixelle-Video API"
+    checkout_root_id: str = Field(
+        default_factory=lambda: get_api_runtime_context().checkout_root_id
+    )
+    project_root_id: str = Field(
+        default_factory=lambda: get_api_runtime_context().project_root_id
+    )
+    output_root_id: str = Field(
+        default_factory=lambda: get_api_runtime_context().output_root_id
+    )
 
 
 class CapabilitiesResponse(BaseModel):

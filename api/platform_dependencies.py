@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from api.config import APIConfig
+from api.runtime_context import resolve_api_configured_path
 from api.tasks.executors import TaskExecutorRegistry, WorkerCapabilityRegistry
 from api.tasks.worker_registry import WorkerRegistry
 from api.workbench.task_submitter import (
@@ -85,21 +86,27 @@ def build_platform_dependencies(
 ) -> PlatformDependencies:
     if config.runtime_profile == "production":
         raise RuntimeError("production repository adapters are not implemented")
-    platform_root = f"{config.artifact_base_path}/_platform"
-    artifact_repository = FilesystemDevArtifactRepository(f"{platform_root}/artifacts")
+    artifact_root = resolve_api_configured_path(
+        config.artifact_base_path,
+        setting_name="PIXELLE_ARTIFACT_BASE_PATH",
+    )
+    platform_root = artifact_root / "_platform"
+    artifact_repository = FilesystemDevArtifactRepository(platform_root / "artifacts")
     artifact_object_store = FilesystemDevArtifactObjectStore(
-        root=f"{config.artifact_base_path}/_objects",
+        root=artifact_root / "_objects",
         base_url=config.artifact_base_url,
     )
-    raw_payload_store = FilesystemDevRawPayloadStore(f"{platform_root}/raw_payloads")
-    trace_repository = FilesystemDevTraceRepository(f"{platform_root}/traces")
-    prompt_plan_repository = FilesystemDevPromptPlanRepository(f"{platform_root}/prompt_plans")
-    asset_bible_repository = FilesystemDevAssetBibleRepository(f"{platform_root}/assets")
+    raw_payload_store = FilesystemDevRawPayloadStore(platform_root / "raw_payloads")
+    trace_repository = FilesystemDevTraceRepository(platform_root / "traces")
+    prompt_plan_repository = FilesystemDevPromptPlanRepository(platform_root / "prompt_plans")
+    asset_bible_repository = FilesystemDevAssetBibleRepository(platform_root / "assets")
     asset_bible_preset_registry = AssetBiblePresetRegistry()
-    dependency_edge_repository = FilesystemDevDependencyEdgeRepository(f"{platform_root}/dependencies")
-    stale_mark_repository = FilesystemDevStaleMarkRepository(f"{platform_root}/stale_marks")
+    dependency_edge_repository = FilesystemDevDependencyEdgeRepository(
+        platform_root / "dependencies"
+    )
+    stale_mark_repository = FilesystemDevStaleMarkRepository(platform_root / "stale_marks")
     storyboard_workbench_state_store = FilesystemDevStoryboardWorkbenchStateStore(
-        f"{platform_root}/storyboard_workbench"
+        platform_root / "storyboard_workbench"
     )
     stale_prompt_plan_writer = StaleAwarePromptPlanWriteService(
         prompt_plan_repository=prompt_plan_repository,

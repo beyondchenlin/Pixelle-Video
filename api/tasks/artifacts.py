@@ -24,8 +24,11 @@ class ArtifactStore(Protocol):
 class LocalArtifactStore:
     """Filesystem artifact store for local development and single-host Docker."""
 
-    def __init__(self, *, output_root: str | Path = "output", base_url: str = "/api/files") -> None:
-        self.output_root = Path(output_root)
+    def __init__(self, *, output_root: str | Path, base_url: str = "/api/files") -> None:
+        configured_root = Path(output_root).expanduser()
+        if not configured_root.is_absolute():
+            raise ValueError("LocalArtifactStore output_root must be absolute")
+        self.output_root = configured_root.resolve()
         self.base_url = base_url.rstrip("/")
 
     async def persist_video(

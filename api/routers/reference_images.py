@@ -16,6 +16,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from api.config import api_config
 from api.reference_image_upload_store import ReferenceImageUploadStore
+from api.runtime_context import resolve_api_configured_path
 from api.schemas.reference_image import ReferenceImageUploadResponse
 from pixelle_video.services.resource_resolver import (
     ResourceIdInvalidError,
@@ -30,7 +31,10 @@ def _upload_store(request: Request) -> ReferenceImageUploadStore:
     store = getattr(request.app.state, "reference_image_upload_store", None)
     if store is None:
         store = ReferenceImageUploadStore(
-            base_dir=api_config.reference_image_upload_base_path,
+            base_dir=resolve_api_configured_path(
+                api_config.reference_image_upload_base_path,
+                setting_name="PIXELLE_REFERENCE_IMAGE_UPLOAD_BASE_PATH",
+            ),
             max_upload_size_mb=api_config.reference_image_max_upload_size_mb,
             max_edge_px=api_config.reference_image_max_edge_px,
             max_pixels=api_config.reference_image_max_pixels,

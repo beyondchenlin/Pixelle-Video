@@ -12,6 +12,7 @@ from loguru import logger
 
 from api.config import APIConfig, api_config
 from api.platform_dependencies import attach_platform_dependencies, build_platform_dependencies
+from api.runtime_context import resolve_api_configured_path
 from api.tasks.artifacts import ArtifactStore
 from api.tasks.executors import TaskExecutorRegistry
 from api.tasks.factory import build_task_runtime
@@ -44,7 +45,7 @@ class GenerationWorker:
         registry: GenerationRegistry,
         core: Any,
         artifact_store: ArtifactStore,
-        output_root: str | Path = "output",
+        output_root: str | Path,
         worker_id: str | None = None,
         heartbeat_interval_seconds: float = 30.0,
         executor_registry: TaskExecutorRegistry | None = None,
@@ -53,7 +54,10 @@ class GenerationWorker:
         self.registry = registry
         self.core = core
         self.artifact_store = artifact_store
-        self.output_root = Path(output_root)
+        configured_output_root = Path(output_root).expanduser()
+        if not configured_output_root.is_absolute():
+            raise ValueError("GenerationWorker output_root must be absolute")
+        self.output_root = configured_output_root.resolve()
         self.worker_id = worker_id or f"worker-{uuid.uuid4()}"
         self.heartbeat_interval_seconds = heartbeat_interval_seconds
         self.executor_registry = executor_registry or TaskExecutorRegistry()
@@ -181,7 +185,10 @@ async def run_worker_forever(config: APIConfig = api_config) -> None:
         registry=runtime.task_manager.registry,
         core=core,
         artifact_store=runtime.task_manager.registry.artifact_store,
-        output_root=config.artifact_base_path,
+        output_root=resolve_api_configured_path(
+            config.artifact_base_path,
+            setting_name="PIXELLE_ARTIFACT_BASE_PATH",
+        ),
         heartbeat_interval_seconds=config.generation_heartbeat_seconds,
         executor_registry=runtime.executor_registry,
         worker_registry=runtime.worker_registry,

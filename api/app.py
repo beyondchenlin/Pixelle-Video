@@ -80,6 +80,7 @@ from api.routers import (
     tts_router,
     video_router,
 )
+from api.runtime_context import resolve_api_configured_path
 from api.schemas.responses import install_exception_handlers
 from api.tasks.factory import build_api_task_runtime
 from api.video.executor_factory import register_video_generation_executor
@@ -112,7 +113,10 @@ async def lifespan(app: FastAPI):
     video_router_module.task_manager = manager
     app.state.task_manager = manager
     app.state.reference_image_upload_store = ReferenceImageUploadStore(
-        base_dir=api_config.reference_image_upload_base_path,
+        base_dir=resolve_api_configured_path(
+            api_config.reference_image_upload_base_path,
+            setting_name="PIXELLE_REFERENCE_IMAGE_UPLOAD_BASE_PATH",
+        ),
         max_upload_size_mb=api_config.reference_image_max_upload_size_mb,
         max_edge_px=api_config.reference_image_max_edge_px,
         max_pixels=api_config.reference_image_max_pixels,

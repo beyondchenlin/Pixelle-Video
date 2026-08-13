@@ -3,6 +3,8 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
+from api.runtime_context import get_api_runtime_context
+
 ALLOWED_PREFIXES = [
     "output/",
     "workflows/",
@@ -51,21 +53,50 @@ def media_type_for(path: Path) -> str:
     return MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
 
 
-def resolve_allowed_file_path(file_path: str, *, cwd: Path | None = None) -> Path:
-    root = (cwd or Path.cwd()).resolve()
+def resolve_allowed_file_path(
+    file_path: str,
+    *,
+    project_root: str | Path | None = None,
+    output_root: str | Path | None = None,
+    cwd: str | Path | None = None,
+) -> Path:
+    """Resolve an allowed file against the API process's configured project root.
 
-    requested_path = None
+    ``cwd`` remains as a compatibility alias for callers that previously injected a
+    test root. New callers should use ``project_root``. The process working directory
+    is intentionally never used as an implicit filesystem authority.
+    """
+    if project_root is not None and cwd is not None:
+        raise ValueError("project_root and cwd are mutually exclusive")
+
+    explicit_root = project_root if project_root is not None else cwd
+    if explicit_root is None:
+        runtime_context = get_api_runtime_context()
+        root = runtime_context.project_root
+        default_output_root = runtime_context.output_root
+    else:
+        root = Path(explicit_root).resolve()
+        default_output_root = (root / "output").resolve()
+    resolved_output_root = (
+        Path(output_root).resolve() if output_root is not None else default_output_root
+    )
+
+    requested_relative_path = None
     allowed_root = None
     for prefix in ALLOWED_PREFIXES:
         if file_path.startswith(prefix):
-            requested_path = file_path
-            allowed_root = (root / prefix.rstrip("/")).resolve()
+            requested_relative_path = file_path.removeprefix(prefix)
+            allowed_root = (
+                resolved_output_root
+                if prefix == "output/"
+                else (root / prefix.rstrip("/")).resolve()
+            )
             break
-    if requested_path is None:
-        requested_path = f"output/{file_path}"
-        allowed_root = (root / "output").resolve()
+    if requested_relative_path is None:
+        requested_relative_path = file_path
+        allowed_root = resolved_output_root
 
-    abs_path = (root / requested_path).resolve()
+    abs_path = (allowed_root / requested_relative_path).resolve()
     if not (abs_path == allowed_root or abs_path.is_relative_to(allowed_root)):
         raise HTTPException(
             status_code=403,

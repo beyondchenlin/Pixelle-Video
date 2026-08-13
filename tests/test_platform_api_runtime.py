@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
@@ -25,8 +26,21 @@ from scripts.launch_web import (
 )
 
 
+def _health_payload(**overrides: object) -> bytes:
+    payload: dict[str, object] = {
+        "status": "healthy",
+        "version": "0.1.0",
+        "service": "Pixelle-Video API",
+        "checkout_root_id": launch_web.EXPECTED_CHECKOUT_ROOT_ID,
+        "project_root_id": launch_web.EXPECTED_PROJECT_ROOT_ID,
+        "output_root_id": launch_web.DEFAULT_LOCAL_API_IDENTITY.output_root_id,
+    }
+    payload.update(overrides)
+    return json.dumps(payload).encode("utf-8")
+
+
 class _HealthHandler(BaseHTTPRequestHandler):
-    payload = b'{"status":"healthy","version":"0.1.0","service":"Pixelle-Video API"}'
+    payload = _health_payload()
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler contract
         if self.path != "/health":
@@ -242,6 +256,47 @@ def test_local_probe_only_accepts_the_pixelle_health_identity() -> None:
         thread.join(timeout=2)
 
 
+@pytest.mark.parametrize(
+    ("mismatched_field", "mismatched_value"),
+    [
+        ("checkout_root_id", "pixelle-root-v1:" + ("0" * 64)),
+        ("project_root_id", "pixelle-root-v1:" + ("0" * 64)),
+        ("output_root_id", "pixelle-path-v1:" + ("0" * 64)),
+    ],
+)
+def test_local_probe_rejects_a_different_runtime_identity(
+    mismatched_field: str,
+    mismatched_value: str,
+) -> None:
+    payload = _health_payload(**{mismatched_field: mismatched_value})
+    server, thread = _start_health_server(payload)
+    try:
+        assert probe_local_api(server.server_port) is LocalApiState.IDENTITY_MISMATCH
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"status":"healthy","service":"Pixelle-Video API"}',
+        _health_payload(checkout_root_id="invalid"),
+        _health_payload(project_root_id="invalid"),
+        _health_payload(output_root_id="invalid"),
+    ],
+)
+def test_local_probe_rejects_an_api_without_a_valid_project_identity(payload: bytes) -> None:
+    server, thread = _start_health_server(payload)
+    try:
+        assert probe_local_api(server.server_port) is LocalApiState.INCOMPATIBLE
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_local_probe_rejects_a_foreign_service_on_the_port() -> None:
     server, thread = _start_health_server(b'{"status":"healthy","service":"other-project"}')
     try:
@@ -262,6 +317,30 @@ def test_local_probe_does_not_follow_a_foreign_service_redirect() -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+@pytest.mark.parametrize(
+    "state",
+    [LocalApiState.IDENTITY_MISMATCH, LocalApiState.INCOMPATIBLE],
+)
+def test_local_wait_fails_fast_for_a_definitive_identity_conflict(
+    monkeypatch,
+    state: LocalApiState,
+) -> None:
+    monkeypatch.setattr(launch_web, "probe_local_api", lambda _port, **_kwargs: state)
+    monkeypatch.setattr(
+        launch_web.time,
+        "sleep",
+        lambda _seconds: pytest.fail("definitive identity conflicts must not be retried"),
+    )
+
+    assert launch_web.wait_for_local_api(6789, timeout=30.0) is False
+
+
+@pytest.mark.parametrize("value", ["", "../outside"])
+def test_local_api_identity_rejects_unsafe_artifact_paths(value: str) -> None:
+    with pytest.raises(LaunchConfigurationError, match="PIXELLE_ARTIFACT_BASE_PATH"):
+        launch_web.build_local_api_identity({"PIXELLE_ARTIFACT_BASE_PATH": value})
 
 
 class _FakeProcess:
@@ -297,7 +376,11 @@ def test_supervisor_cleans_up_only_the_api_process_it_started(monkeypatch) -> No
         started.append(arguments)
         return api_process if "uvicorn" in arguments else web_process
 
-    monkeypatch.setattr(launch_web, "probe_local_api", lambda _port: LocalApiState.ABSENT)
+    monkeypatch.setattr(
+        launch_web,
+        "probe_local_api",
+        lambda _port, **_kwargs: LocalApiState.ABSENT,
+    )
     monkeypatch.setattr(launch_web, "wait_for_local_api", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(launch_web, "_start_process", fake_start)
     monkeypatch.setattr(launch_web, "_assert_port_available", lambda *_args, **_kwargs: None)
@@ -317,7 +400,11 @@ def test_supervisor_reuses_a_healthy_existing_api_without_owning_it(monkeypatch)
         started.append(arguments)
         return web_process
 
-    monkeypatch.setattr(launch_web, "probe_local_api", lambda _port: LocalApiState.READY)
+    monkeypatch.setattr(
+        launch_web,
+        "probe_local_api",
+        lambda _port, **_kwargs: LocalApiState.READY,
+    )
     monkeypatch.setattr(launch_web, "_start_process", fake_start)
     monkeypatch.setattr(launch_web, "_assert_port_available", lambda *_args, **_kwargs: None)
 
@@ -327,11 +414,39 @@ def test_supervisor_reuses_a_healthy_existing_api_without_owning_it(monkeypatch)
 
 
 def test_supervisor_refuses_to_launch_web_against_a_foreign_local_service(monkeypatch) -> None:
-    monkeypatch.setattr(launch_web, "probe_local_api", lambda _port: LocalApiState.OCCUPIED)
+    monkeypatch.setattr(
+        launch_web,
+        "probe_local_api",
+        lambda _port, **_kwargs: LocalApiState.OCCUPIED,
+    )
     monkeypatch.setattr(launch_web, "wait_for_local_api", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(launch_web, "_assert_port_available", lambda *_args, **_kwargs: None)
 
     with pytest.raises(LaunchConfigurationError, match="occupied"):
+        launch_web.run_web_stack({})
+
+
+@pytest.mark.parametrize(
+    ("state", "message"),
+    [
+        (LocalApiState.IDENTITY_MISMATCH, "another project root, checkout, or output root"),
+        (LocalApiState.INCOMPATIBLE, "project identity"),
+    ],
+)
+def test_supervisor_refuses_to_reuse_an_unmatched_pixelle_api(
+    monkeypatch,
+    state: LocalApiState,
+    message: str,
+) -> None:
+    monkeypatch.setattr(launch_web, "probe_local_api", lambda _port, **_kwargs: state)
+    monkeypatch.setattr(
+        launch_web,
+        "_start_process",
+        lambda *_args, **_kwargs: pytest.fail("an unmatched API must not start the web process"),
+    )
+    monkeypatch.setattr(launch_web, "_assert_port_available", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(LaunchConfigurationError, match=message):
         launch_web.run_web_stack({})
 
 
@@ -344,7 +459,11 @@ def test_supervisor_passes_explicit_web_port_and_runtime_environment(monkeypatch
         captured["environment"] = environ
         return web_process
 
-    monkeypatch.setattr(launch_web, "probe_local_api", lambda _port: LocalApiState.READY)
+    monkeypatch.setattr(
+        launch_web,
+        "probe_local_api",
+        lambda _port, **_kwargs: LocalApiState.READY,
+    )
     monkeypatch.setattr(launch_web, "_start_process", fake_start)
     monkeypatch.setattr(launch_web, "_assert_port_available", lambda *_args, **_kwargs: None)
 

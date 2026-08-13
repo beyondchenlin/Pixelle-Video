@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
+import api.runtime_context as runtime_context_module
+from api.config import APIConfig
+from api.runtime_context import build_api_runtime_context
 from api.tasks.artifacts import LocalArtifactStore
+from api.tasks.factory import build_task_runtime
 
 
 @pytest.mark.asyncio
@@ -65,3 +69,25 @@ async def test_local_artifact_store_rejects_path_escape(tmp_path):
 
     assert await store.exists("../outside.mp4") is False
     assert await store.exists(str(Path("task-1") / ".." / ".." / outside.name)) is False
+
+
+def test_local_artifact_store_rejects_ambiguous_relative_root():
+    with pytest.raises(ValueError, match="output_root must be absolute"):
+        LocalArtifactStore(output_root="output")
+
+
+def test_task_runtime_anchors_relative_artifact_path_to_project_root(monkeypatch, tmp_path):
+    project_root = tmp_path / "project"
+    unrelated_cwd = tmp_path / "unrelated"
+    project_root.mkdir()
+    unrelated_cwd.mkdir()
+    context = build_api_runtime_context(project_root)
+    monkeypatch.setattr(runtime_context_module, "_API_RUNTIME_CONTEXT", context)
+    monkeypatch.chdir(unrelated_cwd)
+
+    runtime = build_task_runtime(APIConfig(artifact_base_path="output"))
+    artifact_store = runtime.task_manager.registry.artifact_store
+
+    assert isinstance(artifact_store, LocalArtifactStore)
+    assert artifact_store.output_root == project_root / "output"
+    assert not (unrelated_cwd / "output").exists()

@@ -5,10 +5,18 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from api.file_access import sanitize_upload_filename
+import api.runtime_context as runtime_context_module
+from api.file_access import resolve_allowed_file_path, sanitize_upload_filename
 from api.routers import files as files_router_module
 from api.routers.files import get_file
 from api.routers.files import router as files_router
+from api.runtime_context import build_api_runtime_context
+
+
+@pytest.fixture(autouse=True)
+def _isolated_api_runtime_context(monkeypatch, tmp_path):
+    context = build_api_runtime_context(tmp_path)
+    monkeypatch.setattr(runtime_context_module, "_API_RUNTIME_CONTEXT", context)
 
 
 @pytest.mark.asyncio
@@ -61,6 +69,60 @@ async def test_get_file_allows_file_inside_output(monkeypatch, tmp_path):
     response = await get_file("task-1/final.mp4")
 
     assert Path(response.path) == video
+
+
+def test_file_routes_use_the_configured_project_root_not_process_cwd(monkeypatch, tmp_path):
+    video = tmp_path / "output" / "task-1" / "final.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+    unrelated_cwd = tmp_path / "unrelated"
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
+
+    response = _files_client().get("/files/stream/task-1/final.mp4")
+
+    assert response.status_code == 200
+    assert response.content == b"video"
+    assert not (unrelated_cwd / "output").exists()
+
+
+def test_file_and_cover_routes_share_a_custom_absolute_output_root(monkeypatch, tmp_path):
+    project_root = tmp_path / "project"
+    output_root = tmp_path / "external-output"
+    video = output_root / "task-1" / "final.mp4"
+    frame = video.parent / "frames" / "01_image.png"
+    project_root.mkdir()
+    frame.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+    Image.new("RGB", (720, 1280), color="navy").save(frame)
+    context = build_api_runtime_context(project_root, output_root=output_root)
+    monkeypatch.setattr(runtime_context_module, "_API_RUNTIME_CONTEXT", context)
+    unrelated_cwd = tmp_path / "unrelated"
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
+
+    stream_response = _files_client().get("/files/stream/output/task-1/final.mp4")
+    cover_response = _files_client().get("/files/cover/output/task-1/final.mp4")
+
+    assert stream_response.status_code == 200
+    assert stream_response.content == b"video"
+    assert cover_response.status_code == 200
+    assert (output_root / "task-1" / "preview" / "home-cover.jpg").is_file()
+    assert not (project_root / "output").exists()
+    assert not (unrelated_cwd / "output").exists()
+
+
+def test_file_resolver_preserves_explicit_legacy_cwd_compatibility(tmp_path):
+    video = tmp_path / "output" / "task-1" / "final.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+
+    assert resolve_allowed_file_path("task-1/final.mp4", cwd=tmp_path) == video
+
+
+def test_file_resolver_rejects_conflicting_root_arguments(tmp_path):
+    with pytest.raises(ValueError, match="project_root and cwd"):
+        resolve_allowed_file_path("task-1/final.mp4", project_root=tmp_path, cwd=tmp_path)
 
 
 @pytest.mark.asyncio
@@ -134,7 +196,9 @@ def test_video_cover_endpoint_creates_and_reuses_small_preview(monkeypatch, tmp_
     frame.parent.mkdir(parents=True)
     video.write_bytes(b"video")
     Image.new("RGB", (720, 1280), color="navy").save(frame)
-    monkeypatch.chdir(tmp_path)
+    unrelated_cwd = tmp_path / "unrelated"
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
 
     first = _files_client().get("/files/cover/output/task-1/final.mp4")
     second = _files_client().get("/files/cover/output/task-1/final.mp4")
@@ -144,6 +208,7 @@ def test_video_cover_endpoint_creates_and_reuses_small_preview(monkeypatch, tmp_
     assert first.headers["cache-control"] == "private, max-age=3600"
     assert first.content == second.content
     assert len(first.content) < 100_000
+    assert not (unrelated_cwd / "output").exists()
 
 
 def test_video_cover_endpoint_rejects_non_output_file(monkeypatch, tmp_path):

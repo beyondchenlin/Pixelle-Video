@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from api.config import APIConfig
+from api.runtime_context import resolve_api_configured_path
 from api.tasks.artifacts import LocalArtifactStore
 from api.tasks.executors import TaskExecutorRegistry
 from api.tasks.lease import InMemoryGenerationLease, create_redis_lease
@@ -32,7 +33,10 @@ def build_task_runtime(
 
     executor_registry = executor_registry or TaskExecutorRegistry()
     artifact_store = LocalArtifactStore(
-        output_root=config.artifact_base_path,
+        output_root=resolve_api_configured_path(
+            config.artifact_base_path,
+            setting_name="PIXELLE_ARTIFACT_BASE_PATH",
+        ),
         base_url=config.artifact_base_url,
     )
 
