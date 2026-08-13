@@ -80,6 +80,31 @@ def test_managed_backend_auto_mode_does_not_manage_default_desktop_port():
     assert backend.can_manage() is False
 
 
+@pytest.mark.parametrize(
+    "url",
+    (
+        "https://127.0.0.1:8001",
+        "http://127.0.0.1:8001/api",
+        "http://user:password@127.0.0.1:8001",
+        "http://127.0.0.1:8001?token=value",
+    ),
+)
+def test_managed_backend_does_not_start_an_unsupported_local_url(url, monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile=ComfyUIBackendProfile(
+            url=url,
+            data_root="E:/ComfyUIData/image",
+            runtime_dir="_runtime/comfyui/image",
+            logs_dir="logs/comfyui/image",
+        ),
+        management_mode="auto",
+    )
+    monkeypatch.setattr(backend, "_management_runtime_available", lambda: True)
+
+    assert backend.can_manage() is False
+
+
 def test_managed_backend_required_mode_does_not_take_over_remote_host():
     backend = ManagedComfyUIBackend(
         repo_root=Path.cwd(),
@@ -1065,6 +1090,46 @@ async def test_managed_backend_retries_three_times_after_initial_failure(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_post_start_health_retry_does_not_run_cleanup_twice(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile=ComfyUIBackendProfile(
+            url="http://127.0.0.1:8002",
+            startup_attempts=2,
+            startup_retry_base_delay_seconds=0,
+        ),
+    )
+    cleanup_reasons = []
+
+    async def start(*, reason):
+        return ComfyUIBackendCommandResult(
+            action="start",
+            returncode=0,
+            stdout="",
+            stderr="",
+            payload={"started": True},
+        )
+
+    async def fail_health(*, timeout_seconds=None):
+        raise TimeoutError("backend API did not become ready")
+
+    async def cleanup(*, reason):
+        cleanup_reasons.append(reason)
+
+    monkeypatch.setattr(backend, "start", start)
+    monkeypatch.setattr(backend, "_wait_for_backend_health", fail_health)
+    monkeypatch.setattr(backend, "_cleanup_after_start_failure", cleanup)
+
+    with pytest.raises(RuntimeError, match="failed to start after 2 attempts"):
+        await backend._start_managed_backend_with_retry(reason="pre-workflow")
+
+    assert cleanup_reasons == [
+        "pre-workflow:failed-health-check",
+        "pre-workflow:startup-attempt-2:failed-health-check",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_managed_backend_does_not_retry_deterministic_startup_failure(
     monkeypatch,
 ):
@@ -1100,6 +1165,20 @@ async def test_managed_backend_does_not_retry_deterministic_startup_failure(
         await backend._start_managed_backend_with_retry(reason="pre-workflow")
 
     assert attempts == 1
+
+
+def test_managed_backend_does_not_retry_untyped_failure_text():
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile=ComfyUIBackendProfile(url="http://127.0.0.1:8002"),
+    )
+
+    assert (
+        backend._is_retryable_start_failure(
+            RuntimeError("backend did not listen after invalid configuration")
+        )
+        is False
+    )
 
 
 @pytest.mark.asyncio

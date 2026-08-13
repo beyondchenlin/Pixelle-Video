@@ -25,6 +25,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'backend_command_line.ps1')
 
 trap {
     try {
@@ -241,39 +242,6 @@ else {
     [string[]]@($decodedArguments)
 }
 
-function ConvertTo-WindowsCommandLineArgument {
-    param([string]$Value)
-
-    if ($Value -notmatch '[\s"]') {
-        return $Value
-    }
-    $builder = [System.Text.StringBuilder]::new()
-    [void]$builder.Append('"')
-    $backslashCount = 0
-    foreach ($character in $Value.ToCharArray()) {
-        if ($character -eq '\') {
-            $backslashCount += 1
-            continue
-        }
-        if ($character -eq '"') {
-            [void]$builder.Append(('\' * ($backslashCount * 2 + 1)))
-            [void]$builder.Append('"')
-            $backslashCount = 0
-            continue
-        }
-        if ($backslashCount -gt 0) {
-            [void]$builder.Append(('\' * $backslashCount))
-            $backslashCount = 0
-        }
-        [void]$builder.Append($character)
-    }
-    if ($backslashCount -gt 0) {
-        [void]$builder.Append(('\' * ($backslashCount * 2)))
-    }
-    [void]$builder.Append('"')
-    return $builder.ToString()
-}
-
 $job = [PixelleProcessJob]::new()
 $acceleratorMutex = [System.Threading.Mutex]::new($false, $AcceleratorMutexName)
 $acceleratorMutexAcquired = $false
@@ -314,9 +282,7 @@ try {
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    $startInfo.Arguments = ($backendArguments | ForEach-Object {
-        ConvertTo-WindowsCommandLineArgument $_
-    }) -join ' '
+    $startInfo.Arguments = ConvertTo-WindowsCommandLine $backendArguments
     $backendProcess = [System.Diagnostics.Process]::new()
     $backendProcess.StartInfo = $startInfo
     if (-not $backendProcess.Start()) {

@@ -116,8 +116,13 @@ launchers operate the `image` and `tts` profiles. Each profile may use
 `custom_node_loading: allowlist`; the launcher disables all custom nodes and then loads
 only `allowed_custom_node_folders`. Transient startup timeouts retry three times after
 the initial attempt by default, while configuration, path, port, and memory failures
-fail immediately. One operating-system mutex per local login session prevents the
+fail immediately. One machine-wide operating-system mutex prevents the
 image and TTS backends from owning the accelerator at the same time.
+
+Every allowlisted plug-in folder name must exist exactly once across the shared
+data and application `custom_nodes` roots. Duplicate installations are rejected
+even when their versions match because load order and node-registration overrides
+would remain ambiguous; keep the maintained copy and remove the duplicate.
 
 If a configured port is occupied by an unmanaged process, `start_backend.ps1` refuses
 to start another backend instead of drifting to a new port.

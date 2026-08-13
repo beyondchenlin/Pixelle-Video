@@ -26,7 +26,6 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse
 
 from comfykit import ComfyKit
 from loguru import logger
@@ -102,6 +101,7 @@ from pixelle_video.tts_workflow_param_contract import (
     workflow_params_look_like_tts_generation,
 )
 from pixelle_video.utils.asyncio_util import await_cancel_safe_cleanup
+from pixelle_video.utils.comfyui_endpoint import comfyui_listener_identity
 from pixelle_video.utils.os_util import get_output_path
 from pixelle_video.workflow_content_contracts import (
     WORKFLOW_FILE_TRACE_KEYS,
@@ -2107,7 +2107,7 @@ class PixelleVideoCore:
                 profile = registry.profile(normalized_role)
             except ValueError:
                 continue
-            endpoint = self._comfyui_backend_endpoint_key(profile.url)
+            endpoint = comfyui_listener_identity(profile.url)
 
             controller_factory = getattr(registry, "backend_controller", None)
             if not callable(controller_factory):
@@ -2188,19 +2188,6 @@ class PixelleVideoCore:
             raise RuntimeError("; ".join(errors))
 
         return stopped_roles
-
-    @staticmethod
-    def _comfyui_backend_endpoint_key(url: str | None) -> tuple[str, str, int | None]:
-        parsed = urlparse(str(url or "").strip())
-        scheme = (parsed.scheme or "http").lower()
-        host = (parsed.hostname or "").lower()
-        port = parsed.port
-        if port is None:
-            if scheme == "https":
-                port = 443
-            elif scheme == "http":
-                port = 80
-        return scheme, host, port
 
     async def _close_comfykit_instance(self, backend_role: str | None = None) -> None:
         if backend_role is None:

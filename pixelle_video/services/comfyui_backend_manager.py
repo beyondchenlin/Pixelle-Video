@@ -18,6 +18,9 @@ from loguru import logger
 from pixelle_video.config.schema import ComfyUIBackendProfile
 from pixelle_video.services.comfyui_errors import looks_like_memory_exhaustion
 from pixelle_video.services.comfyui_maintenance import ComfyUIMaintenanceClient
+from pixelle_video.utils.comfyui_endpoint import (
+    validate_pixelle_managed_comfyui_url,
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +46,14 @@ class ComfyUIBackendCommandError(RuntimeError):
         super().__init__(message)
         self.action = action
         self.failure_kind = failure_kind
+        self.retryable = retryable
+
+
+class ComfyUIBackendStartValidationError(RuntimeError):
+    """Post-launch validation failure after cleanup already ran."""
+
+    def __init__(self, message: str, *, retryable: bool) -> None:
+        super().__init__(message)
         self.retryable = retryable
 
 
@@ -120,10 +131,9 @@ class ComfyUIBackendController:
             return False
         if not self._management_runtime_available():
             return False
-        parsed = urlparse(self.comfyui_url)
-        host = (parsed.hostname or "").lower()
-        port = self._resolved_port()
-        if host not in {"127.0.0.1", "localhost", "::1"} or port is None:
+        try:
+            _, port = validate_pixelle_managed_comfyui_url(self.comfyui_url)
+        except ValueError:
             return False
         if port == 8000:
             return True
@@ -278,9 +288,10 @@ class ComfyUIBackendController:
 
                 detail = self._bounded_failure_detail(exc)
                 failures.append(detail)
-                await self._cleanup_after_start_failure(
-                    reason=f"{attempt_reason}:transient-startup-failure"
-                )
+                if not isinstance(exc, ComfyUIBackendStartValidationError):
+                    await self._cleanup_after_start_failure(
+                        reason=f"{attempt_reason}:transient-startup-failure"
+                    )
                 if attempt >= self.startup_attempts:
                     summary = " | ".join(
                         f"attempt {index}: {failure}"
@@ -326,27 +337,34 @@ class ComfyUIBackendController:
 
         try:
             health = await self._wait_for_backend_health()
-        except Exception:
+        except Exception as exc:
             await self._cleanup_after_start_failure(
                 reason=f"{reason}:failed-health-check"
             )
-            raise
+            raise ComfyUIBackendStartValidationError(
+                str(exc),
+                retryable=isinstance(exc, TimeoutError),
+            ) from exc
 
         if self.management_mode == "required":
             try:
                 state = await self.inspect_state(reason=f"{reason}:started-backend")
-            except Exception:
+            except Exception as exc:
                 await self._cleanup_after_start_failure(
                     reason=f"{reason}:failed-ownership-check"
                 )
-                raise
+                raise ComfyUIBackendStartValidationError(
+                    str(exc),
+                    retryable=False,
+                ) from exc
             if not state.owned_by_pixelle:
                 await self._cleanup_after_start_failure(
                     reason=f"{reason}:unconfirmed-ownership"
                 )
-                raise RuntimeError(
-                    "ComfyUI backend started but Pixelle ownership could not be confirmed: "
-                    f"{state.payload}"
+                raise ComfyUIBackendStartValidationError(
+                    "ComfyUI backend started but Pixelle ownership could not be "
+                    f"confirmed: {state.payload}",
+                    retryable=False,
                 )
         return ComfyUIBackendReadyResult(
             ownership="pixelle",
@@ -387,12 +405,9 @@ class ComfyUIBackendController:
             return True
         if isinstance(exc, ComfyUIBackendCommandError):
             return exc.action == "start" and exc.retryable
-        message = str(exc).lower()
-        return (
-            "did not listen" in message
-            or "backend start command timed out" in message
-            or "[pixelle_startup_timeout]" in message
-        )
+        if isinstance(exc, ComfyUIBackendStartValidationError):
+            return exc.retryable
+        return False
 
     async def restart(self, *, reason: str) -> bool:
         if not self.can_manage():
@@ -677,7 +692,6 @@ class ComfyUIBackendController:
             normalized_detail = detail.lower()
             startup_timeout = action == "start" and (
                 "[pixelle_startup_timeout]" in normalized_detail
-                or "did not listen" in normalized_detail
             )
             native_startup_crash = (
                 action == "start"
@@ -784,7 +798,7 @@ class ComfyUIBackendController:
 
     def _resolved_port(self) -> int | None:
         parsed = urlparse(self.comfyui_url)
-        if parsed.port:
+        if parsed.port is not None:
             return parsed.port
         if parsed.scheme == "https":
             return 443

@@ -103,7 +103,9 @@ $env:PIXELLE_COMFYUI_PORT = '8001'
 
 默认不传入 `--enable-cors-header *`。Pixelle 通过服务端访问 ComfyUI，不需要向任意网页来源开放本机接口。
 
-`start_image_backend.bat`、`start_tts_backend.bat` 及对应检查、停止文件分别操作 `image` 与 `tts` 配置。每个配置可用 `custom_node_loading: allowlist` 限制插件；启动器会先禁用全部自定义节点，再只加载 `allowed_custom_node_folders` 中列出的目录。瞬时启动超时在首次失败后默认再重试三次，配置、路径、端口和内存错误不会盲目重试。本机同一登录会话使用一个系统互斥锁，因此图片与语音后端不能同时占用显卡。
+`start_image_backend.bat`、`start_tts_backend.bat` 及对应检查、停止文件分别操作 `image` 与 `tts` 配置。每个配置可用 `custom_node_loading: allowlist` 限制插件；启动器会先禁用全部自定义节点，再只加载 `allowed_custom_node_folders` 中列出的目录。瞬时启动超时在首次失败后默认再重试三次，配置、路径、端口和内存错误不会盲目重试。本机所有登录会话共用一个系统互斥锁，因此图片与语音后端不能同时占用显卡。
+
+白名单中的每个插件目录名必须在共享数据目录和程序目录的 `custom_nodes` 中合计只出现一次。同名插件存在两份时，即使版本相同，加载顺序和节点注册覆盖也不确定，启动器会直接拒绝启动；应保留实际维护的一份并移除重复安装，而不是绕过检查。
 
 如果配置端口已被非托管进程占用，`start_backend.ps1` 会拒绝启动新的 ComfyUI 后端，而不是自动漂移到其他端口。
 
