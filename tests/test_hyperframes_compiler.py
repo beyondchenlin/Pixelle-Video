@@ -1534,6 +1534,16 @@ def test_phase1_templates_preserve_source_shell_regions():
     assert "author" in content
 
 
+def test_life_insights_template_preserves_declared_browser_motion():
+    content = Path(
+        "resources/hyperframes/templates/image_life_insights_light/index.template.html"
+    ).read_text(encoding="utf-8")
+
+    assert 'tl.fromTo(' in content
+    assert '".pixelle-media-clip"' in content
+    assert '".header, .bottom-section, .author"' in content
+
+
 def test_landscape_template_assets_and_inventory_exist():
     assert Path("templates/1920x1080/image_landscape_full.html").exists()
     assert Path("templates/1920x1080/image_landscape_minimal.html").exists()

@@ -208,6 +208,10 @@ class _FakeHyperFramesProjectService:
 class _FakeHyperFramesRenderer:
     def __init__(self):
         self.calls: list[dict] = []
+        self.validation_calls = 0
+
+    def validate_runtime(self):
+        self.validation_calls += 1
 
     async def render_async(
         self,
@@ -394,6 +398,7 @@ async def test_produce_assets_hyperframes_path_bypasses_legacy_html_composition(
         ("media", 0),
         ("media", 1),
     ]
+    assert core.hyperframes_renderer.validation_calls == 1
     assert core.local_comfyui_sessions == ["enter", "exit"]
     assert core.local_comfyui_session_stop_options == [True]
     assert core.local_comfyui_session_backend_roles == ["image"]
@@ -403,6 +408,24 @@ async def test_produce_assets_hyperframes_path_bypasses_legacy_html_composition(
     ]
     assert [frame.composed_image_path for frame in ctx.storyboard.frames] == [None, None]
     assert [frame.video_segment_path for frame in ctx.storyboard.frames] == [None, None]
+
+
+@pytest.mark.asyncio
+async def test_hyperframes_runtime_failure_precedes_expensive_asset_generation(tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+
+    def fail_validation():
+        raise RuntimeError("render runtime unavailable")
+
+    core.hyperframes_renderer.validate_runtime = fail_validation
+
+    with pytest.raises(RuntimeError, match="render runtime unavailable"):
+        await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.calls == []
+    assert core.local_comfyui_sessions == []
 
 
 def test_hyperframes_default_template_alias_resolves_to_supported_template(tmp_path):
@@ -415,6 +438,32 @@ def test_hyperframes_default_template_alias_resolves_to_supported_template(tmp_p
 
     assert pipeline._resolve_hyperframes_template_id(ctx.config) == "image_default"
     assert pipeline._get_hyperframes_fallback_reason(ctx) is None
+
+
+def test_ffmpeg_request_routes_declared_dynamic_template_to_hyperframes(tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1080x1920/image_life_insights_light.html",
+    )
+    ctx.config.render_backend = "ffmpeg_manifest"
+
+    assert pipeline._resolve_effective_render_backend(ctx) == "hyperframes_compiled"
+    assert "browser timeline" in pipeline._get_render_backend_fallback_reason(ctx)
+
+
+def test_ffmpeg_request_keeps_static_default_template_on_ffmpeg(tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1080x1920/default.html",
+    )
+    ctx.config.render_backend = "ffmpeg_manifest"
+
+    assert pipeline._resolve_effective_render_backend(ctx) == "ffmpeg_manifest"
+    assert pipeline._get_render_backend_fallback_reason(ctx) is None
 
 
 @pytest.mark.parametrize(

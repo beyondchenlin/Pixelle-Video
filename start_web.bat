@@ -15,7 +15,7 @@ if not "%EXIT_CODE%"=="0" (
     echo   [ERROR] Failed to Start
     echo ========================================
     echo.
-    echo Review the launch error above. For a source checkout, run "uv sync" first.
+    echo Review the launch error above. For a source checkout, run "scripts\install-runtime-dependencies.ps1" first.
     echo.
     pause
 )

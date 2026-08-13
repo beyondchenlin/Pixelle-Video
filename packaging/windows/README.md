@@ -8,7 +8,7 @@ Automated build system for creating Windows portable packages of Pixelle-Video.
 
 - Python 3.11+ (for running the build script)
 - PyYAML: `pip install pyyaml`
-- Internet connection (for downloading Python, FFmpeg, etc.)
+- Internet connection (for downloading Python, FFmpeg, Node.js, and the pinned browser)
 
 ### Build Package
 
@@ -29,6 +29,7 @@ Edit `config/build_config.yaml` to customize:
 
 - Python version
 - FFmpeg version
+- Node.js version and digest
 - Excluded files/folders
 - Build options
 - Mirror settings
@@ -41,8 +42,8 @@ The build process creates:
 dist/windows/
 ├── Pixelle-Video-v*-win64/             # Build directory (version number varies)
 │   ├── python/                         # Python embedded
-│   ├── tools/                          # FFmpeg, etc.
-│   ├── Pixelle-Video/                  # Project files
+│   ├── tools/                          # FFmpeg and Node.js
+│   ├── Pixelle-Video/                  # Project files and HyperFrames runtime
 │   ├── data/                           # User data (empty)
 │   ├── output/                         # Output (empty)
 │   ├── start.bat                       # Main launcher
@@ -60,11 +61,13 @@ The builder performs these steps:
 1. **Download Phase**
    - Python embedded distribution
    - FFmpeg portable
+   - Authenticated Node.js portable distribution
    - Cached in `.cache/` for reuse
 
 2. **Extract Phase**
    - Extract Python to `build/python/`
    - Extract FFmpeg to `build/tools/ffmpeg/`
+   - Extract Node.js to `build/tools/node/`
 
 3. **Prepare Phase**
    - Enable site-packages in Python
@@ -73,7 +76,8 @@ The builder performs these steps:
 
 4. **Install Phase**
    - Install project dependencies using uv/pip
-   - Pre-install all packages
+   - Install the locked HyperFrames bridge and Puppeteer browser
+   - Import the bridge and resolve the bundled browser before packaging
 
 5. **Copy Phase**
    - Copy project files (excluding test/docs/cache)
@@ -105,6 +109,7 @@ Downloaded files are cached in `.cache/`:
 .cache/
 ├── python-3.11.9-embed-amd64.zip
 ├── ffmpeg-6.1.1-win64.zip
+├── node-v24.12.0-win-x64.zip
 └── get-pip.py
 ```
 

@@ -5,9 +5,9 @@ Windows Package Builder for Pixelle-Video
 This script automates the creation of a Windows portable package:
 1. Downloads Python embedded distribution
 2. Downloads FFmpeg portable
-3. Prepares Python environment (enable site-packages, install pip)
-4. Installs project dependencies
-5. Copies project files
+3. Downloads the pinned Node.js portable distribution
+4. Prepares Python and installs project dependencies
+5. Copies project files and installs the locked HyperFrames runtime
 6. Generates launcher scripts
 7. Creates final ZIP package
 
@@ -19,8 +19,11 @@ import argparse
 import hashlib
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
+import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -63,7 +66,12 @@ class WindowsPackageBuilder:
             self.config['mirrors']['use_cn_mirror'] = True
         
         # Setup paths
-        self.output_dir = Path(output_dir) if output_dir else self.project_root / self.config['build']['output_dir']
+        configured_output_dir = (
+            Path(output_dir)
+            if output_dir
+            else self.project_root / self.config['build']['output_dir']
+        )
+        self.output_dir = configured_output_dir.resolve()
         self.cache_dir = self.project_root / self.config['cache']['cache_dir']
         self.templates_dir = self.script_dir / 'templates'
         
@@ -82,6 +90,45 @@ class WindowsPackageBuilder:
         if not isinstance(version, str) or not version.strip():
             raise RuntimeError(f"Invalid project version source: {version_path}")
         return version.strip()
+
+    @staticmethod
+    def _extended_length_path(path: Path) -> Path:
+        """Return a Windows path that remains addressable beyond MAX_PATH."""
+        resolved_path = path.resolve()
+        if os.name != "nt":
+            return resolved_path
+
+        raw_path = str(resolved_path)
+        if raw_path.startswith("\\\\?\\"):
+            return resolved_path
+        if raw_path.startswith("\\\\"):
+            return Path(f"\\\\?\\UNC\\{raw_path[2:]}")
+        return Path(f"\\\\?\\{raw_path}")
+
+    def _remove_existing_build_directory(self) -> None:
+        """Remove only this package's resolved output directory."""
+        resolved_build_dir = self.build_dir.resolve()
+        resolved_output_dir = self.output_dir.resolve()
+        if resolved_build_dir.parent != resolved_output_dir:
+            raise RuntimeError(
+                f"Refusing to clean build directory outside output root: {resolved_build_dir}"
+            )
+        def retry_windows_removal(function, path, exception_info):
+            os.chmod(path, stat.S_IWRITE)
+            last_error = exception_info[1]
+            for retry_delay in (0.1, 0.25, 0.5):
+                try:
+                    function(path)
+                    return
+                except PermissionError as error:
+                    last_error = error
+                    time.sleep(retry_delay)
+            raise last_error
+
+        shutil.rmtree(
+            self._extended_length_path(resolved_build_dir),
+            onerror=retry_windows_removal,
+        )
     
     def log(self, message: str, level: str = "INFO"):
         """Print colored log message"""
@@ -97,9 +144,6 @@ class WindowsPackageBuilder:
     
     def download_file(self, url: str, output_path: Path, description: str = "", max_retries: int = 3) -> bool:
         """Download file with progress indication and retry support"""
-        import ssl
-        import urllib.request
-        
         for attempt in range(max_retries):
             try:
                 if attempt > 0:
@@ -107,19 +151,12 @@ class WindowsPackageBuilder:
                 
                 self.log(f"Downloading {description or url}...")
                 
-                # Create SSL context that's more lenient
-                ssl_context = ssl.create_default_context()
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-                
                 def report_progress(block_num, block_size, total_size):
                     downloaded = block_num * block_size
                     percent = min(downloaded / total_size * 100, 100) if total_size > 0 else 0
                     print(f"\r  Progress: {percent:.1f}%", end='', flush=True)
                 
                 # Try with urllib first
-                opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl_context))
-                urllib.request.install_opener(opener)
                 urlretrieve(url, output_path, reporthook=report_progress)
                 print()  # New line after progress
                 self.log(f"Downloaded to {output_path}", "SUCCESS")
@@ -205,7 +242,11 @@ class WindowsPackageBuilder:
         try:
             self.log(f"Trying curl fallback for {description}...")
             result = subprocess.run(
-                ['curl', '-L', '-o', str(output_path), url, '--progress-bar'],
+                [
+                    'curl', '--fail', '--show-error', '--location',
+                    '--proto', '=https', '--proto-redir', '=https',
+                    '--output', str(output_path), url, '--progress-bar',
+                ],
                 check=True,
                 capture_output=False
             )
@@ -252,6 +293,37 @@ class WindowsPackageBuilder:
             return cache_file
         else:
             raise RuntimeError("Failed to download FFmpeg")
+
+    def download_node(self) -> Path:
+        """Download and authenticate the pinned Node.js portable distribution."""
+        node_config = self.config['node']
+        cache_file = self.cache_dir / f"node-v{node_config['version']}-win-x64.zip"
+        expected_digest = str(node_config['sha256']).strip().lower()
+
+        if cache_file.exists():
+            actual_digest = hashlib.sha256(cache_file.read_bytes()).hexdigest()
+            if actual_digest == expected_digest:
+                self.log(f"Using verified cached Node.js: {cache_file}")
+                return cache_file
+            cache_file.unlink()
+
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        url = (
+            node_config['mirror_url']
+            if self.config['mirrors']['use_cn_mirror']
+            else node_config['download_url']
+        )
+        if not self.download_file(url, cache_file, f"Node.js {node_config['version']}"):
+            raise RuntimeError("Failed to download Node.js")
+
+        actual_digest = hashlib.sha256(cache_file.read_bytes()).hexdigest()
+        if actual_digest != expected_digest:
+            cache_file.unlink(missing_ok=True)
+            raise RuntimeError(
+                "Node.js SHA-256 mismatch: "
+                f"expected {expected_digest}, got {actual_digest}"
+            )
+        return cache_file
     
     def extract_python(self, zip_path: Path, target_dir: Path):
         """Extract Python embedded distribution"""
@@ -293,6 +365,114 @@ class WindowsPackageBuilder:
             self.log("FFmpeg extracted successfully", "SUCCESS")
         else:
             raise RuntimeError("FFmpeg bin directory not found in archive")
+
+    def extract_node(
+        self,
+        zip_path: Path,
+        target_dir: Path,
+        temporary_dir: Path,
+    ) -> Path:
+        """Extract build tooling on a short path and copy only the runtime payload."""
+        self.log(f"Extracting Node.js to {target_dir}...")
+        temp_extract = temporary_dir / "node"
+        temp_extract.mkdir(parents=True, exist_ok=True)
+
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_extract)
+
+        node_executable = next(temp_extract.rglob("node.exe"), None)
+        if node_executable is None:
+            raise RuntimeError("Node.js executable not found in archive")
+        npm_cli = node_executable.parent / "node_modules" / "npm" / "bin" / "npm-cli.js"
+        license_file = node_executable.parent / "LICENSE"
+        for required_path in (npm_cli, license_file):
+            if not required_path.is_file():
+                raise RuntimeError(f"Node.js build input is missing: {required_path}")
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(node_executable, target_dir / "node.exe")
+        shutil.copy2(license_file, target_dir / "LICENSE")
+        self.log("Node.js extracted successfully", "SUCCESS")
+        return npm_cli
+
+    def install_hyperframes_dependencies(
+        self,
+        node_dir: Path,
+        npm_cli: Path,
+        project_dir: Path,
+    ):
+        """Install and verify the bridge lock graph and pinned browser in the package."""
+        bridge_dir = project_dir / "tools" / "hyperframes_bridge"
+        node_executable = node_dir / "node.exe"
+        for required_path in (
+            node_executable,
+            npm_cli,
+            bridge_dir / "package-lock.json",
+            bridge_dir / "src" / "render.mjs",
+        ):
+            if not required_path.is_file():
+                raise RuntimeError(f"Portable HyperFrames input is missing: {required_path}")
+
+        environment = os.environ.copy()
+        environment["PATH"] = f"{node_dir}{os.pathsep}{environment.get('PATH', '')}"
+        environment["PUPPETEER_CACHE_DIR"] = str(
+            bridge_dir / ".cache" / "puppeteer"
+        )
+        environment["PUPPETEER_SKIP_DOWNLOAD"] = "true"
+        environment["PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD"] = "true"
+        for variable_name in (
+            "PUPPETEER_SKIP_CHROME_DOWNLOAD",
+            "npm_config_ignore_scripts",
+        ):
+            environment.pop(variable_name, None)
+
+        self.log("Installing locked HyperFrames dependencies...")
+        subprocess.run(
+            [
+                str(node_executable),
+                str(npm_cli),
+                "ci",
+                "--omit=dev",
+            ],
+            cwd=bridge_dir,
+            env=environment,
+            check=True,
+        )
+        subprocess.run(
+            [
+                str(node_executable),
+                str(
+                    bridge_dir
+                    / "node_modules"
+                    / "puppeteer"
+                    / "lib"
+                    / "puppeteer"
+                    / "node"
+                    / "cli.js"
+                ),
+                "browsers",
+                "install",
+                "chrome",
+            ],
+            cwd=bridge_dir,
+            env=environment,
+            check=True,
+        )
+        subprocess.run(
+            [
+                str(node_executable),
+                "--input-type=module",
+                "-e",
+                (
+                    "const bridge = await import('./src/render.mjs'); "
+                    "await bridge.resolveBrowserExecutable()"
+                ),
+            ],
+            cwd=bridge_dir,
+            env=environment,
+            check=True,
+        )
+        self.log("HyperFrames runtime installed and verified", "SUCCESS")
     
     def prepare_python_environment(self, python_dir: Path):
         """Prepare Python environment: enable site-packages"""
@@ -314,11 +494,20 @@ class WindowsPackageBuilder:
             
             if not modified and 'import site' not in ''.join(lines):
                 lines.append('import site\n')
+
+            portable_project_path = r"..\..\Pixelle-Video"
+            if portable_project_path not in {line.strip() for line in lines}:
+                site_import_index = next(
+                    index
+                    for index, line in enumerate(lines)
+                    if line.strip() == "import site"
+                )
+                lines.insert(site_import_index, f"{portable_project_path}\n")
             
             with open(pth_file, 'w') as f:
                 f.writelines(lines)
             
-            self.log("Enabled site-packages in Python", "SUCCESS")
+            self.log("Enabled site-packages and portable project imports", "SUCCESS")
         
         # Note: On non-Windows systems, we can't run python.exe directly
         # Pip and dependencies will be installed using system Python
@@ -369,11 +558,26 @@ class WindowsPackageBuilder:
             
             # Install dependencies
             if self.config['build'].get('use_uv', True):
-                cmd = [str(python_exe), "-m", "uv", "pip", "install", "-e", str(self.project_root)]
+                cmd = [
+                    str(python_exe),
+                    "-m",
+                    "uv",
+                    "pip",
+                    "install",
+                    "--link-mode",
+                    "copy",
+                    str(self.project_root),
+                ]
                 if self.config['mirrors']['use_cn_mirror']:
                     cmd.extend(["--index-url", self.config['mirrors']['pypi_mirror']])
             else:
-                cmd = [str(python_exe), "-m", "pip", "install", "-e", str(self.project_root)]
+                cmd = [
+                    str(python_exe),
+                    "-m",
+                    "pip",
+                    "install",
+                    str(self.project_root),
+                ]
                 if self.config['mirrors']['use_cn_mirror']:
                     cmd.extend(["--index-url", self.config['mirrors']['pypi_mirror']])
             
@@ -460,7 +664,7 @@ class WindowsPackageBuilder:
         exclude_patterns = self.config['build']['exclude_patterns']
         
         def should_exclude(path: Path) -> bool:
-            path_str = str(path.relative_to(self.project_root))
+            path_str = path.relative_to(self.project_root).as_posix()
             for pattern in exclude_patterns:
                 if pattern.endswith('/*'):
                     # Directory content exclusion - must match exact directory name or start with "dirname/"
@@ -565,11 +769,12 @@ class WindowsPackageBuilder:
             zipfile.ZIP_DEFLATED
         )
         
+        walk_root = self._extended_length_path(self.build_dir)
         with zipfile.ZipFile(zip_path, 'w', compression) as zipf:
-            for root, dirs, files in os.walk(self.build_dir):
+            for root, dirs, files in os.walk(walk_root):
                 for file in files:
                     file_path = Path(root) / file
-                    arcname = file_path.relative_to(self.build_dir.parent)
+                    arcname = file_path.relative_to(walk_root.parent)
                     zipf.write(file_path, arcname)
         
         # Calculate file size and hash
@@ -597,7 +802,7 @@ class WindowsPackageBuilder:
             # Clean build directory
             if self.build_dir.exists():
                 self.log(f"Cleaning existing build directory: {self.build_dir}")
-                shutil.rmtree(self.build_dir)
+                self._remove_existing_build_directory()
             
             self.build_dir.mkdir(parents=True, exist_ok=True)
             self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -605,6 +810,7 @@ class WindowsPackageBuilder:
             # Download dependencies
             python_zip = self.download_python()
             ffmpeg_zip = self.download_ffmpeg()
+            node_zip = self.download_node()
             
             # Extract Python
             python_dir = self.build_dir / "python" / "python311"
@@ -613,17 +819,26 @@ class WindowsPackageBuilder:
             # Extract FFmpeg
             ffmpeg_dir = self.build_dir / "tools" / "ffmpeg" / "bin"
             self.extract_ffmpeg(ffmpeg_zip, ffmpeg_dir)
-            
-            # Prepare Python environment
-            self.prepare_python_environment(python_dir)
-            
-            # Install dependencies
-            if self.config['build'].get('pre_install_deps', True):
-                self.install_dependencies(python_dir)
-            
-            # Copy project files
-            project_target = self.build_dir / "Pixelle-Video"
-            self.copy_project_files(project_target)
+
+            node_dir = self.build_dir / "tools" / "node"
+            with tempfile.TemporaryDirectory(prefix="pixelle-node-") as temporary_dir:
+                npm_cli = self.extract_node(node_zip, node_dir, Path(temporary_dir))
+
+                # Prepare Python environment
+                self.prepare_python_environment(python_dir)
+
+                # Install dependencies
+                if self.config['build'].get('pre_install_deps', True):
+                    self.install_dependencies(python_dir)
+
+                # Copy project files
+                project_target = self.build_dir / "Pixelle-Video"
+                self.copy_project_files(project_target)
+                self.install_hyperframes_dependencies(
+                    node_dir,
+                    npm_cli,
+                    project_target,
+                )
             
             # Generate launcher scripts
             self.generate_launcher_scripts()

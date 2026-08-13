@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,19 @@ from pixelle_video.services.alignment_service import AlignmentService
 from pixelle_video.services.audio_edit_service import AudioEditService
 from pixelle_video.services.hyperframes_project_service import HyperFramesProjectService
 from pixelle_video.services.hyperframes_renderer import HyperFramesRenderer
+
+
+def _write_bridge_runtime(bridge_root: Path) -> Path:
+    bridge_script = bridge_root / "src" / "render.mjs"
+    bridge_script.parent.mkdir(parents=True, exist_ok=True)
+    bridge_script.write_text("// bridge placeholder", encoding="utf-8")
+    (bridge_root / "package.json").write_text("{}", encoding="utf-8")
+    (bridge_root / "package-lock.json").write_text("{}", encoding="utf-8")
+    for dependency in (("@hyperframes", "producer"), ("puppeteer",)):
+        manifest = bridge_root / "node_modules" / Path(*dependency) / "package.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("{}", encoding="utf-8")
+    return bridge_script
 
 
 def _write_manifest(project_dir: Path, task_id: str = "task-6") -> None:
@@ -137,6 +151,84 @@ def test_render_preserves_compiled_project_entrypoint_when_present(monkeypatch, 
     renderer.render(str(project_dir))
 
     assert (project_dir / "index.html").read_text(encoding="utf-8") == "<!doctype html><title>compiled</title>"
+
+
+def test_validate_runtime_checks_bridge_browser_once_and_reuses_bridge_cache(
+    monkeypatch,
+    tmp_path,
+):
+    bridge_root = tmp_path / "tools" / "hyperframes_bridge"
+    bridge_script = _write_bridge_runtime(bridge_root)
+    captured: dict[str, object] = {"calls": 0}
+
+    def fake_run(command, **kwargs):
+        captured["calls"] = int(captured["calls"]) + 1
+        captured["command"] = command
+        captured["cwd"] = kwargs["cwd"]
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(shutil, "which", lambda _executable: "node-resolved")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    renderer = HyperFramesRenderer(bridge_script=str(bridge_script))
+
+    renderer.validate_runtime()
+    renderer.validate_runtime()
+
+    assert captured["calls"] == 1
+    assert captured["cwd"] == bridge_root
+    assert captured["command"][-1] == bridge_script.as_uri()
+    assert "resolveBrowserExecutable" in captured["command"][-2]
+    assert captured["env"]["PUPPETEER_CACHE_DIR"] == str(
+        bridge_root / ".cache" / "puppeteer"
+    )
+
+
+def test_validate_runtime_reports_missing_locked_dependency_before_node_launch(
+    monkeypatch,
+    tmp_path,
+):
+    bridge_root = tmp_path / "tools" / "hyperframes_bridge"
+    bridge_script = _write_bridge_runtime(bridge_root)
+    (bridge_root / "node_modules" / "puppeteer" / "package.json").unlink()
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("node must not launch for missing files"),
+    )
+
+    with pytest.raises(RuntimeError, match="runtime is incomplete") as error_info:
+        HyperFramesRenderer(bridge_script=str(bridge_script)).validate_runtime()
+
+    assert "install-runtime-dependencies" in str(error_info.value)
+
+
+def test_validate_runtime_redacts_and_does_not_cache_failure(monkeypatch, tmp_path):
+    bridge_root = tmp_path / "tools" / "hyperframes_bridge"
+    bridge_script = _write_bridge_runtime(bridge_root)
+    calls = 0
+
+    def fake_run(command, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return subprocess.CompletedProcess(
+            command,
+            1 if calls == 1 else 0,
+            "",
+            "Authorization: Bearer bridge-secret\n" + ("x" * 5000) if calls == 1 else "",
+        )
+
+    monkeypatch.setattr(shutil, "which", lambda _executable: "node-resolved")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    renderer = HyperFramesRenderer(bridge_script=str(bridge_script))
+
+    with pytest.raises(RuntimeError) as error_info:
+        renderer.validate_runtime()
+    assert "bridge-secret" not in str(error_info.value)
+    assert "[truncated]" in str(error_info.value)
+
+    renderer.validate_runtime()
+    assert calls == 2
 
 
 def test_render_allows_compiled_project_without_manifest_when_output_path_is_explicit(

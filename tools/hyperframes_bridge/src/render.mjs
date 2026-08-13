@@ -234,7 +234,7 @@ export async function resolveBrowserExecutable(options = {}, dependencies = {}) 
   const puppeteerExecutablePath =
     dependencies.puppeteerExecutablePath ?? (() => puppeteer.executablePath());
   try {
-    const pinnedPath = path.resolve(puppeteerExecutablePath());
+    const pinnedPath = path.resolve(await puppeteerExecutablePath());
     if (await isUsableBrowserExecutable(pinnedPath, platform)) {
       return pinnedPath;
     }

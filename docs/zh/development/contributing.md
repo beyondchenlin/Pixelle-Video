@@ -21,8 +21,11 @@
 git clone https://github.com/your-username/Pixelle-Video.git
 cd Pixelle-Video
 
-# 安装开发依赖
-uv sync
+# 安装锁定的应用与 HyperFrames 依赖
+sh scripts/install-runtime-dependencies.sh
+
+# 安装测试与静态检查工具
+uv sync --frozen --extra dev
 
 # 运行测试
 pytest

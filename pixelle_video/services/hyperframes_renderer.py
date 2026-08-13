@@ -12,6 +12,7 @@ import re
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from fractions import Fraction
@@ -19,6 +20,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
+
+from pixelle_video.utils.secret_redaction import redact_credentials_in_text
 
 _SAFE_MANIFEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _REMOTE_SCRIPT_RE = re.compile(
@@ -34,6 +37,20 @@ _DEFAULT_RENDER_TIMEOUT_SECONDS = 300.0
 _RENDER_TIMEOUT_BASE_SECONDS = 120.0
 _RENDER_TIMEOUT_PER_MEDIA_SECOND = 30.0
 _MAX_RENDER_TIMEOUT_SECONDS = 6 * 60 * 60.0
+_RUNTIME_PREFLIGHT_TIMEOUT_SECONDS = 30.0
+_MAX_RUNTIME_DIAGNOSTIC_CHARS = 4096
+
+
+def _runtime_dependency_recovery_guidance(bridge_root: Path) -> str:
+    repo_root = bridge_root.parent.parent
+    if os.name == "nt":
+        installer = repo_root / "scripts" / "install-runtime-dependencies.ps1"
+        return (
+            "Run the complete runtime installer from the project root: "
+            f"powershell -NoProfile -ExecutionPolicy Bypass -File {installer}"
+        )
+    installer = repo_root / "scripts" / "install-runtime-dependencies.sh"
+    return f"Run the complete runtime installer from the project root: sh {installer}"
 
 
 @dataclass(frozen=True)
@@ -104,6 +121,96 @@ class HyperFramesRenderer:
         )
         self.render_timeout_seconds = render_timeout_seconds
         self.use_gpu = self._resolve_use_gpu(use_gpu)
+        self._runtime_validation_lock = threading.Lock()
+        self._runtime_validated = False
+
+    @property
+    def bridge_root(self) -> Path:
+        return self.bridge_script.parent.parent
+
+    def _build_render_environment(self) -> dict[str, str]:
+        environment = os.environ.copy()
+        environment.setdefault(
+            "PUPPETEER_CACHE_DIR",
+            str(self.bridge_root / ".cache" / "puppeteer"),
+        )
+        return environment
+
+    def validate_runtime(self) -> None:
+        """Fail before asset generation when the locked bridge runtime is incomplete."""
+        if self._runtime_validated:
+            return
+
+        with self._runtime_validation_lock:
+            if self._runtime_validated:
+                return
+
+            bridge_root = self.bridge_root
+            required_files = (
+                self.bridge_script,
+                bridge_root / "package.json",
+                bridge_root / "package-lock.json",
+                bridge_root / "node_modules" / "@hyperframes" / "producer" / "package.json",
+                bridge_root / "node_modules" / "puppeteer" / "package.json",
+            )
+            missing = [str(path) for path in required_files if not path.is_file()]
+            if missing:
+                raise RuntimeError(
+                    "HyperFrames runtime is incomplete; missing locked files: "
+                    f"{', '.join(missing)}. "
+                    f"{_runtime_dependency_recovery_guidance(bridge_root)}"
+                )
+
+            node_path = shutil.which(self.node_executable)
+            if node_path is None:
+                raise RuntimeError(
+                    f"HyperFrames requires Node.js 22.12.0 or newer. "
+                    f"{_runtime_dependency_recovery_guidance(bridge_root)}"
+                )
+
+            validation_script = (
+                "const [major, minor] = process.versions.node.split('.').map(Number); "
+                "if (major < 22 || (major === 22 && minor < 12)) "
+                "throw new Error(`Node.js 22.12.0 or newer is required; found "
+                "${process.versions.node}`); "
+                "const bridge = await import(process.argv[1]); "
+                "await bridge.resolveBrowserExecutable();"
+            )
+            try:
+                completed = subprocess.run(
+                    [
+                        node_path,
+                        "--input-type=module",
+                        "-e",
+                        validation_script,
+                        self.bridge_script.as_uri(),
+                    ],
+                    cwd=bridge_root,
+                    env=self._build_render_environment(),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=_RUNTIME_PREFLIGHT_TIMEOUT_SECONDS,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise RuntimeError(
+                    "HyperFrames runtime validation could not complete. "
+                    f"{_runtime_dependency_recovery_guidance(bridge_root)}"
+                ) from exc
+
+            if completed.returncode != 0:
+                raw_detail = (completed.stderr or completed.stdout or "unknown error").strip()
+                detail = redact_credentials_in_text(raw_detail)
+                if len(detail) > _MAX_RUNTIME_DIAGNOSTIC_CHARS:
+                    detail = detail[:_MAX_RUNTIME_DIAGNOSTIC_CHARS] + "...[truncated]"
+                raise RuntimeError(
+                    "HyperFrames runtime validation failed: "
+                    f"{detail}. {_runtime_dependency_recovery_guidance(bridge_root)}"
+                )
+
+            self._runtime_validated = True
 
     @staticmethod
     def _resolve_use_gpu(explicit: Optional[bool]) -> bool:
@@ -221,7 +328,7 @@ class HyperFramesRenderer:
         )
         resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        render_environment = os.environ.copy()
+        render_environment = self._build_render_environment()
         command = [
             self.node_executable,
             str(self.bridge_script),

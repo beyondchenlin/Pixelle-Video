@@ -218,7 +218,7 @@ Pixelle-Video 采用模块化设计，整个视频生成流程清晰简洁：
 
 #### 前置环境依赖
 
-在开始之前，需要先安装 Python 包管理器 `uv` 和视频处理工具 `ffmpeg`：
+在开始之前，需要先安装 Python 包管理器 `uv`、`Node.js 22.12.0` 或更高版本，以及视频处理工具 `ffmpeg`：
 
 ##### 安装 uv
 
@@ -269,15 +269,17 @@ $env:PRODUCER_HEADLESS_SHELL_PATH='D:\Apps\Chrome\chrome.exe'
 .\start_web.bat
 ```
 
-推荐安装 Puppeteer 锁定的专用版本，以避免系统浏览器自动升级改变渲染结果：
+使用项目统一安装脚本安装 Python 依赖、锁定的 HyperFrames 依赖和专用浏览器：
 
 ```bash
-cd tools/hyperframes_bridge
-npx puppeteer browsers install chrome
-cd ../..
+# Windows
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-runtime-dependencies.ps1
+
+# macOS / Linux
+sh scripts/install-runtime-dependencies.sh
 ```
 
-出现 `Could not find Chrome` 时，先检查浏览器路径和 `PRODUCER_HEADLESS_SHELL_PATH`，再执行下载命令。
+脚本会在安装结束前实际导入桥接模块并解析浏览器；任一步失败都会终止安装。
 
 HTML 帧和文字预览按以下顺序选择浏览器：
 

@@ -20,6 +20,13 @@ ffmpeg:
   # Alternative mirror
   mirror_url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
 
+# Node.js configuration (for the HyperFrames rendering bridge)
+node:
+  version: "24.12.0"
+  download_url: "https://nodejs.org/dist/v24.12.0/node-v24.12.0-win-x64.zip"
+  mirror_url: "https://nodejs.org/dist/v24.12.0/node-v24.12.0-win-x64.zip"
+  sha256: "9c125f61ae947b52e779095830f9cac267846a043ef7192183c84016aaad2812"
+
 # Playwright configuration (for HTML template rendering)
 playwright:
   install_browsers: true  # Run 'playwright install chromium' during build
@@ -51,6 +58,8 @@ build:
     - ".venv"
     - "venv"
     - "node_modules"
+    - "tools/hyperframes_bridge/node_modules"
+    - "tools/hyperframes_bridge/.cache"
     - "uv.lock"
     - "config.yaml"  # User configuration file (sensitive)
     - "config.yaml.bak"  # Configuration backup

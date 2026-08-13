@@ -150,6 +150,21 @@ test("resolveBrowserExecutable prefers the pinned Puppeteer browser over system 
   assert.equal(resolved, path.resolve(process.execPath));
 });
 
+test("resolveBrowserExecutable awaits the Puppeteer 25 executable path", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "pixelle-browser-path-"));
+  const browserPath = path.join(tempRoot, "async-chrome.exe");
+  await writeFile(browserPath, "browser");
+
+  const resolved = await resolveBrowserExecutable({}, {
+    environment: {},
+    platform: "win32",
+    puppeteerExecutablePath: async () => browserPath,
+    systemBrowserCandidates: () => [],
+  });
+
+  assert.equal(resolved, path.resolve(browserPath));
+});
+
 test("resolveRenderRequest rejects malformed manifest task ids before deriving output paths", async () => {
   const projectDir = await createProjectDir({ taskId: "../escape", fps: 24 });
 

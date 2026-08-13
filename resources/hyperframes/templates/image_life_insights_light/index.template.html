@@ -273,6 +273,19 @@
         const duration = Math.max(Number(root?.dataset?.duration || 0), 0);
         const tl = gsap.timeline({ paused: true });
 
+        tl.fromTo(
+          ".header, .bottom-section, .author",
+          { y: 24, autoAlpha: 0 },
+          { y: 0, autoAlpha: 1, duration: 0.6, ease: "power2.out" },
+          0,
+        );
+        tl.fromTo(
+          ".pixelle-media-clip",
+          { scale: 1.05, autoAlpha: 0.88 },
+          { scale: 1, autoAlpha: 1, duration: 1.2, ease: "power2.out" },
+          0,
+        );
+
         padTimelineToDuration(tl, duration);
         window.__timelines = window.__timelines || {};
         window.__timelines["main-comp"] = tl;

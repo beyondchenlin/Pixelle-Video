@@ -91,6 +91,8 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CN_MIRROR: ${USE_CN_MIRROR:-false}
+        PIXELLE_UID: ${PIXELLE_UID:-1000}
+        PIXELLE_GID: ${PIXELLE_GID:-1000}
     container_name: pixelle-video-migrate
     command: .venv/bin/python -m api.tasks.migrate upgrade
     depends_on:
@@ -121,6 +123,8 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CN_MIRROR: ${USE_CN_MIRROR:-false}
+        PIXELLE_UID: ${PIXELLE_UID:-1000}
+        PIXELLE_GID: ${PIXELLE_GID:-1000}
     container_name: pixelle-video-api
     command: .venv/bin/python api/app.py --host 0.0.0.0 --port 8000
     depends_on:
@@ -169,6 +173,8 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CN_MIRROR: ${USE_CN_MIRROR:-false}
+        PIXELLE_UID: ${PIXELLE_UID:-1000}
+        PIXELLE_GID: ${PIXELLE_GID:-1000}
     container_name: pixelle-video-worker
     command: .venv/bin/python -m api.tasks.worker
     depends_on:
@@ -210,6 +216,8 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CN_MIRROR: ${USE_CN_MIRROR:-false}
+        PIXELLE_UID: ${PIXELLE_UID:-1000}
+        PIXELLE_GID: ${PIXELLE_GID:-1000}
     container_name: pixelle-video-web
     command: .venv/bin/streamlit run web/app.py --server.port 8501 --server.address 0.0.0.0
     depends_on:

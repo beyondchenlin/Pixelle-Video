@@ -214,7 +214,7 @@ Here are actual cases generated using Pixelle-Video, showcasing video effects wi
 
 #### Prerequisites
 
-Before starting, you need to install Python package manager `uv` and video processing tool `ffmpeg`:
+Before starting, install the Python package manager `uv`, `Node.js 22.12.0` or newer, and the video processing tool `ffmpeg`:
 
 ##### Install uv
 
@@ -265,15 +265,17 @@ $env:PRODUCER_HEADLESS_SHELL_PATH='D:\Apps\Chrome\chrome.exe'
 .\start_web.bat
 ```
 
-Install the version pinned by Puppeteer for reproducible rendering that does not change when a system browser auto-updates:
+Use the project installer to install the locked Python graph, HyperFrames graph, and dedicated browser:
 
 ```bash
-cd tools/hyperframes_bridge
-npx puppeteer browsers install chrome
-cd ../..
+# Windows
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-runtime-dependencies.ps1
+
+# macOS / Linux
+sh scripts/install-runtime-dependencies.sh
 ```
 
-For `Could not find Chrome`, verify the browser path and `PRODUCER_HEADLESS_SHELL_PATH` before downloading another browser.
+The installer imports the bridge and resolves the browser before reporting success.
 
 HTML frames and text previews select a browser in this order:
 
