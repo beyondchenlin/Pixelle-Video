@@ -60,6 +60,57 @@ def test_editor_state_can_append_multiple_layers_with_unique_ids():
     assert state.selected_layer_id == state.layers[-1].id
 
 
+def test_landscape_image_layer_uses_selected_media_aspect_ratio():
+    state = LayeredTemplateEditorState.empty(
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1280,
+        media_height=720,
+    ).append_image_layer("Landscape image")
+
+    assert state.layers[0].rect.to_dict() == {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1280.0,
+        "height": 720.0,
+        "unit": "px",
+    }
+
+
+def test_portrait_image_layer_uses_selected_media_aspect_ratio():
+    state = LayeredTemplateEditorState.empty(
+        canvas_width=720,
+        canvas_height=1280,
+        media_width=720,
+        media_height=1280,
+    ).append_image_layer("Portrait image")
+
+    assert state.layers[0].rect.to_dict() == {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 720.0,
+        "height": 1280.0,
+        "unit": "px",
+    }
+
+
+def test_square_image_layer_remains_contained_and_centered_on_landscape_canvas():
+    state = LayeredTemplateEditorState.empty(
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1024,
+        media_height=1024,
+    ).append_image_layer("Square image")
+
+    assert state.layers[0].rect.to_dict() == {
+        "x": 280.0,
+        "y": 0.0,
+        "width": 720.0,
+        "height": 720.0,
+        "unit": "px",
+    }
+
+
 def test_editor_state_update_layer_source_replaces_only_target_layer():
     state = LayeredTemplateEditorState.empty(
         canvas_width=1080,
