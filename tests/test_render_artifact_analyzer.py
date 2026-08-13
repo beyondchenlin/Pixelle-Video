@@ -53,6 +53,19 @@ def test_text_row_bands_split_at_the_first_blank_raster_row():
     )
 
 
+def test_text_row_bands_keep_adjacent_antialias_edges_but_ignore_isolated_noise():
+    assert RenderArtifactAnalyzer._text_row_bands(
+        {
+            5: 1,
+            10: 1,
+            11: 5,
+            12: 6,
+            13: 1,
+            20: 1,
+        }
+    ) == ((10, 13),)
+
+
 def test_pixel_contract_rejects_two_pixel_baseline_drift(tmp_path):
     left = tmp_path / "left.png"
     right = tmp_path / "right.png"
