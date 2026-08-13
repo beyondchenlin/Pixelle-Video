@@ -65,6 +65,55 @@ function Resolve-BackendDouble {
     return $Default
 }
 
+function Resolve-AllowedCustomNodeFolders {
+    param(
+        [string]$LoadingMode,
+        [string]$FoldersBase64
+    )
+
+    $normalizedMode = ([string]$LoadingMode).Trim().ToLowerInvariant()
+    if ($normalizedMode -notin @('all', 'allowlist', 'none')) {
+        throw "Unsupported ComfyUI custom-node loading policy: $LoadingMode"
+    }
+
+    $folders = @()
+    if ($FoldersBase64 -and $FoldersBase64.Trim()) {
+        try {
+            $jsonBytes = [Convert]::FromBase64String($FoldersBase64.Trim())
+            $json = [Text.Encoding]::UTF8.GetString($jsonBytes)
+            $folders = ConvertFrom-Json -InputObject $json
+        }
+        catch {
+            throw "ComfyUI custom-node folder payload is not valid base64 JSON."
+        }
+    }
+
+    $normalizedFolders = New-Object System.Collections.Generic.List[string]
+    $seen = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($rawFolder in $folders) {
+        $folder = ([string]$rawFolder).Trim()
+        if (-not $folder -or
+            $folder -in @('.', '..') -or
+            $folder -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') {
+            throw "Invalid ComfyUI custom-node folder name: $rawFolder"
+        }
+        if (-not $seen.Add($folder)) {
+            throw "Duplicate ComfyUI custom-node folder name: $folder"
+        }
+        [void]$normalizedFolders.Add($folder)
+    }
+
+    if ($normalizedMode -eq 'allowlist' -and $normalizedFolders.Count -eq 0) {
+        throw "ComfyUI custom-node allowlist mode requires at least one folder."
+    }
+    if ($normalizedMode -ne 'allowlist' -and $normalizedFolders.Count -gt 0) {
+        throw "ComfyUI custom-node folders are only valid in allowlist mode."
+    }
+    return [string[]]$normalizedFolders.ToArray()
+}
+
 function Resolve-BackendFilesystemPath {
     param(
         [string]$Path,
@@ -209,7 +258,9 @@ function Resolve-PixelleComfyUIBackendConfig {
         [string]$HostAddress,
         [int]$Port,
         [string]$ResourcePolicy = '',
-        [double]$MinimumFreeCommitGB = -1
+        [double]$MinimumFreeCommitGB = -1,
+        [string]$CustomNodeLoading = 'all',
+        [string]$AllowedCustomNodeFoldersBase64 = ''
     )
 
     $repoRoot = Get-PixelleRepoRoot
@@ -242,6 +293,21 @@ function Resolve-PixelleComfyUIBackendConfig {
         'auto'
     $resolvedResourcePolicy = Resolve-BackendResourcePolicy `
         $requestedResourcePolicy
+    $resolvedCustomNodeLoading = Resolve-BackendValue `
+        $CustomNodeLoading `
+        'PIXELLE_COMFYUI_CUSTOM_NODE_LOADING' `
+        'all'
+    $resolvedCustomNodeLoading = $resolvedCustomNodeLoading.Trim().ToLowerInvariant()
+    $resolvedAllowedCustomNodeFolders = Resolve-AllowedCustomNodeFolders `
+        -LoadingMode $resolvedCustomNodeLoading `
+        -FoldersBase64 $AllowedCustomNodeFoldersBase64
+    $allowedFoldersJson = ConvertTo-Json `
+        -InputObject ([object[]]@($resolvedAllowedCustomNodeFolders)) `
+        -Compress
+    $resolvedAllowedCustomNodeFoldersBase64 = [Convert]::ToBase64String(
+        [Text.Encoding]::UTF8.GetBytes($allowedFoldersJson)
+    )
+    $acceleratorMutexName = 'Local\Pixelle-ComfyUI-Accelerator-v1'
     $resolvedMinimumFreeCommitGB = Resolve-BackendDouble `
         $MinimumFreeCommitGB `
         'PIXELLE_COMFYUI_MINIMUM_FREE_COMMIT_GB' `
@@ -282,6 +348,10 @@ function Resolve-PixelleComfyUIBackendConfig {
         Port = $resolvedPort
         RequestedResourcePolicy = $requestedResourcePolicy
         ResourcePolicy = $resolvedResourcePolicy
+        CustomNodeLoading = $resolvedCustomNodeLoading
+        AllowedCustomNodeFolders = $resolvedAllowedCustomNodeFolders
+        AllowedCustomNodeFoldersBase64 = $resolvedAllowedCustomNodeFoldersBase64
+        AcceleratorMutexName = $acceleratorMutexName
         RequestedMinimumFreeCommitGB = $resolvedMinimumFreeCommitGB
         MinimumFreeCommitGB = $resolvedMinimumFreeCommitGB
         MinimumFreeCommitMode = if ($resolvedMinimumFreeCommitGB -ge 0) { 'configured' } else { 'automatic' }
@@ -427,6 +497,9 @@ function Add-BackendProfilePayloadFields {
     $Payload['exit_code_file'] = Get-BackendExitCodeFile $Config
     $Payload['requested_resource_policy'] = $Config.RequestedResourcePolicy
     $Payload['resource_policy'] = $Config.ResourcePolicy
+    $Payload['custom_node_loading'] = $Config.CustomNodeLoading
+    $Payload['allowed_custom_node_folders'] = @($Config.AllowedCustomNodeFolders)
+    $Payload['accelerator_mutex_name'] = $Config.AcceleratorMutexName
     $Payload['minimum_free_commit_gb'] = if ([double]$Config.MinimumFreeCommitGB -ge 0) {
         $Config.MinimumFreeCommitGB
     }
@@ -463,6 +536,23 @@ function Assert-BackendPrerequisites {
     }
     if (-not $Config.DatabaseUrl.StartsWith('sqlite:///')) {
         throw "ComfyUI database URL must use sqlite:///: $($Config.DatabaseUrl)"
+    }
+    if ($Config.CustomNodeLoading -eq 'allowlist') {
+        $customNodeRoots = @(
+            (Join-Path $Config.SharedBasePath 'custom_nodes'),
+            (Join-Path $Config.ComfyUIRoot 'custom_nodes')
+        )
+        foreach ($folder in @($Config.AllowedCustomNodeFolders)) {
+            $folderExists = @($customNodeRoots | Where-Object {
+                Test-Path -LiteralPath (Join-Path $_ $folder) -PathType Container
+            }).Count -gt 0
+            if (-not $folderExists) {
+                throw (
+                    "Allowed ComfyUI custom-node folder does not exist below any " +
+                    "configured custom_nodes root: $folder"
+                )
+            }
+        }
     }
 }
 
@@ -523,6 +613,35 @@ function Assert-BackendResourcePolicySupport {
     }
 }
 
+function Assert-BackendCustomNodePolicySupport {
+    param([hashtable]$Config)
+
+    if ($Config.CustomNodeLoading -eq 'all') {
+        return
+    }
+    $cliArgumentsPath = Join-Path $Config.ComfyUIRoot 'comfy\cli_args.py'
+    if (-not (Test-Path -LiteralPath $cliArgumentsPath -PathType Leaf)) {
+        throw (
+            "Configured ComfyUI cannot prove support for custom-node isolation " +
+            "because comfy/cli_args.py is missing: $cliArgumentsPath"
+        )
+    }
+    $cliSource = Get-Content -LiteralPath $cliArgumentsPath -Raw
+    $requiredArguments = @('--disable-all-custom-nodes')
+    if ($Config.CustomNodeLoading -eq 'allowlist') {
+        $requiredArguments += '--whitelist-custom-nodes'
+    }
+    $missingArguments = @($requiredArguments | Where-Object {
+        $cliSource.IndexOf($_, [System.StringComparison]::Ordinal) -lt 0
+    })
+    if ($missingArguments.Count -gt 0) {
+        throw (
+            "Configured ComfyUI does not support the requested custom-node " +
+            "isolation policy. Missing argument(s): $($missingArguments -join ', ')"
+        )
+    }
+}
+
 function Get-BackendArguments {
     param([hashtable]$Config)
 
@@ -555,6 +674,15 @@ function Get-BackendArguments {
     [void]$arguments.Add('--normalvram')
     if ($Config.ResourcePolicy -eq 'memory_safe') {
         [void]$arguments.Add('--disable-pinned-memory')
+    }
+    if ($Config.CustomNodeLoading -in @('allowlist', 'none')) {
+        [void]$arguments.Add('--disable-all-custom-nodes')
+    }
+    if ($Config.CustomNodeLoading -eq 'allowlist') {
+        [void]$arguments.Add('--whitelist-custom-nodes')
+        foreach ($folder in @($Config.AllowedCustomNodeFolders)) {
+            [void]$arguments.Add([string]$folder)
+        }
     }
 
     return [string[]]$arguments.ToArray()
@@ -643,6 +771,72 @@ function Test-CommandLineArgumentValue {
     return $false
 }
 
+function Test-CommandLineContainsToken {
+    param(
+        [string]$CommandLine,
+        [string]$Token
+    )
+
+    if (-not $CommandLine -or -not $Token) {
+        return $false
+    }
+    $escapedToken = [regex]::Escape($Token)
+    $pattern = '(^|\s)(?:"' + $escapedToken + '"|' + $escapedToken + ')(?=\s|$)'
+    return [regex]::IsMatch(
+        $CommandLine,
+        $pattern,
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+}
+
+function Test-CommandLineEndsWithExactTokens {
+    param(
+        [string]$CommandLine,
+        [string[]]$Tokens
+    )
+
+    if (-not $CommandLine -or $Tokens.Count -eq 0) {
+        return $false
+    }
+    $tokenPatterns = @($Tokens | ForEach-Object {
+        $escaped = [regex]::Escape($_)
+        '(?:"' + $escaped + '"|' + $escaped + ')'
+    })
+    $pattern = '(?:^|\s)' + ($tokenPatterns -join '\s+') + '\s*$'
+    return [regex]::IsMatch(
+        $CommandLine,
+        $pattern,
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+}
+
+function Test-BackendCustomNodePolicyCommandLine {
+    param(
+        [hashtable]$Config,
+        [string]$CommandLine
+    )
+
+    $disableAll = Test-CommandLineContainsToken `
+        $CommandLine `
+        '--disable-all-custom-nodes'
+    $hasAllowlist = Test-CommandLineContainsToken `
+        $CommandLine `
+        '--whitelist-custom-nodes'
+    if ($Config.CustomNodeLoading -eq 'all') {
+        return [bool](-not $disableAll -and -not $hasAllowlist)
+    }
+    if ($Config.CustomNodeLoading -eq 'none') {
+        return [bool]($disableAll -and -not $hasAllowlist)
+    }
+    if (-not $disableAll -or -not $hasAllowlist) {
+        return $false
+    }
+    $expectedSuffix = @('--whitelist-custom-nodes') + @(
+        $Config.AllowedCustomNodeFolders
+    )
+    return Test-CommandLineEndsWithExactTokens $CommandLine $expectedSuffix
+}
+
 function Test-ManagedComfyUICommandLine {
     param(
         [hashtable]$Config,
@@ -657,7 +851,8 @@ function Test-ManagedComfyUICommandLine {
     $backendMatches = (
         (Test-CommandLineContainsValue $CommandLine $mainPy) -and
         $baseDirectoryMatches -and
-        (Test-CommandLineArgumentValue $CommandLine '--port' ([string]$Config.Port))
+        (Test-CommandLineArgumentValue $CommandLine '--port' ([string]$Config.Port)) -and
+        (Test-BackendCustomNodePolicyCommandLine $Config $CommandLine)
     )
     if ($backendMatches) {
         return $true
@@ -669,6 +864,9 @@ function Test-ManagedComfyUICommandLine {
         (Test-CommandLineArgumentValue $CommandLine '-ProfileName' $Config.ProfileName) -and
         (Test-CommandLineArgumentValue $CommandLine '-ComfyUIRoot' $Config.ComfyUIRoot) -and
         (Test-CommandLineArgumentValue $CommandLine '-SharedBasePath' $Config.SharedBasePath) -and
+        (Test-CommandLineArgumentValue $CommandLine '-CustomNodeLoading' $Config.CustomNodeLoading) -and
+        (Test-CommandLineArgumentValue $CommandLine '-AllowedCustomNodeFoldersBase64' $Config.AllowedCustomNodeFoldersBase64) -and
+        (Test-CommandLineArgumentValue $CommandLine '-AcceleratorMutexName' $Config.AcceleratorMutexName) -and
         (Test-CommandLineArgumentValue $CommandLine '-Port' ([string]$Config.Port))
     )
 }

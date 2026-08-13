@@ -16,6 +16,10 @@ param(
     [string]$ProfileName = 'default',
     [string]$ComfyUIRoot = '',
     [string]$SharedBasePath = '',
+    [string]$CustomNodeLoading = 'all',
+    [string]$AllowedCustomNodeFoldersBase64 = '',
+    [Parameter(Mandatory = $true)]
+    [string]$AcceleratorMutexName,
     [int]$Port = 0
 )
 
@@ -271,11 +275,26 @@ function ConvertTo-WindowsCommandLineArgument {
 }
 
 $job = [PixelleProcessJob]::new()
+$acceleratorMutex = [System.Threading.Mutex]::new($false, $AcceleratorMutexName)
+$acceleratorMutexAcquired = $false
 $backendProcess = $null
 $backendStarted = $false
 $stdoutStream = $null
 $stderrStream = $null
 try {
+    try {
+        $acceleratorMutexAcquired = $acceleratorMutex.WaitOne(0)
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        $acceleratorMutexAcquired = $true
+    }
+    if (-not $acceleratorMutexAcquired) {
+        throw (
+            "[PIXELLE_ACCELERATOR_BUSY] Another Pixelle-managed ComfyUI backend " +
+            "already owns accelerator group $AcceleratorMutexName. Stop that " +
+            "backend before starting this profile."
+        )
+    }
     $stdoutStream = [System.IO.FileStream]::new(
         $StdoutLog,
         [System.IO.FileMode]::Create,
@@ -330,6 +349,10 @@ try {
 }
 finally {
     $job.Dispose()
+    if ($acceleratorMutexAcquired) {
+        $acceleratorMutex.ReleaseMutex()
+    }
+    $acceleratorMutex.Dispose()
     if ($stdoutStream) {
         $stdoutStream.Dispose()
     }

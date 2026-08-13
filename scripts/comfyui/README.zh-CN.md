@@ -6,10 +6,11 @@ Pixelle 默认管理完整的本地 ComfyUI 服务：图片或音频工作流需
 
 本目录脚本负责完整服务的启动、检查和停止。服务使用已配置的 ComfyUI 核心、前端、
 模型目录和数据目录；它不会创建 ComfyUI Desktop 窗口，但运行期间仍可通过浏览器
-查看队列、历史和生成内容：
+查看队列、历史和生成内容。推荐配置使用两个按需端口：
 
 ```text
-http://127.0.0.1:8000
+图片：http://127.0.0.1:8001
+语音：http://127.0.0.1:8002
 ```
 
 ## 生命周期模式
@@ -41,12 +42,12 @@ stop_backend.bat
 
 双击 `.bat` 文件会真正执行对应命令，而不是打开脚本源码。
 
-无参数运行 `.bat` 文件时，它会从项目根目录的 `config.yaml` 读取 `comfyui.backends.default`，再调用统一的生命周期管理器。等价命令为：
+通用 `.bat` 文件默认读取 `workflow_routing.default` 指向的配置；图片和语音入口分别读取 `image` 与 `tts` 配置。等价命令为：
 
 ```powershell
-uv run python -m scripts.comfyui.backend_cli start
-uv run python -m scripts.comfyui.backend_cli check
-uv run python -m scripts.comfyui.backend_cli stop
+uv run python -m scripts.comfyui.backend_cli start --profile image
+uv run python -m scripts.comfyui.backend_cli check --profile tts
+uv run python -m scripts.comfyui.backend_cli stop --profile tts
 ```
 
 命令结束后窗口会停留，方便查看输出。
@@ -78,14 +79,13 @@ logs\comfyui\
 
 - ComfyUI Python：`E:\ComfyUIData\.venv\Scripts\python.exe`
 - ComfyUI 根目录：`E:\comfyui\resources\ComfyUI`
-- ComfyUI 数据目录：`E:\ComfyUIData\pixelle`
+- 图片数据目录：`E:\ComfyUIData\pixelle-image`
+- 语音数据目录：`E:\ComfyUIData\pixelle-tts`
 - 共享模型与插件目录：`E:\ComfyUIData`
 - 前端资源目录：默认不覆盖，使用 ComfyUI 自带前端；仅在明确配置时传入
-- 数据库 URL：`sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db`
-- 监听地址：`127.0.0.1:8000`
-- 后端 PID 文件：`_runtime\comfyui\comfyui-backend.pid`
-- 启动器 PID 文件：`_runtime\comfyui\comfyui-backend.launcher.pid`
-- 所有权凭证：`_runtime\comfyui\comfyui-backend.owner.json`
+- 图片监听地址：`127.0.0.1:8001`
+- 语音监听地址：`127.0.0.1:8002`
+- 运行状态、日志和数据库均按 `image`、`tts` 配置隔离
 
 ## 配置覆盖
 
@@ -98,14 +98,14 @@ $env:PIXELLE_COMFYUI_DATA_ROOT = 'E:\ComfyUIData\pixelle'
 $env:PIXELLE_COMFYUI_SHARED_BASE_PATH = 'E:\ComfyUIData'
 $env:PIXELLE_COMFYUI_FRONTEND_ROOT = 'E:\comfyui\resources\ComfyUI\web_custom_versions\desktop_app'
 $env:PIXELLE_COMFYUI_DATABASE_URL = 'sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db'
-$env:PIXELLE_COMFYUI_PORT = '8000'
+$env:PIXELLE_COMFYUI_PORT = '8001'
 ```
 
 默认不传入 `--enable-cors-header *`。Pixelle 通过服务端访问 ComfyUI，不需要向任意网页来源开放本机接口。
 
-旧的 `start_image_backend.bat`、`start_tts_backend.bat` 及对应检查、停止文件只用于升级兼容，全部转发到同一个 `default` 后端，不会再创建第二个实例。
+`start_image_backend.bat`、`start_tts_backend.bat` 及对应检查、停止文件分别操作 `image` 与 `tts` 配置。每个配置可用 `custom_node_loading: allowlist` 限制插件；启动器会先禁用全部自定义节点，再只加载 `allowed_custom_node_folders` 中列出的目录。瞬时启动超时在首次失败后默认再重试三次，配置、路径、端口和内存错误不会盲目重试。本机同一登录会话使用一个系统互斥锁，因此图片与语音后端不能同时占用显卡。
 
-如果 `8000` 已被非托管进程占用，`start_backend.ps1` 会拒绝启动新的 ComfyUI 后端，而不是自动漂移到其他端口。
+如果配置端口已被非托管进程占用，`start_backend.ps1` 会拒绝启动新的 ComfyUI 后端，而不是自动漂移到其他端口。
 
 `stop_backend.ps1` 只会停止同时满足进程号、进程创建时间和当前配置三重校验的后端。PID 文件缺失、非法、陈旧、缺少所有权凭证或指向其他进程时只清理无效记录，绝不根据命令行相似性终止监听进程。这样既能防止 Windows 复用进程号造成误杀，也能安全复用由 ComfyUI Desktop 或其他管理器启动的同一后端。
 

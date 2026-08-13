@@ -45,9 +45,14 @@ async def test_backend_cli_reads_default_profile_from_config(monkeypatch, tmp_pa
         def can_manage(self):
             return True
 
-        async def start(self, *, reason):
+        async def ensure_ready(self, *, reason):
             captured["reason"] = reason
-            return SimpleNamespace(action="start", returncode=0, payload={"started": True})
+            return SimpleNamespace(
+                started=True,
+                reused_existing=False,
+                ownership="pixelle",
+                health={"system": {}},
+            )
 
     monkeypatch.setattr(backend_cli, "ManagedComfyUIBackend", FakeManagedBackend)
 
@@ -57,7 +62,12 @@ async def test_backend_cli_reads_default_profile_from_config(monkeypatch, tmp_pa
     assert captured["working_directory"] == config_path.parent
     assert captured["profile"].shared_base_path == "D:/ComfyData"
     assert captured["reason"] == "manual-start"
-    assert payload["result"] == {"started": True}
+    assert payload["result"] == {
+        "started": True,
+        "already_running": False,
+        "ownership": "pixelle",
+        "health": {"system": {}},
+    }
 
 
 def test_backend_cli_fails_fast_on_invalid_yaml(tmp_path, capsys):
@@ -90,3 +100,44 @@ def test_backend_cli_outputs_machine_readable_result(monkeypatch, tmp_path, caps
     assert returncode == 0
     assert payload["action"] == "check"
     assert payload["result"]["listener_present"] is True
+
+
+@pytest.mark.asyncio
+async def test_backend_cli_defaults_to_routed_profile(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+comfyui:
+  backend_management_mode: required
+  backends:
+    image:
+      url: http://127.0.0.1:8001
+  workflow_routing:
+    image: image
+    tts: image
+    default: image
+""".strip(),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    class FakeManagedBackend:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def can_manage(self):
+            return True
+
+        async def check(self, *, reason):
+            return SimpleNamespace(
+                action="check",
+                returncode=0,
+                payload={"listener_present": False},
+            )
+
+    monkeypatch.setattr(backend_cli, "ManagedComfyUIBackend", FakeManagedBackend)
+
+    payload = await backend_cli._run_action("check", config_path, None)
+
+    assert captured["profile_name"] == "image"
+    assert payload["profile"] == "image"

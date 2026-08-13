@@ -476,6 +476,9 @@ def _validate_storyboard_cross_references(world_library: StoryboardWorldPresetLi
 
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
 _BACKEND_PROFILE_NAME_PATTERN = re.compile(r"^[a-z0-9_-]+$")
+_CUSTOM_NODE_FOLDER_NAME_PATTERN = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+)
 
 
 class ComfyUIBackendProfile(BaseModel):
@@ -527,6 +530,44 @@ class ComfyUIBackendProfile(BaseModel):
             "supervisor enforces equivalent admission control."
         ),
     )
+    custom_node_loading: Literal["all", "allowlist", "none"] = Field(
+        default="all",
+        description=(
+            "Custom-node loading policy for this managed backend. 'all' preserves "
+            "legacy ComfyUI behavior, 'allowlist' loads only the configured folder "
+            "names, and 'none' disables every custom node."
+        ),
+    )
+    allowed_custom_node_folders: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Custom-node folder names allowed when custom_node_loading=allowlist. "
+            "Values are names below a configured custom_nodes root, never paths."
+        ),
+    )
+    startup_attempts: int = Field(
+        default=4,
+        ge=1,
+        le=5,
+        description=(
+            "Maximum managed-backend cold-start attempts for transient failures. "
+            "The default is one initial attempt plus three retries."
+        ),
+    )
+    startup_ready_timeout_seconds: int = Field(
+        default=90,
+        ge=10,
+        le=600,
+        description="Listener and API readiness timeout for each startup attempt",
+    )
+    startup_retry_base_delay_seconds: float = Field(
+        default=2.0,
+        ge=0,
+        le=30,
+        description=(
+            "Base delay for bounded exponential backoff between startup attempts"
+        ),
+    )
     data_root: Optional[str] = Field(default=None, description="ComfyUI data root for this profile")
     shared_base_path: Optional[str] = Field(
         default=None,
@@ -555,6 +596,43 @@ class ComfyUIBackendProfile(BaseModel):
                 legacy_value,
             )
         return normalized
+
+    @model_validator(mode="after")
+    def validate_custom_node_loading_contract(self):
+        normalized_folders: list[str] = []
+        seen_folders: set[str] = set()
+        for raw_folder in self.allowed_custom_node_folders:
+            folder = str(raw_folder or "").strip()
+            if (
+                not _CUSTOM_NODE_FOLDER_NAME_PATTERN.fullmatch(folder)
+                or folder in {".", ".."}
+            ):
+                raise ValueError(
+                    "allowed_custom_node_folders must contain folder names only; "
+                    f"invalid value: {raw_folder!r}"
+                )
+            identity = folder.casefold()
+            if identity in seen_folders:
+                raise ValueError(
+                    "allowed_custom_node_folders must not contain duplicate folder "
+                    f"names: {folder}"
+                )
+            seen_folders.add(identity)
+            normalized_folders.append(folder)
+
+        if self.custom_node_loading == "allowlist" and not normalized_folders:
+            raise ValueError(
+                "custom_node_loading=allowlist requires at least one "
+                "allowed_custom_node_folders entry"
+            )
+        if self.custom_node_loading != "allowlist" and normalized_folders:
+            raise ValueError(
+                "allowed_custom_node_folders may only be set when "
+                "custom_node_loading=allowlist"
+            )
+
+        self.allowed_custom_node_folders = normalized_folders
+        return self
 
 
 class ComfyUIWorkflowRouting(BaseModel):
@@ -703,11 +781,20 @@ class ComfyUIConfig(BaseModel):
             )
 
         if "default" not in normalized_backends:
-            normalized_backends["default"] = _normalize_backend_profile(
-                "default",
-                ComfyUIBackendProfile(),
-                fallback_url,
-            )
+            routed_default = self.workflow_routing.default
+            if routed_default != "default" and routed_default in normalized_backends:
+                normalized_backends["default"] = normalized_backends[
+                    routed_default
+                ].model_copy(
+                    update={"managed": False, "stop_after_batch": False},
+                    deep=True,
+                )
+            else:
+                normalized_backends["default"] = _normalize_backend_profile(
+                    "default",
+                    ComfyUIBackendProfile(),
+                    fallback_url,
+                )
 
         self.backends = normalized_backends
 
@@ -717,6 +804,59 @@ class ComfyUIConfig(BaseModel):
                 raise ValueError(
                     f"workflow_routing.{field_name} must reference an existing backend profile"
                 )
+
+        active_profile_names = tuple(
+            dict.fromkeys(
+                getattr(self.workflow_routing, field_name)
+                for field_name in ("image", "tts", "default")
+            )
+        )
+        profile_identities: dict[str, dict[str, str]] = {}
+        for profile_name in active_profile_names:
+            profile = self.backends[profile_name]
+            identities = {
+                "url": str(profile.url or "").strip().rstrip("/").casefold(),
+            }
+            if profile.managed:
+                identities.update(
+                    {
+                        "data_root": str(profile.data_root or "")
+                        .strip()
+                        .replace("\\", "/")
+                        .rstrip("/")
+                        .casefold(),
+                        "runtime_dir": str(profile.runtime_dir or "")
+                        .strip()
+                        .replace("\\", "/")
+                        .rstrip("/")
+                        .casefold(),
+                        "logs_dir": str(profile.logs_dir or "")
+                        .strip()
+                        .replace("\\", "/")
+                        .rstrip("/")
+                        .casefold(),
+                        "database_url": str(profile.database_url or "")
+                        .strip()
+                        .casefold(),
+                    }
+                )
+            profile_identities[profile_name] = identities
+
+        identity_owners: dict[tuple[str, str], str] = {}
+        for profile_name, identities in profile_identities.items():
+            for identity_kind, identity_value in identities.items():
+                if not identity_value:
+                    continue
+                identity_key = (identity_kind, identity_value)
+                previous_owner = identity_owners.get(identity_key)
+                if previous_owner is not None:
+                    raise ValueError(
+                        "Distinct routed ComfyUI backend profiles must not share "
+                        f"{identity_kind}: {previous_owner!r} and {profile_name!r}. "
+                        "Route both workflow roles to the same profile when sharing "
+                        "one backend is intentional."
+                    )
+                identity_owners[identity_key] = profile_name
 
         return self
 

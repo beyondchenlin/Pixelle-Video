@@ -29,8 +29,11 @@ def _load_project_config(config_path: Path) -> PixelleVideoConfig:
     return PixelleVideoConfig.model_validate(payload)
 
 
-async def _run_action(action: str, config_path: Path, profile_name: str) -> dict:
+async def _run_action(
+    action: str, config_path: Path, profile_name: str | None
+) -> dict:
     config = _load_project_config(config_path)
+    profile_name = profile_name or config.comfyui.workflow_routing.default
     profile = config.comfyui.backends.get(profile_name)
     if profile is None:
         available = ", ".join(sorted(config.comfyui.backends))
@@ -61,6 +64,22 @@ async def _run_action(action: str, config_path: Path, profile_name: str) -> dict
             "Use a local HTTP URL on Windows PowerShell, or set managed=false and manage ComfyUI externally."
         )
 
+    if action == "start":
+        ready = await backend.ensure_ready(reason="manual-start")
+        result_payload = {
+            "started": ready.started,
+            "already_running": ready.reused_existing,
+            "ownership": ready.ownership,
+            "health": ready.health,
+        }
+        return {
+            "action": "start",
+            "returncode": 0,
+            "profile": profile_name,
+            "config_path": str(config_path),
+            "result": result_payload,
+        }
+
     operation = getattr(backend, action)
     result = await operation(reason=f"manual-{action}")
     return {
@@ -74,11 +93,17 @@ async def _run_action(action: str, config_path: Path, profile_name: str) -> dict
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Manage the single Pixelle ComfyUI backend from config.yaml."
+        description="Manage a Pixelle ComfyUI backend profile from config.yaml."
     )
     parser.add_argument("action", choices=("start", "check", "stop"))
     parser.add_argument("--config", default="config.yaml", help="Pixelle YAML configuration path")
-    parser.add_argument("--profile", default="default", help="ComfyUI backend profile name")
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help=(
+            "ComfyUI backend profile name; defaults to workflow_routing.default"
+        ),
+    )
     return parser.parse_args(argv)
 
 

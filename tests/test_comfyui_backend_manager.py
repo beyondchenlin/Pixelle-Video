@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -6,7 +8,9 @@ import pytest
 
 from pixelle_video.config.schema import ComfyUIBackendProfile
 from pixelle_video.services.comfyui_backend_manager import (
+    ComfyUIBackendCommandError,
     ComfyUIBackendCommandResult,
+    ComfyUIBackendReadyResult,
     ComfyUIBackendState,
     ManagedComfyUIBackend,
 )
@@ -235,6 +239,35 @@ def test_managed_backend_passes_optional_profile_script_arguments(tmp_path):
     assert str(frontend_root) in args
     assert "-ExtraModelsConfig" in args
     assert str(extra_models_config) in args
+
+
+def test_managed_backend_passes_custom_node_allowlist_as_bounded_payload(tmp_path):
+    profile = ComfyUIBackendProfile(
+        url="http://127.0.0.1:8002",
+        custom_node_loading="allowlist",
+        allowed_custom_node_folders=[
+            "ComfyUI-OmniVoice-TTS",
+            "ComfyUI-VideoHelperSuite",
+        ],
+        data_root=str(tmp_path / "data"),
+        runtime_dir=str(tmp_path / "runtime"),
+        logs_dir=str(tmp_path / "logs"),
+    )
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile_name="tts",
+        profile=profile,
+        management_mode="required",
+    )
+
+    args = backend._script_args()
+
+    assert args[args.index("-CustomNodeLoading") + 1] == "allowlist"
+    encoded = args[args.index("-AllowedCustomNodeFoldersBase64") + 1]
+    assert json.loads(base64.b64decode(encoded).decode("utf-8")) == [
+        "ComfyUI-OmniVoice-TTS",
+        "ComfyUI-VideoHelperSuite",
+    ]
 
 
 def test_managed_backend_normalizes_localhost_for_powershell_listener(tmp_path):
@@ -969,3 +1002,122 @@ def test_recent_failure_diagnostic_classifies_only_fresh_bounded_memory_log(tmp_
     old_timestamp = stderr_log.stat().st_mtime - 300
     os.utime(stderr_log, (old_timestamp, old_timestamp))
     assert backend.diagnose_recent_failure() is None
+
+
+@pytest.mark.asyncio
+async def test_managed_backend_retries_three_times_after_initial_failure(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile=ComfyUIBackendProfile(
+            url="http://127.0.0.1:8002",
+            startup_attempts=4,
+            startup_retry_base_delay_seconds=2,
+        ),
+    )
+    attempts = []
+    cleanup_reasons = []
+    delays = []
+
+    async def start_once(*, reason):
+        attempts.append(reason)
+        if len(attempts) < 4:
+            raise ComfyUIBackendCommandError(
+                "[PIXELLE_STARTUP_TIMEOUT] listener missing",
+                action="start",
+                failure_kind="startup_timeout",
+                retryable=True,
+            )
+        return ComfyUIBackendReadyResult(
+            ownership="pixelle",
+            started=True,
+            reused_existing=False,
+            health={"system": {}},
+        )
+
+    async def cleanup(*, reason):
+        cleanup_reasons.append(reason)
+
+    async def sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(backend, "_start_managed_backend_once", start_once)
+    monkeypatch.setattr(backend, "_cleanup_after_start_failure", cleanup)
+    monkeypatch.setattr(
+        "pixelle_video.services.comfyui_backend_manager.asyncio.sleep",
+        sleep,
+    )
+
+    result = await backend._start_managed_backend_with_retry(reason="pre-workflow")
+
+    assert result.started is True
+    assert attempts == [
+        "pre-workflow",
+        "pre-workflow:startup-attempt-2",
+        "pre-workflow:startup-attempt-3",
+        "pre-workflow:startup-attempt-4",
+    ]
+    assert cleanup_reasons == [
+        "pre-workflow:transient-startup-failure",
+        "pre-workflow:startup-attempt-2:transient-startup-failure",
+        "pre-workflow:startup-attempt-3:transient-startup-failure",
+    ]
+    assert delays == [2, 4, 8]
+
+
+@pytest.mark.asyncio
+async def test_managed_backend_does_not_retry_deterministic_startup_failure(
+    monkeypatch,
+):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile=ComfyUIBackendProfile(
+            url="http://127.0.0.1:8002",
+            startup_attempts=3,
+        ),
+    )
+    attempts = 0
+
+    async def start_once(*, reason):
+        nonlocal attempts
+        attempts += 1
+        raise ComfyUIBackendCommandError(
+            "ComfyUI Python executable does not exist",
+            action="start",
+            failure_kind="command_failed",
+            retryable=False,
+        )
+
+    async def fail_cleanup(*, reason):
+        raise AssertionError(f"deterministic failure must not enter retry cleanup: {reason}")
+
+    monkeypatch.setattr(backend, "_start_managed_backend_once", start_once)
+    monkeypatch.setattr(backend, "_cleanup_after_start_failure", fail_cleanup)
+
+    with pytest.raises(
+        ComfyUIBackendCommandError,
+        match="Python executable does not exist",
+    ):
+        await backend._start_managed_backend_with_retry(reason="pre-workflow")
+
+    assert attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_required_mode_accepts_owned_backend_that_wins_start_race(monkeypatch):
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile=ComfyUIBackendProfile(url="http://127.0.0.1:8002"),
+        management_mode="required",
+        maintenance_client=_ProbeClient([{"system": {}}]),
+    )
+    monkeypatch.setattr(
+        backend,
+        "inspect_state",
+        lambda **_kwargs: _async_result(_state("pixelle", pid_file=True)),
+    )
+
+    result = await backend._reuse_backend_that_won_start_race(reason="test-race")
+
+    assert result is not None
+    assert result.ownership == "pixelle"
+    assert result.reused_existing is True

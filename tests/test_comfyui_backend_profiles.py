@@ -51,6 +51,36 @@ def test_config_keeps_structured_profiles_and_routing():
     assert config.comfyui.workflow_routing.tts == "tts"
 
 
+def test_implicit_default_profile_clones_explicit_fallback_route():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "backends": {
+                    "image": {
+                        "url": "http://127.0.0.1:8001",
+                        "custom_node_loading": "allowlist",
+                        "allowed_custom_node_folders": ["ComfyUI-GGUF"],
+                    },
+                    "tts": {"url": "http://127.0.0.1:8002"},
+                },
+                "workflow_routing": {
+                    "image": "image",
+                    "tts": "tts",
+                    "default": "image",
+                },
+            }
+        }
+    )
+
+    fallback = config.comfyui.backends["default"]
+
+    assert fallback.url == "http://127.0.0.1:8001"
+    assert fallback.custom_node_loading == "allowlist"
+    assert fallback.allowed_custom_node_folders == ["ComfyUI-GGUF"]
+    assert fallback.managed is False
+    assert fallback.stop_after_batch is False
+
+
 def test_backend_profile_keeps_optional_runtime_paths():
     config = PixelleVideoConfig.model_validate(
         {
@@ -305,3 +335,166 @@ def test_workflow_routing_must_reference_existing_profile():
                 }
             }
         )
+
+
+def test_backend_profile_defaults_to_three_retries_after_initial_attempt():
+    config = PixelleVideoConfig.model_validate({"comfyui": {}})
+
+    profile = config.comfyui.backends["default"]
+
+    assert profile.startup_attempts == 4
+    assert profile.startup_ready_timeout_seconds == 90
+    assert profile.startup_retry_base_delay_seconds == 2
+
+
+def test_backend_profile_normalizes_custom_node_allowlist():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "backends": {
+                    "tts": {
+                        "custom_node_loading": "allowlist",
+                        "allowed_custom_node_folders": [
+                            " ComfyUI-OmniVoice-TTS ",
+                            "ComfyUI-VideoHelperSuite",
+                        ],
+                    }
+                }
+            }
+        }
+    )
+
+    profile = config.comfyui.backends["tts"]
+
+    assert profile.custom_node_loading == "allowlist"
+    assert profile.allowed_custom_node_folders == [
+        "ComfyUI-OmniVoice-TTS",
+        "ComfyUI-VideoHelperSuite",
+    ]
+
+
+@pytest.mark.parametrize(
+    "folder",
+    (
+        "../ComfyUI-nunchaku",
+        "ComfyUI/OmniVoice",
+        "C:\\ComfyUI\\node",
+        ".",
+        "",
+    ),
+)
+def test_backend_profile_rejects_custom_node_paths(folder):
+    with pytest.raises(ValueError, match="folder names only"):
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {
+                        "tts": {
+                            "custom_node_loading": "allowlist",
+                            "allowed_custom_node_folders": [folder],
+                        }
+                    }
+                }
+            }
+        )
+
+
+def test_backend_profile_rejects_case_insensitive_duplicate_custom_nodes():
+    with pytest.raises(ValueError, match="duplicate folder"):
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {
+                        "tts": {
+                            "custom_node_loading": "allowlist",
+                            "allowed_custom_node_folders": [
+                                "ComfyUI-OmniVoice-TTS",
+                                "comfyui-omnivoice-tts",
+                            ],
+                        }
+                    }
+                }
+            }
+        )
+
+
+def test_backend_profile_rejects_allowlist_values_in_all_mode():
+    with pytest.raises(ValueError, match="only be set"):
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {
+                        "default": {
+                            "custom_node_loading": "all",
+                            "allowed_custom_node_folders": ["ComfyUI-GGUF"],
+                        }
+                    }
+                }
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "shared_value"),
+    (
+        ("url", "http://127.0.0.1:8001"),
+        ("data_root", "E:/ComfyUIData/shared"),
+        ("runtime_dir", "_runtime/comfyui/shared"),
+        ("logs_dir", "logs/comfyui/shared"),
+        ("database_url", "sqlite:///E:/ComfyUIData/shared/user/comfyui.db"),
+    ),
+)
+def test_distinct_routed_profiles_reject_shared_process_identity(
+    field_name,
+    shared_value,
+):
+    image = {
+        "url": "http://127.0.0.1:8001",
+        "data_root": "E:/ComfyUIData/image",
+        "runtime_dir": "_runtime/comfyui/image",
+        "logs_dir": "logs/comfyui/image",
+        "database_url": "sqlite:///E:/ComfyUIData/image/user/comfyui.db",
+    }
+    tts = {
+        "url": "http://127.0.0.1:8002",
+        "data_root": "E:/ComfyUIData/tts",
+        "runtime_dir": "_runtime/comfyui/tts",
+        "logs_dir": "logs/comfyui/tts",
+        "database_url": "sqlite:///E:/ComfyUIData/tts/user/comfyui.db",
+    }
+    image[field_name] = shared_value
+    tts[field_name] = shared_value
+
+    with pytest.raises(ValueError, match=field_name):
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {"image": image, "tts": tts},
+                    "workflow_routing": {
+                        "image": "image",
+                        "tts": "tts",
+                        "default": "image",
+                    },
+                }
+            }
+        )
+
+
+def test_shared_routed_profile_remains_backward_compatible():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "backends": {
+                    "shared": {"url": "http://127.0.0.1:8000"},
+                },
+                "workflow_routing": {
+                    "image": "shared",
+                    "tts": "shared",
+                    "default": "shared",
+                },
+            }
+        }
+    )
+
+    assert config.comfyui.workflow_routing.image == "shared"
+    assert config.comfyui.workflow_routing.tts == "shared"
