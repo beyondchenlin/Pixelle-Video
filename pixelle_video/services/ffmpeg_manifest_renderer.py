@@ -707,11 +707,12 @@ class FfmpegManifestRenderer:
             raise ValueError("output_path cannot overwrite a render input")
         if report_path.resolve() in inputs:
             raise ValueError("render probe report cannot overwrite a render input")
-        if bgm_mode not in {"once", "loop"}:
-            raise ValueError("bgm_mode must be 'once' or 'loop'")
-        volume = _finite_float(bgm_volume)
-        if not 0.0 <= volume <= 1.0:
-            raise ValueError("bgm_volume must be between 0 and 1")
+        if bgm_path is not None:
+            if bgm_mode not in {"once", "loop"}:
+                raise ValueError("bgm_mode must be 'once' or 'loop'")
+            volume = _finite_float(bgm_volume)
+            if not 0.0 <= volume <= 1.0:
+                raise ValueError("bgm_volume must be between 0 and 1")
         return duration
 
 

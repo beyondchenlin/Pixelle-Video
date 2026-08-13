@@ -30,7 +30,7 @@ import shutil
 import tempfile
 import threading
 import uuid
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import List, Literal, Optional
 
 import ffmpeg
@@ -46,7 +46,6 @@ from pixelle_video.utils.os_util import (
     get_resource_path,
     get_temp_path,
     list_resource_files,
-    resource_exists,
 )
 
 
@@ -198,7 +197,21 @@ class VideoService:
         if not videos:
             raise ValueError("Videos list cannot be empty")
 
+        resolved_bgm_path = self.resolve_optional_bgm_path(bgm_path)
         if len(videos) == 1:
+            if resolved_bgm_path:
+                self._ensure_ffmpeg()
+                logger.info(
+                    "Single video provided with background music; applying it "
+                    "instead of bypassing the audio contract"
+                )
+                return self._add_bgm_to_video(
+                    video=videos[0],
+                    bgm_path=resolved_bgm_path,
+                    output=output,
+                    volume=bgm_volume,
+                    mode=bgm_mode,
+                )
             logger.info(f"Only one video provided, copying to {output}")
             shutil.copy(videos[0], output)
             return output
@@ -208,30 +221,35 @@ class VideoService:
         logger.info(f"Concatenating {len(videos)} videos using {method} method")
 
         # Step 1: Concatenate videos
-        if bgm_path:
-            # If BGM needed, concatenate to temp file first
-            temp_output = output.replace(".mp4", "_no_bgm.mp4")
-            concat_result = (
-                self._concat_demuxer(videos, temp_output)
-                if method == "demuxer"
-                else self._concat_filter(videos, temp_output)
+        if resolved_bgm_path:
+            # If BGM is needed, concatenate to a task-unique intermediate file.
+            # The previous fixed ``*_no_bgm.mp4`` name collided across concurrent
+            # renders and leaked files whenever either stage failed.
+            output_path = Path(output)
+            suffix = output_path.suffix or ".mp4"
+            temp_output = output_path.with_name(
+                f".{output_path.stem}.{uuid.uuid4().hex}.no_bgm{suffix}"
             )
+            try:
+                concat_result = (
+                    self._concat_demuxer(videos, str(temp_output))
+                    if method == "demuxer"
+                    else self._concat_filter(videos, str(temp_output))
+                )
 
-            # Step 2: Add BGM
-            logger.info(f"Adding BGM: {bgm_path} (volume={bgm_volume}, mode={bgm_mode})")
-            final_result = self._add_bgm_to_video(
-                video=concat_result,
-                bgm_path=bgm_path,
-                output=output,
-                volume=bgm_volume,
-                mode=bgm_mode,
-            )
-
-            # Clean up temp file
-            if os.path.exists(temp_output):
-                os.unlink(temp_output)
-
-            return final_result
+                logger.bind(bgm_path=resolved_bgm_path).info(
+                    "Adding resolved background music "
+                    f"(volume={bgm_volume}, mode={bgm_mode})"
+                )
+                return self._add_bgm_to_video(
+                    video=concat_result,
+                    bgm_path=resolved_bgm_path,
+                    output=output,
+                    volume=bgm_volume,
+                    mode=bgm_mode,
+                )
+            finally:
+                temp_output.unlink(missing_ok=True)
         else:
             # No BGM, direct concatenation
             if method == "demuxer":
@@ -1008,15 +1026,54 @@ class VideoService:
         # Resolve BGM path (raises FileNotFoundError if not found)
         resolved_bgm = self._resolve_bgm_path(bgm_path)
 
-        # Add BGM using existing method
-        loop = mode == "loop"
-        return self.add_bgm(
-            video=video, bgm=resolved_bgm, output=output, bgm_volume=volume, loop=loop, fade_in=0.0
+        # Render to a unique sibling and publish atomically. A failed media
+        # process must not replace a previously valid output with a partial file.
+        output_path = Path(output)
+        suffix = output_path.suffix or ".mp4"
+        temporary_output = output_path.with_name(
+            f".{output_path.stem}.{uuid.uuid4().hex}.adding_bgm{suffix}"
         )
+        try:
+            loop = mode == "loop"
+            self.add_bgm(
+                video=video,
+                bgm=resolved_bgm,
+                output=str(temporary_output),
+                bgm_volume=volume,
+                loop=loop,
+                fade_in=0.0,
+            )
+            os.replace(temporary_output, output_path)
+            return str(output_path)
+        finally:
+            temporary_output.unlink(missing_ok=True)
 
     def resolve_bgm_path(self, bgm_path: str) -> str:
-        """Resolve a BGM resource path for render-contract audio preparation."""
+        """Resolve one configured background-music value to an existing file."""
         return self._resolve_bgm_path(bgm_path)
+
+    def resolve_optional_bgm_path(self, bgm_path: str | None) -> str | None:
+        """Resolve optional background music, skipping unusable configuration safely.
+
+        Background music is an optional enhancement. A missing or blank selection
+        must not make otherwise valid video generation fail.
+        The strict ``resolve_bgm_path`` method remains available to callers that need
+        configuration validation rather than graceful omission.
+        """
+
+        if bgm_path is None or bgm_path == "":
+            return None
+        try:
+            return self._resolve_bgm_path(bgm_path)
+        except FileNotFoundError as exc:
+            logger.bind(
+                bgm_path=str(bgm_path),
+                resolution_error=type(exc).__name__,
+            ).warning(
+                "Skipping optional background music because the configured audio "
+                "could not be resolved"
+            )
+            return None
 
     def _get_unique_temp_path(self, prefix: str, original_filename: str) -> str:
         """
@@ -1041,9 +1098,9 @@ class VideoService:
         Resolve BGM path (filename or custom path) with custom override support
 
         Search priority:
-            1. Direct path (absolute or relative)
-            2. data/bgm/{filename} (custom)
-            3. bgm/{filename} (default)
+            1. Plain resource name in data/bgm (custom override)
+            2. Plain resource name in bgm (built-in fallback)
+            3. Explicit absolute or relative file path
 
         Args:
             bgm_path: Can be:
@@ -1056,16 +1113,43 @@ class VideoService:
         Raises:
             FileNotFoundError: If BGM file not found
         """
-        # Try direct path first (absolute or relative)
-        if os.path.exists(bgm_path):
-            return os.path.abspath(bgm_path)
+        if not isinstance(bgm_path, str):
+            raise TypeError("BGM path must be a string")
+        if not bgm_path or bgm_path != bgm_path.strip():
+            raise ValueError("BGM path must be non-empty without surrounding whitespace")
+        if "\x00" in bgm_path:
+            raise ValueError("BGM path contains an invalid null byte")
 
-        # Try as filename in resource directories (custom > default)
-        if resource_exists("bgm", bgm_path):
-            return get_resource_path("bgm", bgm_path)
+        native_path = Path(bgm_path)
+        windows_path = PureWindowsPath(bgm_path)
+        is_plain_resource_name = (
+            len(native_path.parts) == 1
+            and len(windows_path.parts) == 1
+            and bgm_path not in {".", ".."}
+        )
+
+        # A plain name is a resource identity, not a path relative to the current
+        # process directory. This keeps custom overrides deterministic and prevents
+        # an unrelated same-name file in the working directory from shadowing them.
+        if is_plain_resource_name:
+            try:
+                resource_path = Path(get_resource_path("bgm", bgm_path)).resolve()
+            except FileNotFoundError:
+                pass
+            else:
+                if resource_path.is_file():
+                    return str(resource_path)
+
+        # Explicit paths preserve the internal/raw API compatibility contract.
+        try:
+            direct_path = native_path.resolve()
+            if direct_path.is_file():
+                return str(direct_path)
+        except OSError:
+            pass
 
         # Not found - provide helpful error message
-        tried_paths = [os.path.abspath(bgm_path), f"data/bgm/{bgm_path} or bgm/{bgm_path}"]
+        tried_paths = [str(native_path.resolve()), f"data/bgm/{bgm_path} or bgm/{bgm_path}"]
 
         # List available BGM files
         available_bgm = self._list_available_bgm()

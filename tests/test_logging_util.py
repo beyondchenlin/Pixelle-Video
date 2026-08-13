@@ -4,6 +4,7 @@ from loguru import logger
 
 from pixelle_video.utils.logging_util import (
     build_content_observability,
+    log_exception_once,
     new_correlation_id,
     redact_credentials_in_text,
     redact_mapping,
@@ -202,3 +203,55 @@ def test_new_correlation_id_uses_prefix():
     assert request_id.startswith("req_")
     assert session_id.startswith("sess_")
     assert request_id != session_id
+
+
+def test_exception_logging_is_single_line_structured_safe_and_deduplicated(tmp_path):
+    sink_ids = setup_logging(service_name="web", config=_logging_config(tmp_path))
+    hidden_path = tmp_path / "private" / "missing.mp3"
+    private_message = (
+        f"private user body; windows={hidden_path}; "
+        "posix=/home/alice/private/missing.mp3; "
+        r"unc=\\server\private\missing.mp3"
+    )
+    try:
+        try:
+            raise ValueError(private_message)
+        except ValueError as error:
+            assert log_exception_once(error, "generation failed") is True
+            assert log_exception_once(error, "duplicate boundary") is False
+    finally:
+        teardown_logging(sink_ids)
+
+    raw = (tmp_path / "web.jsonl").read_text(encoding="utf-8")
+    lines = raw.splitlines()
+    assert len(lines) == 1
+    payload = json.loads(lines[0])
+    assert payload["message"] == "generation failed"
+    assert payload["exception_type"] == "ValueError"
+    assert payload["exception_message"] == "<redacted>"
+    assert payload["exception_message_length"] == len(private_message)
+    assert len(payload["exception_message_hash"]) == 16
+    assert "Traceback (most recent call last)" in payload["exception_traceback"]
+    assert str(tmp_path.resolve()) not in raw
+    assert "/home/alice" not in raw
+    assert "server\\private" not in raw
+    assert "private user body" not in raw
+    assert "duplicate boundary" not in raw
+
+
+def test_direct_exception_object_message_is_not_persisted(tmp_path):
+    sink_ids = setup_logging(service_name="web", config=_logging_config(tmp_path))
+    private_body = "short private user正文"
+    try:
+        try:
+            raise RuntimeError(private_body)
+        except RuntimeError as error:
+            logger.exception(error)
+    finally:
+        teardown_logging(sink_ids)
+
+    raw = (tmp_path / "web.jsonl").read_text(encoding="utf-8")
+    payload = json.loads(raw)
+    assert payload["message"] == "RuntimeError raised"
+    assert payload["exception_message"] == "<redacted>"
+    assert private_body not in raw

@@ -18,9 +18,9 @@ all existing import paths while routing every inherited re-encode through
 previously bypassed the encoder policy entirely.
 """
 
-import shutil
+import shutil  # noqa: F401 - preserved public module compatibility for integrations
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import List
 
 import ffmpeg
 from loguru import logger
@@ -89,40 +89,6 @@ class VideoService(_VideoOperations):
         """Disable a hardware encoder whose artifact failed the output contract."""
 
         self._video_encoder.disable_hardware_backend(codec, reason=reason)
-
-    def concat_videos(
-        self,
-        videos: List[str],
-        output: str,
-        method: Literal["demuxer", "filter"] = "demuxer",
-        bgm_path: Optional[str] = None,
-        bgm_volume: float = 0.2,
-        bgm_mode: Literal["once", "loop"] = "loop",
-    ) -> str:
-        if not videos:
-            raise ValueError("Videos list cannot be empty")
-        if len(videos) == 1:
-            if bgm_path:
-                self._ensure_ffmpeg()
-                logger.info("Single video provided with BGM; applying BGM instead of bypassing it")
-                return self._add_bgm_to_video(
-                    video=videos[0],
-                    bgm_path=bgm_path,
-                    output=output,
-                    volume=bgm_volume,
-                    mode=bgm_mode,
-                )
-            logger.info(f"Only one video provided, copying to {output}")
-            shutil.copy(videos[0], output)
-            return output
-        return super().concat_videos(
-            videos,
-            output,
-            method=method,
-            bgm_path=bgm_path,
-            bgm_volume=bgm_volume,
-            bgm_mode=bgm_mode,
-        )
 
     def burn_ass_subtitles(
         self,
