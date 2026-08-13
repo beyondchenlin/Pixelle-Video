@@ -1129,7 +1129,6 @@ function Test-ManagedComfyUICommandLine {
         -not (Test-CommandLineContainsToken $CommandLine '--disable-pinned-memory')
     }
     $backendMatches = (
-        (Test-CommandLineContainsValueToken $CommandLine $Config.PythonExe) -and
         (Test-CommandLineContainsValueToken $CommandLine $mainPy) -and
         (Test-CommandLineArgumentValue $CommandLine '--user-directory' (Join-Path $Config.DataRoot 'user')) -and
         (Test-CommandLineArgumentValue $CommandLine '--input-directory' (Join-Path $Config.DataRoot 'input')) -and
