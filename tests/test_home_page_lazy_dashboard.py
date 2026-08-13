@@ -14,6 +14,7 @@ def test_home_dashboard_returns_before_generation_core_initialization():
     assert (
         'key_suffix="_dashboard"' in source
         and "show_all=True" in source
-        and "render_limit=visible_count" in source
+        and "page_size=HOME_DASHBOARD_PAGE_SIZE" in source
     )
-    assert "schedule_home_editor_prewarm" in source
+    assert "schedule_home_editor_warmup" in source
+    assert "normalize_dashboard_page" in source

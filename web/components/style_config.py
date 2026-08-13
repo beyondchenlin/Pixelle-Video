@@ -78,7 +78,6 @@ from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATE
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
 from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
 from pixelle_video.utils import template_util as _template_util
-from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.os_util import get_runtime_path
 from pixelle_video.utils.prompt_prefix_generation import (
     PromptPrefixGenerationResult,
@@ -150,6 +149,15 @@ from web.utils.workflow_defaults import resolve_selectbox_default_index
 
 def HTMLFrameGenerator(*args, **kwargs):
     return _frame_html.HTMLFrameGenerator(*args, **kwargs)
+
+
+def generate_styled_image_prompt_batch(*args, **kwargs):
+    """Load prompt generation only for an explicit workflow-preview action."""
+    from pixelle_video.utils.content_generators import (
+        generate_styled_image_prompt_batch as generator,
+    )
+
+    return generator(*args, **kwargs)
 
 
 def get_supported_template_orientations(*args, **kwargs):

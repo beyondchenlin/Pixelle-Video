@@ -17,10 +17,16 @@ from pixelle_video.models.visual_expression import VisualExpressionMode
 from pixelle_video.platform_context import resolve_business_context
 from pixelle_video.utils.bool_parsing import coerce_bool
 from web.i18n import tr
-from web.state.ip_design_client import resolve_ip_design_client
 from web.utils.streamlit_helpers import first_text, list_of_dicts, text_list
 
 Translate = Callable[..., str]
+
+
+def resolve_ip_design_client(*args, **kwargs):
+    """Load the client boundary only when visual signatures are enabled."""
+    from web.state.ip_design_client import resolve_ip_design_client as resolver
+
+    return resolver(*args, **kwargs)
 
 
 def render_series_visual_signature_controls(

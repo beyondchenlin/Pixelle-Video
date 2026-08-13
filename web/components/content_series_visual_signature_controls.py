@@ -13,7 +13,6 @@ from web.components.series_visual_signature_controls import (
     render_series_visual_signature_controls,
 )
 from web.i18n import tr
-from web.utils.content_api import generate_world_hint_draft
 from web.utils.streamlit_helpers import first_text, safe_rerun
 
 logger = logging.getLogger(__name__)
@@ -25,6 +24,13 @@ CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY = "content_generation_world_hint_la
 CONTENT_IP_PROFILE_WORLD_HINT_KEY = "content_ip_profile_world_hint"
 
 Translate = Callable[..., str]
+
+
+def generate_world_hint_draft(*args, **kwargs):
+    """Load the remote draft client only after the user requests generation."""
+    from web.utils.content_api import generate_world_hint_draft as generator
+
+    return generator(*args, **kwargs)
 
 
 def build_content_ip_world_payload(

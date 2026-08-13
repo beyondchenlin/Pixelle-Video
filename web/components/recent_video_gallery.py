@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from html import escape
@@ -39,6 +40,15 @@ RECENT_VIDEO_PLAYER_KEY = "recent_video_player"
 RECENT_HISTORY_PAGE_SIZE = 12
 RECENT_HISTORY_MAX_PAGES = 4
 RECENT_VIDEO_LIMIT = 9
+
+
+@dataclass(frozen=True)
+class RecentVideoGalleryRenderResult:
+    """Bounded gallery window metadata for pagination controls."""
+
+    rendered_count: int
+    has_previous: bool
+    has_next: bool
 
 
 @lru_cache(maxsize=8)
@@ -422,29 +432,59 @@ def render_recent_video_gallery(
     *,
     key_suffix: str = "",
     show_all: bool = False,
-    render_limit: int | None = None,
-) -> int:
+    item_offset: int = 0,
+    page_size: int | None = None,
+) -> RecentVideoGalleryRenderResult:
     """Render the compact recent-video gallery inside the Home output card."""
+    normalized_offset = max(0, int(item_offset))
+    normalized_page_size = (
+        None if page_size is None else max(1, int(page_size))
+    )
+    fetch_limit = (
+        None
+        if normalized_page_size is None
+        else normalized_offset + normalized_page_size + 1
+    )
     gallery_key = f"{RECENT_VIDEO_GALLERY_KEY}{key_suffix}"
     grid_key = f"{RECENT_VIDEO_GRID_KEY}{key_suffix}"
     st.markdown(build_recent_video_gallery_css(gallery_key, grid_key), unsafe_allow_html=True)
     current = get_current_recent_video_item(st.session_state)
     if pixelle_video is not None:
-        history_items = (
-            fetch_recent_history_video_items(pixelle_video, limit=None, max_pages=None)
-            if show_all
-            else fetch_recent_history_video_items(pixelle_video)
-        )
+        if fetch_limit is not None:
+            history_items = fetch_recent_history_video_items(
+                pixelle_video,
+                limit=fetch_limit,
+                max_pages=None,
+            )
+        elif show_all:
+            history_items = fetch_recent_history_video_items(
+                pixelle_video,
+                limit=None,
+                max_pages=None,
+            )
+        else:
+            history_items = fetch_recent_history_video_items(pixelle_video)
     else:
-        history_items = (
-            fetch_recent_history_video_items_from_index(limit=None)
-            if show_all
-            else fetch_recent_history_video_items_from_index()
-        )
+        if fetch_limit is not None:
+            history_items = fetch_recent_history_video_items_from_index(
+                limit=fetch_limit
+            )
+        elif show_all:
+            history_items = fetch_recent_history_video_items_from_index(limit=None)
+        else:
+            history_items = fetch_recent_history_video_items_from_index()
     items = merge_recent_video_items(current, history_items, limit=None) if show_all else merge_recent_video_items(current, history_items)
-    total_count = len(items)
-    if render_limit is not None:
-        items = items[: max(0, int(render_limit))]
+    window_end = (
+        None
+        if normalized_page_size is None
+        else normalized_offset + normalized_page_size
+    )
+    visible_items = items[normalized_offset:window_end]
+    result = RecentVideoGalleryRenderResult(
+        rendered_count=len(visible_items),
+        has_previous=normalized_offset > 0,
+        has_next=(window_end is not None and len(items) > window_end),
+    )
     title_key = "recent_videos.all_title" if show_all else "recent_videos.title"
 
     with st.container(key=gallery_key):
@@ -452,12 +492,12 @@ def render_recent_video_gallery(
             f'<div class="recent-video-section-title">{escape(tr(title_key))}</div>',
             unsafe_allow_html=True,
         )
-        if not items:
+        if not visible_items:
             st.info(tr("recent_videos.empty"))
-            return total_count
+            return result
 
         with st.container(key=grid_key):
-            for item in items:
+            for item in visible_items:
                 render_recent_video_card(
                     item,
                     api_base_url=st.session_state.get(
@@ -466,7 +506,7 @@ def render_recent_video_gallery(
                     ),
                     key_suffix=key_suffix,
                 )
-    return total_count
+    return result
 
 
 def render_recent_video_card(
