@@ -31,6 +31,8 @@ def run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]
         command,
         cwd=REPO_ROOT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=30,
         check=False,
