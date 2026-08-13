@@ -20,6 +20,8 @@ import asyncio
 import json
 import math
 import os
+import shutil
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +51,9 @@ from pixelle_video.render_backend import (
 from pixelle_video.utils.json_safety import to_json_compatible
 from pixelle_video.utils.path_safety import resolve_task_dir, validate_task_id
 from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
+
+_TASK_DELETE_RETRY_DELAYS_SECONDS = (0.05, 0.1, 0.2, 0.4, 0.8)
+_WINDOWS_TRANSIENT_DELETE_ERROR_CODES = frozenset({32, 33})
 
 
 class PersistenceService:
@@ -98,6 +103,7 @@ class PersistenceService:
         self.index_lock_file = self.output_dir / ".index.lock"
         self.index_dirty_file = self.output_dir / ".index.dirty"
         self._index_lock = asyncio.Lock()
+        self._task_delete_lock = asyncio.Lock()
         self._ensure_index()
 
     def get_task_dir(self, task_id: str) -> Path:
@@ -1041,27 +1047,50 @@ class PersistenceService:
             True if successful, False otherwise
         """
         try:
-            import shutil
+            async with self._task_delete_lock:
+                # Resolve the path while deletion is serialized. On Windows,
+                # resolving a descendant concurrently with its removal can
+                # transiently observe an inconsistent filesystem view and
+                # incorrectly report that the path escaped its root.
+                task_dir = self.get_task_dir(task_id)
+                if task_dir.exists():
+                    await asyncio.to_thread(self._delete_task_directory, task_dir)
+                    logger.info(f"Deleted task directory: {task_dir}")
 
-            task_dir = self.get_task_dir(task_id)
-            if task_dir.exists():
-                shutil.rmtree(task_dir)
-                logger.info(f"Deleted task directory: {task_dir}")
-
-            # Index removal is a cache update; canonical deletion already succeeded.
-            try:
-                async with self._index_lock:
-                    await asyncio.to_thread(self._remove_index_entry, task_id)
-            except Exception as index_error:
-                self._mark_index_dirty()
-                logger.exception(
-                    f"Task was deleted but its index entry is stale for {task_id}: {index_error}"
-                )
+                # Index removal is a cache update; canonical deletion already succeeded.
+                try:
+                    async with self._index_lock:
+                        await asyncio.to_thread(self._remove_index_entry, task_id)
+                except Exception as index_error:
+                    self._mark_index_dirty()
+                    logger.exception(
+                        "Task was deleted but its index entry is stale for "
+                        f"{task_id}: {index_error}"
+                    )
 
             return True
         except Exception as e:
             logger.error(f"Failed to delete task {task_id}: {e}")
             return False
+
+    @staticmethod
+    def _delete_task_directory(task_dir: Path) -> None:
+        """Delete a task after bounded retries for transient Windows readers."""
+
+        for attempt in range(len(_TASK_DELETE_RETRY_DELAYS_SECONDS) + 1):
+            try:
+                shutil.rmtree(task_dir)
+                return
+            except FileNotFoundError:
+                return
+            except PermissionError as exc:
+                if (
+                    getattr(exc, "winerror", None)
+                    not in _WINDOWS_TRANSIENT_DELETE_ERROR_CODES
+                    or attempt == len(_TASK_DELETE_RETRY_DELAYS_SECONDS)
+                ):
+                    raise
+                time.sleep(_TASK_DELETE_RETRY_DELAYS_SECONDS[attempt])
 
     @staticmethod
     def _index_datetime_sort_value(value: Any) -> float | None:

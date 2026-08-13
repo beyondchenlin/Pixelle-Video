@@ -4,6 +4,7 @@ import subprocess
 from types import SimpleNamespace
 
 import pytest
+from loguru import logger
 
 from pixelle_video.utils import ffmpeg_encoder as encoder_module
 from pixelle_video.utils.ffmpeg_encoder import (
@@ -293,6 +294,66 @@ class TestRuntimeProbeCommands:
 
 
 class TestRuntimeProbeSelection:
+    def test_optional_probe_failure_is_debug_only_and_selection_is_explicit(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.delenv("PIXELLE_FFMPEG_H264_ENCODER", raising=False)
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            _runtime_probe_runner(
+                encoders=("h264_nvenc", "h264_qsv", "libx264"),
+                failing=("h264_qsv",),
+            ),
+        )
+        records: list[tuple[str, str]] = []
+        sink_id = logger.add(
+            lambda message: records.append(
+                (message.record["level"].name, message.record["message"])
+            ),
+            level="DEBUG",
+        )
+        clear_ffmpeg_encoder_probe_cache()
+        try:
+            assert resolve_ffmpeg_h264_backend().codec == "h264_nvenc"
+            assert resolve_ffmpeg_h264_backend().codec == "h264_nvenc"
+        finally:
+            clear_ffmpeg_encoder_probe_cache()
+            logger.remove(sink_id)
+
+        qsv_records = [record for record in records if "h264_qsv" in record[1]]
+        selection_records = [
+            record
+            for record in records
+            if "ffmpeg H.264 encoder selected" in record[1]
+        ]
+        assert qsv_records == [
+            (
+                "DEBUG",
+                "ffmpeg hardware encoder candidate h264_qsv is unavailable: "
+                "h264_qsv runtime unavailable",
+            )
+        ]
+        assert selection_records == [
+            (
+                "INFO",
+                "ffmpeg H.264 encoder selected: h264_nvenc; "
+                "fallback order: libx264",
+            )
+        ]
+
+    def test_probe_diagnostic_is_single_line_and_bounded(self):
+        diagnostic = encoder_module._summarize_probe_error(
+            "first line\n" + ("x" * 400) + "\r\nlast line",
+        )
+
+        assert "\n" not in diagnostic
+        assert "\r" not in diagnostic
+        assert len(diagnostic) == 243
+        assert diagnostic.startswith("...")
+        assert diagnostic.endswith("last line")
+
     def test_runtime_probe_cache_is_scoped_to_the_resolved_device(self, monkeypatch):
         device = {"value": "/dev/dri/renderD128"}
         commands: list[tuple[str, ...]] = []

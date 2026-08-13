@@ -253,6 +253,22 @@ def test_stream_file_without_range_returns_full_file(monkeypatch, tmp_path):
     assert "content-range" not in response.headers
 
 
+def test_stream_file_returns_clean_404_after_task_file_is_deleted(
+    monkeypatch,
+    tmp_path,
+):
+    video = tmp_path / "output" / "task-1" / "final.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+    monkeypatch.chdir(tmp_path)
+    video.unlink()
+
+    response = _files_client().get("/files/stream/task-1/final.mp4")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "File not found: task-1/final.mp4"}
+
+
 def test_stream_empty_file_without_range_returns_empty_response(monkeypatch, tmp_path):
     empty_file = tmp_path / "output" / "empty.mp4"
     empty_file.parent.mkdir(parents=True)
