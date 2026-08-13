@@ -193,6 +193,13 @@ def test_validate_runtime_checks_bridge_browser_once_and_reuses_bridge_cache(
 
     monkeypatch.setattr(shutil, "which", lambda _executable: "node-resolved")
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv("PUPPETEER_CACHE_DIR", str(tmp_path / "foreign-cache"))
+    monkeypatch.setenv("PUPPETEER_EXECUTABLE_PATH", str(tmp_path / "system-chrome"))
+    monkeypatch.setenv(
+        "PRODUCER_HEADLESS_SHELL_PATH",
+        str(tmp_path / "system-headless-shell"),
+    )
+    monkeypatch.setenv("PIXELLE_REQUIRE_PINNED_BROWSER", "false")
     renderer = HyperFramesRenderer(bridge_script=str(bridge_script))
 
     renderer.validate_runtime()
@@ -207,6 +214,9 @@ def test_validate_runtime_checks_bridge_browser_once_and_reuses_bridge_cache(
     assert captured["env"]["PUPPETEER_CACHE_DIR"] == str(
         bridge_root / ".cache" / "puppeteer"
     )
+    assert "PUPPETEER_EXECUTABLE_PATH" not in captured["env"]
+    assert "PRODUCER_HEADLESS_SHELL_PATH" not in captured["env"]
+    assert captured["env"]["PIXELLE_REQUIRE_PINNED_BROWSER"] == "true"
 
 
 def test_validate_runtime_reports_missing_locked_dependency_before_node_launch(
