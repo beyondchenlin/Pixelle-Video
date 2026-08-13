@@ -118,9 +118,7 @@ class RenderArtifactAnalyzer:
                 if self._is_text_pixel(red, green, blue):
                     text_points.append((x, y))
                     text_rows[y] = text_rows.get(y, 0) + 1
-        row_bands = self._contiguous_bands(
-            row for row, count in text_rows.items() if count >= 2
-        )
+        row_bands = self._text_row_bands(text_rows)
         return FrameArtifactMetrics(
             frame_path=str(path),
             media_box=self._pixel_box(media_points),
@@ -350,6 +348,22 @@ class RenderArtifactAnalyzer:
             start = previous = row
         bands.append((start, previous))
         return tuple(bands)
+
+    @classmethod
+    def _text_row_bands(
+        cls,
+        row_counts: dict[int, int],
+    ) -> tuple[tuple[int, int], ...]:
+        core_bands = cls._contiguous_bands(
+            row for row, count in row_counts.items() if count >= 2
+        )
+        return tuple(
+            (
+                start - 1 if row_counts.get(start - 1) == 1 else start,
+                end + 1 if row_counts.get(end + 1) == 1 else end,
+            )
+            for start, end in core_bands
+        )
 
     @staticmethod
     def _edge_delta(left: PixelBox | None, right: PixelBox | None) -> tuple[int, int, int, int] | None:
