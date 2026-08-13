@@ -732,6 +732,8 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -Port 65510
 $arguments = @($config.PythonExe) + @(Get-BackendArguments $config)
 $exact = ConvertTo-WindowsCommandLine $arguments
+$resolvedInterpreter = [object[]]$arguments.Clone()
+$resolvedInterpreter[0] = 'C:\\Program Files\\Python\\python.exe'
 $wrongData = [object[]]$arguments.Clone()
 $wrongData[3] = '{ps_single_quote(tmp_path / "other-user")}'
 $wrongExtra = [object[]]$arguments.Clone()
@@ -749,6 +751,8 @@ $wrongDatabase[($wrongDatabase.IndexOf('--database-url') + 1)] = `
 $duplicatePort = @($arguments) + @('--port', '65510')
 @{{
     exact = Test-ManagedComfyUICommandLine $config $exact
+    resolved_interpreter = Test-ManagedComfyUICommandLine `
+        $config (ConvertTo-WindowsCommandLine $resolvedInterpreter)
     wrong_data = Test-ManagedComfyUICommandLine `
         $config (ConvertTo-WindowsCommandLine $wrongData)
     wrong_extra = Test-ManagedComfyUICommandLine `
@@ -769,6 +773,7 @@ $duplicatePort = @($arguments) + @('--port', '65510')
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
         "exact": True,
+        "resolved_interpreter": True,
         "wrong_data": False,
         "wrong_extra": False,
         "additional_extra": False,
