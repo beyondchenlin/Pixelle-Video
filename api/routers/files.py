@@ -30,6 +30,7 @@ from api.file_access import (
     resolve_allowed_file_path,
     sanitize_upload_filename,
 )
+from api.runtime_context import get_api_runtime_context
 from pixelle_video.services.video_cover import ensure_video_cover
 
 router = APIRouter(prefix="/files", tags=["Files"])
@@ -100,7 +101,7 @@ async def get_video_cover(file_path: str):
         cover_path = await asyncio.to_thread(
             ensure_video_cover,
             video_path,
-            output_root=Path.cwd() / "output",
+            output_root=get_api_runtime_context().output_root,
         )
         if cover_path is None:
             raise HTTPException(status_code=404, detail="Video cover is unavailable")

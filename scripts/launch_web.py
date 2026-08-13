@@ -17,8 +17,17 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from pixelle_video.platform_defaults import configured_api_base_url, configured_api_port
+from pixelle_video.utils.configured_path import resolve_configured_path
+from pixelle_video.utils.project_identity import (
+    build_path_id,
+    build_project_root_id,
+    is_path_id,
+    is_project_root_id,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+EXPECTED_CHECKOUT_ROOT_ID = build_project_root_id(PROJECT_ROOT)
+EXPECTED_PROJECT_ROOT_ID = EXPECTED_CHECKOUT_ROOT_ID
 API_HEALTH_SERVICE = "Pixelle-Video API"
 STARTUP_TIMEOUT_SECONDS = 30.0
 PROBE_TIMEOUT_SECONDS = 0.75
@@ -32,6 +41,15 @@ class LocalApiState(str, Enum):
     ABSENT = "absent"
     READY = "ready"
     OCCUPIED = "occupied"
+    IDENTITY_MISMATCH = "identity_mismatch"
+    INCOMPATIBLE = "incompatible"
+
+
+@dataclass(frozen=True)
+class LocalApiIdentity:
+    checkout_root_id: str
+    project_root_id: str
+    output_root_id: str
 
 
 @dataclass(frozen=True)
@@ -41,6 +59,25 @@ class RuntimeTarget:
     api_base_url: str
     supervise_local_api: bool
     startup_timeout_seconds: float
+
+
+def build_local_api_identity(environ: Mapping[str, str]) -> LocalApiIdentity:
+    try:
+        output_root = resolve_configured_path(
+            environ.get("PIXELLE_ARTIFACT_BASE_PATH", "output"),
+            project_root=PROJECT_ROOT,
+            setting_name="PIXELLE_ARTIFACT_BASE_PATH",
+        )
+    except (OSError, ValueError) as exc:
+        raise LaunchConfigurationError(str(exc)) from exc
+    return LocalApiIdentity(
+        checkout_root_id=EXPECTED_CHECKOUT_ROOT_ID,
+        project_root_id=EXPECTED_PROJECT_ROOT_ID,
+        output_root_id=build_path_id(output_root),
+    )
+
+
+DEFAULT_LOCAL_API_IDENTITY = build_local_api_identity(os.environ)
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -125,7 +162,12 @@ def build_runtime_target(environ: Mapping[str, str]) -> RuntimeTarget:
     )
 
 
-def probe_local_api(port: int, *, timeout: float = PROBE_TIMEOUT_SECONDS) -> LocalApiState:
+def probe_local_api(
+    port: int,
+    *,
+    expected_identity: LocalApiIdentity | None = None,
+    timeout: float = PROBE_TIMEOUT_SECONDS,
+) -> LocalApiState:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=timeout):
             pass
@@ -150,13 +192,30 @@ def probe_local_api(port: int, *, timeout: float = PROBE_TIMEOUT_SECONDS) -> Loc
         payload = json.loads(raw_payload)
     except (UnicodeDecodeError, json.JSONDecodeError):
         return LocalApiState.OCCUPIED
-    if (
+    if not (
         isinstance(payload, dict)
         and payload.get("service") == API_HEALTH_SERVICE
         and payload.get("status") == "healthy"
     ):
-        return LocalApiState.READY
-    return LocalApiState.OCCUPIED
+        return LocalApiState.OCCUPIED
+
+    expected = expected_identity or DEFAULT_LOCAL_API_IDENTITY
+    checkout_root_id = payload.get("checkout_root_id")
+    project_root_id = payload.get("project_root_id")
+    output_root_id = payload.get("output_root_id")
+    if (
+        not is_project_root_id(checkout_root_id)
+        or not is_project_root_id(project_root_id)
+        or not is_path_id(output_root_id)
+    ):
+        return LocalApiState.INCOMPATIBLE
+    if (
+        checkout_root_id != expected.checkout_root_id
+        or project_root_id != expected.project_root_id
+        or output_root_id != expected.output_root_id
+    ):
+        return LocalApiState.IDENTITY_MISMATCH
+    return LocalApiState.READY
 
 
 def wait_for_local_api(
@@ -164,15 +223,38 @@ def wait_for_local_api(
     *,
     timeout: float,
     process: subprocess.Popen[bytes] | subprocess.Popen[str] | None = None,
+    expected_identity: LocalApiIdentity | None = None,
 ) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if probe_local_api(port) is LocalApiState.READY:
+        state = probe_local_api(port, expected_identity=expected_identity)
+        if state is LocalApiState.READY:
             return True
+        if state in {LocalApiState.IDENTITY_MISMATCH, LocalApiState.INCOMPATIBLE}:
+            return False
         if process is not None and process.poll() is not None:
-            return probe_local_api(port) is LocalApiState.READY
+            return (
+                probe_local_api(port, expected_identity=expected_identity)
+                is LocalApiState.READY
+            )
         time.sleep(0.2)
-    return probe_local_api(port) is LocalApiState.READY
+    return (
+        probe_local_api(port, expected_identity=expected_identity) is LocalApiState.READY
+    )
+
+
+def _raise_for_api_identity_conflict(state: LocalApiState, *, port: int) -> None:
+    if state is LocalApiState.IDENTITY_MISMATCH:
+        raise LaunchConfigurationError(
+            f"Port {port} is running {API_HEALTH_SERVICE} for another project root, checkout, "
+            "or output root. "
+            "Stop that checkout's API or configure this checkout to use a different local port."
+        )
+    if state is LocalApiState.INCOMPATIBLE:
+        raise LaunchConfigurationError(
+            f"Port {port} is running {API_HEALTH_SERVICE} without a compatible project identity. "
+            "Restart that API with the current code before reusing the port."
+        )
 
 
 def _terminate_process(process: subprocess.Popen[bytes] | subprocess.Popen[str] | None) -> None:
@@ -264,17 +346,31 @@ def run_web_stack(environ: dict[str, str] | None = None) -> int:
     child_environ = dict(os.environ if environ is None else environ)
     target = build_runtime_target(child_environ)
     _prepare_runtime_environment(child_environ, target)
+    expected_api_identity = build_local_api_identity(child_environ)
     _assert_port_available(target.web_port, service_name="Web UI")
 
     api_process: subprocess.Popen[bytes] | None = None
     web_process: subprocess.Popen[bytes] | None = None
     try:
         if target.supervise_local_api:
-            state = probe_local_api(target.port)
+            state = probe_local_api(
+                target.port,
+                expected_identity=expected_api_identity,
+            )
+            _raise_for_api_identity_conflict(state, port=target.port)
             if state is LocalApiState.OCCUPIED:
-                if wait_for_local_api(target.port, timeout=2.0):
+                if wait_for_local_api(
+                    target.port,
+                    timeout=2.0,
+                    expected_identity=expected_api_identity,
+                ):
                     state = LocalApiState.READY
                 else:
+                    state = probe_local_api(
+                        target.port,
+                        expected_identity=expected_api_identity,
+                    )
+                    _raise_for_api_identity_conflict(state, port=target.port)
                     raise LaunchConfigurationError(
                         f"Port {target.port} is occupied by a service that is not a healthy "
                         f"{API_HEALTH_SERVICE}. Stop that service or set both "
@@ -302,7 +398,13 @@ def run_web_stack(environ: dict[str, str] | None = None) -> int:
                     target.port,
                     timeout=target.startup_timeout_seconds,
                     process=api_process,
+                    expected_identity=expected_api_identity,
                 ):
+                    state = probe_local_api(
+                        target.port,
+                        expected_identity=expected_api_identity,
+                    )
+                    _raise_for_api_identity_conflict(state, port=target.port)
                     raise RuntimeError(
                         f"{API_HEALTH_SERVICE} did not become healthy within "
                         f"{target.startup_timeout_seconds:.1f} seconds."

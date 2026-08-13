@@ -83,6 +83,29 @@ def _disable_layout_preview_recent_presets(monkeypatch):
     )
 
 
+def test_layout_preview_fallback_store_anchors_relative_root_to_project(
+    monkeypatch,
+    tmp_path,
+):
+    project_root = tmp_path / "project"
+    unrelated_cwd = tmp_path / "unrelated"
+    project_root.mkdir()
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
+    monkeypatch.setattr(
+        output_preview,
+        "get_pixelle_video_root_path",
+        lambda: str(project_root),
+    )
+
+    store = output_preview._resolve_layout_preview_object_store(
+        {"artifact_base_path": "output"}
+    )
+
+    assert store._root == project_root / "output"
+    assert not (unrelated_cwd / "output").exists()
+
+
 def test_build_single_text_overlay_uses_caption_contract_defaults_for_partial_style():
     html = output_preview._build_single_text_overlay(
         style={"font_size": 36},

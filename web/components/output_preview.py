@@ -63,11 +63,13 @@ from pixelle_video.services.text_style_css_contract import (
 )
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 from pixelle_video.tts_workflow_contract import tts_workflow_missing_required_ref_audio
+from pixelle_video.utils.configured_path import resolve_configured_path
 from pixelle_video.utils.logging_util import (
     build_content_observability,
     log_exception_once,
     new_correlation_id,
 )
+from pixelle_video.utils.os_util import get_pixelle_video_root_path
 from pixelle_video.utils.template_util import get_template_orientation, resolve_template_path
 from web.components.layered_template_state import load_layered_template_spec_into_editor_state
 from web.components.layout_preview_media_source import resolve_layout_preview_media_source
@@ -979,8 +981,13 @@ def _resolve_layout_preview_object_store(video_params):
     )
     if configured_store is not None:
         return configured_store
+    artifact_root = resolve_configured_path(
+        video_params.get("artifact_base_path", "output"),
+        project_root=get_pixelle_video_root_path(),
+        setting_name="artifact_base_path",
+    )
     return FilesystemDevArtifactObjectStore(
-        root=video_params.get("artifact_base_path", "output"),
+        root=artifact_root,
         base_url=video_params.get("artifact_base_url", "/api/files"),
     )
 

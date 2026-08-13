@@ -24,6 +24,16 @@ class FakeCore:
         return SimpleNamespace(video_path=str(output), duration=2.5)
 
 
+def test_worker_rejects_ambiguous_relative_output_root() -> None:
+    with pytest.raises(ValueError, match="output_root must be absolute"):
+        GenerationWorker(
+            registry=object(),
+            core=object(),
+            artifact_store=object(),
+            output_root="output",
+        )
+
+
 @pytest.mark.asyncio
 async def test_worker_claims_pending_task_and_marks_completed(tmp_path):
     store = InMemoryTaskStore()

@@ -34,7 +34,6 @@ from pixelle_video.services.resource_resolver import (
 )
 
 REFERENCE_IMAGE_UPLOAD_SCHEMA = "pixelle.reference_image_upload.v1"
-DEFAULT_REFERENCE_IMAGE_UPLOAD_DIR = "_runtime/reference_image_uploads"
 DEFAULT_REFERENCE_IMAGE_MAX_UPLOAD_SIZE_MB = 20
 DEFAULT_REFERENCE_IMAGE_MAX_EDGE_PX = 8192
 DEFAULT_REFERENCE_IMAGE_MAX_PIXELS = 40_000_000
@@ -96,7 +95,7 @@ class ReferenceImageUploadStore:
     def __init__(
         self,
         *,
-        base_dir: str | Path = DEFAULT_REFERENCE_IMAGE_UPLOAD_DIR,
+        base_dir: str | Path,
         max_upload_size_mb: int = DEFAULT_REFERENCE_IMAGE_MAX_UPLOAD_SIZE_MB,
         max_edge_px: int = DEFAULT_REFERENCE_IMAGE_MAX_EDGE_PX,
         max_pixels: int = DEFAULT_REFERENCE_IMAGE_MAX_PIXELS,
@@ -104,7 +103,10 @@ class ReferenceImageUploadStore:
         allowed_extensions: set[str] | None = None,
         allow_cleanup: bool = False,
     ) -> None:
-        self.base_dir = Path(base_dir).resolve()
+        configured_base_dir = Path(base_dir).expanduser()
+        if not configured_base_dir.is_absolute():
+            raise ValueError("ReferenceImageUploadStore base_dir must be absolute")
+        self.base_dir = configured_base_dir.resolve()
         self.max_upload_size_mb = max(1, int(max_upload_size_mb))
         self.max_edge_px = max(1, int(max_edge_px))
         self.max_pixels = max(1, int(max_pixels))
