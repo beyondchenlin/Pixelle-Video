@@ -56,48 +56,32 @@ def test_windows_batch_launchers_run_matching_powershell_scripts() -> None:
         assert "pause" in text.lower()
 
 
-def test_legacy_dual_backend_launchers_forward_to_shared_backend() -> None:
-    compatibility_launchers = (
-        "start_image_backend.bat",
-        "start_tts_backend.bat",
-        "stop_image_backend.bat",
-        "stop_tts_backend.bat",
-        "check_image_backend.bat",
-        "check_tts_backend.bat",
-    )
-
-    for filename in compatibility_launchers:
-        launcher = SCRIPT_DIR / filename
-        assert launcher.exists()
-        text = launcher.read_text(encoding="ascii")
-        assert "Deprecated launcher" in text
-        if filename.startswith("start_"):
-            assert "start_backend.bat" in text
-        elif filename.startswith("check_"):
-            assert "check_backend.bat" in text
-        else:
-            assert "stop_backend.bat" in text
+def test_dual_backend_launchers_select_matching_profiles() -> None:
+    for action in ("start", "check", "stop"):
+        for profile in ("image", "tts"):
+            launcher = SCRIPT_DIR / f"{action}_{profile}_backend.bat"
+            assert launcher.exists()
+            text = launcher.read_text(encoding="ascii")
+            assert (
+                f"python -m scripts.comfyui.backend_cli {action} "
+                f"%* --profile {profile}"
+            ) in text
+            assert "Deprecated launcher" not in text
 
 
-def test_root_readmes_document_fixed_local_backend_ports() -> None:
+def test_root_readmes_document_isolated_local_backend_ports() -> None:
     expected_tokens = (
         "uv run uvicorn api.app:app --host 127.0.0.1 --port 6789",
         "http://localhost:6789/health",
         "http://localhost:6789/docs",
         "http://localhost:6789/api",
         "http://localhost:8501",
-        "http://127.0.0.1:8000",
-        r"scripts\comfyui\start_backend.bat",
-        r"scripts\comfyui\stop_backend.bat",
-        r"scripts\comfyui\check_backend.bat",
-    )
-    forbidden_tokens = (
         "http://127.0.0.1:8001",
         "http://127.0.0.1:8002",
         r"scripts\comfyui\start_image_backend.bat",
         r"scripts\comfyui\start_tts_backend.bat",
-        r"scripts\comfyui\stop_image_backend.bat",
-        r"scripts\comfyui\stop_tts_backend.bat",
+    )
+    forbidden_tokens = (
         "uv run uvicorn api.app:app --host 127.0.0.1 --port 8001",
         "http://localhost:8001/health",
         "http://localhost:8001/docs",

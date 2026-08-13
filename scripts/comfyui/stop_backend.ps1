@@ -14,6 +14,9 @@ param(
     [ValidateSet('', 'auto', 'memory_safe', 'performance')]
     [string]$ResourcePolicy = '',
     [double]$MinimumFreeCommitGB = -1,
+    [ValidateSet('', 'all', 'allowlist', 'none')]
+    [string]$CustomNodeLoading = '',
+    [string]$AllowedCustomNodeFoldersBase64 = '',
     [switch]$Json
 )
 
@@ -35,7 +38,9 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -HostAddress $HostAddress `
     -Port $Port `
     -ResourcePolicy $ResourcePolicy `
-    -MinimumFreeCommitGB $MinimumFreeCommitGB
+    -MinimumFreeCommitGB $MinimumFreeCommitGB `
+    -CustomNodeLoading $CustomNodeLoading `
+    -AllowedCustomNodeFoldersBase64 $AllowedCustomNodeFoldersBase64
 
 $pidFile = Get-BackendPidFile $config
 $launcherPidFile = Get-BackendLauncherPidFile $config

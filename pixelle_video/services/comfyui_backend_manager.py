@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import shutil
@@ -26,6 +27,23 @@ class ComfyUIBackendCommandResult:
     stdout: str
     stderr: str
     payload: dict[str, Any]
+
+
+class ComfyUIBackendCommandError(RuntimeError):
+    """Structured lifecycle command failure used for safe retry decisions."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        action: str,
+        failure_kind: str,
+        retryable: bool,
+    ) -> None:
+        super().__init__(message)
+        self.action = action
+        self.failure_kind = failure_kind
+        self.retryable = retryable
 
 
 ComfyUIBackendOwnership = Literal["pixelle", "external", "absent", "unknown"]
@@ -63,7 +81,7 @@ class ComfyUIBackendController:
         profile_name: str = "default",
         profile: ComfyUIBackendProfile | None = None,
         management_mode: str = "auto",
-        ready_timeout_seconds: int = 90,
+        ready_timeout_seconds: int | None = None,
         command_timeout_seconds: int | None = None,
         maintenance_client: ComfyUIMaintenanceClient | None = None,
     ) -> None:
@@ -77,7 +95,15 @@ class ComfyUIBackendController:
         self.profile = profile or ComfyUIBackendProfile(url=comfyui_url)
         self.comfyui_url = str(self.profile.url or comfyui_url or "").strip()
         self.management_mode = (management_mode or "auto").strip().lower()
-        self.ready_timeout_seconds = ready_timeout_seconds
+        self.ready_timeout_seconds = int(
+            self.profile.startup_ready_timeout_seconds
+            if ready_timeout_seconds is None
+            else ready_timeout_seconds
+        )
+        self.startup_attempts = int(self.profile.startup_attempts)
+        self.startup_retry_base_delay_seconds = float(
+            self.profile.startup_retry_base_delay_seconds
+        )
         self.command_timeout_seconds = command_timeout_seconds
         self.maintenance_client = maintenance_client or ComfyUIMaintenanceClient(
             self.comfyui_url
@@ -234,23 +260,69 @@ class ComfyUIBackendController:
                 f"{state_error}"
             )
 
+        return await self._start_managed_backend_with_retry(reason=reason)
+
+    async def _start_managed_backend_with_retry(
+        self, *, reason: str
+    ) -> ComfyUIBackendReadyResult:
+        failures: list[str] = []
+        for attempt in range(1, self.startup_attempts + 1):
+            attempt_reason = (
+                reason if attempt == 1 else f"{reason}:startup-attempt-{attempt}"
+            )
+            try:
+                return await self._start_managed_backend_once(reason=attempt_reason)
+            except Exception as exc:
+                if not self._is_retryable_start_failure(exc):
+                    raise
+
+                detail = self._bounded_failure_detail(exc)
+                failures.append(detail)
+                await self._cleanup_after_start_failure(
+                    reason=f"{attempt_reason}:transient-startup-failure"
+                )
+                if attempt >= self.startup_attempts:
+                    summary = " | ".join(
+                        f"attempt {index}: {failure}"
+                        for index, failure in enumerate(failures, start=1)
+                    )
+                    raise RuntimeError(
+                        f"ComfyUI backend '{self.profile_name}' failed to start after "
+                        f"{self.startup_attempts} attempts: {summary}"
+                    ) from exc
+
+                delay_seconds = min(
+                    30.0,
+                    self.startup_retry_base_delay_seconds * (2 ** (attempt - 1)),
+                )
+                logger.warning(
+                    "Retrying transient ComfyUI backend startup failure: "
+                    f"profile='{self.profile_name}', attempt={attempt}/"
+                    f"{self.startup_attempts}, retry_in_seconds={delay_seconds:g}, "
+                    f"error='{detail}'"
+                )
+                if delay_seconds > 0:
+                    await asyncio.sleep(delay_seconds)
+
+        raise AssertionError("managed backend startup loop exited unexpectedly")
+
+    @staticmethod
+    def _bounded_failure_detail(exc: Exception, *, limit: int = 2_000) -> str:
+        detail = str(exc).strip() or type(exc).__name__
+        if len(detail) <= limit:
+            return detail
+        return f"{detail[:limit]}... [truncated]"
+
+    async def _start_managed_backend_once(
+        self, *, reason: str
+    ) -> ComfyUIBackendReadyResult:
         try:
             start_result = await self.start(reason=reason)
         except RuntimeError:
-            # Close the check/start race without taking ownership of the process that won it.
-            raced_health, _ = await self._probe_backend_safely()
-            if raced_health is None or self.management_mode == "required":
-                raise
-            logger.info(
-                "Reusing healthy ComfyUI backend that became ready during startup "
-                f"at {self.comfyui_url} ({reason})"
-            )
-            return ComfyUIBackendReadyResult(
-                ownership="unknown",
-                started=False,
-                reused_existing=True,
-                health=raced_health,
-            )
+            raced_result = await self._reuse_backend_that_won_start_race(reason=reason)
+            if raced_result is not None:
+                return raced_result
+            raise
 
         try:
             health = await self._wait_for_backend_health()
@@ -281,6 +353,45 @@ class ComfyUIBackendController:
             started=bool(start_result.payload.get("started")),
             reused_existing=bool(start_result.payload.get("already_running")),
             health=health,
+        )
+
+    async def _reuse_backend_that_won_start_race(
+        self, *, reason: str
+    ) -> ComfyUIBackendReadyResult | None:
+        raced_health, _ = await self._probe_backend_safely()
+        if raced_health is None:
+            return None
+
+        ownership: ComfyUIBackendOwnership = "unknown"
+        if self.management_mode == "required":
+            state, _ = await self._inspect_state_safely(
+                reason=f"{reason}:startup-race-ownership-check"
+            )
+            if state is None or not state.owned_by_pixelle:
+                return None
+            ownership = "pixelle"
+
+        logger.info(
+            "Reusing healthy ComfyUI backend that became ready during startup "
+            f"at {self.comfyui_url} ({reason})"
+        )
+        return ComfyUIBackendReadyResult(
+            ownership=ownership,
+            started=False,
+            reused_existing=True,
+            health=raced_health,
+        )
+
+    def _is_retryable_start_failure(self, exc: Exception) -> bool:
+        if isinstance(exc, TimeoutError):
+            return True
+        if isinstance(exc, ComfyUIBackendCommandError):
+            return exc.action == "start" and exc.retryable
+        message = str(exc).lower()
+        return (
+            "did not listen" in message
+            or "backend start command timed out" in message
+            or "[pixelle_startup_timeout]" in message
         )
 
     async def restart(self, *, reason: str) -> bool:
@@ -327,8 +438,7 @@ class ComfyUIBackendController:
             logger.warning(message)
             return False
 
-        await self.start(reason=reason)
-        await self._wait_for_backend_health()
+        await self._start_managed_backend_with_retry(reason=reason)
         return True
 
     async def start(self, *, reason: str) -> ComfyUIBackendCommandResult:
@@ -533,9 +643,12 @@ class ComfyUIBackendController:
                     stderr=stderr,
                 ).error(f"ComfyUI backend {action} command timed out")
                 detail = stderr or stdout or str(exc)
-                raise RuntimeError(
+                raise ComfyUIBackendCommandError(
                     f"ComfyUI backend {action} command timed out after "
-                    f"{timeout_seconds} seconds: {detail}"
+                    f"{timeout_seconds} seconds: {detail}",
+                    action=action,
+                    failure_kind="command_timeout",
+                    retryable=action == "start",
                 ) from exc
             stdout = self._read_script_output(stdout_path)
             stderr = self._read_script_output(stderr_path)
@@ -560,9 +673,28 @@ class ComfyUIBackendController:
             stderr=stderr,
         ).info(f"ComfyUI backend {action} command completed")
         if process.returncode != 0:
-            raise RuntimeError(
+            detail = stderr or stdout
+            normalized_detail = detail.lower()
+            startup_timeout = action == "start" and (
+                "[pixelle_startup_timeout]" in normalized_detail
+                or "did not listen" in normalized_detail
+            )
+            native_startup_crash = (
+                action == "start"
+                and "[pixelle_native_startup_crash]" in normalized_detail
+            )
+            raise ComfyUIBackendCommandError(
                 f"ComfyUI backend {action} command failed with exit code "
-                f"{process.returncode}: {stderr or stdout}"
+                f"{process.returncode}: {detail}",
+                action=action,
+                failure_kind=(
+                    "startup_timeout"
+                    if startup_timeout
+                    else "native_startup_crash"
+                    if native_startup_crash
+                    else "command_failed"
+                ),
+                retryable=startup_timeout or native_startup_crash,
             )
         return result
 
@@ -621,6 +753,17 @@ class ComfyUIBackendController:
         self._append_profile_arg(args, "-ExtraModelsConfig", self.profile.extra_models_config)
         self._append_profile_arg(args, "-FrontEndRoot", self.profile.frontend_root)
         args.extend(["-ResourcePolicy", self.profile.resource_policy])
+        args.extend(["-CustomNodeLoading", self.profile.custom_node_loading])
+        if self.profile.custom_node_loading == "allowlist":
+            folders_json = json.dumps(
+                self.profile.allowed_custom_node_folders,
+                ensure_ascii=True,
+                separators=(",", ":"),
+            )
+            folders_base64 = base64.b64encode(folders_json.encode("utf-8")).decode(
+                "ascii"
+            )
+            args.extend(["-AllowedCustomNodeFoldersBase64", folders_base64])
         if self.profile.minimum_free_commit_gb is not None:
             args.extend(
                 [

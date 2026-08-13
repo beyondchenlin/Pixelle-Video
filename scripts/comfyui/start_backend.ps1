@@ -14,6 +14,9 @@ param(
     [ValidateSet('', 'auto', 'memory_safe', 'performance')]
     [string]$ResourcePolicy = '',
     [double]$MinimumFreeCommitGB = -1,
+    [ValidateSet('', 'all', 'allowlist', 'none')]
+    [string]$CustomNodeLoading = '',
+    [string]$AllowedCustomNodeFoldersBase64 = '',
     [int]$ReadyTimeoutSeconds = 90,
     [switch]$DryRun,
     [switch]$Json
@@ -37,10 +40,13 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -HostAddress $HostAddress `
     -Port $Port `
     -ResourcePolicy $ResourcePolicy `
-    -MinimumFreeCommitGB $MinimumFreeCommitGB
+    -MinimumFreeCommitGB $MinimumFreeCommitGB `
+    -CustomNodeLoading $CustomNodeLoading `
+    -AllowedCustomNodeFoldersBase64 $AllowedCustomNodeFoldersBase64
 
 Assert-BackendPrerequisites $config
 Assert-BackendResourcePolicySupport $config
+Assert-BackendCustomNodePolicySupport $config
 $config.MemorySnapshot = Get-SystemMemorySnapshot
 Set-BackendEffectiveMinimumFreeCommit $config
 
@@ -160,6 +166,12 @@ try {
         $config.ComfyUIRoot,
         '-SharedBasePath',
         $config.SharedBasePath,
+        '-CustomNodeLoading',
+        $config.CustomNodeLoading,
+        '-AllowedCustomNodeFoldersBase64',
+        $config.AllowedCustomNodeFoldersBase64,
+        '-AcceleratorMutexName',
+        $config.AcceleratorMutexName,
         '-Port',
         [string]$config.Port
     )
@@ -210,6 +222,18 @@ try {
             if ([string]::IsNullOrWhiteSpace([string]$supervisorExitCode)) {
                 $supervisorExitCode = 'unknown'
             }
+            $failurePrefix = ''
+            if ([string]$supervisorExitCode -match '^-?\d+$') {
+                $nativeCrashCodes = @(
+                    [int64]-1073741819,
+                    [int64]-1073740791,
+                    [int64]-1073740940,
+                    [int64]-1073741676
+                )
+                if ($nativeCrashCodes -contains [int64]$supervisorExitCode) {
+                    $failurePrefix = '[PIXELLE_NATIVE_STARTUP_CRASH] '
+                }
+            }
             Start-Sleep -Milliseconds 100
             $diagnosticTail = Get-BackendDiagnosticTail -Paths @(
                 $supervisorStderrLog,
@@ -223,6 +247,7 @@ try {
                 ''
             }
             throw (
+                $failurePrefix +
                 "ComfyUI backend supervisor PID $($process.Id) exited with code " +
                 "$supervisorExitCode before $($config.HostAddress):$($config.Port) " +
                 "started listening. Check logs: $supervisorStderrLog ; " +
@@ -271,7 +296,8 @@ try {
         ''
     }
     throw (
-        "Started ComfyUI backend supervisor PID $($process.Id), but it did not " +
+        "[PIXELLE_STARTUP_TIMEOUT] Started ComfyUI backend supervisor PID " +
+        "$($process.Id), but it did not " +
         "listen on $($config.HostAddress):$($config.Port) within " +
         "$ReadyTimeoutSeconds seconds. Check logs: $supervisorStderrLog ; " +
         "$stderrLog$diagnosticSuffix"

@@ -111,7 +111,7 @@ direct_media:
 # ==================== ComfyUI Configuration ====================
 comfyui:
   # Global ComfyUI settings
-  comfyui_url: http://127.0.0.1:8000  # ComfyUI server URL (required for selfhost workflows)
+  comfyui_url: http://127.0.0.1:8001  # Compatibility fallback; routed profiles below are authoritative
   executor_type: null  # Optional override: null=auto (recommended HTTP default), websocket only for explicit opt-in
   backend_management_mode: required  # recommended: Pixelle owns the complete local service lifecycle
   # A Pixelle-owned service is started on demand, stopped after each deliberate image
@@ -119,29 +119,57 @@ comfyui:
   # External backends are never stopped. Set stop_after_batch to false only when
   # keeping models resident is an explicit performance choice.
   #
-  # Managed single-backend profile (image and TTS share one process):
-  #   managed: true               # Allow Pixelle to start the complete service when absent
-  #   stop_after_batch: true      # Stop after a batch; the next batch starts on demand
-  #   python_exe: ""              # Path to Python interpreter for managed backends
-  #   comfyui_root: ""            # Path to ComfyUI installation for managed backends
+  # Image and TTS use separate process identities and ports. Both services still
+  # share models, but each loads only the custom nodes required by its active
+  # default workflow. They are serialized by Pixelle's local accelerator lock.
   backends:
-    default:
-      url: http://127.0.0.1:8000
+    image:
+      url: http://127.0.0.1:8001
       python_exe: E:/ComfyUIData/.venv/Scripts/python.exe
       comfyui_root: E:/comfyui/resources/ComfyUI
       managed: true
       stop_after_batch: true
+      startup_attempts: 4  # one initial attempt plus three retries
+      startup_ready_timeout_seconds: 90
+      startup_retry_base_delay_seconds: 2
       resource_policy: auto       # Preserve batch cache/offload; avoid pinned host-memory pressure
       minimum_free_commit_gb: null  # Adaptive OS safety reserve; set a measured override if needed
-      data_root: E:/ComfyUIData/pixelle
+      custom_node_loading: allowlist
+      allowed_custom_node_folders:
+        - ComfyUI-GGUF
+        - ComfyUI-Easy-Use
+        - ComfyUI-VideoHelperSuite
+      data_root: E:/ComfyUIData/pixelle-image
       shared_base_path: E:/ComfyUIData
-      runtime_dir: _runtime/comfyui
-      logs_dir: logs/comfyui
-      database_url: sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db
+      runtime_dir: _runtime/comfyui/image
+      logs_dir: logs/comfyui/image
+      database_url: sqlite:///E:/ComfyUIData/pixelle-image/user/comfyui.db
+    tts:
+      url: http://127.0.0.1:8002
+      python_exe: E:/ComfyUIData/.venv/Scripts/python.exe
+      comfyui_root: E:/comfyui/resources/ComfyUI
+      managed: true
+      stop_after_batch: true
+      startup_attempts: 4  # one initial attempt plus three retries
+      startup_ready_timeout_seconds: 90
+      startup_retry_base_delay_seconds: 2
+      resource_policy: auto
+      minimum_free_commit_gb: null
+      custom_node_loading: allowlist
+      allowed_custom_node_folders:
+        - ComfyUI-OmniVoice-TTS
+        - ComfyUI-Index-TTS
+        - ComfyUI-Pixelle-TTS
+        - ComfyUI-VideoHelperSuite
+      data_root: E:/ComfyUIData/pixelle-tts
+      shared_base_path: E:/ComfyUIData
+      runtime_dir: _runtime/comfyui/tts
+      logs_dir: logs/comfyui/tts
+      database_url: sqlite:///E:/ComfyUIData/pixelle-tts/user/comfyui.db
   workflow_routing:
-    image: default
-    tts: default
-    default: default
+    image: image
+    tts: tts
+    default: image
   comfyui_api_key: ""  # ComfyUI API key (optional, get from https://platform.comfy.org/profile/api-keys)
   # Note for Docker users: Use host.docker.internal:8188 (Mac/Windows) or host IP address (Linux)
   runninghub_api_key: ""  # RunningHub API key (required for runninghub workflows)

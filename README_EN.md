@@ -326,23 +326,23 @@ Browser will automatically open http://localhost:8501. The API health check is h
 
 > Note: `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:6789/api`.
 
-#### Local Single-Instance ComfyUI Backend: Complete Guide
+#### Local Dual ComfyUI Backend Guide
 
 ##### 1. Understand the three independent services
 
-The complete local generation path contains three services. Image and speech generation no longer use separate ComfyUI processes. Both route to the same Pixelle-managed `default` backend:
+Image and speech use separate ports, runtime directories, and custom-node allowlists. A shared accelerator lock serializes both on-demand services so they do not compete for the GPU:
 
 ```text
-Web UI (8501) -> Pixelle API (6789) -> One ComfyUI (8000)
-                                           ├─ Image workflows
-                                           └─ TTS workflows
+Web UI (8501) -> Pixelle API (6789) -> Image ComfyUI (8001)
+                                     └-> TTS ComfyUI (8002)
 ```
 
 | Service | Default address | Purpose | Started by `start_web.bat` |
 | ---- | ---- | ---- | ---- |
 | Web UI | `http://localhost:8501` | User interface | Yes |
 | Pixelle API | `http://localhost:6789` | Task orchestration, status queries, and workflow submission | Yes |
-| Shared ComfyUI | `http://127.0.0.1:8000` | Runs local image and TTS workflows | No; the first local workflow can start it on demand |
+| Image ComfyUI | `http://127.0.0.1:8001` | Runs local image workflows | No; started on demand |
+| TTS ComfyUI | `http://127.0.0.1:8002` | Runs local speech workflows | No; started on demand |
 
 > `start_web.bat` starts only the Pixelle API and Web UI. It does not launch ComfyUI immediately. With managed mode enabled, Pixelle checks and starts ComfyUI before the first local image or TTS workflow.
 
@@ -372,30 +372,33 @@ If the current directory is the outer `D:\demo1\Pixelle` folder, you can also in
 
 An error stating that the `-File` argument does not exist means the current directory or relative path is wrong. It is not a ComfyUI startup failure.
 
-##### 3. Configure the single backend
+##### 3. Configure the dual backends
 
-Keep one backend profile in the local `config.yaml` and route image, speech, and fallback workflows to it:
+Use `image` and `tts` profiles. Only the essential fields are shown here; see `config.example.yaml` for the complete configuration:
 
 ```yaml
 comfyui:
-  comfyui_url: http://127.0.0.1:8000
-  backend_management_mode: auto
+  comfyui_url: http://127.0.0.1:8001
+  backend_management_mode: required
   backends:
-    default:
-      url: http://127.0.0.1:8000
-      python_exe: E:/ComfyUIData/.venv/Scripts/python.exe
-      comfyui_root: E:/comfyui/resources/ComfyUI
+    image:
+      url: http://127.0.0.1:8001
       managed: true
-      restart_after_batch: true
-      data_root: E:/ComfyUIData/pixelle
-      shared_base_path: E:/ComfyUIData
-      runtime_dir: _runtime/comfyui
-      logs_dir: logs/comfyui
-      database_url: sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db
+      stop_after_batch: true
+      startup_attempts: 4  # one initial attempt plus three retries
+      custom_node_loading: allowlist
+      allowed_custom_node_folders: [ComfyUI-GGUF, ComfyUI-Easy-Use, ComfyUI-VideoHelperSuite]
+    tts:
+      url: http://127.0.0.1:8002
+      managed: true
+      stop_after_batch: true
+      startup_attempts: 4  # one initial attempt plus three retries
+      custom_node_loading: allowlist
+      allowed_custom_node_folders: [ComfyUI-OmniVoice-TTS, ComfyUI-Index-TTS, ComfyUI-Pixelle-TTS, ComfyUI-VideoHelperSuite]
   workflow_routing:
-    image: default
-    tts: default
-    default: default
+    image: image
+    tts: tts
+    default: image
   tts:
     inference_mode: comfyui
 ```
@@ -429,25 +432,27 @@ After first installation, a ComfyUI upgrade, node changes, or model changes, man
 Run from the repository root:
 
 ```powershell
-uv run python -m scripts.comfyui.backend_cli start
+uv run python -m scripts.comfyui.backend_cli start --profile image
+uv run python -m scripts.comfyui.backend_cli start --profile tts
 ```
 
 Windows users can also double-click:
 
 ```text
-scripts\comfyui\start_backend.bat
+scripts\comfyui\start_image_backend.bat
+scripts\comfyui\start_tts_backend.bat
 ```
 
-Running the batch file without arguments, or running the Python command above, strictly reads `backends.default` from `config.yaml`. The `.ps1` file is a low-level maintenance entry point and does not read `config.yaml`; invoke it directly only with complete script arguments or environment overrides.
+The image and TTS launchers read `backends.image` and `backends.tts`. The low-level scripts do not read the configuration file.
 
 Matching check and stop commands:
 
 ```powershell
-uv run python -m scripts.comfyui.backend_cli check
-uv run python -m scripts.comfyui.backend_cli stop
+uv run python -m scripts.comfyui.backend_cli check --profile image
+uv run python -m scripts.comfyui.backend_cli stop --profile image
 ```
 
-The command is idempotent. If the managed backend already owns port `8000`, it reports `already_running` instead of creating a second instance.
+The command is idempotent. Transient startup timeouts clean up the owned process and retry up to three times after the initial attempt; configuration, path, port, and memory failures fail immediately.
 
 After the backend is ready, start Pixelle:
 
@@ -460,7 +465,8 @@ Default addresses:
 - Web UI: `http://localhost:8501`
 - Pixelle API health check: `http://localhost:6789/health`
 - API documentation: `http://localhost:6789/docs`
-- ComfyUI: `http://127.0.0.1:8000`
+- Image ComfyUI: `http://127.0.0.1:8001`
+- TTS ComfyUI: `http://127.0.0.1:8002`
 
 ##### 5. Simplified startup: let the first task start the backend
 
@@ -473,30 +479,30 @@ For routine use, you can start only Pixelle:
 Then submit a local image or TTS task from the Web UI. Before execution, Pixelle:
 
 1. Waits for any in-progress restart of the shared backend.
-2. Checks port `8000` and the managed process state.
+2. Checks the routed profile port and managed process state.
 3. Calls `scripts\comfyui\start_backend.ps1` when the backend is not running.
 4. Waits for the listener, then clears stale pre-generation state.
-5. Submits the image or TTS workflow to the same `default` backend.
+5. Submits the workflow to the routed `image` or `tts` backend.
 
 If the backend is already running, Pixelle reuses it. If automatic startup fails, the current task fails with a specific logged reason. Pixelle does not silently move to an unknown port or create a second instance.
 
-##### 6. Automatic restart after each batch
+##### 6. Automatic stop after each batch
 
 The example configuration uses:
 
 ```yaml
-restart_after_batch: true
+stop_after_batch: true
 ```
 
-After each local workflow batch, Pixelle restarts the shared ComfyUI process to release GPU and CPU memory. New tasks wait for the backend to become ready. A changed ComfyUI PID after a task is expected behavior, not a crash.
+After each local workflow batch, Pixelle stops the corresponding owned backend to release GPU and system memory. External processes are preserved; the next batch starts its routed backend on demand.
 
 If memory is sufficient and repeated-request latency matters more, use:
 
 ```yaml
-restart_after_batch: false
+stop_after_batch: false
 ```
 
-Disabling restart keeps models in GPU memory and speeds up follow-up requests, but image and TTS model switches can accumulate GPU and system memory. Keep `true` when one GPU runs several large model families.
+Disabling the batch stop keeps models in GPU memory and speeds up follow-up requests, but consumes memory continuously. Keep `true` when one GPU runs several large model families.
 
 ##### 7. When the API port is occupied
 
@@ -540,10 +546,11 @@ Windows users can also double-click:
 scripts\comfyui\check_backend.bat
 ```
 
-The output should contain `127.0.0.1:8000` and `managed=True`. Direct health checks are also available:
+The output should contain the routed profile port. Direct health checks are also available:
 
 ```powershell
-Invoke-RestMethod 'http://127.0.0.1:8000/system_stats'
+Invoke-RestMethod 'http://127.0.0.1:8001/system_stats'
+Invoke-RestMethod 'http://127.0.0.1:8002/system_stats'
 Invoke-RestMethod 'http://localhost:6789/health'
 ```
 
@@ -563,7 +570,7 @@ Windows users can also double-click:
 scripts\comfyui\stop_backend.bat
 ```
 
-The stop script terminates only a process whose command line, port, data directory, and PID record all match the Pixelle-managed backend. It refuses to terminate an unrelated owner of port `8000`.
+The stop script terminates only a process whose command line, port, data directory, and PID record all match the selected Pixelle-managed profile.
 
 To stop the Web UI and Pixelle API, press `Ctrl+C` in the `start_web.bat` terminal or close that terminal. The supervisor cleans up both managed child processes. When started separately, press `Ctrl+C` in each terminal.
 
@@ -589,15 +596,15 @@ On each restart, old logs are archived with a timestamp instead of being overwri
 | Symptom | Cause | Fix |
 | ---- | ---- | ---- |
 | The script passed to `-File` does not exist | The current directory is not the repository root | Run `Test-Path .\start_web.bat`, then enter the actual repository directory |
-| Port `8000` is occupied | ComfyUI Desktop or another process is listening | Run the check command and close the conflicting process; do not run two ComfyUI instances |
+| Port `8001` or `8002` is occupied | Another process is listening | Close the conflicting process before retrying; external processes are not taken over |
 | No listener after 90 seconds | Python path, ComfyUI path, dependencies, or custom nodes failed | Read `logs/comfyui/comfyui-backend.stderr.log` |
 | Web UI opens but actions fail | The Pixelle API was not started in a manual split launch | Use `start_web.bat` supervision or check `/health` |
 | The launcher reports an occupied port | A stale process or another program owns the target port | Stop the owner or change both `PIXELLE_API_PORT` / `PIXELLE_WEB_PORT` as needed |
 | Image or speech nodes are missing | Custom nodes were removed, disabled, or failed to import after an update | Read the ComfyUI startup logs and repair the corresponding node dependencies |
-| Process PID changes after a task | `restart_after_batch: true` is releasing memory | No action is required; wait for the backend to become ready |
-| A cloud workflow does not start local ComfyUI | Cloud execution does not use the local backend | This is expected; only local `selfhost` workflows use port `8000` |
+| The profile port stops listening after a task | `stop_after_batch: true` released the owned backend | Expected; the next task starts it on demand |
+| A cloud workflow does not start local ComfyUI | Cloud execution does not use the local backend | This is expected; only local workflows use the dual backends |
 
-Legacy dual-backend entry points remain only as upgrade shims. They forward image and speech commands to the same shared backend and never create a second instance.
+The dual-backend entry points manage the image and TTS profiles independently. A shared accelerator lock serializes GPU use, and each profile stops after its batch.
 
 Managed ComfyUI lifecycle scripts require Windows PowerShell. On macOS and Linux, set the backend profile to `managed: false` and supervise ComfyUI externally; Pixelle still submits local workflows through the configured HTTP address.
 
@@ -637,7 +644,7 @@ Used for generating video scripts.
 Used for generating video images.
 
 **Local Deployment (Recommended)**  
-- ComfyUI URL: Local ComfyUI service address (single-instance default http://127.0.0.1:8000)
+- ComfyUI URLs: image defaults to `http://127.0.0.1:8001`; TTS defaults to `http://127.0.0.1:8002`
 - Click "Test Connection" to confirm service is available
 
 **Cloud Deployment**  

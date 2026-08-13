@@ -7,11 +7,12 @@ memory-release boundary and does not depend on extension-private cleanup endpoin
 
 The scripts in this directory start, inspect, and stop the complete configured service.
 They use the configured ComfyUI core, frontend, model paths, and data paths. They do not
-create a ComfyUI Desktop window, although the browser UI remains available while the
-service is running:
+create a ComfyUI Desktop window. The recommended profiles expose separate on-demand
+browser endpoints:
 
 ```text
-http://127.0.0.1:8000
+Image: http://127.0.0.1:8001
+TTS:   http://127.0.0.1:8002
 ```
 
 ## Lifecycle Modes
@@ -47,12 +48,13 @@ stop_backend.bat
 
 Double-click `.bat` files to run the matching command instead of opening script source code.
 
-With no arguments, each `.bat` file reads `comfyui.backends.default` from the repository `config.yaml` and invokes the unified lifecycle manager. Equivalent commands are:
+The generic launchers read the `default` profile. The image and TTS launchers read the
+`image` and `tts` profiles. Equivalent commands are:
 
 ```powershell
-uv run python -m scripts.comfyui.backend_cli start
-uv run python -m scripts.comfyui.backend_cli check
-uv run python -m scripts.comfyui.backend_cli stop
+uv run python -m scripts.comfyui.backend_cli start --profile image
+uv run python -m scripts.comfyui.backend_cli check --profile tts
+uv run python -m scripts.comfyui.backend_cli stop --profile tts
 ```
 
 The window stays open after the command finishes so you can read the output.
@@ -85,14 +87,13 @@ and a bounded diagnostic tail instead of waiting for the full readiness timeout.
 
 - ComfyUI Python: `E:\ComfyUIData\.venv\Scripts\python.exe`
 - ComfyUI root: `E:\comfyui\resources\ComfyUI`
-- ComfyUI data root: `E:\ComfyUIData\pixelle`
+- Image data root: `E:\ComfyUIData\pixelle-image`
+- TTS data root: `E:\ComfyUIData\pixelle-tts`
 - Shared models and custom nodes root: `E:\ComfyUIData`
 - Frontend root: not overridden by default; ComfyUI serves its built-in frontend unless explicitly configured
-- Database URL: `sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db`
-- Host/port: `127.0.0.1:8000`
-- Backend PID file: `_runtime\comfyui\comfyui-backend.pid`
-- Launcher PID file: `_runtime\comfyui\comfyui-backend.launcher.pid`
-- Ownership record: `_runtime\comfyui\comfyui-backend.owner.json`
+- Image host/port: `127.0.0.1:8001`
+- TTS host/port: `127.0.0.1:8002`
+- Runtime state, logs, and databases are isolated by the `image` and `tts` profiles
 
 ## Overrides
 
@@ -105,14 +106,21 @@ $env:PIXELLE_COMFYUI_DATA_ROOT = 'E:\ComfyUIData\pixelle'
 $env:PIXELLE_COMFYUI_SHARED_BASE_PATH = 'E:\ComfyUIData'
 $env:PIXELLE_COMFYUI_FRONTEND_ROOT = 'E:\comfyui\resources\ComfyUI\web_custom_versions\desktop_app'
 $env:PIXELLE_COMFYUI_DATABASE_URL = 'sqlite:///E:/ComfyUIData/pixelle/user/comfyui.db'
-$env:PIXELLE_COMFYUI_PORT = '8000'
+$env:PIXELLE_COMFYUI_PORT = '8001'
 ```
 
 The scripts do not pass `--enable-cors-header *` by default. Pixelle accesses ComfyUI server-to-server and does not need to expose the local API to arbitrary browser origins.
 
-The legacy `start_image_backend.bat`, `start_tts_backend.bat`, and matching check/stop files are upgrade shims. They all forward to the same `default` backend and never create a second instance.
+`start_image_backend.bat`, `start_tts_backend.bat`, and their matching check/stop
+launchers operate the `image` and `tts` profiles. Each profile may use
+`custom_node_loading: allowlist`; the launcher disables all custom nodes and then loads
+only `allowed_custom_node_folders`. Transient startup timeouts retry three times after
+the initial attempt by default, while configuration, path, port, and memory failures
+fail immediately. One operating-system mutex per local login session prevents the
+image and TTS backends from owning the accelerator at the same time.
 
-If port `8000` is already occupied by an unmanaged process, `start_backend.ps1` refuses to start another backend instead of drifting to a new port.
+If a configured port is occupied by an unmanaged process, `start_backend.ps1` refuses
+to start another backend instead of drifting to a new port.
 
 `stop_backend.ps1` stops a backend only when its PID, process creation time, and configured process identity all match the ownership record. Missing, invalid, stale, legacy, or unrelated records are cleaned without terminating the listener. This prevents PID reuse mistakes, and a backend started by ComfyUI Desktop or another process manager is never taken over based on command-line similarity.
 

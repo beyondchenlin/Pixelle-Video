@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -654,6 +655,141 @@ def test_start_backend_dry_run_uses_headless_safe_args(tmp_path: Path) -> None:
     assert "--extra-model-paths-config" in argv
     assert "--front-end-root" not in argv
     assert "--enable-cors-header" not in argv
+
+
+def test_start_backend_dry_run_loads_only_allowed_custom_nodes(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    (comfyui_root / "comfy" / "cli_args.py").write_text(
+        "--disable-pinned-memory --disable-all-custom-nodes --whitelist-custom-nodes",
+        encoding="utf-8",
+    )
+    custom_nodes_root = data_root / "custom_nodes"
+    custom_nodes_root.mkdir()
+    for folder in ("ComfyUI-OmniVoice-TTS", "ComfyUI-VideoHelperSuite"):
+        (custom_nodes_root / folder).mkdir()
+    encoded_folders = base64.b64encode(
+        json.dumps(
+            ["ComfyUI-OmniVoice-TTS", "ComfyUI-VideoHelperSuite"],
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).decode("ascii")
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root / "pixelle-tts",
+        "-SharedBasePath",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-HostAddress",
+        "127.0.0.1",
+        "-Port",
+        "65502",
+        "-CustomNodeLoading",
+        "allowlist",
+        "-AllowedCustomNodeFoldersBase64",
+        encoded_folders,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    argv = payload["arguments"]
+    assert payload["custom_node_loading"] == "allowlist"
+    assert payload["allowed_custom_node_folders"] == [
+        "ComfyUI-OmniVoice-TTS",
+        "ComfyUI-VideoHelperSuite",
+    ]
+    assert (
+        payload["accelerator_mutex_name"]
+        == "Local\\Pixelle-ComfyUI-Accelerator-v1"
+    )
+    assert "--disable-all-custom-nodes" in argv
+    allowlist_index = argv.index("--whitelist-custom-nodes")
+    assert argv[allowlist_index + 1 :] == [
+        "ComfyUI-OmniVoice-TTS",
+        "ComfyUI-VideoHelperSuite",
+    ]
+    assert "ComfyUI-nunchaku" not in argv
+
+
+def test_custom_node_process_identity_rejects_extra_allowlisted_folder(
+    tmp_path: Path,
+) -> None:
+    probe_script = tmp_path / "probe-custom-node-policy.ps1"
+    common_script = ps_single_quote(SCRIPT_DIR / "backend_common.ps1")
+    probe_script.write_text(
+        f"""
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. '{common_script}'
+$config = @{{
+    CustomNodeLoading = 'allowlist'
+    AllowedCustomNodeFolders = @('ComfyUI-GGUF', 'ComfyUI-Easy-Use')
+}}
+$exact = Test-BackendCustomNodePolicyCommandLine `
+    $config `
+    'python main.py --disable-all-custom-nodes --whitelist-custom-nodes ComfyUI-GGUF ComfyUI-Easy-Use'
+$extra = Test-BackendCustomNodePolicyCommandLine `
+    $config `
+    'python main.py --disable-all-custom-nodes --whitelist-custom-nodes ComfyUI-GGUF ComfyUI-Easy-Use ComfyUI-nunchaku'
+@{{ exact = $exact; extra = $extra }} | ConvertTo-Json -Compress
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = run_powershell(probe_script)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"exact": True, "extra": False}
+
+
+def test_start_backend_rejects_missing_allowed_custom_node(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    (comfyui_root / "comfy" / "cli_args.py").write_text(
+        "--disable-pinned-memory --disable-all-custom-nodes --whitelist-custom-nodes",
+        encoding="utf-8",
+    )
+    encoded_folders = base64.b64encode(
+        json.dumps(["Missing-Custom-Node"]).encode("utf-8")
+    ).decode("ascii")
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        tmp_path / "runtime",
+        "-LogsDir",
+        tmp_path / "logs",
+        "-Port",
+        "65503",
+        "-CustomNodeLoading",
+        "allowlist",
+        "-AllowedCustomNodeFoldersBase64",
+        encoded_folders,
+    )
+
+    assert result.returncode != 0
+    assert "does not exist" in (result.stdout + result.stderr)
 
 
 def test_start_backend_memory_safe_policy_preserves_batch_reuse_and_offload(
@@ -2036,9 +2172,83 @@ def test_backend_supervisor_writes_its_own_startup_failure_log(tmp_path: Path) -
         exit_code_file,
         "-ArgumentsBase64",
         arguments_base64,
+        "-AcceleratorMutexName",
+        f"Local\\Pixelle-Test-{uuid.uuid4().hex}",
     )
 
     assert result.returncode != 0
     assert supervisor_stderr_log.exists()
     assert supervisor_stderr_log.read_text(encoding="utf-8").strip()
     assert not exit_code_file.exists()
+
+
+def test_backend_supervisor_allows_only_one_accelerator_owner(
+    tmp_path: Path,
+) -> None:
+    mutex_name = f"Local\\Pixelle-Test-{uuid.uuid4().hex}"
+    arguments_base64 = base64.b64encode(
+        json.dumps(["-c", "import time; time.sleep(30)"]).encode("utf-8")
+    ).decode("ascii")
+
+    def supervisor_command(prefix: str) -> list[str]:
+        return [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(SCRIPT_DIR / "backend_supervisor.ps1"),
+            "-PythonExe",
+            sys.executable,
+            "-WorkingDirectory",
+            str(tmp_path),
+            "-StdoutLog",
+            str(tmp_path / f"{prefix}.stdout.log"),
+            "-StderrLog",
+            str(tmp_path / f"{prefix}.stderr.log"),
+            "-SupervisorStderrLog",
+            str(tmp_path / f"{prefix}.supervisor.stderr.log"),
+            "-ExitCodeFile",
+            str(tmp_path / f"{prefix}.exit-code"),
+            "-ArgumentsBase64",
+            arguments_base64,
+            "-AcceleratorMutexName",
+            mutex_name,
+        ]
+
+    first = subprocess.Popen(
+        supervisor_command("first"),
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        first_stdout = tmp_path / "first.stdout.log"
+        while not first_stdout.exists() and time.monotonic() < deadline:
+            if first.poll() is not None:
+                raise AssertionError("first supervisor exited before acquiring mutex")
+            time.sleep(0.05)
+        assert first_stdout.exists()
+
+        second = subprocess.run(
+            supervisor_command("second"),
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+
+        assert second.returncode != 0
+        second_error = tmp_path / "second.supervisor.stderr.log"
+        assert "[PIXELLE_ACCELERATOR_BUSY]" in second_error.read_text(
+            encoding="utf-8"
+        )
+    finally:
+        first.terminate()
+        try:
+            first.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            first.kill()
+            first.wait(timeout=10)

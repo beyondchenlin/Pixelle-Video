@@ -1,4 +1,15 @@
 @echo off
-echo [Pixelle] Deprecated launcher: forwarding to the shared default ComfyUI backend.
-call "%~dp0check_backend.bat" %*
-exit /b %ERRORLEVEL%
+setlocal
+pushd "%~dp0..\.."
+uv run python -m scripts.comfyui.backend_cli check %* --profile tts
+set "EXIT_CODE=%ERRORLEVEL%"
+popd
+echo.
+if "%EXIT_CODE%"=="0" (
+  echo [Pixelle] tts backend command completed successfully.
+) else (
+  echo [Pixelle] tts backend command failed with exit code %EXIT_CODE%.
+)
+echo.
+pause
+exit /b %EXIT_CODE%

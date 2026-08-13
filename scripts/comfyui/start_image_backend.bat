@@ -1,4 +1,15 @@
 @echo off
-echo [Pixelle] Deprecated launcher: forwarding to the shared default ComfyUI backend.
-call "%~dp0start_backend.bat" %*
-exit /b %ERRORLEVEL%
+setlocal
+pushd "%~dp0..\.."
+uv run python -m scripts.comfyui.backend_cli start %* --profile image
+set "EXIT_CODE=%ERRORLEVEL%"
+popd
+echo.
+if "%EXIT_CODE%"=="0" (
+  echo [Pixelle] image backend command completed successfully.
+) else (
+  echo [Pixelle] image backend command failed with exit code %EXIT_CODE%.
+)
+echo.
+pause
+exit /b %EXIT_CODE%
