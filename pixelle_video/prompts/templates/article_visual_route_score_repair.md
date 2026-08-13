@@ -1,6 +1,6 @@
 ---
 prompt_id: article_visual_route_score_repair
-version: 1
+version: 2
 stage: article_visual_route_score_repair
 purpose: Repair only invalid content-route scores while preserving the accepted article analysis and route semantics.
 output_contract: JSON object with score_repairs; every item has candidate_index and five numeric content-only scores.
@@ -19,9 +19,8 @@ Route candidates whose scores are invalid:
 Task:
 Score only the listed routes. Preserve every candidate_index exactly. Do not rewrite, add, remove, or reinterpret routes.
 
-Return JSON only in this shape:
+Return JSON only in this shape, without markdown fences:
 
-```json
 {{
   "score_repairs": [
     {{
@@ -36,7 +35,6 @@ Return JSON only in this shape:
     }}
   ]
 }}
-```
 
 Rules:
 - Return exactly one score_repairs item for every listed candidate_index.

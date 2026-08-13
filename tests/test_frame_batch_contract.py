@@ -97,3 +97,21 @@ def test_extract_frame_batch_records_preserves_legacy_aliases():
         primary_key="frame_visual_plans",
         stage="test",
     ) == ({"frame_id": "f1"},)
+
+
+@pytest.mark.parametrize("alias", ["frame_plans", "visual_plans", "frame_visual_plan"])
+def test_extract_frame_batch_records_accepts_bounded_provider_aliases(alias):
+    assert extract_frame_batch_records(
+        {alias: [{"frame_id": "f1"}]},
+        primary_key="frame_visual_plans",
+        stage="test",
+    ) == ({"frame_id": "f1"},)
+
+
+@pytest.mark.parametrize("wrapper", ["data", "result", "output", "response"])
+def test_extract_frame_batch_records_accepts_bounded_provider_wrappers(wrapper):
+    assert extract_frame_batch_records(
+        {wrapper: {"frame_visual_plans": [{"frame_id": "f1"}]}},
+        primary_key="frame_visual_plans",
+        stage="test",
+    ) == ({"frame_id": "f1"},)

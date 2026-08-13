@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -58,6 +59,10 @@ _NEUTRAL_ROUTE_SCORES = {
     field_name: 0.0
     for field_name in CONTENT_ROUTE_SCORE_FIELDS
 }
+_JSON_NUMBER_TEXT_RE = re.compile(
+    r"^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$"
+)
+_NON_NEGATIVE_INTEGER_TEXT_RE = re.compile(r"^(?:0|[1-9]\d*)$")
 
 
 class VisualRouteAnalysisContractError(ValueError):
@@ -262,9 +267,23 @@ def validate_score_repairs(
     for raw_repair in raw_repairs:
         if not isinstance(raw_repair, Mapping):
             continue
+        raw_score_payload = raw_repair.get("scores")
+        if "scores" in raw_repair:
+            if not isinstance(raw_score_payload, Mapping):
+                continue
+            score_payload = raw_score_payload
+        else:
+            score_payload = raw_repair
         try:
-            repair = VisualRouteScoreRepairItemResponse.model_validate(raw_repair)
-        except ValidationError:
+            repair = VisualRouteScoreRepairItemResponse.model_validate(
+                {
+                    "candidate_index": _normalize_candidate_index(
+                        raw_repair.get("candidate_index")
+                    ),
+                    "scores": _canonical_score_payload(score_payload),
+                }
+            )
+        except (ValidationError, VisualRouteAnalysisContractError):
             continue
         candidate_index = repair.candidate_index
         if candidate_index not in expected_indices:
@@ -327,19 +346,54 @@ def _strict_route_scores(candidate_payload: Mapping[str, Any]) -> VisualRouteSco
     else:
         score_payload = candidate_payload
 
+    canonical_scores = _canonical_score_payload(score_payload)
+    validated = VisualRouteScoreResponse.model_validate(canonical_scores)
+    return VisualRouteScores.from_mapping(validated.model_dump(mode="python"))
+
+
+def _canonical_score_payload(score_payload: Mapping[str, Any]) -> dict[str, Any]:
     canonical_scores: dict[str, Any] = {}
     for canonical_name, aliases in _SCORE_FIELD_ALIASES.items():
         for alias in aliases:
             if alias in score_payload:
-                canonical_scores[canonical_name] = score_payload[alias]
+                canonical_scores[canonical_name] = _normalize_provider_score(
+                    score_payload[alias]
+                )
                 break
         else:
             raise VisualRouteAnalysisContractError(
                 "missing_score_field",
                 f"missing required score field: {canonical_name}",
             )
-    validated = VisualRouteScoreResponse.model_validate(canonical_scores)
-    return VisualRouteScores.from_mapping(validated.model_dump(mode="python"))
+    return canonical_scores
+
+
+def _normalize_provider_score(value: Any) -> Any:
+    """Normalize only bounded JSON-number strings at the provider boundary."""
+
+    if not isinstance(value, str):
+        return value
+    normalized = value.strip()
+    if (
+        len(normalized) > 32
+        or _JSON_NUMBER_TEXT_RE.fullmatch(normalized) is None
+    ):
+        return value
+    return float(normalized)
+
+
+def _normalize_candidate_index(value: Any) -> Any:
+    """Normalize a bounded decimal index without weakening the strict model."""
+
+    if not isinstance(value, str):
+        return value
+    normalized = value.strip()
+    if (
+        len(normalized) > 10
+        or _NON_NEGATIVE_INTEGER_TEXT_RE.fullmatch(normalized) is None
+    ):
+        return value
+    return int(normalized)
 
 
 def _find_mapping_payload(
