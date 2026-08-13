@@ -320,6 +320,8 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert ".st-key-recent_video_grid" in css
     assert f".st-key-{gallery.RECENT_VIDEO_GRID_KEY} {{" in css
     assert "repeat(auto-fill, minmax(min(220px, 100%), 1fr))" in css
+    assert "content-visibility: auto" in css
+    assert "contain-intrinsic-size: auto 15rem" in css
     assert "justify-content: stretch" in css
     assert "gap: 0.65rem" in css
     assert f'.st-key-{gallery.RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"]' in css
@@ -702,4 +704,5 @@ def test_render_recent_video_card_activates_inline_player_without_eager_media(mo
     assert play_button[1]["args"][1] == gallery.RECENT_VIDEO_PLAYER_KEY
     assert any("recent-video-cover" in body for body in captured["markdown"])
     assert any("loading=\"lazy\"" in body for body in captured["markdown"])
+    assert any("fetchpriority=\"low\"" in body for body in captured["markdown"])
     assert all("<video" not in body for body in captured["markdown"])

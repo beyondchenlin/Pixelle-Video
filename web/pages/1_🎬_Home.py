@@ -16,6 +16,7 @@ Home Page - Main video generation interface
 """
 
 import sys
+from functools import partial
 from pathlib import Path
 
 # Add project root to sys.path
@@ -33,8 +34,11 @@ from web.components.header import render_header
 from web.components.recent_video_gallery import render_recent_video_gallery
 from web.components.settings import render_advanced_settings
 from web.home_dashboard import (
-    change_dashboard_page,
-    normalize_dashboard_page,
+    DEFAULT_HOME_DASHBOARD_BATCH_SIZE,
+    DEFAULT_HOME_DASHBOARD_INITIAL_COUNT,
+    increase_dashboard_visible_count,
+    normalize_dashboard_visible_count,
+    reset_dashboard_visible_count,
     resolve_dashboard_warmup_target,
 )
 from web.home_editor_warmup import schedule_home_editor_warmup
@@ -49,8 +53,7 @@ from web.utils.streamlit_helpers import keyed_widget_default_kwargs
 
 HOME_PIPELINE_KEY = "home_active_pipeline"
 HOME_EDITOR_OPEN_KEY = "home_editor_open"
-HOME_DASHBOARD_PAGE_KEY = "home_dashboard_video_page"
-HOME_DASHBOARD_PAGE_SIZE = 12
+HOME_DASHBOARD_VISIBLE_COUNT_KEY = "home_dashboard_video_visible_count"
 
 # Page config
 st.set_page_config(
@@ -81,44 +84,37 @@ def main():
         value=False,
         key=HOME_EDITOR_OPEN_KEY,
         help=tr("home.editor.open_help"),
+        on_change=reset_dashboard_visible_count,
+        args=(st.session_state,),
+        kwargs={"state_key": HOME_DASHBOARD_VISIBLE_COUNT_KEY},
     )
     if not editor_open:
+        from web.components.progressive_load_trigger import (
+            render_progressive_load_trigger,
+        )
+
         st.caption(tr("home.dashboard.caption"))
-        page = normalize_dashboard_page(st.session_state.get(HOME_DASHBOARD_PAGE_KEY))
+        visible_count = normalize_dashboard_visible_count(
+            st.session_state.get(HOME_DASHBOARD_VISIBLE_COUNT_KEY)
+        )
         gallery_result = render_recent_video_gallery(
             None,
             key_suffix="_dashboard",
             show_all=True,
-            item_offset=page * HOME_DASHBOARD_PAGE_SIZE,
-            page_size=HOME_DASHBOARD_PAGE_SIZE,
+            page_size=visible_count,
         )
-        if gallery_result.rendered_count == 0 and page > 0:
-            st.session_state[HOME_DASHBOARD_PAGE_KEY] = 0
-            st.rerun()
-        if gallery_result.has_previous or gallery_result.has_next:
-            previous_col, page_col, next_col = st.columns((1, 2, 1))
-            with previous_col:
-                st.button(
-                    tr("recent_videos.previous_page"),
-                    key="home_dashboard_previous_page",
-                    on_click=change_dashboard_page,
-                    args=(st.session_state,),
-                    kwargs={"state_key": HOME_DASHBOARD_PAGE_KEY, "delta": -1},
-                    disabled=not gallery_result.has_previous,
-                    width="stretch",
-                )
-            with page_col:
-                st.caption(tr("recent_videos.page", page=page + 1))
-            with next_col:
-                st.button(
-                    tr("recent_videos.next_page"),
-                    key="home_dashboard_next_page",
-                    on_click=change_dashboard_page,
-                    args=(st.session_state,),
-                    kwargs={"state_key": HOME_DASHBOARD_PAGE_KEY, "delta": 1},
-                    disabled=not gallery_result.has_next,
-                    width="stretch",
-                )
+        if gallery_result.has_next:
+            render_progressive_load_trigger(
+                label=tr("recent_videos.load_more"),
+                key="home_dashboard_progressive_loader",
+                on_request_more=partial(
+                    increase_dashboard_visible_count,
+                    st.session_state,
+                    state_key=HOME_DASHBOARD_VISIBLE_COUNT_KEY,
+                    batch_size=DEFAULT_HOME_DASHBOARD_BATCH_SIZE,
+                    initial_count=DEFAULT_HOME_DASHBOARD_INITIAL_COUNT,
+                ),
+            )
         schedule_home_editor_warmup(
             resolve_dashboard_warmup_target(st.session_state.get(HOME_PIPELINE_KEY))
         )
