@@ -1148,11 +1148,12 @@ function Test-ManagedComfyUICommandLine {
     }
 
     $supervisorPath = Join-Path $PSScriptRoot 'backend_supervisor.ps1'
+    $launchIdentity = Get-BackendLaunchIdentity $Config
     return (
         (Test-CommandLineContainsValueToken $CommandLine $supervisorPath) -and
         (Test-CommandLineArgumentValue $CommandLine '-PythonExe' $Config.PythonExe) -and
         (Test-CommandLineArgumentValue $CommandLine '-WorkingDirectory' $Config.ComfyUIRoot) -and
-        (Test-CommandLineArgumentValue $CommandLine '-ArgumentsBase64' (Get-BackendArgumentsBase64 $Config)) -and
+        (Test-CommandLineArgumentValue $CommandLine '-LaunchIdentity' $launchIdentity) -and
         (Test-CommandLineArgumentValue $CommandLine '-ProfileName' $Config.ProfileName) -and
         (Test-CommandLineArgumentValue $CommandLine '-ComfyUIRoot' $Config.ComfyUIRoot) -and
         (Test-CommandLineArgumentValue $CommandLine '-SharedBasePath' $Config.SharedBasePath) -and

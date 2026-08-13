@@ -13,6 +13,7 @@ param(
     [string]$ExitCodeFile,
     [Parameter(Mandatory = $true)]
     [string]$ArgumentsBase64,
+    [string]$LaunchIdentity = '',
     [string]$ProfileName = 'default',
     [string]$ComfyUIRoot = '',
     [string]$SharedBasePath = '',
@@ -20,6 +21,8 @@ param(
     [string]$AllowedCustomNodeFoldersBase64 = '',
     [Parameter(Mandatory = $true)]
     [string]$AcceleratorMutexName,
+    [ValidateRange(0, 30000)]
+    [int]$AcceleratorMutexWaitMilliseconds = 5000,
     [int]$Port = 0
 )
 
@@ -251,7 +254,9 @@ $stdoutStream = $null
 $stderrStream = $null
 try {
     try {
-        $acceleratorMutexAcquired = $acceleratorMutex.WaitOne(0)
+        $acceleratorMutexAcquired = $acceleratorMutex.WaitOne(
+            $AcceleratorMutexWaitMilliseconds
+        )
     }
     catch [System.Threading.AbandonedMutexException] {
         $acceleratorMutexAcquired = $true
@@ -260,7 +265,8 @@ try {
         throw (
             "[PIXELLE_ACCELERATOR_BUSY] Another Pixelle-managed ComfyUI backend " +
             "already owns accelerator group $AcceleratorMutexName. Stop that " +
-            "backend before starting this profile."
+            "backend before starting this profile. The lock did not become " +
+            "available within $AcceleratorMutexWaitMilliseconds milliseconds."
         )
     }
     $stdoutStream = [System.IO.FileStream]::new(
