@@ -355,7 +355,7 @@ def build_recent_video_gallery_css(
     .st-key-{grid_key} div[data-testid="stMarkdownContainer"]:has(.recent-video-info) {{
         margin-bottom: 0 !important;
     }}
-    .recent-video-cover-link {{
+    .recent-video-cover-frame {{
         display: block;
         aspect-ratio: 16 / 9;
         overflow: hidden;
@@ -367,11 +367,6 @@ def build_recent_video_gallery_css(
         width: 100%;
         height: 100%;
         object-fit: cover;
-        transition: transform 160ms ease, filter 160ms ease;
-    }}
-    .recent-video-cover-link:hover .recent-video-cover {{
-        transform: scale(1.025);
-        filter: brightness(0.94);
     }}
     .st-key-{grid_key} video[data-testid="stVideo"] {{
         width: 100% !important;
@@ -562,16 +557,13 @@ def render_recent_video_card(
         if player_active:
             render_recent_video_player(media_urls.stream_url)
         elif media_urls is not None and cover_url_value:
-            stream_url = escape(media_urls.stream_url, quote=True)
             cover_url = escape(cover_url_value, quote=True)
             st.markdown(
                 (
-                    f'<a class="recent-video-cover-link" href="{stream_url}" '
-                    'target="_blank" rel="noopener noreferrer" '
-                    f'aria-label="{escape(raw_title, quote=True)}">'
+                    '<div class="recent-video-cover-frame">'
                     f'<img class="recent-video-cover" src="{cover_url}" alt="{escape(raw_title, quote=True)}" '
                     'loading="lazy" decoding="async" fetchpriority="low" />'
-                    '</a>'
+                    '</div>'
                 ),
                 unsafe_allow_html=True,
             )

@@ -327,6 +327,8 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert f'.st-key-{gallery.RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"]' in css
     assert "padding: 0.5rem !important" in css
     assert ".recent-video-placeholder" in css
+    assert ".recent-video-cover-frame" in css
+    assert ".recent-video-cover-link" not in css
     assert "linear-gradient" in css
     assert "aspect-ratio: 16 / 9" in css
     assert "object-fit: cover" in css
@@ -646,7 +648,7 @@ def test_paginated_compact_gallery_honors_page_size_above_compact_limit(monkeypa
     assert result.has_next is True
 
 
-def test_render_recent_video_card_activates_inline_player_without_eager_media(monkeypatch):
+def test_render_recent_video_card_uses_non_clickable_cover_and_on_demand_player(monkeypatch):
     captured = {"links": [], "markdown": [], "buttons": []}
 
     class _FakeContext:
@@ -705,4 +707,6 @@ def test_render_recent_video_card_activates_inline_player_without_eager_media(mo
     assert any("recent-video-cover" in body for body in captured["markdown"])
     assert any("loading=\"lazy\"" in body for body in captured["markdown"])
     assert any("fetchpriority=\"low\"" in body for body in captured["markdown"])
+    assert all("recent-video-cover-link" not in body for body in captured["markdown"])
+    assert all("target=\"_blank\"" not in body for body in captured["markdown"])
     assert all("<video" not in body for body in captured["markdown"])
