@@ -9,6 +9,10 @@ from api.config import APIConfig
 from api.runtime_context import resolve_api_configured_path
 from api.tasks.executors import TaskExecutorRegistry, WorkerCapabilityRegistry
 from api.tasks.worker_registry import WorkerRegistry
+from api.video.task_submitter import (
+    TaskManagerVideoGenerationTaskSubmitter,
+    VideoGenerationTaskSubmitter,
+)
 from api.workbench.task_submitter import (
     StoryboardWorkbenchTaskSubmitter,
     TaskManagerStoryboardWorkbenchTaskSubmitter,
@@ -51,6 +55,7 @@ class PlatformDependencies:
     worker_capability_registry: WorkerCapabilityRegistry | None = None
     worker_registry: WorkerRegistry | None = None
     storyboard_workbench_task_submitter: StoryboardWorkbenchTaskSubmitter | None = None
+    video_generation_task_submitter: VideoGenerationTaskSubmitter | None = None
 
 
 def configure_platform_dependencies(
@@ -133,6 +138,11 @@ def build_platform_dependencies(
         if task_manager is not None
         else None
     )
+    video_task_submitter = (
+        TaskManagerVideoGenerationTaskSubmitter(task_manager)
+        if task_manager is not None
+        else None
+    )
     dependencies = PlatformDependencies(
         artifact_repository=artifact_repository,
         artifact_object_store=artifact_object_store,
@@ -150,6 +160,7 @@ def build_platform_dependencies(
         worker_capability_registry=worker_capability_registry,
         worker_registry=worker_registry,
         storyboard_workbench_task_submitter=task_submitter,
+        video_generation_task_submitter=video_task_submitter,
     )
     return dependencies
 

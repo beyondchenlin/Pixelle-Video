@@ -22,6 +22,7 @@ except Exception:  # pragma: no cover - raw mode or API changes
 
 
 DEFAULT_SESSION_KEY = "__default__"
+PROCESS_RUNTIME_KEY = "__process_tasks__"
 RUNTIME_CLOSE_TIMEOUT_SECONDS = 30
 
 
@@ -34,8 +35,15 @@ def _create_event_loop() -> asyncio.AbstractEventLoop:
 class AsyncRuntime:
     """Run async work on a dedicated, long-lived event loop."""
 
-    def __init__(self, name: str, streamlit_ctx=None):
+    def __init__(
+        self,
+        name: str,
+        streamlit_ctx=None,
+        *,
+        attach_streamlit_context: bool = True,
+    ):
         self._name = name
+        self._attach_context = attach_streamlit_context
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ready = threading.Event()
         self._stopped = threading.Event()
@@ -51,7 +59,7 @@ class AsyncRuntime:
         self._ready.wait()
 
     def _attach_streamlit_context(self, ctx):
-        if add_script_run_ctx is None or ctx is None:
+        if not self._attach_context or add_script_run_ctx is None or ctx is None:
             return
         add_script_run_ctx(self._thread, ctx=ctx)
 
@@ -234,7 +242,11 @@ def _cleanup_stale_runtimes(current_session_key: str):
     stale_items = []
     with _RUNTIMES_LOCK:
         for session_key, handle in _RUNTIMES.items():
-            if session_key in {DEFAULT_SESSION_KEY, current_session_key}:
+            if session_key in {
+                DEFAULT_SESSION_KEY,
+                PROCESS_RUNTIME_KEY,
+                current_session_key,
+            }:
                 continue
             if not session_exists(session_key):
                 stale_items.append((session_key, handle))
@@ -263,6 +275,30 @@ def get_async_runtime() -> AsyncRuntime:
         return handle.runtime
 
 
+def get_process_async_runtime() -> AsyncRuntime:
+    """Get the process-scoped runtime used by refresh-resilient background tasks."""
+    with _RUNTIMES_LOCK:
+        handle = _RUNTIMES.get(PROCESS_RUNTIME_KEY)
+        if handle is None:
+            handle = ManagedAsyncRuntime(
+                runtime=AsyncRuntime(
+                    PROCESS_RUNTIME_KEY,
+                    attach_streamlit_context=False,
+                )
+            )
+            _RUNTIMES[PROCESS_RUNTIME_KEY] = handle
+        return handle.runtime
+
+
+def register_process_async_cleanup(
+    async_cleanup: Callable[[], Awaitable[None]],
+) -> None:
+    """Register cleanup for process-scoped background task resources."""
+    get_process_async_runtime()
+    with _RUNTIMES_LOCK:
+        _RUNTIMES[PROCESS_RUNTIME_KEY].async_cleanup = async_cleanup
+
+
 def register_async_cleanup(
     async_cleanup: Callable[[], Awaitable[None]],
     session_key: Optional[str] = None,
@@ -284,7 +320,10 @@ def register_async_cleanup(
 def shutdown_all_async_runtimes(*, log: bool = True):
     """Shutdown all managed runtimes. Used by tests and process exit."""
     with _RUNTIMES_LOCK:
-        runtime_items = list(_RUNTIMES.items())
+        runtime_items = sorted(
+            _RUNTIMES.items(),
+            key=lambda item: item[0] == PROCESS_RUNTIME_KEY,
+        )
 
     for session_key, handle in runtime_items:
         if not _close_managed_runtime(session_key, handle, log=log):

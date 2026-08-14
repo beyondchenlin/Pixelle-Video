@@ -50,8 +50,17 @@ def resolve_storyboard_workbench_client(
     return _cached_client(
         session_state,
         cache_key=("inprocess", id(pixelle_video)),
-        factory=lambda: InProcessStoryboardWorkbenchClient(pixelle_video=pixelle_video),
+        factory=lambda: InProcessStoryboardWorkbenchClient(
+            pixelle_video=pixelle_video,
+            task_async_runner=_process_task_runner,
+        ),
     )
+
+
+def _process_task_runner(coro):
+    from web.state.session import run_process_task_async
+
+    return run_process_task_async(coro)
 
 
 def _cached_client(

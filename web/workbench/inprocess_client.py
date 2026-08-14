@@ -8,9 +8,10 @@ from web.workbench.display import local_bytes_image_display
 
 
 class InProcessStoryboardWorkbenchClient:
-    def __init__(self, *, pixelle_video: Any, async_runner=None) -> None:
+    def __init__(self, *, pixelle_video: Any, async_runner=None, task_async_runner=None) -> None:
         self.pixelle_video = pixelle_video
         self._async_runner = async_runner
+        self._task_async_runner = task_async_runner
 
     def get_capabilities(self) -> dict[str, Any]:
         submitter = getattr(self.pixelle_video, "storyboard_workbench_task_submitter", None)
@@ -19,7 +20,7 @@ class InProcessStoryboardWorkbenchClient:
                 "can_regenerate_frame_image": False,
                 "regenerate_unavailable_reason": "task submitter is not configured",
             }
-        capabilities = self._run_async(submitter.get_capabilities())
+        capabilities = self._run_task_async(submitter.get_capabilities())
         return self._capabilities_to_dict(capabilities)
 
     def list_image_candidates(
@@ -106,7 +107,7 @@ class InProcessStoryboardWorkbenchClient:
                 "code": "regenerate_unavailable",
                 "reason": "task submitter is not configured",
             }
-        capabilities = self._run_async(submitter.get_capabilities())
+        capabilities = self._run_task_async(submitter.get_capabilities())
         capability_payload = self._capabilities_to_dict(capabilities)
         if not capability_payload["can_regenerate_frame_image"]:
             return {
@@ -125,7 +126,7 @@ class InProcessStoryboardWorkbenchClient:
             state=state,
             artifact_id=artifact_id,
         )
-        submission = self._run_async(
+        submission = self._run_task_async(
             submitter.reserve_frame_image_regeneration(
                 generation_fingerprint=task_request.generation_fingerprint,
                 request_params=dict(task_request.request_params),
@@ -195,6 +196,11 @@ class InProcessStoryboardWorkbenchClient:
         if self._async_runner is not None:
             return self._async_runner(coro)
         return get_async_runtime().run(coro)
+
+    def _run_task_async(self, coro):
+        if self._task_async_runner is not None:
+            return self._task_async_runner(coro)
+        return self._run_async(coro)
 
 
 __all__ = ["InProcessStoryboardWorkbenchClient"]

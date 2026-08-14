@@ -24,6 +24,7 @@ from urllib.request import url2pathname
 import streamlit as st
 from loguru import logger
 
+from api.tasks.models import ACTIVE_TASK_STATUSES, TaskStatus
 from pixelle_video.config import config_manager
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.models.layered_template import LayeredTemplateSpec
@@ -84,17 +85,25 @@ from web.components.prompt_generation_performance import (
 )
 from web.components.recent_video_gallery import (
     render_recent_video_gallery,
-    store_recent_generated_video,
+    store_recent_video_task_snapshot,
 )
 from web.i18n import tr
-from web.state.storyboard_capture import capture_snapshot_from_result
+from web.state.storyboard_capture import (
+    capture_snapshot_from_task_dir,
+)
 from web.state.storyboard_preview import set_storyboard_preview_snapshot
+from web.state.video_generation_client import (
+    VIDEO_GENERATION_TASK_QUERY_PARAM,
+    read_video_generation_task_id,
+    resolve_video_generation_client,
+    write_video_generation_task_id,
+)
 from web.utils.async_helpers import run_async
 from web.utils.progress_i18n import format_progress_event_message, localize_progress_extra_info
 from web.utils.render_backend_ui import copy_render_backend
-from web.utils.streamlit_helpers import RefreshableSlot, safe_rerun
+from web.utils.streamlit_helpers import safe_rerun
 from web.utils.tts_audio_strategy_ui import copy_tts_audio_strategy
-from web.utils.tts_split_mode_ui import TTS_SPLIT_SETTING_KEYS, copy_tts_split_settings
+from web.utils.tts_split_mode_ui import copy_tts_split_settings
 
 VIDEO_PREVIEW_CONTAINER_KEY = "output_video_preview"
 VIDEO_PREVIEW_WIDTH = "50%"
@@ -148,10 +157,9 @@ REFERENCE_IMAGE_OPTION_KEYS = (
     "reference_image_profile_merge_mode",
 )
 SINGLE_VIDEO_GENERATING_KEY = "single_video_is_generating"
-SINGLE_VIDEO_REQUESTED_KEY = "single_video_generation_requested"
-SINGLE_VIDEO_DUPLICATE_CLICK_KEY = "single_video_duplicate_click"
 SINGLE_VIDEO_BUTTON_KEY = "single_video_generate_button"
 SINGLE_VIDEO_RESULT_SUMMARY_KEY = "single_video_result_summary"
+SINGLE_VIDEO_HANDLED_TASK_KEY = "single_video_handled_task"
 LAYOUT_PREVIEW_REAL_PREVIEW_FRAME_KEY = "layout_preview_real_preview_frame"
 
 
@@ -188,19 +196,8 @@ def _get_or_create_log_session_id(session_state) -> str:
     return session_id
 
 
-def _request_single_video_generation() -> None:
-    """Mark a single-video generation request unless one is already running."""
-    if st.session_state.get(SINGLE_VIDEO_GENERATING_KEY):
-        st.session_state[SINGLE_VIDEO_DUPLICATE_CLICK_KEY] = True
-        return
-
-    st.session_state[SINGLE_VIDEO_GENERATING_KEY] = True
-    st.session_state[SINGLE_VIDEO_REQUESTED_KEY] = True
-
-
 def _reset_single_video_generation_state() -> None:
     st.session_state[SINGLE_VIDEO_GENERATING_KEY] = False
-    st.session_state[SINGLE_VIDEO_REQUESTED_KEY] = False
 
 
 def _clear_single_video_result_summary(session_state) -> None:
@@ -1253,7 +1250,6 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "prompt_prefix": video_params.get("prompt_prefix", ""),
         "bgm_path": video_params.get("bgm_path"),
         "bgm_volume": video_params.get("bgm_volume", 0.2) if video_params.get("bgm_path") else 0.2,
-        "progress_callback": progress_callback,
         **size_contract.to_params(),
         "media_placement": _media_placement_payload(
             video_params.get("media_placement"),
@@ -1269,6 +1265,8 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "shot_strategy": storyboard_contract.shot_strategy,
         **business_context,
     }
+    if progress_callback is not None:
+        request["progress_callback"] = progress_callback
     if storyboard_contract.frame_overrides:
         request["frame_overrides"] = [
             dict(override) for override in storyboard_contract.frame_overrides
@@ -1420,264 +1418,168 @@ def render_single_output(pixelle_video, video_params):
 
 
 def _render_single_output_sections(pixelle_video, video_params):
-    generation_runner = _render_generation_section(pixelle_video, video_params)
+    _render_generation_section(pixelle_video, video_params)
+    _render_layout_preview_workbench_section(
+        {**video_params, "pixelle_video": pixelle_video},
+    )
+    render_recent_video_gallery(pixelle_video)
 
+
+def _build_task_result_summary(snapshot) -> dict:
+    from pixelle_video.utils.template_util import parse_template_size
+
+    result = snapshot.result or {}
+    width = result.get("canvas_width")
+    height = result.get("canvas_height")
+    if (width is None or height is None) and result.get("frame_template"):
+        width, height = parse_template_size(resolve_template_path(result["frame_template"]))
+
+    started_at = datetime.fromisoformat(snapshot.started_at or snapshot.created_at)
+    completed_at = datetime.fromisoformat(snapshot.completed_at or snapshot.created_at)
+    return {
+        "video_path": snapshot.video_path,
+        "generation_time_sec": max(0.0, (completed_at - started_at).total_seconds()),
+        "file_size_mb": float(result.get("file_size") or 0) / (1024 * 1024),
+        "frame_count": int(result.get("frame_count") or 0),
+        "video_width": int(width or 0),
+        "video_height": int(height or 0),
+    }
+
+
+def _handle_completed_video_task(snapshot) -> None:
+    if not snapshot.video_path or not os.path.isfile(snapshot.video_path):
+        _clear_single_video_result_summary(st.session_state)
+        st.error(tr("status.video_not_found", path=snapshot.video_path or ""))
+        return
+    st.session_state[SINGLE_VIDEO_RESULT_SUMMARY_KEY] = _build_task_result_summary(snapshot)
+    store_recent_video_task_snapshot(snapshot, st.session_state)
+    capture_snapshot_from_task_dir(str(Path(snapshot.video_path).parent), st.session_state)
+
+
+def _format_task_progress_message(progress) -> str:
+    if progress is None or not progress.event_type:
+        return tr("status.generation_queued")
+    extra = progress.extra or {}
     try:
-        # Keep this placeholder present on every rerun. Streamlit reconciles elements
-        # by their structural position, so switching between direct rendering while
-        # idle and placeholder rendering while generating leaves the previous
-        # interactive subtree stale until the long-running generation call returns.
-        output_content_slot = RefreshableSlot(st.empty())
+        event = ProgressEvent(
+            event_type=progress.event_type,
+            progress=min(1.0, max(0.0, float(progress.percentage) / 100)),
+            frame_current=extra.get("frame_current"),
+            frame_total=extra.get("frame_total"),
+            step=extra.get("step"),
+            action=extra.get("action"),
+            extra_info=extra.get("extra_info"),
+        )
+        message = format_progress_event_message(event)
+        localized_extra = localize_progress_extra_info(event.extra_info)
+        return f"{message} - {localized_extra}" if localized_extra else message
+    except (TypeError, ValueError):
+        logger.warning(f"Invalid persisted progress event: {progress.event_type}")
+        return progress.message or tr("status.generation_queued")
 
-        def render_output_content(*, refresh: bool = False) -> None:
-            def render_preview_and_recent_sections(key_suffix: str) -> None:
-                _render_layout_preview_workbench_section(
-                    {**video_params, "pixelle_video": pixelle_video},
-                    key_suffix=key_suffix,
-                )
-                render_recent_video_gallery(
-                    pixelle_video,
-                    key_suffix=key_suffix,
-                )
 
-            output_content_slot.render(
-                render_preview_and_recent_sections,
-                refresh=refresh,
-            )
+def _render_video_task_monitor(client, task_id: str) -> None:
+    snapshot = client.get(task_id)
+    if snapshot is None:
+        write_video_generation_task_id(st.query_params, None)
+        _reset_single_video_generation_state()
+        st.error(tr("status.generation_task_not_found", task_id=task_id))
+        return
 
-        render_output_content()
-        if generation_runner is not None:
-            generation_runner(refresh_output_content=render_output_content)
-    except BaseException:
-        # Rendering failures and Streamlit script-control signals must never strand
-        # the single-flight state. Re-raising preserves normal framework behavior.
-        if generation_runner is not None:
-            _reset_single_video_generation_state()
-        raise
+    if snapshot.status in ACTIVE_TASK_STATUSES:
+        st.session_state[SINGLE_VIDEO_GENERATING_KEY] = True
+        progress = snapshot.progress
+        percentage = min(99, max(0, int(progress.percentage if progress else 0)))
+        st.progress(percentage)
+        st.caption(_format_task_progress_message(progress))
+        return
+
+    _reset_single_video_generation_state()
+    if snapshot.status == TaskStatus.COMPLETED:
+        st.progress(100)
+        st.caption(tr("status.success"))
+        if st.session_state.get(SINGLE_VIDEO_HANDLED_TASK_KEY) != task_id:
+            _handle_completed_video_task(snapshot)
+            st.session_state[SINGLE_VIDEO_HANDLED_TASK_KEY] = task_id
+            safe_rerun()
+        return
+    if snapshot.status == TaskStatus.CANCELLED:
+        st.warning(tr("status.generation_cancelled", task_id=task_id))
+        return
+    st.error(tr("status.generation_task_failed", task_id=task_id))
+
+
+def _render_video_task_monitor_fragment(client, task_id: str) -> None:
+    fragment = getattr(st, "fragment", None)
+    if fragment is None:
+        _render_video_task_monitor(client, task_id)
+        return
+    fragment(run_every=1.0)(_render_video_task_monitor)(client, task_id)
 
 
 def _render_generation_section(pixelle_video, video_params):
-    """Render generation controls and return a pending generation runner."""
-    # Extract parameters from video_params dict
+    """Submit generation to the process task runtime and project persisted state."""
     text = video_params.get("text", "")
-    mode = video_params.get("mode", "generate")
-    title = video_params.get("title")
-    bgm_path = video_params.get("bgm_path")
-    bgm_volume = video_params.get("bgm_volume", 0.2)
+    client = resolve_video_generation_client(pixelle_video)
+    query_params = getattr(st, "query_params", {})
+    raw_task_id = query_params.get(VIDEO_GENERATION_TASK_QUERY_PARAM)
+    task_id = read_video_generation_task_id(query_params)
+    if raw_task_id and task_id is None:
+        write_video_generation_task_id(query_params, None)
 
-    tts_mode = _resolve_video_tts_mode(video_params)
-    selected_voice = video_params.get("tts_voice")
-    tts_speed = video_params.get("tts_speed")
-    tts_workflow_key = video_params.get("tts_workflow")
-    ref_audio_path = video_params.get("ref_audio")
-    ref_audio_text = video_params.get("ref_audio_text")
-
-    frame_template = video_params.get("frame_template")
-    custom_values_for_video = video_params.get("template_params", {})
-    workflow_key = video_params.get("media_workflow")
-    prompt_prefix = video_params.get("prompt_prefix", "")
+    snapshot = client.get(task_id) if task_id else None
+    task_is_active = bool(snapshot and snapshot.status in ACTIVE_TASK_STATUSES)
+    st.session_state[SINGLE_VIDEO_GENERATING_KEY] = task_is_active
 
     with st.container(border=True):
         st.markdown(f"**{tr('section.video_generation')}**")
-
-        # Check if system is configured
-        if not config_manager.validate():
+        configured = config_manager.validate()
+        if not configured:
             st.warning(tr("settings.not_configured"))
 
-        # Generate Button
-        button_slot = RefreshableSlot(st.empty())
-        was_generating = bool(st.session_state.get(SINGLE_VIDEO_GENERATING_KEY, False))
-
-        def render_generate_button(*, disabled: bool, refresh: bool = False) -> bool:
-            def render_button(key_suffix: str) -> bool:
-                return st.button(
-                    tr("btn.generate"),
-                    key=f"{SINGLE_VIDEO_BUTTON_KEY}{key_suffix}",
-                    type="primary",
-                    width="stretch",
-                    disabled=disabled,
-                    on_click=_request_single_video_generation,
-                )
-
-            return button_slot.render(render_button, refresh=refresh)
-
-        button_clicked = render_generate_button(disabled=was_generating)
-        generation_requested = bool(st.session_state.pop(SINGLE_VIDEO_REQUESTED_KEY, False))
-        st.session_state[SINGLE_VIDEO_REQUESTED_KEY] = False
-        if button_clicked and not generation_requested:
-            if was_generating:
-                st.session_state[SINGLE_VIDEO_DUPLICATE_CLICK_KEY] = True
-            else:
-                st.session_state[SINGLE_VIDEO_GENERATING_KEY] = True
-                generation_requested = True
-
-        if (
-            st.session_state.pop(SINGLE_VIDEO_DUPLICATE_CLICK_KEY, False)
-            and not generation_requested
-        ):
-            st.info(tr("status.generation_in_progress"))
-
-        result_summary_slot = None
-        result_summary_rendered = False
-
-        def render_result_summary(*, refresh: bool = False) -> None:
-            nonlocal result_summary_rendered
-
-            summary = _get_single_video_result_summary(st.session_state)
-            if summary:
-                if result_summary_slot is None:
-                    _render_single_video_result_summary(summary)
-                else:
-                    result_summary_slot.render(
-                        lambda _key_suffix: _render_single_video_result_summary(summary),
-                        refresh=refresh,
-                    )
-                result_summary_rendered = True
-
-        if generation_requested:
-            can_generate = True
-            # Validate system configuration
-            if not config_manager.validate():
+        button_clicked = st.button(
+            tr("btn.generate"),
+            key=SINGLE_VIDEO_BUTTON_KEY,
+            type="primary",
+            width="stretch",
+            disabled=task_is_active,
+        )
+        if button_clicked:
+            if not configured:
                 st.error(tr("settings.not_configured"))
-                can_generate = False
-
-            # Validate input
-            if not text:
+            elif not text:
                 st.error(tr("error.input_required"))
-                can_generate = False
-
-            if can_generate:
-                _clear_single_video_result_summary(st.session_state)
-
-                # Show progress
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                result_summary_slot = RefreshableSlot(st.empty())
-
-                def run_generation(*, refresh_output_content) -> None:
-                    # Record start time for generation
-                    import time
-
-                    start_time = time.time()
-                    rerun_after_generation = False
-
-                    try:
-                        request_id = new_correlation_id("req")
-                        session_id = _get_or_create_log_session_id(st.session_state)
-                        logger.bind(
-                            channel="runtime",
-                            request_id=request_id,
-                            session_id=session_id,
-                            content=build_content_observability(text),
-                        ).info("web single generation request received")
-
-                        # Progress callback to update UI
-                        def update_progress(event: ProgressEvent):
-                            """Update progress bar and status text from ProgressEvent"""
-                            message = format_progress_event_message(event)
-
-                            # Append extra_info if available (e.g., batch progress)
-                            if event.extra_info:
-                                localized_extra_info = localize_progress_extra_info(
-                                    event.extra_info
-                                )
-                                if localized_extra_info:
-                                    message = f"{message} - {localized_extra_info}"
-
-                            status_text.text(message)
-                            progress_bar.progress(min(int(event.progress * 100), 99))
-
-                        storyboard_contract = _storyboard_controls_contract(video_params)
-                        generation_request = build_single_generation_request(
-                            {
-                                **video_params,
-                                "text": text,
-                                "mode": mode,
-                                "title": title,
-                                **storyboard_contract.to_generation_dict(),
-                                "script_length_mode": video_params.get("script_length_mode"),
-                                "script_target_words": video_params.get("script_target_words"),
-                                "media_workflow": workflow_key,
-                                "frame_template": frame_template,
-                                "prompt_prefix": prompt_prefix,
-                                "bgm_path": bgm_path,
-                                "bgm_volume": bgm_volume,
-                                "tts_inference_mode": tts_mode,
-                                "tts_voice": selected_voice,
-                                "tts_speed": tts_speed,
-                                "tts_workflow": tts_workflow_key,
-                                "tts_duration": video_params.get("tts_duration"),
-                                "ref_audio": ref_audio_path,
-                                "ref_audio_text": ref_audio_text,
-                                "template_params": custom_values_for_video,
-                                "request_id": request_id,
-                                "session_id": session_id,
-                                "render_backend": video_params.get("render_backend"),
-                                "tts_audio_strategy": video_params.get("tts_audio_strategy"),
-                                "layered_template_spec": video_params.get("layered_template_spec"),
-                                "selected_template_preset_id": video_params.get(
-                                    "selected_template_preset_id"
-                                ),
-                                "series_visual_signature_enabled": video_params.get("series_visual_signature_enabled"),
-                                "series_visual_signature_asset_bible_id": video_params.get("series_visual_signature_asset_bible_id"),
-                                "series_visual_signature_profile_id": video_params.get("series_visual_signature_profile_id"),
-                                **storyboard_contract.to_planning_dict(),
-                                "text_rendering": video_params.get("text_rendering"),
-                                **{key: video_params.get(key) for key in TTS_SPLIT_SETTING_KEYS},
-                                **{
-                                    key: video_params.get(key)
-                                    for key in ELEMENT_ANIMATION_OPTION_KEYS
-                                },
-                            },
-                            progress_callback=update_progress,
-                            session_state=st.session_state,
-                        )
-
-                        result = run_async(pixelle_video.generate_video(**generation_request))
-                        storyboard_snapshot_changed = capture_snapshot_from_result(
-                            result, st.session_state
-                        )
-
-                        # Calculate total generation time
-                        total_generation_time = time.time() - start_time
-
-                        progress_bar.progress(100)
-                        status_text.text(tr("status.success"))
-
-                        if os.path.exists(result.video_path):
-                            st.session_state[SINGLE_VIDEO_RESULT_SUMMARY_KEY] = (
-                                _build_single_video_result_summary(
-                                    result,
-                                    total_generation_time=total_generation_time,
-                                )
-                            )
-                            render_result_summary(refresh=True)
-                            store_recent_generated_video(result, st.session_state)
-                            refresh_output_content(refresh=True)
-                            rerun_after_generation = storyboard_snapshot_changed
-                        else:
-                            _clear_single_video_result_summary(st.session_state)
-                            st.error(tr("status.video_not_found", path=result.video_path))
-
-                    except Exception as e:
-                        status_text.text("")
-                        progress_bar.empty()
-                        st.error(tr("status.error", error=str(e)))
-                        log_exception_once(e, "Web video generation failed")
-                    finally:
-                        _reset_single_video_generation_state()
-                        render_generate_button(disabled=False, refresh=True)
-                        if rerun_after_generation:
-                            safe_rerun()
-
-                return run_generation
             else:
-                _reset_single_video_generation_state()
-                render_generate_button(disabled=False, refresh=True)
+                try:
+                    _clear_single_video_result_summary(st.session_state)
+                    request_id = new_correlation_id("req")
+                    session_id = _get_or_create_log_session_id(st.session_state)
+                    logger.bind(
+                        channel="runtime",
+                        request_id=request_id,
+                        session_id=session_id,
+                        content=build_content_observability(text),
+                    ).info("web single generation request received")
+                    request = build_single_generation_request(
+                        {**video_params, "request_id": request_id, "session_id": session_id},
+                        progress_callback=None,
+                        session_state=st.session_state,
+                    )
+                    submission = client.submit(request)
+                    st.session_state.pop(SINGLE_VIDEO_HANDLED_TASK_KEY, None)
+                    write_video_generation_task_id(query_params, submission.task_id)
+                    st.session_state[SINGLE_VIDEO_GENERATING_KEY] = True
+                    safe_rerun()
+                except Exception as exc:
+                    _reset_single_video_generation_state()
+                    log_exception_once(exc, "Web video task submission failed")
+                    st.error(tr("status.generation_submission_failed"))
 
-        # Idle reruns render stored results directly; active generations reserve a slot above the gallery.
-        if not result_summary_rendered and result_summary_slot is None:
-            render_result_summary()
+        if task_id:
+            _render_video_task_monitor_fragment(client, task_id)
+        summary = _get_single_video_result_summary(st.session_state)
+        if summary:
+            _render_single_video_result_summary(summary)
 
 
 def render_batch_output(pixelle_video, video_params):

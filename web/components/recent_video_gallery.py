@@ -290,6 +290,22 @@ def store_recent_generated_video(result: Any, session_state: dict[str, Any]) -> 
     }
 
 
+def store_recent_video_task_snapshot(snapshot: Any, session_state: dict[str, Any]) -> None:
+    """Store a completed task projection without reconstructing a core result object."""
+    result = snapshot.result or {}
+    session_state[RECENT_GENERATED_VIDEO_KEY] = {
+        "task_id": snapshot.task_id,
+        "title": _coerce_text(result.get("title"), tr("recent_videos.untitled")),
+        "video_path": str(snapshot.video_path),
+        "cover_path": result.get("cover_path"),
+        "duration": _coerce_nonnegative_float(result.get("duration")),
+        "n_frames": _coerce_nonnegative_int(result.get("frame_count")),
+        "created_at": result.get("created_at") or snapshot.created_at,
+        "completed_at": snapshot.completed_at or snapshot.created_at,
+        "source": "current",
+    }
+
+
 def toggle_recent_video_player(
     session_state: dict[str, Any],
     player_state_key: str,

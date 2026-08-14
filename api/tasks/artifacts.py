@@ -58,6 +58,11 @@ class LocalArtifactStore:
         path = self._resolve_storage_key(storage_key)
         return bool(path and path.is_file())
 
+    def resolve_local_path(self, storage_key: str | None) -> Path | None:
+        """Resolve an existing artifact key without allowing root traversal."""
+        path = self._resolve_storage_key(storage_key)
+        return path if path is not None and path.is_file() else None
+
     def _resolve_storage_key(self, storage_key: str | None) -> Path | None:
         if not storage_key:
             return None

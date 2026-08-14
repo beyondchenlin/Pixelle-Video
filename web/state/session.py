@@ -16,6 +16,7 @@ Session state management for web UI.
 
 import hashlib
 import json
+import threading
 from dataclasses import dataclass
 
 import streamlit as st
@@ -31,7 +32,9 @@ from web.i18n import get_language, set_language
 from web.state.async_runtime import (
     DEFAULT_SESSION_KEY,
     get_current_session_key,
+    get_process_async_runtime,
     register_async_cleanup,
+    register_process_async_cleanup,
     session_exists,
 )
 from web.utils.async_helpers import run_async
@@ -48,25 +51,29 @@ _LOCAL_PLATFORM_DEPENDENCIES = None
 _LOCAL_PLATFORM_TASK_MANAGER = None
 _LOCAL_TASK_EXECUTOR_REGISTRY = None
 _LOCAL_WORKER_REGISTRY = None
+_LOCAL_PLATFORM_LOCK = threading.Lock()
 
 
 async def _cleanup_pixelle_video_session(session_key: str):
+    state = _PIXELLE_VIDEO_SESSIONS.get(session_key)
+    if state is not None and state.pixelle_video is not None:
+        await state.pixelle_video.cleanup()
+    _PIXELLE_VIDEO_SESSIONS.pop(session_key, None)
+
+
+async def _cleanup_local_platform_runtime() -> None:
     global _LOCAL_PLATFORM_DEPENDENCIES, _LOCAL_PLATFORM_TASK_MANAGER
     global _LOCAL_TASK_EXECUTOR_REGISTRY, _LOCAL_WORKER_REGISTRY
 
     from pixelle_video.services.frame_html import HTMLFrameGenerator
 
-    state = _PIXELLE_VIDEO_SESSIONS.get(session_key)
-    if state is not None and state.pixelle_video is not None:
-        await state.pixelle_video.cleanup()
-    await HTMLFrameGenerator.close_browser()
-    _PIXELLE_VIDEO_SESSIONS.pop(session_key, None)
-    if not _PIXELLE_VIDEO_SESSIONS and _LOCAL_PLATFORM_TASK_MANAGER is not None:
+    if _LOCAL_PLATFORM_TASK_MANAGER is not None:
         await _LOCAL_PLATFORM_TASK_MANAGER.stop()
-        _LOCAL_PLATFORM_TASK_MANAGER = None
-        _LOCAL_PLATFORM_DEPENDENCIES = None
-        _LOCAL_TASK_EXECUTOR_REGISTRY = None
-        _LOCAL_WORKER_REGISTRY = None
+    await HTMLFrameGenerator.close_browser()
+    _LOCAL_PLATFORM_TASK_MANAGER = None
+    _LOCAL_PLATFORM_DEPENDENCIES = None
+    _LOCAL_TASK_EXECUTOR_REGISTRY = None
+    _LOCAL_WORKER_REGISTRY = None
 
 
 def _cleanup_stale_pixelle_video_sessions(current_session_key: str):
@@ -108,31 +115,52 @@ def get_or_create_local_platform_dependencies():
     global _LOCAL_PLATFORM_DEPENDENCIES, _LOCAL_PLATFORM_TASK_MANAGER
     global _LOCAL_TASK_EXECUTOR_REGISTRY, _LOCAL_WORKER_REGISTRY
 
-    if _LOCAL_PLATFORM_DEPENDENCIES is None:
+    if _LOCAL_PLATFORM_DEPENDENCIES is not None:
+        return _LOCAL_PLATFORM_DEPENDENCIES
+
+    with _LOCAL_PLATFORM_LOCK:
+        if _LOCAL_PLATFORM_DEPENDENCIES is not None:
+            return _LOCAL_PLATFORM_DEPENDENCIES
+
         from api.config import api_config
-        from api.platform_dependencies import build_platform_dependencies
+        from api.platform_dependencies import (
+            attach_platform_dependencies,
+            build_platform_dependencies,
+        )
         from api.tasks.factory import build_local_task_runtime
         from api.video.executor_factory import register_video_generation_executor
         from api.workbench.executor_factory import register_storyboard_workbench_executors
+        from pixelle_video.service import PixelleVideoCore
 
         runtime = build_local_task_runtime(api_config)
         _LOCAL_TASK_EXECUTOR_REGISTRY = runtime.executor_registry
         _LOCAL_WORKER_REGISTRY = runtime.worker_registry
         _LOCAL_PLATFORM_TASK_MANAGER = runtime.task_manager
 
-        def provider():
-            return get_pixelle_video()
+        async def provider():
+            core = PixelleVideoCore()
+            attach_platform_dependencies(core, _LOCAL_PLATFORM_DEPENDENCIES)
+            try:
+                await core.initialize()
+                return core
+            except BaseException:
+                await core.cleanup()
+                raise
+
+        async def releaser(core):
+            await core.cleanup()
 
         register_video_generation_executor(
             _LOCAL_TASK_EXECUTOR_REGISTRY,
             core_provider=provider,
             artifact_store=_LOCAL_PLATFORM_TASK_MANAGER.registry.artifact_store,
+            core_releaser=releaser,
         )
         register_storyboard_workbench_executors(
             _LOCAL_TASK_EXECUTOR_REGISTRY,
             core_provider=provider,
+            core_releaser=releaser,
         )
-        run_async(_LOCAL_PLATFORM_TASK_MANAGER.start())
         _LOCAL_PLATFORM_DEPENDENCIES = build_platform_dependencies(
             api_config,
             task_manager=_LOCAL_PLATFORM_TASK_MANAGER,
@@ -140,7 +168,27 @@ def get_or_create_local_platform_dependencies():
             worker_capability_registry=_LOCAL_WORKER_REGISTRY,
             worker_registry=_LOCAL_WORKER_REGISTRY,
         )
+        process_runtime = get_process_async_runtime()
+        try:
+            process_runtime.run(_LOCAL_PLATFORM_TASK_MANAGER.start())
+            register_process_async_cleanup(_cleanup_local_platform_runtime)
+        except BaseException:
+            try:
+                process_runtime.run(_LOCAL_PLATFORM_TASK_MANAGER.stop())
+            except BaseException:
+                logger.exception("Failed to rollback local task runtime initialization")
+            finally:
+                _LOCAL_PLATFORM_TASK_MANAGER = None
+                _LOCAL_PLATFORM_DEPENDENCIES = None
+                _LOCAL_TASK_EXECUTOR_REGISTRY = None
+                _LOCAL_WORKER_REGISTRY = None
+            raise
     return _LOCAL_PLATFORM_DEPENDENCIES
+
+
+def run_process_task_async(coro):
+    """Run task-manager operations on the process-scoped event loop."""
+    return get_process_async_runtime().run(coro)
 
 
 def get_pixelle_video():
