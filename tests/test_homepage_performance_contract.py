@@ -15,7 +15,7 @@ def test_home_page_uses_conditional_pipeline_rendering_instead_of_tabs():
     assert "get_pipeline_ui(selected_name)" in source
 
 
-def test_home_recent_gallery_does_not_eagerly_embed_or_open_video_files():
+def test_home_recent_gallery_uses_one_on_demand_player_without_opening_local_files():
     card_source = inspect.getsource(recent_video_gallery.render_recent_video_card)
     player_source = inspect.getsource(recent_video_gallery.render_recent_video_player)
 
@@ -25,6 +25,7 @@ def test_home_recent_gallery_does_not_eagerly_embed_or_open_video_files():
     assert "link_button" in card_source
     assert "render_recent_video_player" in card_source
     assert "st.video" in player_source
+    assert "autoplay=True" in player_source
 
 
 def test_style_config_uses_one_template_selector_instead_of_preview_tabs():
