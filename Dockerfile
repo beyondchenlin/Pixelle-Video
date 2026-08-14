@@ -4,6 +4,7 @@ FROM node:24.12.0-bookworm-slim@sha256:7326fb2dbdce998edd72140946851be64ef4a643e
 
 WORKDIR /bridge
 COPY tools/hyperframes_bridge/package.json tools/hyperframes_bridge/package-lock.json ./
+COPY tools/hyperframes_bridge/browser_integrity.json ./
 ENV PUPPETEER_CACHE_DIR="/bridge/.cache/puppeteer" \
     PUPPETEER_SKIP_DOWNLOAD="true" \
     PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD="true" \

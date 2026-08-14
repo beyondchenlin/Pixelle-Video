@@ -5,7 +5,10 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
 bridge_root="$repo_root/tools/hyperframes_bridge"
 
-for required_path in "$repo_root/uv.lock" "$bridge_root/package-lock.json"; do
+for required_path in \
+  "$repo_root/uv.lock" \
+  "$bridge_root/package-lock.json" \
+  "$bridge_root/browser_integrity.json"; do
   if [ ! -f "$required_path" ]; then
     echo "Required lock file not found: $required_path" >&2
     exit 1

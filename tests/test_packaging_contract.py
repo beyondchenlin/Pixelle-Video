@@ -48,6 +48,7 @@ def test_source_installers_install_and_verify_both_locked_runtimes() -> None:
         assert "PRODUCER_HEADLESS_SHELL_PATH" in script
         assert "npm run browser:install" in script
         assert "npm run runtime:verify" in script
+        assert "browser_integrity.json" in script
         assert script.index("npm ci") < script.index("npm run browser:install")
         assert script.index("npm run browser:install") < script.index(
             "npm run runtime:verify"
@@ -73,6 +74,7 @@ def test_docker_bundles_locked_hyperframes_runtime_and_runs_as_non_root() -> Non
         "d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3"
     ) in dockerfile
     assert "COPY tools/hyperframes_bridge/package.json" in dockerfile
+    assert "COPY tools/hyperframes_bridge/browser_integrity.json" in dockerfile
     assert "npm ci --omit=dev" in dockerfile
     assert "PUPPETEER_CACHE_DIR" in dockerfile
     assert "PUPPETEER_SKIP_DOWNLOAD" in dockerfile
@@ -136,11 +138,15 @@ def test_windows_portable_package_bundles_and_verifies_hyperframes_runtime() -> 
     assert "walk_root = self._extended_length_path(self.build_dir)" in builder
     assert '"ci",' in builder
     assert "PUPPETEER_CACHE_DIR" in builder
-    assert 'build_browser_cache = self.cache_dir / f"puppeteer-{puppeteer_version}"' in builder
+    assert 'integrity_fingerprint = self._sha256_file(' in builder
+    assert 'f"puppeteer-{puppeteer_version}-{integrity_fingerprint}"' in builder
     assert 'build_chrome_cache = build_browser_cache / "chrome"' in builder
     assert "shutil.copytree(build_chrome_cache, target_browser_cache / \"chrome\")" in builder
     assert '"browser:install"' in builder
     assert '"runtime:verify"' in builder
+    assert 'bridge_dir / "browser_integrity.json"' in builder
+    assert 'bridge_dir / "src" / "browser_integrity.mjs"' in builder
+    assert 'bridge_dir / "src" / "install_browser.mjs"' in builder
     assert "PIXELLE_REQUIRE_PINNED_BROWSER" in builder
     assert "PUPPETEER_EXECUTABLE_PATH" in builder
     assert "PRODUCER_HEADLESS_SHELL_PATH" in builder
@@ -229,7 +235,10 @@ def test_golden_workflow_uses_the_locked_browser_instead_of_runner_chrome() -> N
         "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f"
         in workflow
     )
-    assert "hashFiles('tools/hyperframes_bridge/package-lock.json')" in workflow
+    assert (
+        "hashFiles('tools/hyperframes_bridge/package-lock.json', "
+        "'tools/hyperframes_bridge/browser_integrity.json')"
+    ) in workflow
     assert "npm run browser:install" in workflow
     assert "npm run runtime:verify" in workflow
     assert "/usr/bin/google-chrome" not in workflow

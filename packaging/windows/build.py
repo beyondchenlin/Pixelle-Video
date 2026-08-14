@@ -493,6 +493,9 @@ class WindowsPackageBuilder:
             node_executable,
             npm_cli,
             bridge_dir / "package-lock.json",
+            bridge_dir / "browser_integrity.json",
+            bridge_dir / "src" / "browser_integrity.mjs",
+            bridge_dir / "src" / "install_browser.mjs",
             bridge_dir / "src" / "render.mjs",
             bridge_dir / "src" / "verify-runtime.mjs",
         ):
@@ -505,7 +508,12 @@ class WindowsPackageBuilder:
         puppeteer_version = bridge_manifest.get("dependencies", {}).get("puppeteer")
         if not isinstance(puppeteer_version, str) or not puppeteer_version:
             raise RuntimeError("Portable HyperFrames manifest must pin Puppeteer")
-        build_browser_cache = self.cache_dir / f"puppeteer-{puppeteer_version}"
+        integrity_fingerprint = self._sha256_file(
+            bridge_dir / "browser_integrity.json"
+        )[:16]
+        build_browser_cache = self.cache_dir / (
+            f"puppeteer-{puppeteer_version}-{integrity_fingerprint}"
+        )
         target_browser_cache = node_dir.parent / "puppeteer"
         source_browser_cache = (
             self.project_root

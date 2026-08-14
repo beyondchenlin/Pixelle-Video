@@ -9,7 +9,8 @@ $bridgeRoot = Join-Path $repoRoot 'tools\hyperframes_bridge'
 
 foreach ($requiredPath in @(
     (Join-Path $repoRoot 'uv.lock'),
-    (Join-Path $bridgeRoot 'package-lock.json')
+    (Join-Path $bridgeRoot 'package-lock.json'),
+    (Join-Path $bridgeRoot 'browser_integrity.json')
 )) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         Fail "Required lock file not found: $requiredPath"
