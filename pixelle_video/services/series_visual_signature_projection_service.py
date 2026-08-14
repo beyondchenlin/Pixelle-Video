@@ -27,6 +27,9 @@ from pixelle_video.services.series_visual_signature_contract_builder import (
 from pixelle_video.services.series_visual_signature_final_prompt_gate import (
     assert_series_visual_signature_final_prompt,
 )
+from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
+    validate_series_visual_signature_profile_snapshot,
+)
 from pixelle_video.services.series_visual_signature_prompt_presence import (
     prompt_contains_term,
 )
@@ -184,6 +187,10 @@ class SeriesVisualSignatureProjectionService:
             raise ValueError("base negative prompt count must match frame count")
         if not request.enabled:
             raise ValueError("visual signature projection requires an enabled request")
+        profile = validate_series_visual_signature_profile_snapshot(
+            profile,
+            expected_profile_id=request.profile_id,
+        )
 
         self.budget.assert_batch_inputs(
             frame_ids=frame_ids,
@@ -263,6 +270,10 @@ class SeriesVisualSignatureProjectionService:
             raise ValueError("visual signature projection requires a non-empty visual prompt")
         if not request.enabled:
             raise ValueError("visual signature projection requires an enabled request")
+        profile = validate_series_visual_signature_profile_snapshot(
+            profile,
+            expected_profile_id=request.profile_id,
+        )
 
         self.budget.assert_batch_inputs(
             frame_ids=(frame_id,),
