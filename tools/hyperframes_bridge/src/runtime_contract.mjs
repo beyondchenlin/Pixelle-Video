@@ -2,6 +2,10 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  defaultBrowserPlatformId,
+  verifyBrowserIntegrity as verifyBrowserTreeIntegrity,
+} from "./browser_integrity.mjs";
 import { resolveBrowserExecutable } from "./render.mjs";
 
 export const REQUIRED_RUNTIME_DEPENDENCIES = Object.freeze([
@@ -16,6 +20,10 @@ const MINIMUM_NODE_VERSION = Object.freeze({ major: 22, minor: 12, patch: 0 });
 const DEFAULT_BRIDGE_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
+);
+const DEFAULT_BROWSER_INTEGRITY_MANIFEST = path.join(
+  DEFAULT_BRIDGE_ROOT,
+  "browser_integrity.json",
 );
 
 function environmentValue(environment, name) {
@@ -155,11 +163,26 @@ export async function verifyRuntime(options = {}) {
         environmentValue(environment, "PUPPETEER_CACHE_DIR"),
       )
     : path.resolve(browserPath);
+  let browserIntegrity = null;
+  if (requirePinnedBrowser) {
+    const browserPlatform = options.browserPlatform ?? defaultBrowserPlatformId();
+    if (!browserPlatform.startsWith("darwin-")) {
+      const verifyBrowserTree =
+        options.verifyBrowserTree ?? verifyBrowserTreeIntegrity;
+      browserIntegrity = await verifyBrowserTree({
+        browserExecutable: verifiedBrowserPath,
+        manifestPath:
+          options.browserIntegrityManifest ?? DEFAULT_BROWSER_INTEGRITY_MANIFEST,
+        platform: browserPlatform,
+      });
+    }
+  }
 
   return {
     nodeVersion: options.nodeVersion ?? process.versions.node,
     dependencies,
     browserPath: verifiedBrowserPath,
+    browserIntegrity,
     pinnedBrowserRequired: requirePinnedBrowser,
   };
 }

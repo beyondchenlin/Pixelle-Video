@@ -75,6 +75,7 @@ test("runtime verification accepts the exact lock graph and browser inside the c
   await mkdir(browserDirectory, { recursive: true });
   const browserPath = path.join(browserDirectory, "chrome.exe");
   await writeFile(browserPath, "browser");
+  let verifiedTreeOptions;
 
   const result = await verifyRuntime({
     bridgeRoot: root,
@@ -82,12 +83,20 @@ test("runtime verification accepts the exact lock graph and browser inside the c
       PIXELLE_REQUIRE_PINNED_BROWSER: "true",
       PUPPETEER_CACHE_DIR: cache,
     },
+    browserPlatform: "win32-x64",
     nodeVersion: "24.12.0",
     resolveBrowser: async () => browserPath,
+    verifyBrowserTree: async (options) => {
+      verifiedTreeOptions = options;
+      return { platform: options.platform, files: 1, sha256Tree: "verified" };
+    },
   });
 
   assert.equal(result.browserPath, await assertExecutableWithinCache(browserPath, cache));
   assert.deepEqual(result.dependencies, DEPENDENCIES);
+  assert.equal(verifiedTreeOptions.browserExecutable, result.browserPath);
+  assert.equal(verifiedTreeOptions.platform, "win32-x64");
+  assert.equal(result.browserIntegrity.sha256Tree, "verified");
 });
 
 test("runtime verification rejects an unrecognized pinned-browser policy", async () => {
