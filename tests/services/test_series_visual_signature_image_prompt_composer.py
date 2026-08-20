@@ -491,6 +491,18 @@ async def test_compatibility_adapter_compiles_legacy_controls_once(
     assert "literal_character" not in snapshot_text
     assert "global" not in snapshot_text
     assert "mandatory" not in snapshot_text
+    frame_id = _storyboard_plan().frames[0].frame_id
+    prompt_budget = result.planning_snapshot[
+        "series_visual_signature_trace_by_frame"
+    ][frame_id]["prompt_budget"]
+    assert prompt_budget["positive_prompt_chars"] == len(result.prompts[0])
+    assert prompt_budget["positive_prompt_chars"] <= prompt_budget[
+        "positive_prompt_limit"
+    ]
+    rendered_metadata = result.rendered_prompts[0].metadata_to_dict()
+    assert rendered_metadata["series_visual_signature_v45"][
+        "prompt_budget"
+    ] == prompt_budget
 
 
 @pytest.mark.asyncio

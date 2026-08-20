@@ -397,6 +397,9 @@ def _projection_context(
             "anchor": {
                 "anchor_kind": "auto",
                 "anchor_claim": _first_text(
+                    frame_context.get("visual_goal"),
+                    frame_context.get("prompt_intent"),
+                    frame_context.get("shot_purpose"),
                     frame_context.get("frame_source_text"),
                     frame_context.get("source_text"),
                     base_prompt,

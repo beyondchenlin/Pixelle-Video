@@ -12,6 +12,9 @@ from pixelle_video.services.series_visual_signature_profile_snapshot_builder imp
 from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureProjectionService,
 )
+from pixelle_video.services.visible_text_prompt_rewriter import (
+    NO_VISIBLE_TEXT_DRAWING_CLAUSE,
+)
 
 
 def _request(**overrides) -> SeriesVisualSignatureRequest:
@@ -324,6 +327,95 @@ def test_projection_fallback_injects_when_llm_missed_ip() -> None:
     for trait in profile.identity_traits:
         assert trait in frame.bundle.positive_prompt
     assert "timeline showing Musk" in frame.bundle.positive_prompt
+    assert "main_detail" not in frame.bundle.to_dict()["metadata"]["prompt_sections"]
+
+
+def test_projection_treats_long_generated_prompt_as_bounded_optional_detail() -> None:
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=_request(),
+        ip_profile=_ip_profile(),
+    )
+    generated_prompt = " ".join(
+        [
+            "Steve Jobs stands on a product launch stage with an early Macintosh",
+            *(
+                "cinematic editorial detail with restrained archival texture"
+                for _ in range(40)
+            ),
+        ]
+    )
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=[generated_prompt],
+        frame_ids=["frame-jobs"],
+        frame_contexts=[
+            {
+                "visual_goal": "Steve Jobs presents an early Macintosh on stage",
+                "primary_subject": "Steve Jobs",
+                "secondary_subjects": ["early Macintosh"],
+            }
+        ],
+        request=_request(),
+        profile=profile,
+    )
+
+    frame = result.frames[0]
+    metadata = frame.bundle.to_dict()["metadata"]
+    prompt_budget = metadata["prompt_budget"]
+    assert "Steve Jobs presents an early Macintosh on stage" in frame.bundle.positive_prompt
+    assert generated_prompt not in frame.bundle.positive_prompt
+    assert len(frame.bundle.positive_prompt) <= 1200
+    assert prompt_budget["main_and_subject_chars"] <= 400
+    assert prompt_budget["optional_visual_detail"]["included"] is True
+    assert prompt_budget["optional_visual_detail"]["compacted"] is True
+    assert metadata["prompt_sections"]["main_detail"].startswith("Visual detail:")
+    for trait in profile.identity_traits:
+        assert trait in frame.bundle.positive_prompt
+
+
+def test_projection_accepts_browser_chinese_prompt_with_visual_signature() -> None:
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=_request(),
+        ip_profile=_ip_profile(
+            name="斑点狗",
+            identity_lock=("黑色墨镜", "斑点狗"),
+        ),
+    )
+    generated_prompt = "；".join(
+        (
+            "乔布斯站在档案室的档案桌旁，背景元素表现梦想、失败与重生",
+            *("克制的编辑图解风格，清晰层级，丰富档案纹理" for _ in range(35)),
+        )
+    )
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=[generated_prompt],
+        frame_ids=["frame_0001_browser"],
+        frame_contexts=[
+            {
+                "visual_goal": "展示乔布斯的形象及其对世界的影响力和经历的起伏",
+                "prompt_intent": "以科技和创新元素表现乔布斯从低谷走向高峰",
+                "primary_subject": "乔布斯",
+                "secondary_subjects": ["苹果公司", "创新", "梦想", "失败", "重生"],
+                "visible_text_policy": "no_visible_text",
+            }
+        ],
+        request=_request(),
+        profile=profile,
+    )
+
+    frame = result.frames[0]
+    metadata = frame.bundle.to_dict()["metadata"]
+    assert "展示乔布斯的形象及其对世界的影响力和经历的起伏" in frame.bundle.positive_prompt
+    assert "乔布斯" in frame.bundle.positive_prompt
+    assert "苹果公司" in frame.bundle.positive_prompt
+    assert "黑色墨镜" in frame.bundle.positive_prompt
+    assert "斑点狗" in frame.bundle.positive_prompt
+    assert generated_prompt not in frame.bundle.positive_prompt
+    assert len(frame.bundle.positive_prompt) <= 1200
+    assert metadata["prompt_budget"]["main_and_subject_chars"] <= 400
+    assert metadata["prompt_budget"]["optional_visual_detail"]["compacted"] is True
+    assert frame.bundle.positive_prompt.count(NO_VISIBLE_TEXT_DRAWING_CLAUSE) == 1
 
 
 def test_projection_accepts_maximum_batch_with_bounded_audit_payload() -> None:

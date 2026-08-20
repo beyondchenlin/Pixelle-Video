@@ -38,11 +38,18 @@ NO_VISIBLE_TEXT_NEGATIVE_PROMPT = "readable text, Chinese characters, English wo
 
 
 def rewrite_for_no_visible_text(prompt_text: str) -> str:
+    text = rewrite_visible_text_drawing_risks(prompt_text)
+    if NO_VISIBLE_TEXT_DRAWING_CLAUSE not in text:
+        text = f"{text}; {NO_VISIBLE_TEXT_DRAWING_CLAUSE}" if text else NO_VISIBLE_TEXT_DRAWING_CLAUSE
+    return " ".join(text.split())
+
+
+def rewrite_visible_text_drawing_risks(prompt_text: str) -> str:
+    """Replace drawing-risk phrases without repeating the global policy clause."""
+
     text = str(prompt_text or "")
     for source, replacement in DRAWING_RISK_REPLACEMENTS.items():
         text = text.replace(source, replacement)
-    if NO_VISIBLE_TEXT_DRAWING_CLAUSE not in text:
-        text = f"{text}; {NO_VISIBLE_TEXT_DRAWING_CLAUSE}" if text else NO_VISIBLE_TEXT_DRAWING_CLAUSE
     return " ".join(text.split())
 
 
