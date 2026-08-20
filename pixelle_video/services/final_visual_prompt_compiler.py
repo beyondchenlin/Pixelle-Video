@@ -24,6 +24,7 @@ from pixelle_video.services.series_visual_signature_final_prompt_gate import (
 from pixelle_video.services.visible_text_prompt_rewriter import (
     NO_VISIBLE_TEXT_NEGATIVE_PROMPT,
     rewrite_for_no_visible_text,
+    rewrite_visible_text_drawing_risks,
 )
 
 MAX_Z_IMAGE_POSITIVE_PROMPT_CHARS = 1200
@@ -67,20 +68,33 @@ class FinalVisualPromptCompiler:
             or "no_visible_text"
         )
 
-        main_visual = _first_non_empty(
-            diagram.get("visual_metaphor"),
-            anchor.get("anchor_claim"),
-            contract.get("visual_concretization_summary"),
-            "one clear explanation visual",
-        )
-        if visible_text_policy == "no_visible_text":
-            main_visual = rewrite_for_no_visible_text(main_visual)
-
         placement = _placement_contract(final_contract, contract)
         fusion = _fusion_contract(final_contract, contract)
+        prompt_budget: dict[str, Any] | None = None
         if signature.enabled:
-            prompt_sections = _signature_prompt_sections(
+            main_visual = _first_non_empty(
+                anchor.get("anchor_claim"),
+                contract.get("visual_concretization_summary"),
+                diagram.get("visual_metaphor"),
+                "one clear explanation visual",
+            )
+            optional_visual_details = _optional_visual_details(
+                main_visual,
+                diagram.get("visual_metaphor"),
+                contract.get("visual_concretization_summary"),
+            )
+            if visible_text_policy == "no_visible_text":
+                main_visual = rewrite_for_no_visible_text(main_visual)
+                optional_visual_details = _optional_visual_details(
+                    main_visual,
+                    *(
+                        rewrite_visible_text_drawing_risks(detail)
+                        for detail in optional_visual_details
+                    ),
+                )
+            prompt_sections, prompt_budget = _signature_prompt_sections(
                 main_visual=main_visual,
+                optional_visual_details=optional_visual_details,
                 required_subjects=required_subjects,
                 signature=signature,
                 placement=placement,
@@ -89,6 +103,14 @@ class FinalVisualPromptCompiler:
             )
             positive_prompt = _join_sections(prompt_sections.values())
         else:
+            main_visual = _first_non_empty(
+                diagram.get("visual_metaphor"),
+                anchor.get("anchor_claim"),
+                contract.get("visual_concretization_summary"),
+                "one clear explanation visual",
+            )
+            if visible_text_policy == "no_visible_text":
+                main_visual = rewrite_for_no_visible_text(main_visual)
             prompt_sections = _unsigned_prompt_sections(
                 main_visual=main_visual,
                 diagram=diagram,
@@ -145,24 +167,27 @@ class FinalVisualPromptCompiler:
                 "subject_protection",
             }
         )
+        metadata = {
+            "schema_version": "v4.5-signature",
+            "contract_id": contract.get("contract_id"),
+            "frame_id": contract.get("frame_id"),
+            "contract_version": contract.get("contract_version"),
+            "contract_content_sha256": contract.get("contract_content_sha256"),
+            "identity_content_sha256": (
+                profile.identity_content_sha256 if profile is not None else None
+            ),
+            "compiler": "FinalVisualPromptCompiler",
+            "required_subjects": list(required_subjects),
+            "series_visual_signature": signature.to_dict(),
+            "prompt_sections": prompt_sections,
+        }
+        if prompt_budget is not None:
+            metadata["prompt_budget"] = prompt_budget
         return FinalVisualPromptBundle(
             positive_prompt=positive_prompt,
             negative_prompt=negative_prompt,
             locked_constraints=locked_constraints,
-            metadata={
-                "schema_version": "v4.5-signature",
-                "contract_id": contract.get("contract_id"),
-                "frame_id": contract.get("frame_id"),
-                "contract_version": contract.get("contract_version"),
-                "contract_content_sha256": contract.get("contract_content_sha256"),
-                "identity_content_sha256": (
-                    profile.identity_content_sha256 if profile is not None else None
-                ),
-                "compiler": "FinalVisualPromptCompiler",
-                "required_subjects": list(required_subjects),
-                "series_visual_signature": signature.to_dict(),
-                "prompt_sections": prompt_sections,
-            },
+            metadata=metadata,
         )
 
     def compile_for_z_image(
@@ -188,12 +213,13 @@ class FinalVisualPromptCompiler:
 def _signature_prompt_sections(
     *,
     main_visual: str,
+    optional_visual_details: Sequence[str],
     required_subjects: Sequence[str],
     signature: SeriesVisualSignatureContract,
     placement: VisualEntityPlacement | None,
     fusion: VisualEntitySceneFusion | None,
     render: Mapping[str, Any],
-) -> dict[str, str]:
+) -> tuple[dict[str, str], dict[str, Any]]:
     profile = signature.profile
     if profile is None:
         raise ValueError("enabled series visual signature requires a profile")
@@ -204,6 +230,7 @@ def _signature_prompt_sections(
 
     sections = {
         "main_content": f"Main scene: {main_visual}",
+        "main_detail": "",
         "subject_protection": _subject_protection_clause(required_subjects),
         "fixed_identity": profile.canonical_identity_clause,
         "role": (
@@ -217,7 +244,10 @@ def _signature_prompt_sections(
     _assert_section_budget(
         "main content and required subjects",
         _join_sections(
-            (sections["main_content"], sections["subject_protection"])
+            (
+                sections["main_content"],
+                sections["subject_protection"],
+            )
         ),
         MAX_MAIN_AND_SUBJECT_CHARS,
     )
@@ -239,7 +269,67 @@ def _signature_prompt_sections(
         MAX_ROLE_AND_ACTION_CHARS,
     )
     _assert_section_budget("style", sections["style"], MAX_STYLE_CHARS)
-    return sections
+
+    protected_positive_prompt = _join_sections(sections.values())
+    if len(protected_positive_prompt) > MAX_Z_IMAGE_POSITIVE_PROMPT_CHARS:
+        raise ValueError(
+            "protected visual prompt semantics exceed product prompt budget"
+        )
+
+    detail, detail_audit = _fit_optional_visual_details(
+        candidates=optional_visual_details,
+        main_group_chars=len(
+            _join_sections(
+                (sections["main_content"], sections["subject_protection"])
+            )
+        ),
+        protected_prompt_chars=len(protected_positive_prompt),
+    )
+    sections["main_detail"] = detail
+    main_group_chars = len(
+        _join_sections(
+            (
+                sections["main_content"],
+                sections["main_detail"],
+                sections["subject_protection"],
+            )
+        )
+    )
+    _assert_section_budget(
+        "main content and required subjects",
+        _join_sections(
+            (
+                sections["main_content"],
+                sections["main_detail"],
+                sections["subject_protection"],
+            )
+        ),
+        MAX_MAIN_AND_SUBJECT_CHARS,
+    )
+    final_positive_chars = len(_join_sections(sections.values()))
+    if final_positive_chars > MAX_Z_IMAGE_POSITIVE_PROMPT_CHARS:
+        raise RuntimeError(
+            "optional visual detail exceeded the positive prompt budget"
+        )
+    if not detail:
+        sections.pop("main_detail")
+    return sections, {
+        "positive_prompt_chars": final_positive_chars,
+        "positive_prompt_limit": MAX_Z_IMAGE_POSITIVE_PROMPT_CHARS,
+        "main_and_subject_chars": main_group_chars,
+        "main_and_subject_limit": MAX_MAIN_AND_SUBJECT_CHARS,
+        "canonical_identity_chars": len(sections["fixed_identity"]),
+        "canonical_identity_limit": MAX_CANONICAL_IDENTITY_CHARS,
+        "placement_and_fusion_chars": len(
+            _join_sections((sections["placement"], sections["scene_fusion"]))
+        ),
+        "placement_and_fusion_limit": MAX_PLACEMENT_AND_FUSION_CHARS,
+        "role_and_action_chars": len(sections["role"]),
+        "role_and_action_limit": MAX_ROLE_AND_ACTION_CHARS,
+        "style_chars": len(sections["style"]),
+        "style_limit": MAX_STYLE_CHARS,
+        "optional_visual_detail": detail_audit,
+    }
 
 
 def _unsigned_prompt_sections(
@@ -415,6 +505,65 @@ def _required_subjects(value: Any) -> tuple[str, ...]:
     return _dedupe_text(value)
 
 
+def _optional_visual_details(main_visual: str, *values: Any) -> tuple[str, ...]:
+    main_key = " ".join(str(main_visual or "").strip().split()).casefold()
+    details: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        detail = " ".join(str(value or "").strip().split())
+        key = detail.casefold()
+        if not detail or key == main_key or key in seen:
+            continue
+        seen.add(key)
+        details.append(detail)
+    return tuple(details)
+
+
+def _fit_optional_visual_details(
+    *,
+    candidates: Sequence[str],
+    main_group_chars: int,
+    protected_prompt_chars: int,
+) -> tuple[str, dict[str, Any]]:
+    normalized = _dedupe_text(candidates)
+    source = _join_sections(normalized)
+    audit = {
+        "candidate_count": len(normalized),
+        "source_chars": len(source),
+        "included_chars": 0,
+        "included": False,
+        "compacted": False,
+    }
+    if not source:
+        return "", audit
+
+    # Adding a new non-empty prompt section costs one ". " separator in both
+    # the 400-character main group and the 1200-character final prompt.
+    available = min(
+        MAX_MAIN_AND_SUBJECT_CHARS - main_group_chars,
+        MAX_Z_IMAGE_POSITIVE_PROMPT_CHARS - protected_prompt_chars,
+    )
+    section_limit = available - 2
+    prefix = "Visual detail: "
+    if section_limit <= len(prefix):
+        audit["compacted"] = True
+        return "", audit
+
+    fitted = _shorten_optional(source, section_limit - len(prefix))
+    if not fitted:
+        audit["compacted"] = True
+        return "", audit
+    detail = prefix + fitted
+    audit.update(
+        {
+            "included_chars": len(detail),
+            "included": True,
+            "compacted": fitted != source,
+        }
+    )
+    return detail, audit
+
+
 def _assert_section_budget(label: str, value: str, limit: int) -> None:
     if len(value) > limit:
         raise ValueError(
@@ -463,6 +612,29 @@ def _shorten(text: str, limit: int) -> str:
     if limit == 1:
         return "…"
     return text[: limit - 1].rstrip() + "…"
+
+
+def _shorten_optional(text: str, limit: int) -> str:
+    """Fit non-protected detail without cutting protected prompt facts."""
+
+    text = " ".join(str(text or "").strip().split())
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    if limit == 1:
+        return "…"
+
+    prefix = text[: limit - 1].rstrip()
+    minimum_boundary = max(12, limit // 2)
+    boundaries = tuple(
+        index
+        for token in ("。", "；", ";", "，", ",", ".", " ")
+        if (index := prefix.rfind(token)) >= minimum_boundary
+    )
+    if boundaries:
+        prefix = prefix[: max(boundaries)].rstrip(" .,:;，。；：")
+    return prefix + "…"
 
 
 __all__ = [

@@ -101,6 +101,7 @@ def test_disabled_signature_positive_prompt_does_not_mention_character() -> None
     assert "家族树图上的名字" not in bundle.positive_prompt
     assert "名字列表" not in bundle.positive_prompt
     assert "unlabeled" in bundle.positive_prompt
+    assert "prompt_budget" not in bundle.to_dict()["metadata"]
 
 
 def test_enabled_signature_requires_every_identity_trait() -> None:

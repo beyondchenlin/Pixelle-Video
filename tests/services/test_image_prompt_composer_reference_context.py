@@ -10,7 +10,7 @@ from pixelle_video.models.reference_image_analysis import (
 )
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
-from pixelle_video.services import image_prompt_composer as composer_module
+from pixelle_video.services import visual_prompt_composer as composer_module
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.services.reference_image_visual_context_adapter import (
     ReferenceImageVisualContextAdapter,
@@ -139,13 +139,16 @@ async def test_image_prompt_composer_applies_runtime_reference_context(monkeypat
     finally:
         reset_reference_image_visual_story_context_patch(token)
 
-    passed_profile = captured["ip_profile"]
-    assert "圆脸" in passed_profile.identity_anchors
-    assert "柔和绘本" in passed_profile.style_boundary_rules
+    # Identity-bearing profiles must not leak back into the retired LLM prompt
+    # inputs. Reference identity is carried by the canonical frame context and
+    # the redacted planning snapshot instead.
+    assert captured["ip_profile"] is None
     assert captured["prompt_contexts"].plan_context["reference_image"]["enabled"] is True
     assert captured["prompt_contexts"].frame_contexts[0]["reference_image"]["identity_anchors"] == ["圆脸", "白色服饰"]
 
     snapshot = result.planning_snapshot["reference_image_visual_context"]
+    assert "圆脸" in snapshot["merged_ip_profile"]["identity_anchors"]
+    assert "柔和绘本" in snapshot["merged_ip_profile"]["style_boundary_rules"]
     payload = json.dumps(snapshot, ensure_ascii=False)
     assert snapshot["visual_story_context_patch"]["reference_image"]["enabled"] is True
     assert "merged_ip_profile" in snapshot
@@ -155,7 +158,7 @@ async def test_image_prompt_composer_applies_runtime_reference_context(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_no_reference_patch_keeps_image_prompt_composer_unchanged(monkeypatch):
+async def test_no_reference_patch_keeps_identity_out_of_legacy_llm_inputs(monkeypatch):
     token = set_reference_image_visual_story_context_patch({})
     profile = _ip_profile()
     try:
@@ -167,7 +170,7 @@ async def test_no_reference_patch_keeps_image_prompt_composer_unchanged(monkeypa
     finally:
         reset_reference_image_visual_story_context_patch(token)
 
-    assert captured["ip_profile"] == profile
+    assert captured["ip_profile"] is None
     assert "reference_image" not in captured["prompt_contexts"].plan_context
     assert "reference_image" not in captured["prompt_contexts"].frame_contexts[0]
     assert "reference_image_visual_context" not in result.planning_snapshot

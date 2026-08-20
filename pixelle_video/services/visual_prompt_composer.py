@@ -316,9 +316,14 @@ class VisualPromptComposer:
                 base_visual_briefs_by_frame=briefs,
                 base_negative_prompts=base_negative_prompts,
             )
+            bundle_metadata_by_frame = {
+                frame.frame_id: frame.bundle.to_dict()["metadata"]
+                for frame in projection.frames
+            }
             rendered_prompts = _project_rendered_prompts(
                 batch.rendered_prompts,
                 projection.frames,
+                bundle_metadata_by_frame=bundle_metadata_by_frame,
             )
             batch = StyledImagePromptBatch(
                 prompts=projection.prompts,
@@ -355,6 +360,10 @@ class VisualPromptComposer:
                     ),
                     "contract_content_sha256": frame.contract.contract_content_sha256,
                     "contract_version": frame.contract.contract_version,
+                    "prompt_budget": dict(
+                        bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
+                        or {}
+                    ),
                 }
                 for frame in projection.frames
             }
@@ -370,6 +379,10 @@ class VisualPromptComposer:
                     ),
                     "contract_content_sha256": frame.contract.contract_content_sha256,
                     "contract_version": frame.contract.contract_version,
+                    "prompt_budget": dict(
+                        bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
+                        or {}
+                    ),
                 }
                 for frame in projection.frames
             }
@@ -578,6 +591,8 @@ def _base_negative_prompts(
 def _project_rendered_prompts(
     rendered_prompts: Sequence[RenderedMediaPrompt],
     projection_frames: Sequence[Any],
+    *,
+    bundle_metadata_by_frame: Mapping[str, Mapping[str, Any]],
 ) -> list[RenderedMediaPrompt]:
     rendered = tuple(rendered_prompts or ())
     if rendered and len(rendered) != len(projection_frames):
@@ -592,8 +607,13 @@ def _project_rendered_prompts(
         )
         for reserved_key in (*V44_TRACE_METADATA_KEYS, "v44_contract"):
             metadata.pop(reserved_key, None)
-        bundle_metadata = projection.bundle.to_dict()["metadata"]
+        bundle_metadata = dict(bundle_metadata_by_frame.get(projection.frame_id) or {})
+        if not bundle_metadata:
+            raise ValueError(
+                "projection bundle metadata must exist for every projected frame"
+            )
         prompt_sections = dict(bundle_metadata.get("prompt_sections") or {})
+        prompt_budget = dict(bundle_metadata.get("prompt_budget") or {})
         metadata["series_visual_signature_v45"] = {
             "contract_id": projection.contract.contract_id,
             "role": projection.signature.role.value,
@@ -609,6 +629,7 @@ def _project_rendered_prompts(
             "entity_placement": projection.contract.entity_placement.to_dict(),
             "scene_fusion": projection.contract.scene_fusion.to_dict(),
             "prompt_sections": prompt_sections,
+            "prompt_budget": prompt_budget,
             "audit": projection.audit_dict(),
         }
         result.append(
