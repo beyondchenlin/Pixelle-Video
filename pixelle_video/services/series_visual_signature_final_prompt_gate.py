@@ -93,6 +93,7 @@ def assert_series_visual_signature_final_prompt(
                 f"frame {resolved_frame_id}: scene_fusion is missing"
             )
         placement_terms = (
+            "One;",
             placement.horizontal_position.value,
             placement.depth_position.value,
             placement.relative_size.value.replace("_", "-"),
@@ -170,6 +171,14 @@ def assert_series_visual_signature_final_prompt(
                 raise SeriesVisualSignatureFinalPromptGateError(
                     "final visual prompt gate failed: configured forbidden identity trait missing "
                     f"at index {forbidden_index}"
+                )
+        for composition_index, forbidden_composition in enumerate(
+            scene_fusion.forbidden_compositions
+        ):
+            if not prompt_contains_term(negative, forbidden_composition):
+                raise SeriesVisualSignatureFinalPromptGateError(
+                    f"frame {resolved_frame_id}: scene_fusion.forbidden_compositions "
+                    f"missing from negative prompt at index {composition_index}"
                 )
 
     if str(visible_text_policy or "").strip() == "no_visible_text":

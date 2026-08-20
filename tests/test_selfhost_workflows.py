@@ -472,8 +472,11 @@ def test_z_image_workflows_route_negative_prompt_to_sampler():
         assert negative_node["inputs"]["clip"] == ["38", 0]
         assert (
             workflow[negative_text_node_id]["_meta"]["title"]
-            == "$negative_prompt.value!"
+            == "$negative_prompt.value"
         )
+        metadata = WorkflowParser().parse_workflow_file(str(workflow_path))
+        assert metadata.params["negative_prompt"].required is False
+        assert metadata.params["negative_prompt"].default == ""
 
 
 def test_image_z_image_turbo_gguf_defaults_to_q8_models():

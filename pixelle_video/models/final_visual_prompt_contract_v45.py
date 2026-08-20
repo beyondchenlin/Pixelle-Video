@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -13,8 +14,10 @@ from pixelle_video.architecture.legacy_signature_field_guard import (
 )
 from pixelle_video.models.series_visual_signature import SeriesVisualSignatureContract
 from pixelle_video.models.visual_entity_placement import (
+    DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS,
     VisualEntityPlacement,
     VisualEntitySceneFusion,
+    VisualSceneType,
 )
 
 FINAL_VISUAL_PROMPT_CONTRACT_V45_VERSION = "final_visual_prompt_contract.v4_5"
@@ -264,6 +267,14 @@ def _validate_signature_placement_contract(
         raise ValueError(
             f"frame {frame_id}: entity_placement.relative_size exceeds or conflicts with signature limit"
         )
+    if (
+        placement.scene_type is VisualSceneType.PHYSICAL_SCENE
+        and fusion.contact_relation != placement.support_relation
+    ):
+        raise ValueError(
+            f"frame {frame_id}: scene_fusion.contact_relation must match "
+            "entity_placement.support_relation"
+        )
     profile = signature.profile
     if profile is None:
         raise ValueError(f"frame {frame_id}: enabled signature profile is missing")
@@ -280,6 +291,17 @@ def _validate_signature_placement_contract(
             raise ValueError(
                 f"frame {frame_id}: scene_fusion.protected_subjects is missing "
                 f"required_subjects[{index}]"
+            )
+    forbidden_keys = {
+        item.casefold() for item in fusion.forbidden_compositions
+    }
+    for index, composition in enumerate(
+        DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS
+    ):
+        if composition.casefold() not in forbidden_keys:
+            raise ValueError(
+                f"frame {frame_id}: scene_fusion.forbidden_compositions is "
+                f"missing required composition[{index}]"
             )
 
 
@@ -312,6 +334,10 @@ def _freeze_json(value: Any) -> Any:
         )
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_json(child) for child in value)
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(
+            "FinalVisualPromptContractV45 values must not contain non-finite floats"
+        )
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     raise ValueError(

@@ -122,7 +122,7 @@
     },
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
-      "title": "$negative_prompt.value!"
+      "title": "$negative_prompt.value"
     }
   },
   "58": {

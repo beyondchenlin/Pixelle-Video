@@ -109,7 +109,7 @@ def test_preserved_prompt_uses_requested_guide_contract() -> None:
     assert prompt in frame.bundle.positive_prompt
     assert frame.contract.entity_placement is not None
     assert frame.contract.scene_fusion is not None
-    assert "shared perspective" in frame.bundle.positive_prompt
+    assert "scene perspective" in frame.bundle.positive_prompt
 
 
 def test_missing_display_name_is_repaired_without_dropping_subject_contract() -> None:

@@ -78,16 +78,16 @@ class PromptPlan:
     image_prompt_draft_id: str
     prompt_sections: Mapping[str, str]
     final_prompt: str
-    final_negative_prompt: str | None = None
-    identity_content_sha256: str | None = None
-    contract_content_sha256: str | None = None
-    contract_version: str | None = None
     source_trace_id: str | None = None
     character_ids: tuple[str, ...] = ()
     scene_id: str | None = None
     prop_ids: tuple[str, ...] = ()
     style_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    final_negative_prompt: str | None = None
+    identity_content_sha256: str | None = None
+    contract_content_sha256: str | None = None
+    contract_version: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "prompt_plan_id", _require_non_empty("prompt_plan_id", self.prompt_plan_id))

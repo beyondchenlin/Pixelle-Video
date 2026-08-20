@@ -12,6 +12,7 @@ from pixelle_video.models.final_visual_prompt_contract_v45 import (
 )
 from pixelle_video.models.series_visual_signature import SeriesVisualSignatureContract
 from pixelle_video.models.visual_entity_placement import (
+    DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS,
     VisualEntityPlacement,
     VisualEntitySceneFusion,
     VisualSceneType,
@@ -36,11 +37,9 @@ MAX_STYLE_CHARS = 100
 SERIES_VISUAL_SIGNATURE_NEGATIVE_PROTECTIONS = (
     "duplicate recurring visual signature instances or extra copies",
     "recurring visual signature rendered as a mascot in a mismatched style",
-    "recurring visual signature as sticker, corner badge, emblem, logo, or watermark overlay",
+    *DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS,
     "recurring visual signature floating or missing support contact",
     "recurring visual signature with mismatched style, lighting, or perspective",
-    "centered or oversized recurring visual signature hiding a required subject",
-    "unrelated display platform, sign, box, carrier, or stage for the recurring visual signature",
     "non-human recurring identity with human anatomy, human clothing, or mascot costume",
 )
 
@@ -101,6 +100,8 @@ class FinalVisualPromptCompiler:
         negative_parts = _split_negative_prompt(base_negative_prompt)
         if signature.enabled:
             negative_parts.extend(SERIES_VISUAL_SIGNATURE_NEGATIVE_PROTECTIONS)
+            if fusion is not None:
+                negative_parts.extend(fusion.forbidden_compositions)
             if str(render.get("render_style") or "").strip() in {
                 "xiaohei_handdrawn",
                 "clean_vector",
@@ -283,7 +284,7 @@ def _placement_clause(
     placement: VisualEntityPlacement,
 ) -> str:
     return (
-        f"Only one instance; {placement.horizontal_position.value}/"
+        f"One; {placement.horizontal_position.value}/"
         f"{placement.depth_position.value}/{placement.relative_size.value.replace('_', '-')}; "
         f"{placement.spatial_relation} {placement.relation_target}; "
         f"{placement.support_relation}; {placement.orientation}; "
@@ -348,12 +349,19 @@ def _bounded_style_clause(render: Mapping[str, Any]) -> str:
 def _to_mapping(value: Any) -> dict[str, Any]:
     if isinstance(value, Mapping):
         payload = dict(value)
-        if payload.get("schema_version") == "v4.5-signature":
-            return FinalVisualPromptContractV45.from_mapping(payload).to_dict()
-        return payload
-    if hasattr(value, "to_dict"):
-        return dict(value.to_dict())
-    raise ValueError("final_contract must be a mapping or expose to_dict()")
+    elif hasattr(value, "to_dict"):
+        serialized = value.to_dict()
+        if not isinstance(serialized, Mapping):
+            raise ValueError("final_contract.to_dict() must return a mapping")
+        payload = dict(serialized)
+    else:
+        raise ValueError("final_contract must be a mapping or expose to_dict()")
+    if (
+        isinstance(value, FinalVisualPromptContractV45)
+        or payload.get("schema_version") == "v4.5-signature"
+    ):
+        return FinalVisualPromptContractV45.from_mapping(payload).to_dict()
+    return payload
 
 
 def _signature_contract(

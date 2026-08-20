@@ -71,3 +71,29 @@ def test_provider_adapter_rejects_undeclared_region_controls_deep(
             bundle=bundle,
             render_config={"nested": {unsupported_key: "unsupported"}},
         )
+
+
+@pytest.mark.parametrize(
+    "unsupported_key",
+    [
+        "boundingBox",
+        "bounding-boxes",
+        "depthMap",
+        "depth_image",
+        "poseMap",
+        "control_net",
+        "conditioningImage",
+    ],
+)
+def test_provider_adapter_rejects_capability_key_spelling_variants(
+    unsupported_key,
+) -> None:
+    bundle = ZImagePromptBundle(
+        positive_prompt="A complete text-only placement and fusion prompt."
+    )
+
+    with pytest.raises(ValueError, match=unsupported_key):
+        project_z_image_prompt_bundle(
+            bundle=bundle,
+            render_config={"nested": [{unsupported_key: "unsupported"}]},
+        )

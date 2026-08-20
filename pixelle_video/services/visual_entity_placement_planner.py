@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -9,6 +10,7 @@ from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureRole,
 )
 from pixelle_video.models.visual_entity_placement import (
+    DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS,
     NOT_APPLICABLE,
     VisualDepthPosition,
     VisualEntityPlacement,
@@ -27,6 +29,7 @@ _ABSTRACT_GRAMMARS = frozenset(
         "decision_tree",
         "state_machine",
         "evidence_map",
+        "contrast_board",
     }
 )
 _SUPPORT_TERMS = (
@@ -50,13 +53,6 @@ _SUPPORT_TERMS = (
     "座椅",
     "长椅",
 )
-_FORBIDDEN_COMPOSITIONS = (
-    "sticker, corner badge, emblem, logo, or watermark treatment",
-    "centered or oversized character that hides a required subject",
-    "unrelated display platform, sign, box, carrier, or stage",
-)
-
-
 class VisualEntityPlacementPlanner:
     """Derive deterministic placement and fusion facts from existing frame facts."""
 
@@ -94,7 +90,8 @@ class VisualEntityPlacementPlanner:
         action, spatial_relation, orientation = _role_behavior(
             role=signature.role,
             base_prompt=base_prompt,
-            relation_target=relation_target,
+            frame_context=frame_context,
+            base_visual_brief=base_visual_brief,
         )
         placement = VisualEntityPlacement(
             frame_id=frame_id,
@@ -155,21 +152,21 @@ def _relation_target(
     for value in required_subjects:
         text = _text(value)
         if text:
-            return text
+            return _relation_target_label(text)
     brief = dict(base_visual_brief or {})
     for value in _sequence(brief.get("main_subjects")):
         text = _text(value)
         if text:
-            return text
+            return _relation_target_label(text)
     primary_subject = _text(frame_context.get("primary_subject"))
     if primary_subject:
-        return primary_subject
+        return _relation_target_label(primary_subject)
     if scene_type is VisualSceneType.ABSTRACT_DIAGRAM:
         return "diagram node"
     for value in _sequence(frame_context.get("world_elements")):
         text = _text(value)
         if text:
-            return text
+            return _relation_target_label(text)
     return "scene subject"
 
 
@@ -195,46 +192,85 @@ def _support_relation(
         for candidate in candidates:
             text = _text(candidate)
             lowered = text.casefold()
-            if text and term.casefold() in lowered:
+            if text and _contains_scene_term(lowered, term):
                 return f"feet on existing {term}"
-    return "feet on scene ground"
+    return "feet on existing ground"
 
 
 def _role_behavior(
     *,
     role: SeriesVisualSignatureRole,
     base_prompt: str,
-    relation_target: str,
+    frame_context: Mapping[str, Any],
+    base_visual_brief: Mapping[str, Any] | None,
 ) -> tuple[str, str, str]:
     prompt = base_prompt.casefold()
     if any(
-        marker in prompt
+        _contains_scene_term(prompt, marker)
         for marker in (
-            " walking ",
-            " walks ",
-            " strolling ",
-            " strolls ",
+            "walking",
+            "walks",
+            "strolling",
+            "strolls",
             "同行",
             "行走",
             "散步",
         )
     ):
         return (
-            f"walks with {relation_target}",
+            "walks with it",
             "alongside",
             "faces movement direction",
         )
+    action_fact = _frame_action_fact(
+        frame_context=frame_context,
+        base_visual_brief=base_visual_brief,
+        base_prompt=base_prompt,
+    )
     if role is SeriesVisualSignatureRole.CORE_ACTOR:
-        return "performs frame action", "beside", "faces target/camera"
+        return (
+            f"acts within {action_fact}",
+            "beside",
+            "3/4 toward it",
+        )
     if role is SeriesVisualSignatureRole.OPERATOR:
-        return "operates mechanism", "beside", "faces target/camera"
+        return (
+            f"demonstrates {action_fact}",
+            "beside",
+            "3/4 toward it",
+        )
     if role is SeriesVisualSignatureRole.GUIDE:
         return (
-            f"looks toward {relation_target}",
+            "points toward it",
             "beside",
-            "faces target/camera",
+            "3/4 toward it",
         )
-    return "quietly observes", "beside", "faces target/camera"
+    return (
+        "observes it",
+        "beside",
+        "3/4 toward it",
+    )
+
+
+def _frame_action_fact(
+    *,
+    frame_context: Mapping[str, Any],
+    base_visual_brief: Mapping[str, Any] | None,
+    base_prompt: str,
+) -> str:
+    brief = dict(base_visual_brief or {})
+    for value in (
+        frame_context.get("prompt_intent"),
+        frame_context.get("visual_goal"),
+        frame_context.get("shot_purpose"),
+        brief.get("core_message"),
+        frame_context.get("frame_source_text"),
+        base_prompt,
+    ):
+        text = _text(value).strip(" .,:;，。；：")
+        if text:
+            return _bounded_fact(text, 72)
+    return "the visible scene action"
 
 
 def _visible_extent(relative_size: VisualRelativeSize) -> VisualVisibleExtent:
@@ -256,27 +292,27 @@ def _scene_fusion(
         return VisualEntitySceneFusion(
             frame_id=frame_id,
             scene_type=scene_type,
-            occlusion_relation="core-safe node/path occlusion",
+            occlusion_relation="diagram links pass behind body, not core traits",
             perspective_relation=NOT_APPLICABLE,
             contact_relation=NOT_APPLICABLE,
             lighting_relation=NOT_APPLICABLE,
             shadow_relation=NOT_APPLICABLE,
-            style_relation="same diagram linework/material",
+            style_relation="same diagram linework/material/texture",
             protected_subjects=required_subjects,
-            forbidden_compositions=_FORBIDDEN_COMPOSITIONS,
+            forbidden_compositions=DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS,
         )
 
     return VisualEntitySceneFusion(
         frame_id=frame_id,
         scene_type=scene_type,
-        occlusion_relation="core-safe occlusion",
-        perspective_relation="shared perspective",
+        occlusion_relation="body-only foreground occlusion",
+        perspective_relation="scene perspective",
         contact_relation=placement.support_relation,
         lighting_relation=_lighting_relation(base_prompt, frame_context),
-        shadow_relation="matching contact shadow",
-        style_relation="same style/material",
+        shadow_relation="scene-soft contact shadow",
+        style_relation="same line/material/texture/realism",
         protected_subjects=required_subjects,
-        forbidden_compositions=_FORBIDDEN_COMPOSITIONS,
+        forbidden_compositions=DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS,
     )
 
 
@@ -315,8 +351,42 @@ def _lighting_relation(base_prompt: str, frame_context: Mapping[str, Any]) -> st
         )
         if term in lowered
     ]
-    explicit = ", ".join(facts) if facts else "scene light"
-    return f"{explicit} direction/color/intensity"
+    if facts:
+        return "matches " + ", ".join(facts[:2])
+    return "matches scene light"
+
+
+def _contains_scene_term(text: str, term: str) -> bool:
+    normalized_term = term.casefold().strip()
+    if not normalized_term:
+        return False
+    if normalized_term.isascii():
+        pattern = re.compile(
+            rf"(?<![a-z0-9_]){re.escape(normalized_term)}(?![a-z0-9_])",
+            flags=re.IGNORECASE,
+        )
+        return pattern.search(text) is not None
+    return normalized_term in text.casefold()
+
+
+def _bounded_fact(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    shortened = text[: limit - 1].rstrip(" .,:;，。；：")
+    return shortened + "…"
+
+
+def _relation_target_label(text: str, limit: int = 32) -> str:
+    """Create a compact target label without truncating the protected subject fact."""
+
+    if len(text) <= limit:
+        return text
+    prefix = text[:limit].rstrip(" .,:;，。；：")
+    if " " in prefix:
+        word_bounded = prefix.rsplit(" ", 1)[0].rstrip(" .,:;，。；：")
+        if len(word_bounded) >= limit // 2:
+            return word_bounded
+    return prefix
 
 
 def _sequence(value: Any) -> tuple[Any, ...]:

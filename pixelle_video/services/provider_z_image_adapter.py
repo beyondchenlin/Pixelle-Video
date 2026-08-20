@@ -8,23 +8,23 @@ from pixelle_video.architecture.legacy_signature_field_guard import (
 )
 from pixelle_video.models.z_image_prompt_bundle import ZImagePromptBundle
 
-_UNSUPPORTED_REGION_CONTROL_KEYS = frozenset(
+_UNSUPPORTED_REGION_CONTROL_KEY_IDENTITIES = frozenset(
     {
         "bbox",
         "bboxes",
-        "bounding_box",
-        "bounding_boxes",
+        "boundingbox",
+        "boundingboxes",
         "mask",
         "masks",
         "depth",
-        "depth_map",
-        "depth_image",
+        "depthmap",
+        "depthimage",
         "pose",
         "poses",
-        "pose_map",
+        "posemap",
         "keypoints",
         "controlnet",
-        "conditioning_image",
+        "conditioningimage",
         "region",
         "regions",
     }
@@ -66,9 +66,9 @@ def _reject_unsupported_region_controls(
 ) -> None:
     if isinstance(value, Mapping):
         for key, child in value.items():
-            normalized_key = str(key).strip().casefold().replace("-", "_")
+            normalized_key = _capability_key_identity(key)
             child_path = f"{path}.{key}"
-            if normalized_key in _UNSUPPORTED_REGION_CONTROL_KEYS:
+            if normalized_key in _UNSUPPORTED_REGION_CONTROL_KEY_IDENTITIES:
                 raise ValueError(
                     "z-image workflow does not declare region control capability: "
                     + child_path
@@ -77,6 +77,10 @@ def _reject_unsupported_region_controls(
     elif isinstance(value, (list, tuple)):
         for index, child in enumerate(value):
             _reject_unsupported_region_controls(child, path=f"{path}[{index}]")
+
+
+def _capability_key_identity(value: Any) -> str:
+    return "".join(character for character in str(value).casefold() if character.isalnum())
 
 
 __all__ = ["project_z_image_prompt_bundle"]

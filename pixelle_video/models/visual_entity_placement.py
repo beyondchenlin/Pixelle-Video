@@ -7,6 +7,16 @@ from enum import Enum
 from typing import Any
 
 NOT_APPLICABLE = "not_applicable"
+MAX_VISUAL_ENTITY_FRAME_ID_CHARS = 256
+MAX_VISUAL_ENTITY_FACT_CHARS = 256
+MAX_VISUAL_ENTITY_CORE_TRAITS = 32
+MAX_VISUAL_ENTITY_PROTECTED_SUBJECTS = 64
+MAX_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS = 16
+DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS = (
+    "sticker, corner badge, emblem, logo, or watermark overlay",
+    "centered or oversized character that hides a required subject",
+    "unrelated display platform, sign, box, carrier, or stage",
+)
 
 
 class VisualSceneType(str, Enum):
@@ -59,14 +69,22 @@ class VisualEntityPlacement:
     visible_core_traits: Sequence[str]
 
     def __post_init__(self) -> None:
-        frame_id = _require_text("frame_id", self.frame_id)
+        frame_id = _require_text(
+            "frame_id",
+            self.frame_id,
+            max_chars=MAX_VISUAL_ENTITY_FRAME_ID_CHARS,
+        )
         object.__setattr__(self, "frame_id", frame_id)
         object.__setattr__(
             self,
             "scene_type",
             _enum_value(frame_id, "placement.scene_type", self.scene_type, VisualSceneType),
         )
-        if isinstance(self.instance_count, bool) or self.instance_count != 1:
+        if (
+            isinstance(self.instance_count, bool)
+            or not isinstance(self.instance_count, int)
+            or self.instance_count != 1
+        ):
             raise ValueError(
                 f"frame {frame_id}: placement.instance_count must equal 1"
             )
@@ -135,6 +153,7 @@ class VisualEntityPlacement:
                 "placement.visible_core_traits",
                 self.visible_core_traits,
                 allow_empty=False,
+                max_items=MAX_VISUAL_ENTITY_CORE_TRAITS,
             ),
         )
 
@@ -197,7 +216,11 @@ class VisualEntitySceneFusion:
     forbidden_compositions: Sequence[str] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
-        frame_id = _require_text("frame_id", self.frame_id)
+        frame_id = _require_text(
+            "frame_id",
+            self.frame_id,
+            max_chars=MAX_VISUAL_ENTITY_FRAME_ID_CHARS,
+        )
         object.__setattr__(self, "frame_id", frame_id)
         scene_type = _enum_value(
             frame_id,
@@ -251,6 +274,7 @@ class VisualEntitySceneFusion:
                 "scene_fusion.protected_subjects",
                 self.protected_subjects,
                 allow_empty=True,
+                max_items=MAX_VISUAL_ENTITY_PROTECTED_SUBJECTS,
             ),
         )
         object.__setattr__(
@@ -261,6 +285,7 @@ class VisualEntitySceneFusion:
                 "scene_fusion.forbidden_compositions",
                 self.forbidden_compositions,
                 allow_empty=False,
+                max_items=MAX_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS,
             ),
         )
 
@@ -317,10 +342,18 @@ def _enum_value(
     raise ValueError(f"frame {frame_id}: {field_path} must be a valid {enum_cls.__name__}")
 
 
-def _require_text(field_name: str, value: Any) -> str:
+def _require_text(
+    field_name: str,
+    value: Any,
+    *,
+    max_chars: int = MAX_VISUAL_ENTITY_FACT_CHARS,
+) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
-    return unicodedata.normalize("NFC", " ".join(value.strip().split()))
+    text = unicodedata.normalize("NFC", " ".join(value.strip().split()))
+    if len(text) > max_chars:
+        raise ValueError(f"{field_name} must be <= {max_chars} characters")
+    return text
 
 
 def _require_frame_text(frame_id: str, field_path: str, value: Any) -> str:
@@ -336,11 +369,16 @@ def _frame_text_tuple(
     values: Sequence[Any],
     *,
     allow_empty: bool,
+    max_items: int,
 ) -> tuple[str, ...]:
     if values is None:
         values = ()
     if isinstance(values, str) or not isinstance(values, Sequence):
         raise ValueError(f"frame {frame_id}: {field_path} must be a sequence of strings")
+    if len(values) > max_items:
+        raise ValueError(
+            f"frame {frame_id}: {field_path} must contain at most {max_items} items"
+        )
     result: list[str] = []
     seen: set[str] = set()
     for value in values:
@@ -356,6 +394,12 @@ def _frame_text_tuple(
 
 
 __all__ = [
+    "DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS",
+    "MAX_VISUAL_ENTITY_CORE_TRAITS",
+    "MAX_VISUAL_ENTITY_FACT_CHARS",
+    "MAX_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS",
+    "MAX_VISUAL_ENTITY_FRAME_ID_CHARS",
+    "MAX_VISUAL_ENTITY_PROTECTED_SUBJECTS",
     "NOT_APPLICABLE",
     "VisualDepthPosition",
     "VisualEntityPlacement",

@@ -173,14 +173,17 @@ class SeriesVisualSignatureProjectionService:
         base_visual_briefs_by_frame: Mapping[str, Mapping[str, Any]] | None = None,
         base_negative_prompts: Sequence[str | None] | None = None,
     ) -> SeriesVisualSignatureProjectionBatch:
-        count = len(frame_ids)
+        normalized_frame_ids = tuple(_text(frame_id) for frame_id in frame_ids)
+        count = len(normalized_frame_ids)
         if count <= 0:
             raise ValueError("visual signature projection requires at least one frame")
+        if any(not frame_id for frame_id in normalized_frame_ids):
+            raise ValueError("visual signature projection requires non-empty frame ids")
         if len(base_prompts) != count or len(frame_contexts) != count:
             raise ValueError(
                 "visual signature projection requires prompt, frame id, and frame context counts to match"
             )
-        if len(set(frame_ids)) != count:
+        if len(set(normalized_frame_ids)) != count:
             raise ValueError("visual signature projection requires unique frame ids")
         if base_negative_prompts is None:
             base_negative_prompts = tuple(None for _ in range(count))
@@ -194,19 +197,26 @@ class SeriesVisualSignatureProjectionService:
         )
 
         self.budget.assert_batch_inputs(
-            frame_ids=frame_ids,
+            frame_ids=normalized_frame_ids,
             base_prompts=base_prompts,
             base_negative_prompts=base_negative_prompts,
         )
         self.budget.assert_profile(profile)
 
-        plans_by_frame = {plan.frame_id: plan for plan in article_concretization_plans}
+        plans_by_frame = {
+            _text(plan.frame_id): plan for plan in article_concretization_plans
+        }
         if len(plans_by_frame) != len(article_concretization_plans):
             raise ValueError("article concretization plans must have unique frame ids")
-        briefs = dict(base_visual_briefs_by_frame or {})
+        briefs = {
+            _text(frame_id): brief
+            for frame_id, brief in dict(base_visual_briefs_by_frame or {}).items()
+        }
+        if len(briefs) != len(dict(base_visual_briefs_by_frame or {})):
+            raise ValueError("base visual briefs must have unique normalized frame ids")
 
         frames: list[SeriesVisualSignatureFrameProjection] = []
-        for index, frame_id in enumerate(frame_ids):
+        for index, frame_id in enumerate(normalized_frame_ids):
             try:
                 frame = self.project_frame(
                     frame_id=frame_id,

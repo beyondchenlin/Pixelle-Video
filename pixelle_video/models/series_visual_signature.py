@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -82,6 +83,39 @@ _FORBIDDEN_TRAIT_TERMS = (
     "provider",
     "watermark",
     "logo",
+)
+_FORBIDDEN_NEGATIVE_TRAIT_INSTRUCTION_TERMS = (
+    "ignore previous",
+    "ignore all",
+    "system message",
+    "system prompt",
+    "assistant message",
+    "user message",
+    "developer message",
+    "follow these instructions",
+    "follow my instructions",
+    "must render",
+    "must show",
+    "must include",
+    "override instructions",
+    "jailbreak",
+    "prompt injection",
+    "provider instruction",
+    "忽略之前",
+    "忽略以上",
+    "忽略所有",
+    "系统消息",
+    "系统提示",
+    "助手消息",
+    "用户消息",
+    "开发者消息",
+    "遵循这些指令",
+    "遵循我的指令",
+    "必须渲染",
+    "必须显示",
+    "必须包含",
+    "覆盖指令",
+    "越狱",
 )
 
 
@@ -381,7 +415,11 @@ class VisualSignatureProfileSnapshot:
         object.__setattr__(self, "identity_traits", tuple(combined_traits))
         object.__setattr__(self, "style_safe_traits", _trait_tuple("style_safe_traits", self.style_safe_traits, allow_empty=True))
         forbidden_traits = _dedupe_traits(
-            _trait_tuple("forbidden_traits", self.forbidden_traits, allow_empty=True)
+            _negative_trait_tuple(
+                "forbidden_traits",
+                self.forbidden_traits,
+                allow_empty=True,
+            )
         )
         object.__setattr__(self, "forbidden_traits", tuple(forbidden_traits))
         object.__setattr__(self, "source_asset_ids", _text_tuple("source_asset_ids", self.source_asset_ids, allow_empty=True))
@@ -456,11 +494,11 @@ class SeriesVisualSignatureContract:
     profile: VisualSignatureProfileSnapshot | None
     replacement_policy: SignatureReplacementPolicy | str = SignatureReplacementPolicy.NO_SUBJECT_REPLACEMENT
     max_area_ratio: float = 0.0
-    relative_size: VisualRelativeSize | str | None = None
     participation_rule: str = "No recurring visual signature is inserted."
     style_integration_rule: str = ""
     forbidden_behaviors: Sequence[str] = field(default_factory=tuple)
     warnings: Sequence[str] = field(default_factory=tuple)
+    relative_size: VisualRelativeSize | str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "enabled", _bool_value(self.enabled, "enabled"))
@@ -470,15 +508,16 @@ class SeriesVisualSignatureContract:
         relative_size = self.relative_size
         if relative_size is None:
             relative_size = relative_size_from_max_area_ratio(self.max_area_ratio)
+        normalized_relative_size = _enum_value(
+            "relative_size",
+            relative_size,
+            VisualRelativeSize,
+            VisualRelativeSize.SMALL,
+        )
         object.__setattr__(
             self,
             "relative_size",
-            _enum_value(
-                "relative_size",
-                relative_size,
-                VisualRelativeSize,
-                VisualRelativeSize.SMALL,
-            ),
+            normalized_relative_size,
         )
         object.__setattr__(self, "participation_rule", _require_text("participation_rule", self.participation_rule))
         object.__setattr__(self, "style_integration_rule", _optional_text(self.style_integration_rule) or "")
@@ -495,6 +534,14 @@ class SeriesVisualSignatureContract:
                 raise ValueError("enabled series visual signature requires a profile")
             if self.max_area_ratio <= 0.0:
                 raise ValueError("enabled series visual signature requires positive max_area_ratio")
+            expected_relative_size = relative_size_from_max_area_ratio(
+                self.max_area_ratio
+            )
+            if normalized_relative_size is not expected_relative_size:
+                raise ValueError(
+                    "enabled series visual signature relative_size must match "
+                    "the max_area_ratio compatibility mapping"
+                )
         elif self.profile is not None:
             raise ValueError("disabled series visual signature must not carry a profile")
 
@@ -613,11 +660,33 @@ def series_visual_signature_identity_content_sha256(
     supporting_identity_traits: Sequence[str],
     forbidden_traits: Sequence[str],
 ) -> str:
+    core = _dedupe_traits(
+        _trait_tuple(
+            "core_identity_traits",
+            core_identity_traits,
+            allow_empty=False,
+        )
+    )
+    supporting = _dedupe_traits(
+        _trait_tuple(
+            "supporting_identity_traits",
+            supporting_identity_traits,
+            allow_empty=True,
+        ),
+        excluded=core,
+    )
+    forbidden = _dedupe_traits(
+        _negative_trait_tuple(
+            "forbidden_traits",
+            forbidden_traits,
+            allow_empty=True,
+        )
+    )
     payload = {
         "display_name": _require_text("display_name", display_name),
-        "core_identity_traits": list(core_identity_traits),
-        "supporting_identity_traits": list(supporting_identity_traits),
-        "forbidden_traits": list(forbidden_traits),
+        "core_identity_traits": list(core),
+        "supporting_identity_traits": list(supporting),
+        "forbidden_traits": list(forbidden),
     }
     serialized = json.dumps(
         payload,
@@ -714,6 +783,39 @@ def _trait_tuple(field_name: str, values: Sequence[Any], *, allow_empty: bool) -
     return result
 
 
+def _negative_trait_tuple(
+    field_name: str,
+    values: Sequence[Any],
+    *,
+    allow_empty: bool,
+) -> tuple[str, ...]:
+    """Validate negative appearance facts without rejecting their subject matter.
+
+    Words such as ``logo`` and ``watermark`` are valid forbidden appearance
+    facts. Only instruction-shaped content is rejected at this boundary.
+    """
+
+    result = _text_tuple(field_name, values, allow_empty=allow_empty)
+    for index, trait in enumerate(result):
+        if len(trait) > MAX_TRAIT_CHARS:
+            raise ValueError(
+                f"{field_name} item exceeds {MAX_TRAIT_CHARS} characters at index {index}"
+            )
+        lowered = trait.casefold()
+        if any(
+            term.casefold() in lowered
+            for term in _FORBIDDEN_NEGATIVE_TRAIT_INSTRUCTION_TERMS
+        ):
+            raise ValueError(
+                f"{field_name} item contains instruction language at index {index}"
+            )
+        if "\n" in trait or ";" in trait or "；" in trait:
+            raise ValueError(
+                f"{field_name} item must be a short trait, not a prompt paragraph at index {index}"
+            )
+    return result
+
+
 def _dedupe_traits(
     values: Sequence[str],
     *,
@@ -743,6 +845,8 @@ def _ratio_value(value: Any, field_name: str) -> float:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field_name} must be a number") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be finite")
     if parsed < 0.0 or parsed > 1.0:
         raise ValueError(f"{field_name} must be between 0 and 1")
     return parsed
