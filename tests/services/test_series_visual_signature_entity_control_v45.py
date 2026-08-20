@@ -6,6 +6,7 @@ import pytest
 
 from pixelle_video.models.final_visual_prompt_contract_v45 import (
     FinalVisualPromptContractV45,
+    final_visual_prompt_contract_content_sha256,
 )
 from pixelle_video.models.prompt_plan import PromptPlan
 from pixelle_video.models.series_visual_signature import (
@@ -31,6 +32,7 @@ from pixelle_video.services.series_visual_signature_final_prompt_gate import (
 )
 from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
     SeriesVisualSignatureProfileSnapshotBuilder,
+    validate_series_visual_signature_profile_snapshot,
 )
 from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureProjectionError,
@@ -201,6 +203,41 @@ def test_public_identity_hash_normalizes_all_sequence_inputs() -> None:
     )
 
     assert decomposed == normalized
+
+
+def test_public_contract_hash_normalizes_frame_and_required_subject_text() -> None:
+    contract = _contract(frame_id="frame-normalized", required_subjects=("Café",))
+
+    decomposed = final_visual_prompt_contract_content_sha256(
+        contract_version=contract.contract_version,
+        frame_id=" frame-normalized ",
+        required_subjects=(" Cafe\u0301 ",),
+        signature=contract.series_visual_signature,
+        placement=contract.entity_placement,
+        fusion=contract.scene_fusion,
+    )
+
+    assert decomposed == contract.contract_content_sha256
+
+
+def test_public_contract_hash_rejects_incomplete_enabled_contract() -> None:
+    with pytest.raises(ValueError, match="requires placement and scene fusion"):
+        final_visual_prompt_contract_content_sha256(
+            contract_version="final_visual_prompt_contract.v4_5",
+            frame_id="frame-incomplete-hash",
+            required_subjects=(),
+            signature=_signature(),
+            placement=None,
+            fusion=None,
+        )
+
+
+def test_runtime_snapshot_revalidation_rejects_mutated_identity_state() -> None:
+    profile = _profile()
+    object.__setattr__(profile, "display_name", "Tampered Dalmatian")
+
+    with pytest.raises(ValueError, match="was mutated"):
+        validate_series_visual_signature_profile_snapshot(profile)
 
 
 def test_forbidden_appearance_traits_allow_logo_and_watermark_facts() -> None:
@@ -443,6 +480,50 @@ def test_contract_rejects_non_finite_json_values_before_hashing() -> None:
     payload["contract_content_sha256"] = ""
 
     with pytest.raises(ValueError, match="non-finite"):
+        FinalVisualPromptContractV45.from_mapping(payload)
+
+
+def test_contract_rejects_excessive_json_depth_before_recursive_guards() -> None:
+    payload = _contract(frame_id="frame-depth").to_dict()
+    nested: object = "leaf"
+    for _ in range(32):
+        nested = {"child": nested}
+    payload["article_concretization"] = nested
+    payload["contract_content_sha256"] = ""
+
+    with pytest.raises(ValueError, match="JSON nesting depth"):
+        FinalVisualPromptContractV45.from_mapping(payload)
+
+
+def test_contract_rejects_cyclic_json_without_recursion_error() -> None:
+    payload = _contract(frame_id="frame-cycle").to_dict()
+    cyclic: dict[str, object] = {}
+    cyclic["child"] = cyclic
+    payload["article_concretization"] = cyclic
+    payload["contract_content_sha256"] = ""
+
+    with pytest.raises(ValueError, match="cyclic mappings"):
+        FinalVisualPromptContractV45.from_mapping(payload)
+
+
+def test_contract_rejects_duplicate_unicode_normalized_json_keys() -> None:
+    payload = _contract(frame_id="frame-key-normalization").to_dict()
+    payload["article_concretization"] = {
+        "Café": "first",
+        "Cafe\u0301": "second",
+    }
+    payload["contract_content_sha256"] = ""
+
+    with pytest.raises(ValueError, match="duplicate normalized JSON keys"):
+        FinalVisualPromptContractV45.from_mapping(payload)
+
+
+def test_contract_enforces_projection_required_subject_limits() -> None:
+    payload = _contract(frame_id="frame-subject-limit").to_dict()
+    payload["required_subjects"] = [f"subject-{index}" for index in range(65)]
+    payload["contract_content_sha256"] = ""
+
+    with pytest.raises(ValueError, match="at most 64 items"):
         FinalVisualPromptContractV45.from_mapping(payload)
 
 

@@ -139,10 +139,28 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
             "frame_ip_fusion_plans": [
                 {"frame_id": "frame-1", "legacy_identity": "must not reach base"}
             ],
+            "reference_image": {
+                "enabled": True,
+                "subject_summary": "alternate blue mascot",
+                "identity_anchors": ["blue fur", "gold crown"],
+                "negative_constraints": ["always render the alternate mascot"],
+                "prompt_fallback_hint": "replace the canonical identity",
+                "style_summary": "soft ink wash",
+                "color_atmosphere": "warm neutral palette",
+                "composition_summary": "balanced editorial composition",
+                "style_anchors": ["ink outlines"],
+            },
             "visual_story_engine": {
                 "selected_visual_route": {"route_id": "content-route"},
                 "style_harmonization": {"legacy_ip_style": "must not reach base"},
                 "channel_memory_intent": "stable legacy signature",
+                "article": {
+                    "summary": "factory process article",
+                    "core_claim": "the assembly line has one bottleneck",
+                    "central_problem": "production delay",
+                    "legacy_identity": "alternate orange mascot",
+                    "identity_anchors": ["orange fur"],
+                },
             },
         },
     )
@@ -193,8 +211,26 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
         "recommended_ip_role",
         "ip_fit_reason",
         "ip_compatibility",
+        "alternate blue mascot",
+        "blue fur",
+        "gold crown",
+        "always render the alternate mascot",
+        "replace the canonical identity",
+        "alternate orange mascot",
+        "orange fur",
     ):
         assert forbidden not in context_text
+    plan_context_text = str(captured_generation["prompt_contexts"].plan_context)
+    for forbidden in (
+        "alternate blue mascot",
+        "blue fur",
+        "gold crown",
+        "alternate orange mascot",
+        "orange fur",
+    ):
+        assert forbidden not in plan_context_text
+    assert "soft ink wash" in plan_context_text
+    assert "factory process article" in plan_context_text
     assert generation_context["selected_visual_route"]["route_id"] == "content-route"
     frame_plan = generation_context["visual_story_frame_plan"]
     assert frame_plan["local_claim"] == "show the production process"
@@ -317,6 +353,43 @@ async def test_canonical_disabled_request_has_no_legacy_fallback(
     assert captured_generation["series_visual_signature_request"] is None
     assert captured_generation["ip_profile"] is None
     assert "series_visual_signature_projection_audit" not in result.planning_snapshot
+
+
+@pytest.mark.asyncio
+async def test_disabled_signature_preserves_reference_image_identity_compatibility(
+    monkeypatch,
+) -> None:
+    captured_generation = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured_generation.update(kwargs)
+        return await _base_batch(**kwargs)
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    await VisualPromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan(),
+        image_config={},
+        series_visual_signature_request=SeriesVisualSignatureRequest.disabled(),
+        visual_story_context={
+            "reference_image": {
+                "enabled": True,
+                "subject_summary": "reference subject",
+                "identity_anchors": ["reference identity anchor"],
+            }
+        },
+    )
+
+    frame_context = captured_generation["prompt_contexts"].frame_contexts[0]
+    assert frame_context["reference_image"]["subject_summary"] == "reference subject"
+    assert frame_context["reference_image"]["identity_anchors"] == [
+        "reference identity anchor"
+    ]
 
 
 @pytest.mark.asyncio

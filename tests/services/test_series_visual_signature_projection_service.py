@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -323,3 +324,31 @@ def test_projection_fallback_injects_when_llm_missed_ip() -> None:
     for trait in profile.identity_traits:
         assert trait in frame.bundle.positive_prompt
     assert "timeline showing Musk" in frame.bundle.positive_prompt
+
+
+def test_projection_accepts_maximum_batch_with_bounded_audit_payload() -> None:
+    request = _request(series_visual_signature_role="guide")
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=request,
+        ip_profile=_ip_profile(),
+    )
+    count = 512
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=["worker beside a production machine"] * count,
+        frame_ids=[f"frame-{index:04d}" for index in range(count)],
+        frame_contexts=[{"primary_subject": "worker"}] * count,
+        request=request,
+        profile=profile,
+    )
+
+    audit = result.audit_dict()
+    serialized_audit = json.dumps(
+        audit,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    assert len(result.frames) == count
+    assert result.metrics.all_frames_passed is True
+    assert len(serialized_audit) <= result.budget.max_audit_bytes

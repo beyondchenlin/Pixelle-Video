@@ -152,21 +152,21 @@ def _relation_target(
     for value in required_subjects:
         text = _text(value)
         if text:
-            return _relation_target_label(text)
+            return _compact_fact_label(text)
     brief = dict(base_visual_brief or {})
     for value in _sequence(brief.get("main_subjects")):
         text = _text(value)
         if text:
-            return _relation_target_label(text)
+            return _compact_fact_label(text)
     primary_subject = _text(frame_context.get("primary_subject"))
     if primary_subject:
-        return _relation_target_label(primary_subject)
+        return _compact_fact_label(primary_subject)
     if scene_type is VisualSceneType.ABSTRACT_DIAGRAM:
         return "diagram node"
     for value in _sequence(frame_context.get("world_elements")):
         text = _text(value)
         if text:
-            return _relation_target_label(text)
+            return _compact_fact_label(text)
     return "scene subject"
 
 
@@ -269,7 +269,7 @@ def _frame_action_fact(
     ):
         text = _text(value).strip(" .,:;，。；：")
         if text:
-            return _bounded_fact(text, 72)
+            return _compact_fact_label(text, limit=72)
     return "the visible scene action"
 
 
@@ -369,15 +369,8 @@ def _contains_scene_term(text: str, term: str) -> bool:
     return normalized_term in text.casefold()
 
 
-def _bounded_fact(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    shortened = text[: limit - 1].rstrip(" .,:;，。；：")
-    return shortened + "…"
-
-
-def _relation_target_label(text: str, limit: int = 32) -> str:
-    """Create a compact target label without truncating the protected subject fact."""
+def _compact_fact_label(text: str, limit: int = 32) -> str:
+    """Create a compact derived label without implying it is the full source fact."""
 
     if len(text) <= limit:
         return text

@@ -183,7 +183,7 @@ def validate_series_visual_signature_profile_snapshot(
         excluded=core_identity_traits,
     )
 
-    return VisualSignatureProfileSnapshot(
+    normalized = VisualSignatureProfileSnapshot(
         profile_id=snapshot.profile_id,
         display_name=display_name,
         identity_traits=(*core_identity_traits, *supporting_identity_traits),
@@ -193,6 +193,15 @@ def validate_series_visual_signature_profile_snapshot(
         forbidden_traits=tuple(snapshot.forbidden_traits),
         source_asset_ids=tuple(snapshot.source_asset_ids),
     )
+    if snapshot.canonical_identity_clause != normalized.canonical_identity_clause:
+        raise ValueError(
+            "visual signature profile snapshot canonical identity clause was mutated"
+        )
+    if snapshot.identity_content_sha256 != normalized.identity_content_sha256:
+        raise ValueError(
+            "visual signature profile snapshot identity content hash was mutated"
+        )
+    return normalized
 
 
 def validate_series_visual_signature_identity_name(value: Any) -> str:

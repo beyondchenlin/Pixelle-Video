@@ -106,7 +106,7 @@ class SeriesVisualSignatureContractBuilder:
         profile: VisualSignatureProfileSnapshot | Mapping[str, Any] | None,
     ) -> VisualSignatureProfileSnapshot | None:
         if isinstance(profile, VisualSignatureProfileSnapshot):
-            return profile
+            return VisualSignatureProfileSnapshot.from_mapping(profile.to_dict())
         if isinstance(profile, Mapping):
             return VisualSignatureProfileSnapshot.from_mapping(profile)
         return None

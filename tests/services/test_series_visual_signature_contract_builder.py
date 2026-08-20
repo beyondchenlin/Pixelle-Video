@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from pixelle_video.models.series_visual_signature import SeriesVisualSignatureRole
+from pixelle_video.models.series_visual_signature import (
+    SeriesVisualSignatureRole,
+    VisualSignatureProfileSnapshot,
+)
 from pixelle_video.services.series_visual_signature_contract_builder import (
     SeriesVisualSignatureContractBuilder,
 )
@@ -136,4 +139,15 @@ def test_builder_rejects_resolved_profile_id_mismatch() -> None:
                 "display_name": "Other Dog",
                 "identity_traits": ["white coat", "red collar"],
             },
+        )
+
+
+def test_builder_revalidates_typed_profile_instead_of_trusting_object_identity() -> None:
+    profile = VisualSignatureProfileSnapshot.from_mapping(_profile())
+    object.__setattr__(profile, "display_name", "Tampered Dalmatian")
+
+    with pytest.raises(ValueError, match="canonical_identity_clause"):
+        SeriesVisualSignatureContractBuilder().build(
+            request=_enabled_request(series_visual_signature_role="guide"),
+            profile=profile,
         )

@@ -78,6 +78,29 @@ _CONTENT_ROUTE_KEYS = (
     "risk_notes",
     "sample_frame_premise",
 )
+_CONTENT_ARTICLE_KEYS = (
+    "input_kind",
+    "summary",
+    "core_claim",
+    "central_problem",
+    "tone",
+    "key_subjects",
+    "cognitive_opportunities",
+    "metaphor_opportunities",
+    "unsafe_or_sensitive_flags",
+    "evidence_spans",
+)
+_CONTENT_REFERENCE_IMAGE_KEYS = (
+    "enabled",
+    "asset_sha256",
+    "style_summary",
+    "color_atmosphere",
+    "composition_summary",
+    "style_anchors",
+    "confidence",
+    "limitations",
+    "merge_mode",
+)
 
 
 @dataclass
@@ -169,7 +192,10 @@ class VisualPromptComposer:
                 visual_story_context,
                 reference_patch,
             )
-        visual_story_context = _content_only_visual_story_context(visual_story_context)
+        visual_story_context = _content_only_visual_story_context(
+            visual_story_context,
+            identity_isolation_enabled=signature_enabled,
+        )
 
         normalized_overrides = normalize_plan_frame_overrides(
             frame_overrides,
@@ -454,6 +480,8 @@ def _attach_canonical_visual_identity_context(
 
 def _content_only_visual_story_context(
     visual_story_context: Optional[Mapping[str, Any]],
+    *,
+    identity_isolation_enabled: bool = False,
 ) -> dict[str, Any]:
     """Project visual-story context onto content facts only.
 
@@ -465,7 +493,11 @@ def _content_only_visual_story_context(
     result: dict[str, Any] = {}
     reference_image = source.get("reference_image")
     if isinstance(reference_image, Mapping):
-        result["reference_image"] = dict(reference_image)
+        result["reference_image"] = (
+            _mapping_projection(reference_image, _CONTENT_REFERENCE_IMAGE_KEYS)
+            if identity_isolation_enabled
+            else dict(reference_image)
+        )
 
     route_source = source.get("selected_visual_route")
     if not isinstance(route_source, Mapping):
@@ -495,7 +527,11 @@ def _content_only_visual_story_context(
         if plan_id:
             engine["plan_id"] = plan_id
         if isinstance(article, Mapping):
-            engine["article"] = dict(article)
+            engine["article"] = (
+                _mapping_projection(article, _CONTENT_ARTICLE_KEYS)
+                if identity_isolation_enabled
+                else dict(article)
+            )
         if route:
             engine["selected_visual_route"] = route
         if engine:
@@ -506,17 +542,20 @@ def _content_only_visual_story_context(
 def _content_only_route(value: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         return {}
-    return {
-        key: value[key]
-        for key in _CONTENT_ROUTE_KEYS
-        if key in value and value[key] is not None
-    }
+    return _mapping_projection(value, _CONTENT_ROUTE_KEYS)
 
 
 def _content_only_frame_visual_plan(value: Mapping[str, Any]) -> dict[str, Any]:
+    return _mapping_projection(value, _CONTENT_FRAME_VISUAL_KEYS)
+
+
+def _mapping_projection(
+    value: Mapping[str, Any],
+    allowed_keys: Sequence[str],
+) -> dict[str, Any]:
     return {
         key: value[key]
-        for key in _CONTENT_FRAME_VISUAL_KEYS
+        for key in allowed_keys
         if key in value and value[key] is not None
     }
 

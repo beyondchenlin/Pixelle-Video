@@ -13,14 +13,26 @@ from pixelle_video.architecture.legacy_signature_field_guard import (
     reject_deprecated_signature_fields,
 )
 from pixelle_video.models.series_visual_signature import SeriesVisualSignatureContract
+from pixelle_video.models.series_visual_signature_projection_policy import (
+    DEFAULT_MAX_REQUIRED_SUBJECT_CHARS,
+    DEFAULT_MAX_REQUIRED_SUBJECTS,
+)
 from pixelle_video.models.visual_entity_placement import (
     DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS,
+    MAX_VISUAL_ENTITY_FRAME_ID_CHARS,
     VisualEntityPlacement,
     VisualEntitySceneFusion,
     VisualSceneType,
 )
 
 FINAL_VISUAL_PROMPT_CONTRACT_V45_VERSION = "final_visual_prompt_contract.v4_5"
+MAX_V45_CONTRACT_ID_CHARS = 512
+MAX_V45_PRIMARY_VISUAL_TASK_CHARS = 256
+MAX_V45_PROTOCOL_TEXT_CHARS = 128
+MAX_V45_PROJECTED_PROMPT_PARTS = 256
+MAX_V45_JSON_DEPTH = 16
+MAX_V45_JSON_NODES = 4096
+MAX_V45_JSON_TEXT_CHARS = 200_000
 
 
 @dataclass(frozen=True)
@@ -45,21 +57,69 @@ class FinalVisualPromptContractV45:
     contract_content_sha256: str = ""
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "contract_id", _require_text("contract_id", self.contract_id))
-        object.__setattr__(self, "frame_id", _require_text("frame_id", self.frame_id))
+        object.__setattr__(
+            self,
+            "contract_id",
+            _require_text(
+                "contract_id",
+                self.contract_id,
+                max_chars=MAX_V45_CONTRACT_ID_CHARS,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "frame_id",
+            _require_text(
+                "frame_id",
+                self.frame_id,
+                max_chars=MAX_VISUAL_ENTITY_FRAME_ID_CHARS,
+            ),
+        )
         object.__setattr__(
             self,
             "primary_visual_task",
-            _require_text("primary_visual_task", self.primary_visual_task),
+            _require_text(
+                "primary_visual_task",
+                self.primary_visual_task,
+                max_chars=MAX_V45_PRIMARY_VISUAL_TASK_CHARS,
+            ),
         )
         object.__setattr__(
             self,
             "required_subjects",
-            _text_tuple("required_subjects", self.required_subjects, allow_empty=True),
+            _text_tuple(
+                "required_subjects",
+                self.required_subjects,
+                allow_empty=True,
+                max_items=DEFAULT_MAX_REQUIRED_SUBJECTS,
+                max_chars=DEFAULT_MAX_REQUIRED_SUBJECT_CHARS,
+            ),
         )
-        article_concretization = dict(self.article_concretization or {})
-        diagram_render = dict(self.diagram_render or {})
-        projected_parts = tuple(dict(part) for part in self.projected_prompt_parts or ())
+        article_concretization = _freeze_json(
+            self.article_concretization or {},
+            field_name="article_concretization",
+        )
+        diagram_render = _freeze_json(
+            self.diagram_render or {},
+            field_name="diagram_render",
+        )
+        projected_parts_source = self.projected_prompt_parts or ()
+        if (
+            isinstance(projected_parts_source, (str, bytes, bytearray))
+            or not isinstance(projected_parts_source, Sequence)
+        ):
+            raise ValueError("projected_prompt_parts must be a sequence of mappings")
+        if len(projected_parts_source) > MAX_V45_PROJECTED_PROMPT_PARTS:
+            raise ValueError(
+                "projected_prompt_parts must contain at most "
+                f"{MAX_V45_PROJECTED_PROMPT_PARTS} items"
+            )
+        if any(not isinstance(part, Mapping) for part in projected_parts_source):
+            raise ValueError("projected_prompt_parts must contain only mappings")
+        projected_parts = _freeze_json(
+            tuple(projected_parts_source),
+            field_name="projected_prompt_parts",
+        )
         reject_deprecated_signature_fields(
             article_concretization,
             context="final visual prompt contract",
@@ -72,16 +132,25 @@ class FinalVisualPromptContractV45:
             projected_parts,
             context="final visual prompt contract",
         )
-        signature = SeriesVisualSignatureContract.from_mapping(
-            self.series_visual_signature
-        )
+        signature_source = self.series_visual_signature
+        if isinstance(signature_source, SeriesVisualSignatureContract):
+            signature_source = signature_source.to_dict()
+        signature = SeriesVisualSignatureContract.from_mapping(signature_source)
         placement = (
-            VisualEntityPlacement.from_mapping(self.entity_placement)
+            VisualEntityPlacement.from_mapping(
+                self.entity_placement.to_dict()
+                if isinstance(self.entity_placement, VisualEntityPlacement)
+                else self.entity_placement
+            )
             if self.entity_placement is not None
             else None
         )
         fusion = (
-            VisualEntitySceneFusion.from_mapping(self.scene_fusion)
+            VisualEntitySceneFusion.from_mapping(
+                self.scene_fusion.to_dict()
+                if isinstance(self.scene_fusion, VisualEntitySceneFusion)
+                else self.scene_fusion
+            )
             if self.scene_fusion is not None
             else None
         )
@@ -108,28 +177,40 @@ class FinalVisualPromptContractV45:
         object.__setattr__(
             self,
             "article_concretization",
-            _freeze_json(article_concretization),
+            article_concretization,
         )
         object.__setattr__(self, "series_visual_signature", signature)
         object.__setattr__(self, "entity_placement", placement)
         object.__setattr__(self, "scene_fusion", fusion)
-        object.__setattr__(self, "diagram_render", _freeze_json(diagram_render))
+        object.__setattr__(self, "diagram_render", diagram_render)
         object.__setattr__(
             self,
             "visible_text_policy",
-            _require_text("visible_text_policy", self.visible_text_policy),
+            _require_text(
+                "visible_text_policy",
+                self.visible_text_policy,
+                max_chars=MAX_V45_PROTOCOL_TEXT_CHARS,
+            ),
         )
         object.__setattr__(
             self,
             "projected_prompt_parts",
-            tuple(_freeze_json(part) for part in projected_parts),
+            projected_parts,
         )
         object.__setattr__(
             self,
             "prompt_compiler_name",
-            _require_text("prompt_compiler_name", self.prompt_compiler_name),
+            _require_text(
+                "prompt_compiler_name",
+                self.prompt_compiler_name,
+                max_chars=MAX_V45_PROTOCOL_TEXT_CHARS,
+            ),
         )
-        contract_version = _require_text("contract_version", self.contract_version)
+        contract_version = _require_text(
+            "contract_version",
+            self.contract_version,
+            max_chars=MAX_V45_PROTOCOL_TEXT_CHARS,
+        )
         if contract_version != FINAL_VISUAL_PROMPT_CONTRACT_V45_VERSION:
             raise ValueError(
                 f"contract_version must be {FINAL_VISUAL_PROMPT_CONTRACT_V45_VERSION}"
@@ -222,17 +303,73 @@ def final_visual_prompt_contract_content_sha256(
     placement: VisualEntityPlacement | None,
     fusion: VisualEntitySceneFusion | None,
 ) -> str:
-    profile = signature.profile
+    normalized_contract_version = _require_text(
+        "contract_version",
+        contract_version,
+        max_chars=MAX_V45_PROTOCOL_TEXT_CHARS,
+    )
+    if normalized_contract_version != FINAL_VISUAL_PROMPT_CONTRACT_V45_VERSION:
+        raise ValueError(
+            f"contract_version must be {FINAL_VISUAL_PROMPT_CONTRACT_V45_VERSION}"
+        )
+    normalized_frame_id = _require_text(
+        "frame_id",
+        frame_id,
+        max_chars=MAX_VISUAL_ENTITY_FRAME_ID_CHARS,
+    )
+    normalized_required_subjects = _text_tuple(
+        "required_subjects",
+        required_subjects,
+        allow_empty=True,
+        max_items=DEFAULT_MAX_REQUIRED_SUBJECTS,
+        max_chars=DEFAULT_MAX_REQUIRED_SUBJECT_CHARS,
+    )
+    normalized_signature = SeriesVisualSignatureContract.from_mapping(
+        signature.to_dict()
+    )
+    normalized_placement = (
+        VisualEntityPlacement.from_mapping(placement.to_dict())
+        if placement is not None
+        else None
+    )
+    normalized_fusion = (
+        VisualEntitySceneFusion.from_mapping(fusion.to_dict())
+        if fusion is not None
+        else None
+    )
+    if normalized_signature.enabled:
+        if normalized_placement is None or normalized_fusion is None:
+            raise ValueError(
+                "enabled signature contract hash requires placement and scene fusion"
+            )
+        _validate_signature_placement_contract(
+            frame_id=normalized_frame_id,
+            required_subjects=normalized_required_subjects,
+            signature=normalized_signature,
+            placement=normalized_placement,
+            fusion=normalized_fusion,
+        )
+    elif normalized_placement is not None or normalized_fusion is not None:
+        raise ValueError(
+            "disabled signature contract hash must not include placement or scene fusion"
+        )
+    profile = normalized_signature.profile
     payload = {
-        "contract_version": contract_version,
-        "frame_id": frame_id,
-        "required_subjects": list(required_subjects),
+        "contract_version": normalized_contract_version,
+        "frame_id": normalized_frame_id,
+        "required_subjects": list(normalized_required_subjects),
         "identity_content_sha256": (
             profile.identity_content_sha256 if profile is not None else ""
         ),
-        "series_visual_signature_role": signature.role.value,
-        "entity_placement": placement.to_dict() if placement is not None else None,
-        "scene_fusion": fusion.to_dict() if fusion is not None else None,
+        "series_visual_signature_role": normalized_signature.role.value,
+        "entity_placement": (
+            normalized_placement.to_dict()
+            if normalized_placement is not None
+            else None
+        ),
+        "scene_fusion": (
+            normalized_fusion.to_dict() if normalized_fusion is not None else None
+        ),
     }
     serialized = json.dumps(
         payload,
@@ -305,10 +442,18 @@ def _validate_signature_placement_contract(
             )
 
 
-def _require_text(field_name: str, value: Any) -> str:
+def _require_text(
+    field_name: str,
+    value: Any,
+    *,
+    max_chars: int | None = None,
+) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
-    return unicodedata.normalize("NFC", " ".join(value.strip().split()))
+    normalized = unicodedata.normalize("NFC", " ".join(value.strip().split()))
+    if max_chars is not None and len(normalized) > max_chars:
+        raise ValueError(f"{field_name} must be <= {max_chars} characters")
+    return normalized
 
 
 def _text_tuple(
@@ -316,33 +461,93 @@ def _text_tuple(
     values: Sequence[Any],
     *,
     allow_empty: bool,
+    max_items: int | None = None,
+    max_chars: int | None = None,
 ) -> tuple[str, ...]:
     if values is None:
         values = ()
     if isinstance(values, str) or not isinstance(values, Sequence):
         raise ValueError(f"{field_name} must be a sequence of strings")
-    result = tuple(_require_text(field_name, value) for value in values)
+    if max_items is not None and len(values) > max_items:
+        raise ValueError(f"{field_name} must contain at most {max_items} items")
+    result = tuple(
+        _require_text(field_name, value, max_chars=max_chars) for value in values
+    )
     if not allow_empty and not result:
         raise ValueError(f"{field_name} must not be empty")
     return result
 
 
-def _freeze_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return MappingProxyType(
-            {str(key): _freeze_json(child) for key, child in value.items()}
-        )
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_json(child) for child in value)
-    if isinstance(value, float) and not math.isfinite(value):
+def _freeze_json(value: Any, *, field_name: str) -> Any:
+    node_count = 0
+    text_char_count = 0
+    active_containers: set[int] = set()
+
+    def visit(current: Any, *, depth: int) -> Any:
+        nonlocal node_count, text_char_count
+        node_count += 1
+        if node_count > MAX_V45_JSON_NODES:
+            raise ValueError(
+                f"{field_name} exceeds {MAX_V45_JSON_NODES} JSON nodes"
+            )
+        if depth > MAX_V45_JSON_DEPTH:
+            raise ValueError(
+                f"{field_name} exceeds JSON nesting depth {MAX_V45_JSON_DEPTH}"
+            )
+        if isinstance(current, Mapping):
+            container_id = id(current)
+            if container_id in active_containers:
+                raise ValueError(f"{field_name} must not contain cyclic mappings")
+            active_containers.add(container_id)
+            try:
+                frozen: dict[str, Any] = {}
+                for key, child in current.items():
+                    if not isinstance(key, str):
+                        raise ValueError(
+                            f"{field_name} JSON object keys must be strings"
+                        )
+                    normalized_key = unicodedata.normalize("NFC", key)
+                    text_char_count += len(normalized_key)
+                    if text_char_count > MAX_V45_JSON_TEXT_CHARS:
+                        raise ValueError(
+                            f"{field_name} exceeds {MAX_V45_JSON_TEXT_CHARS} JSON text characters"
+                        )
+                    if normalized_key in frozen:
+                        raise ValueError(
+                            f"{field_name} contains duplicate normalized JSON keys"
+                        )
+                    frozen[normalized_key] = visit(child, depth=depth + 1)
+                return MappingProxyType(frozen)
+            finally:
+                active_containers.remove(container_id)
+        if isinstance(current, (list, tuple)):
+            container_id = id(current)
+            if container_id in active_containers:
+                raise ValueError(f"{field_name} must not contain cyclic sequences")
+            active_containers.add(container_id)
+            try:
+                return tuple(visit(child, depth=depth + 1) for child in current)
+            finally:
+                active_containers.remove(container_id)
+        if isinstance(current, float) and not math.isfinite(current):
+            raise ValueError(
+                "FinalVisualPromptContractV45 values must not contain non-finite floats"
+            )
+        if isinstance(current, str):
+            text_char_count += len(current)
+            if text_char_count > MAX_V45_JSON_TEXT_CHARS:
+                raise ValueError(
+                    f"{field_name} exceeds {MAX_V45_JSON_TEXT_CHARS} JSON text characters"
+                )
+            return current
+        if isinstance(current, (int, float, bool)) or current is None:
+            return current
         raise ValueError(
-            "FinalVisualPromptContractV45 values must not contain non-finite floats"
+            "FinalVisualPromptContractV45 values must be JSON-compatible, "
+            f"got {type(current).__name__}"
         )
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    raise ValueError(
-        f"FinalVisualPromptContractV45 values must be JSON-compatible, got {type(value).__name__}"
-    )
+
+    return visit(value, depth=0)
 
 
 def _thaw_json(value: Any) -> Any:
@@ -356,5 +561,8 @@ def _thaw_json(value: Any) -> Any:
 __all__ = [
     "FINAL_VISUAL_PROMPT_CONTRACT_V45_VERSION",
     "FinalVisualPromptContractV45",
+    "MAX_V45_JSON_DEPTH",
+    "MAX_V45_JSON_NODES",
+    "MAX_V45_JSON_TEXT_CHARS",
     "final_visual_prompt_contract_content_sha256",
 ]
