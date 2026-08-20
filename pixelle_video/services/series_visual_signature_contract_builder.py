@@ -4,11 +4,13 @@ from collections.abc import Mapping
 from typing import Any
 
 from pixelle_video.models.series_visual_signature import (
+    FORBIDDEN_TEXT_CHARACTER_ROLES,
     SeriesVisualSignatureContract,
     SeriesVisualSignatureRequest,
     SeriesVisualSignatureRole,
     SignatureReplacementPolicy,
     VisualSignatureProfileSnapshot,
+    relative_size_from_max_area_ratio,
 )
 from pixelle_video.services.series_visual_signature_role_resolver import (
     resolve_series_visual_signature_role,
@@ -19,9 +21,6 @@ _ROLE_MAX_AREA_RATIO = {
     SeriesVisualSignatureRole.SILENT_WITNESS: 0.16,
     SeriesVisualSignatureRole.OPERATOR: 0.28,
     SeriesVisualSignatureRole.GUIDE: 0.20,
-    SeriesVisualSignatureRole.OBSTACLE: 0.25,
-    SeriesVisualSignatureRole.CONTAINER: 0.22,
-    SeriesVisualSignatureRole.BACKGROUND_MARK: 0.10,
 }
 
 _ROLE_RULES = {
@@ -29,9 +28,6 @@ _ROLE_RULES = {
     SeriesVisualSignatureRole.SILENT_WITNESS: "The visual signature observes quietly and must not drive the visual explanation.",
     SeriesVisualSignatureRole.OPERATOR: "The visual signature operates a diagram element or process handle without replacing article subjects.",
     SeriesVisualSignatureRole.GUIDE: "The visual signature points to the reading path or relation line as a small guide.",
-    SeriesVisualSignatureRole.OBSTACLE: "The visual signature embodies resistance only when the article explicitly needs an obstacle.",
-    SeriesVisualSignatureRole.CONTAINER: "The visual signature frames or contains the structure without becoming the subject.",
-    SeriesVisualSignatureRole.BACKGROUND_MARK: "The visual signature appears only as a low-weight background recognition mark.",
 }
 
 
@@ -72,6 +68,11 @@ class SeriesVisualSignatureContractBuilder:
             normalized_request.role,
             context=role_context,
         )
+        if role in FORBIDDEN_TEXT_CHARACTER_ROLES:
+            raise ValueError(
+                "text character role is incompatible with recurring identity: "
+                f"{role.value}"
+            )
         role_limit = _ROLE_MAX_AREA_RATIO[role]
         requested_area = normalized_request.max_area_ratio
         if requested_area is not None and requested_area > role_limit:
@@ -86,6 +87,7 @@ class SeriesVisualSignatureContractBuilder:
             profile=normalized_profile,
             replacement_policy=SignatureReplacementPolicy.NO_SUBJECT_REPLACEMENT,
             max_area_ratio=max_area_ratio,
+            relative_size=relative_size_from_max_area_ratio(max_area_ratio),
             participation_rule=_ROLE_RULES[role],
             style_integration_rule=(
                 "Draw the signature in the same render surface as the scene; "
@@ -95,7 +97,7 @@ class SeriesVisualSignatureContractBuilder:
                 "do not replace required article subjects",
                 "do not appear as a sticker, logo, watermark, or corner badge",
                 "do not use photorealistic animal or mascot language in hand-drawn styles",
-                "do not exceed max_area_ratio",
+                "do not exceed the configured relative size",
             ),
         )
 

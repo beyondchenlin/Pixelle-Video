@@ -106,7 +106,10 @@ def test_preserved_prompt_uses_requested_guide_contract() -> None:
     assert frame.signature.role.value == "guide"
     assert frame.signature.max_area_ratio == pytest.approx(0.20)
     assert frame.required_subjects == ("worker",)
-    assert frame.bundle.positive_prompt == prompt
+    assert prompt in frame.bundle.positive_prompt
+    assert frame.contract.entity_placement is not None
+    assert frame.contract.scene_fusion is not None
+    assert "shared perspective" in frame.bundle.positive_prompt
 
 
 def test_missing_display_name_is_repaired_without_dropping_subject_contract() -> None:
@@ -189,6 +192,20 @@ def test_canonical_identity_context_contains_only_validated_identity_facts() -> 
             "red collar",
             "small round ears",
         ],
+        "core_identity_traits": [
+            "black spots",
+            "black sunglasses",
+            "red collar",
+            "small round ears",
+        ],
+        "supporting_identity_traits": [],
+        "canonical_identity_clause": (
+            "Canonical recurring identity Dalmatian: black spots, black sunglasses, "
+            "red collar, small round ears."
+        ),
+        "identity_content_sha256": (
+            "de240f30303bfe2b937505a750c32bad2273c5edf80ffb9ad86da32837f163bd"
+        ),
         "requested_role": "guide",
     }
     assert result.frame_contexts[0]["frame_source_text"] == "A worker operates a machine."

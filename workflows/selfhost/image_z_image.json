@@ -47,7 +47,10 @@
   },
   "7": {
     "inputs": {
-      "text": "",
+      "text": [
+        "47",
+        0
+      ],
       "clip": [
         "38",
         0
@@ -111,6 +114,15 @@
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
       "title": "$prompt.value!"
+    }
+  },
+  "47": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "$negative_prompt.value!"
     }
   },
   "58": {

@@ -676,7 +676,7 @@ class FrameProcessor:
                     artifact_path=trace_context.get("artifact_path", ""),
                     task_id=trace_context.get("task_id") or config.task_id or "",
                     prompt=frame.image_prompt or "",
-                    negative_prompt=config.media_negative_prompt or "",
+                    negative_prompt=frame_negative_prompt or "",
                     workflow_context=trace_context,
                     media_type=media_type,
                     frame_id=resolved_frame_id,

@@ -1,14 +1,23 @@
+import json
 from dataclasses import replace
 
 import pytest
 
+import pixelle_video.pipelines.standard as standard_module
 from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
+from pixelle_video.models.final_visual_prompt_contract import (
+    FinalVisualPromptContract,
+    RenderedMediaPrompt,
+)
+from pixelle_video.models.media import MediaResult
 from pixelle_video.models.prompt_plan import PromptPlanBundle
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
+from pixelle_video.services.frame_processor import FrameProcessor
+from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.utils.template_util import get_template_orientation
 
 
@@ -211,6 +220,48 @@ def test_write_final_prompt_trace_artifact_uses_plan_frame_ids_and_media_sizes(t
     assert '"canvas_height": 720' in content
     assert '"requested_media_workflow": null' in content
     assert '"media_workflow": "selfhost/image_trace_default.json"' in content
+
+
+def test_write_series_signature_trace_artifact_preserves_complete_v45_record(
+    tmp_path,
+) -> None:
+    trace = {
+        "contract": {
+            "schema_version": "v4.5-signature",
+            "frame_id": "frame_alpha",
+            "entity_placement": {"horizontal_position": "left"},
+            "scene_fusion": {"style_relation": "same render style/material"},
+        },
+        "final_positive_prompt": "exact positive prompt",
+        "final_negative_prompt": "exact negative prompt",
+        "identity_content_sha256": "a" * 64,
+        "contract_content_sha256": "b" * 64,
+        "contract_version": "final_visual_prompt_contract.v4_5",
+    }
+    ctx = PipelineContext(input_text="Scene.", params={})
+    ctx.task_id = "task-v45-trace"
+    ctx.task_dir = str(tmp_path)
+    ctx.planning_snapshot = {
+        "series_visual_signature_trace_by_frame": {"frame_alpha": trace}
+    }
+
+    StandardPipeline(_DummyCore())._write_series_visual_signature_trace_artifacts(ctx)
+
+    artifact_path = (
+        tmp_path
+        / "prompt_traces"
+        / "series_visual_signature"
+        / "series_visual_signature_v45_contract_frame_001.json"
+    )
+    assert artifact_path.exists()
+    assert json.loads(artifact_path.read_text(encoding="utf-8")) == trace
+    prompt_path = (
+        tmp_path
+        / "prompt_traces"
+        / "series_visual_signature"
+        / "final_integrated_prompt_frame_001.txt"
+    )
+    assert prompt_path.read_text(encoding="utf-8") == "exact positive prompt"
 
 
 @pytest.mark.asyncio
@@ -430,6 +481,7 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
         input_text="第一句。第二句。",
         params={
             "frame_template": "1080x1920/image_default.html",
+            "media_workflow": "selfhost/image_custom.json",
             "workspace_id": "workspace_1",
             "project_id": "project_1",
             "series_visual_signature_enabled": True,
@@ -449,6 +501,168 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
     scene_casts_by_frame = captured["scene_casts_by_frame"]
     assert list(scene_casts_by_frame) == [plan.frames[0].frame_id]
     assert scene_casts_by_frame[plan.frames[0].frame_id]["metadata"]["ip_presence_type"] == "scene_integrated"
+
+
+@pytest.mark.asyncio
+async def test_standard_z_image_request_matches_prompt_plan_and_v45_trace(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    adapter_calls = []
+    original_adapter = standard_module.project_z_image_prompt_bundle
+
+    def recording_adapter(**kwargs):
+        result = original_adapter(**kwargs)
+        adapter_calls.append(result)
+        return result
+
+    async def fake_compose(self, **kwargs):
+        plan = kwargs["storyboard_plan"]
+        rendered = []
+        traces = {}
+        prompts = []
+        for index, frame in enumerate(plan.frames, start=1):
+            negative = f"final V4.5 negative for {frame.frame_id}"
+            sections = {
+                "main_content": f"main {index}",
+                "fixed_identity": "fixed identity",
+                "role": "guide",
+                "placement": "left midground small beside target",
+                "scene_fusion": "shared perspective light shadow style",
+                "style": "editorial diagram",
+                "subject_protection": "keep subject visible",
+            }
+            prompt = ". ".join(sections.values())
+            contract = FinalVisualPromptContract(
+                scene=sections["main_content"],
+                composition=sections["placement"],
+                style_assignment=sections["style"],
+                character_layer_style=sections["fixed_identity"],
+                world_layer_style=sections["scene_fusion"],
+                integration_priority=(
+                    sections["role"] + ". " + sections["subject_protection"]
+                ),
+            )
+            rendered.append(
+                RenderedMediaPrompt(
+                    prompt=prompt,
+                    negative_prompt=negative,
+                    prompt_contract=contract,
+                    renderer_id="final_visual_prompt_compiler",
+                    renderer_version="v4.5",
+                    metadata={
+                        "series_visual_signature_v45": {
+                            "prompt_sections": sections,
+                            "identity_content_sha256": "a" * 64,
+                            "contract_content_sha256": "b" * 64,
+                            "contract_version": "final_visual_prompt_contract.v4_5",
+                        }
+                    },
+                )
+            )
+            prompts.append(prompt)
+            traces[frame.frame_id] = {
+                "contract": {
+                    "contract_version": "final_visual_prompt_contract.v4_5",
+                    "contract_content_sha256": "b" * 64,
+                    "series_visual_signature": {
+                        "profile": {"identity_content_sha256": "a" * 64}
+                    },
+                },
+                "final_positive_prompt": prompt,
+                "final_negative_prompt": negative,
+                "identity_content_sha256": "a" * 64,
+                "contract_content_sha256": "b" * 64,
+                "contract_version": "final_visual_prompt_contract.v4_5",
+            }
+        prompt_plan_bundle = build_prompt_plan_bundle(
+            storyboard_plan=plan,
+            rendered_prompts=rendered,
+        )
+        return StyledImagePromptBatch(
+            prompts=prompts,
+            negative_prompt=", ".join(item.negative_prompt for item in rendered),
+            resolved_style=None,
+            planning_snapshot={
+                "storyboard_generation": plan.to_dict(),
+                "series_visual_signature_trace_by_frame": traces,
+            },
+            prompt_plan_bundle=prompt_plan_bundle,
+            rendered_prompts=rendered,
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ImagePromptComposer.compose",
+        fake_compose,
+    )
+    monkeypatch.setattr(
+        standard_module,
+        "project_z_image_prompt_bundle",
+        recording_adapter,
+    )
+
+    plan = _plan()
+    repository = _RecordingAssetBibleRepository()
+    repository.current_storyboard_plan_id = plan.plan_id
+    repository.current_frame_id = plan.frames[0].frame_id
+    core = _DummyCore()
+    core.asset_bible_repository = repository
+    ctx = PipelineContext(
+        input_text="第一句。第二句。",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "media_workflow": "selfhost/image_z.json",
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
+        },
+    )
+    ctx.task_id = "task-z-image-v45"
+    ctx.title = "Z-Image V4.5 integration"
+    ctx.storyboard_plan = plan
+
+    pipeline = StandardPipeline(core)
+    await pipeline.plan_visuals(ctx)
+    await pipeline.initialize_storyboard(ctx)
+
+    assert len(adapter_calls) == 2
+    assert all(call["render_config"] == {} for call in adapter_calls)
+    prompt_plan = ctx.prompt_plan_bundle.prompt_plans[0]
+    trace = ctx.planning_snapshot["series_visual_signature_trace_by_frame"][
+        prompt_plan.frame_id
+    ]
+    assert trace["adapter"] == {
+        "provider": "z_image",
+        "validated": True,
+        "capabilities": ["positive_prompt", "negative_prompt"],
+    }
+
+    captured_request = {}
+
+    class _MediaCore:
+        async def media(self, **kwargs):
+            captured_request.update(kwargs)
+            return MediaResult(
+                media_type="image",
+                url="https://example.com/frame.png",
+            )
+
+    processor = FrameProcessor(_MediaCore())
+
+    async def fake_download_media(*args, **kwargs):
+        return str(tmp_path / "frame.png")
+
+    monkeypatch.setattr(processor, "_download_media", fake_download_media)
+    await processor._step_generate_media(ctx.storyboard.frames[0], ctx.config)
+
+    assert captured_request["prompt"] == prompt_plan.final_prompt
+    assert captured_request["prompt"] == trace["final_positive_prompt"]
+    assert captured_request["negative_prompt"] == prompt_plan.final_negative_prompt
+    assert captured_request["negative_prompt"] == trace["final_negative_prompt"]
+    for unsupported in ("bbox", "mask", "depth", "pose"):
+        assert unsupported not in captured_request
 
 
 @pytest.mark.asyncio

@@ -78,6 +78,10 @@ class PromptPlan:
     image_prompt_draft_id: str
     prompt_sections: Mapping[str, str]
     final_prompt: str
+    final_negative_prompt: str | None = None
+    identity_content_sha256: str | None = None
+    contract_content_sha256: str | None = None
+    contract_version: str | None = None
     source_trace_id: str | None = None
     character_ids: tuple[str, ...] = ()
     scene_id: str | None = None
@@ -100,6 +104,22 @@ class PromptPlan:
         )
         object.__setattr__(self, "prompt_sections", _freeze_prompt_sections(self.prompt_sections))
         object.__setattr__(self, "final_prompt", _require_non_empty("final_prompt", self.final_prompt))
+        object.__setattr__(
+            self,
+            "final_negative_prompt",
+            _optional_str(self.final_negative_prompt),
+        )
+        object.__setattr__(
+            self,
+            "identity_content_sha256",
+            _optional_sha256("identity_content_sha256", self.identity_content_sha256),
+        )
+        object.__setattr__(
+            self,
+            "contract_content_sha256",
+            _optional_sha256("contract_content_sha256", self.contract_content_sha256),
+        )
+        object.__setattr__(self, "contract_version", _optional_str(self.contract_version))
         object.__setattr__(self, "source_trace_id", _optional_str(self.source_trace_id))
         object.__setattr__(self, "character_ids", _normalize_id_tuple("character_ids", self.character_ids))
         object.__setattr__(self, "scene_id", _optional_str(self.scene_id))
@@ -115,6 +135,10 @@ class PromptPlan:
             "image_prompt_draft_id": self.image_prompt_draft_id,
             "prompt_sections": dict(self.prompt_sections),
             "final_prompt": self.final_prompt,
+            "final_negative_prompt": self.final_negative_prompt,
+            "identity_content_sha256": self.identity_content_sha256,
+            "contract_content_sha256": self.contract_content_sha256,
+            "contract_version": self.contract_version,
             "source_trace_id": self.source_trace_id,
             "character_ids": list(self.character_ids),
             "scene_id": self.scene_id,
@@ -134,6 +158,10 @@ class PromptPlan:
             image_prompt_draft_id=payload.get("image_prompt_draft_id", ""),
             prompt_sections=payload.get("prompt_sections") or {},
             final_prompt=payload.get("final_prompt", ""),
+            final_negative_prompt=payload.get("final_negative_prompt"),
+            identity_content_sha256=payload.get("identity_content_sha256"),
+            contract_content_sha256=payload.get("contract_content_sha256"),
+            contract_version=payload.get("contract_version"),
             source_trace_id=payload.get("source_trace_id"),
             character_ids=tuple(payload.get("character_ids") or ()),
             scene_id=payload.get("scene_id"),
@@ -278,6 +306,16 @@ def _optional_str(value: Any) -> str | None:
         raise ValueError("optional string fields must be strings")
     stripped = value.strip()
     return stripped or None
+
+
+def _optional_sha256(field_name: str, value: Any) -> str | None:
+    normalized = _optional_str(value)
+    if normalized is None:
+        return None
+    lowered = normalized.lower()
+    if len(lowered) != 64 or any(character not in "0123456789abcdef" for character in lowered):
+        raise ValueError(f"{field_name} must be a 64-character SHA-256 hex digest")
+    return lowered
 
 
 def _freeze_prompt_sections(value: Mapping[str, str]) -> Mapping[str, str]:

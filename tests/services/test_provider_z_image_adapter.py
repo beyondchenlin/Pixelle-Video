@@ -56,3 +56,18 @@ def test_provider_adapter_rejects_deprecated_metadata_deep() -> None:
     )
     with pytest.raises(ValueError, match="deprecated visual signature fields"):
         project_z_image_prompt_bundle(bundle=bundle, render_config={"nested": {deprecated_strategy_key: "guide"}})
+
+
+@pytest.mark.parametrize("unsupported_key", ["bbox", "mask", "depth_map", "pose"])
+def test_provider_adapter_rejects_undeclared_region_controls_deep(
+    unsupported_key,
+) -> None:
+    bundle = ZImagePromptBundle(
+        positive_prompt="A complete text-only placement and fusion prompt."
+    )
+
+    with pytest.raises(ValueError, match=rf"render_config\.nested\.{unsupported_key}"):
+        project_z_image_prompt_bundle(
+            bundle=bundle,
+            render_config={"nested": {unsupported_key: "unsupported"}},
+        )

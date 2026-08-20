@@ -418,7 +418,12 @@ def test_image_z_image_workflow_is_parseable():
         str(Path("workflows/selfhost/image_z_image.json"))
     )
 
-    assert set(metadata.params.keys()) == {"prompt", "width", "height"}
+    assert set(metadata.params.keys()) == {
+        "prompt",
+        "negative_prompt",
+        "width",
+        "height",
+    }
     _assert_prompt_mapping_is_declared_once(metadata)
 
 
@@ -427,7 +432,12 @@ def test_image_z_image_turbo_workflow_is_parseable():
         str(Path("workflows/selfhost/image_z_image_turbo.json"))
     )
 
-    assert set(metadata.params.keys()) == {"prompt", "width", "height"}
+    assert set(metadata.params.keys()) == {
+        "prompt",
+        "negative_prompt",
+        "width",
+        "height",
+    }
     _assert_prompt_mapping_is_declared_once(metadata)
 
 
@@ -436,8 +446,34 @@ def test_image_z_image_turbo_gguf_workflow_is_parseable():
         str(Path("workflows/selfhost/image_z_image_turbo_gguf.json"))
     )
 
-    assert set(metadata.params.keys()) == {"prompt", "width", "height"}
+    assert set(metadata.params.keys()) == {
+        "prompt",
+        "negative_prompt",
+        "width",
+        "height",
+    }
     _assert_prompt_mapping_is_declared_once(metadata)
+
+
+def test_z_image_workflows_route_negative_prompt_to_sampler():
+    workflow_paths = [
+        Path("workflows/selfhost/image_z_image.json"),
+        Path("workflows/selfhost/image_z_image_turbo.json"),
+        Path("workflows/selfhost/image_z_image_turbo_gguf.json"),
+    ]
+
+    for workflow_path in workflow_paths:
+        workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
+        negative_node_id = workflow["3"]["inputs"]["negative"][0]
+        negative_node = workflow[negative_node_id]
+        negative_text_node_id = negative_node["inputs"]["text"][0]
+
+        assert negative_node["class_type"] == "CLIPTextEncode"
+        assert negative_node["inputs"]["clip"] == ["38", 0]
+        assert (
+            workflow[negative_text_node_id]["_meta"]["title"]
+            == "$negative_prompt.value!"
+        )
 
 
 def test_image_z_image_turbo_gguf_defaults_to_q8_models():

@@ -63,14 +63,18 @@
   },
   "33": {
     "inputs": {
-      "conditioning": [
-        "6",
+      "text": [
+        "47",
+        0
+      ],
+      "clip": [
+        "38",
         0
       ]
     },
-    "class_type": "ConditioningZeroOut",
+    "class_type": "CLIPTextEncode",
     "_meta": {
-      "title": "ConditioningZeroOut"
+      "title": "CLIP Text Encode (Negative Prompt)"
     }
   },
   "37": {
@@ -109,6 +113,15 @@
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
       "title": "$prompt.value!"
+    }
+  },
+  "47": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "$negative_prompt.value!"
     }
   },
   "58": {

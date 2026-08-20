@@ -4,7 +4,11 @@ from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 
 from pixelle_video.models.article_concretization import ArticleConcretizationPlan
-from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
+from pixelle_video.models.final_visual_prompt_contract import (
+    V44_TRACE_METADATA_KEYS,
+    FinalVisualPromptContract,
+    RenderedMediaPrompt,
+)
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
@@ -316,7 +320,30 @@ class VisualPromptComposer:
                     "contract_id": frame.contract.contract_id,
                     "role": frame.signature.role.value,
                     "max_area_ratio": frame.signature.max_area_ratio,
+                    "relative_size": frame.signature.relative_size.value,
                     "required_subject_count": len(frame.required_subjects),
+                    "identity_content_sha256": (
+                        frame.signature.profile.identity_content_sha256
+                        if frame.signature.profile is not None
+                        else ""
+                    ),
+                    "contract_content_sha256": frame.contract.contract_content_sha256,
+                    "contract_version": frame.contract.contract_version,
+                }
+                for frame in projection.frames
+            }
+            planning_snapshot["series_visual_signature_trace_by_frame"] = {
+                frame.frame_id: {
+                    "contract": frame.contract.to_dict(),
+                    "final_positive_prompt": frame.bundle.positive_prompt,
+                    "final_negative_prompt": frame.bundle.negative_prompt,
+                    "identity_content_sha256": (
+                        frame.signature.profile.identity_content_sha256
+                        if frame.signature.profile is not None
+                        else ""
+                    ),
+                    "contract_content_sha256": frame.contract.contract_content_sha256,
+                    "contract_version": frame.contract.contract_version,
                 }
                 for frame in projection.frames
             }
@@ -407,6 +434,10 @@ def _attach_canonical_visual_identity_context(
         "profile_id": profile.profile_id,
         "display_name": profile.display_name,
         "identity_traits": list(profile.identity_traits),
+        "core_identity_traits": list(profile.core_identity_traits),
+        "supporting_identity_traits": list(profile.supporting_identity_traits),
+        "canonical_identity_clause": profile.canonical_identity_clause,
+        "identity_content_sha256": profile.identity_content_sha256,
         "requested_role": requested_role,
     }
     return PromptContextEnvelope(
@@ -510,32 +541,99 @@ def _project_rendered_prompts(
     projection_frames: Sequence[Any],
 ) -> list[RenderedMediaPrompt]:
     rendered = tuple(rendered_prompts or ())
-    if not rendered:
-        return []
-    if len(rendered) != len(projection_frames):
+    if rendered and len(rendered) != len(projection_frames):
         raise ValueError(
             "rendered prompt count must match projection frame count"
         )
     result: list[RenderedMediaPrompt] = []
-    for base_rendered, projection in zip(rendered, projection_frames):
-        metadata = base_rendered.metadata_to_dict()
+    for index, projection in enumerate(projection_frames):
+        base_rendered = rendered[index] if rendered else None
+        metadata = (
+            base_rendered.metadata_to_dict() if base_rendered is not None else {}
+        )
+        for reserved_key in (*V44_TRACE_METADATA_KEYS, "v44_contract"):
+            metadata.pop(reserved_key, None)
+        bundle_metadata = projection.bundle.to_dict()["metadata"]
+        prompt_sections = dict(bundle_metadata.get("prompt_sections") or {})
         metadata["series_visual_signature_v45"] = {
             "contract_id": projection.contract.contract_id,
             "role": projection.signature.role.value,
             "max_area_ratio": projection.signature.max_area_ratio,
+            "relative_size": projection.signature.relative_size.value,
+            "identity_content_sha256": (
+                projection.signature.profile.identity_content_sha256
+                if projection.signature.profile is not None
+                else ""
+            ),
+            "contract_content_sha256": projection.contract.contract_content_sha256,
+            "contract_version": projection.contract.contract_version,
+            "entity_placement": projection.contract.entity_placement.to_dict(),
+            "scene_fusion": projection.contract.scene_fusion.to_dict(),
+            "prompt_sections": prompt_sections,
             "audit": projection.audit_dict(),
         }
         result.append(
             RenderedMediaPrompt(
                 prompt=projection.bundle.positive_prompt,
                 negative_prompt=projection.bundle.negative_prompt or None,
-                prompt_contract=base_rendered.prompt_contract,
-                renderer_id=base_rendered.renderer_id,
-                renderer_version=base_rendered.renderer_version,
+                prompt_contract=_projected_prompt_contract(
+                    projection=projection,
+                    prompt_sections=prompt_sections,
+                ),
+                renderer_id=(
+                    base_rendered.renderer_id
+                    if base_rendered is not None
+                    else "final_visual_prompt_compiler"
+                ),
+                renderer_version=(
+                    base_rendered.renderer_version
+                    if base_rendered is not None
+                    else "v4.5"
+                ),
                 metadata=metadata,
             )
         )
     return result
+
+
+def _projected_prompt_contract(
+    *,
+    projection: Any,
+    prompt_sections: Mapping[str, str],
+) -> FinalVisualPromptContract:
+    required_keys = (
+        "main_content",
+        "fixed_identity",
+        "role",
+        "placement",
+        "scene_fusion",
+        "style",
+        "subject_protection",
+    )
+    missing = [key for key in required_keys if not str(prompt_sections.get(key) or "").strip()]
+    if missing:
+        raise ValueError(
+            "projected V4.5 prompt sections are incomplete: " + ", ".join(missing)
+        )
+    return FinalVisualPromptContract(
+        scene=prompt_sections["main_content"],
+        composition=prompt_sections["placement"],
+        style_assignment=prompt_sections["style"],
+        character_layer_style=prompt_sections["fixed_identity"],
+        world_layer_style=prompt_sections["scene_fusion"],
+        integration_priority=(
+            prompt_sections["role"] + ". " + prompt_sections["subject_protection"]
+        ),
+        negative_rules=tuple(
+            part.strip()
+            for part in projection.bundle.negative_prompt.split(",")
+            if part.strip()
+        ),
+        metadata={
+            "series_visual_signature_contract_v45": projection.contract.to_dict()
+        },
+        version=projection.contract.contract_version,
+    )
 
 
 def _projection_negative_prompt(

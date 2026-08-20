@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
@@ -9,6 +12,7 @@ from pixelle_video.architecture.legacy_signature_field_guard import (
     reject_deprecated_signature_fields,
     reject_prompt_paragraph_profile_fields,
 )
+from pixelle_video.models.visual_entity_placement import VisualRelativeSize
 
 
 class SeriesVisualSignatureRole(str, Enum):
@@ -39,7 +43,24 @@ SERIES_VISUAL_SIGNATURE_NATURAL_ROLE_MAP: dict[str, str] = {
     "background_mark": "a material mark on a real in-scene surface",
 }
 
+ALLOWED_TEXT_CHARACTER_ROLES = frozenset(
+    {
+        SeriesVisualSignatureRole.CORE_ACTOR,
+        SeriesVisualSignatureRole.SILENT_WITNESS,
+        SeriesVisualSignatureRole.OPERATOR,
+        SeriesVisualSignatureRole.GUIDE,
+    }
+)
+FORBIDDEN_TEXT_CHARACTER_ROLES = frozenset(
+    {
+        SeriesVisualSignatureRole.OBSTACLE,
+        SeriesVisualSignatureRole.CONTAINER,
+        SeriesVisualSignatureRole.BACKGROUND_MARK,
+    }
+)
+
 MAX_TRAIT_CHARS = 64
+MAX_CANONICAL_IDENTITY_CHARS = 400
 SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION = "v4_expression"
 SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION = "v4_2_identity_contract"
 SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS = frozenset(
@@ -313,18 +334,83 @@ class SeriesVisualSignatureRequest:
 class VisualSignatureProfileSnapshot:
     profile_id: str
     display_name: str
-    identity_traits: Sequence[str]
+    identity_traits: Sequence[str] = field(default_factory=tuple)
     style_safe_traits: Sequence[str] = field(default_factory=tuple)
     forbidden_traits: Sequence[str] = field(default_factory=tuple)
     source_asset_ids: Sequence[str] = field(default_factory=tuple)
+    core_identity_traits: Sequence[str] = field(default_factory=tuple)
+    supporting_identity_traits: Sequence[str] = field(default_factory=tuple)
+    canonical_identity_clause: str = ""
+    identity_content_sha256: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "profile_id", _require_text("profile_id", self.profile_id))
         object.__setattr__(self, "display_name", _require_text("display_name", self.display_name))
-        object.__setattr__(self, "identity_traits", _trait_tuple("identity_traits", self.identity_traits, allow_empty=False))
+        compatibility_traits = _dedupe_traits(
+            _trait_tuple("identity_traits", self.identity_traits, allow_empty=True)
+        )
+        core_traits = _dedupe_traits(
+            _trait_tuple(
+                "core_identity_traits",
+                self.core_identity_traits,
+                allow_empty=True,
+            )
+        )
+        if not core_traits:
+            core_traits = compatibility_traits
+        if not core_traits:
+            raise ValueError("core_identity_traits must not be empty")
+        supporting_traits = _dedupe_traits(
+            _trait_tuple(
+                "supporting_identity_traits",
+                self.supporting_identity_traits,
+                allow_empty=True,
+            ),
+            excluded=core_traits,
+        )
+        combined_traits = (*core_traits, *supporting_traits)
+        if compatibility_traits and tuple(compatibility_traits) != tuple(combined_traits):
+            compatibility_only = _dedupe_traits(
+                compatibility_traits,
+                excluded=combined_traits,
+            )
+            supporting_traits = (*supporting_traits, *compatibility_only)
+            combined_traits = (*core_traits, *supporting_traits)
+        object.__setattr__(self, "core_identity_traits", tuple(core_traits))
+        object.__setattr__(self, "supporting_identity_traits", tuple(supporting_traits))
+        object.__setattr__(self, "identity_traits", tuple(combined_traits))
         object.__setattr__(self, "style_safe_traits", _trait_tuple("style_safe_traits", self.style_safe_traits, allow_empty=True))
-        object.__setattr__(self, "forbidden_traits", _trait_tuple("forbidden_traits", self.forbidden_traits, allow_empty=True))
+        forbidden_traits = _dedupe_traits(
+            _trait_tuple("forbidden_traits", self.forbidden_traits, allow_empty=True)
+        )
+        object.__setattr__(self, "forbidden_traits", tuple(forbidden_traits))
         object.__setattr__(self, "source_asset_ids", _text_tuple("source_asset_ids", self.source_asset_ids, allow_empty=True))
+        canonical_clause = canonical_series_visual_signature_identity_clause(
+            display_name=self.display_name,
+            core_identity_traits=core_traits,
+            supporting_identity_traits=supporting_traits,
+        )
+        supplied_clause = _optional_text(
+            self.canonical_identity_clause,
+            max_chars=MAX_CANONICAL_IDENTITY_CHARS,
+        )
+        if supplied_clause is not None and supplied_clause != canonical_clause:
+            raise ValueError(
+                "canonical_identity_clause must match the deterministic identity compiler"
+            )
+        object.__setattr__(self, "canonical_identity_clause", canonical_clause)
+        identity_hash = series_visual_signature_identity_content_sha256(
+            display_name=self.display_name,
+            core_identity_traits=core_traits,
+            supporting_identity_traits=supporting_traits,
+            forbidden_traits=forbidden_traits,
+        )
+        supplied_hash = str(self.identity_content_sha256 or "").strip().lower()
+        if supplied_hash and supplied_hash != identity_hash:
+            raise ValueError(
+                "identity_content_sha256 must match canonical identity content"
+            )
+        object.__setattr__(self, "identity_content_sha256", identity_hash)
 
     @classmethod
     def from_mapping(cls, source: Mapping[str, Any]) -> "VisualSignatureProfileSnapshot":
@@ -338,6 +424,10 @@ class VisualSignatureProfileSnapshot:
             style_safe_traits=data.get("style_safe_traits") or (),
             forbidden_traits=data.get("forbidden_traits") or (),
             source_asset_ids=data.get("source_asset_ids") or (),
+            core_identity_traits=data.get("core_identity_traits") or (),
+            supporting_identity_traits=data.get("supporting_identity_traits") or (),
+            canonical_identity_clause=data.get("canonical_identity_clause") or "",
+            identity_content_sha256=data.get("identity_content_sha256") or "",
         )
 
     @classmethod
@@ -349,6 +439,10 @@ class VisualSignatureProfileSnapshot:
             "series_visual_signature_profile_id": self.profile_id,
             "display_name": self.display_name,
             "identity_traits": list(self.identity_traits),
+            "core_identity_traits": list(self.core_identity_traits),
+            "supporting_identity_traits": list(self.supporting_identity_traits),
+            "canonical_identity_clause": self.canonical_identity_clause,
+            "identity_content_sha256": self.identity_content_sha256,
             "style_safe_traits": list(self.style_safe_traits),
             "forbidden_traits": list(self.forbidden_traits),
             "source_asset_ids": list(self.source_asset_ids),
@@ -362,6 +456,7 @@ class SeriesVisualSignatureContract:
     profile: VisualSignatureProfileSnapshot | None
     replacement_policy: SignatureReplacementPolicy | str = SignatureReplacementPolicy.NO_SUBJECT_REPLACEMENT
     max_area_ratio: float = 0.0
+    relative_size: VisualRelativeSize | str | None = None
     participation_rule: str = "No recurring visual signature is inserted."
     style_integration_rule: str = ""
     forbidden_behaviors: Sequence[str] = field(default_factory=tuple)
@@ -372,6 +467,19 @@ class SeriesVisualSignatureContract:
         object.__setattr__(self, "role", _enum_value("role", self.role, SeriesVisualSignatureRole, SeriesVisualSignatureRole.NONE))
         object.__setattr__(self, "replacement_policy", _enum_value("replacement_policy", self.replacement_policy, SignatureReplacementPolicy, SignatureReplacementPolicy.NO_SUBJECT_REPLACEMENT))
         object.__setattr__(self, "max_area_ratio", _ratio_value(self.max_area_ratio, "max_area_ratio"))
+        relative_size = self.relative_size
+        if relative_size is None:
+            relative_size = relative_size_from_max_area_ratio(self.max_area_ratio)
+        object.__setattr__(
+            self,
+            "relative_size",
+            _enum_value(
+                "relative_size",
+                relative_size,
+                VisualRelativeSize,
+                VisualRelativeSize.SMALL,
+            ),
+        )
         object.__setattr__(self, "participation_rule", _require_text("participation_rule", self.participation_rule))
         object.__setattr__(self, "style_integration_rule", _optional_text(self.style_integration_rule) or "")
         object.__setattr__(self, "forbidden_behaviors", _text_tuple("forbidden_behaviors", self.forbidden_behaviors, allow_empty=True))
@@ -379,6 +487,10 @@ class SeriesVisualSignatureContract:
         if self.enabled:
             if self.role in {SeriesVisualSignatureRole.NONE, SeriesVisualSignatureRole.AUTO}:
                 raise ValueError("enabled series visual signature requires a concrete role")
+            if self.role in FORBIDDEN_TEXT_CHARACTER_ROLES:
+                raise ValueError(
+                    "enabled text character cannot use obstacle, container, or background_mark role"
+                )
             if self.profile is None:
                 raise ValueError("enabled series visual signature requires a profile")
             if self.max_area_ratio <= 0.0:
@@ -411,6 +523,7 @@ class SeriesVisualSignatureContract:
                 SignatureReplacementPolicy.NO_SUBJECT_REPLACEMENT,
             ),
             max_area_ratio=data.get("max_area_ratio", 0.0),
+            relative_size=data.get("relative_size"),
             participation_rule=data.get("participation_rule") or "Series visual signature participates in the scene.",
             style_integration_rule=data.get("style_integration_rule") or "",
             forbidden_behaviors=data.get("forbidden_behaviors") or (),
@@ -428,6 +541,7 @@ class SeriesVisualSignatureContract:
             role=SeriesVisualSignatureRole.NONE,
             profile=None,
             max_area_ratio=0.0,
+            relative_size=VisualRelativeSize.SMALL,
             participation_rule="Series visual signature disabled by request.",
             forbidden_behaviors=(),
             warnings=warnings,
@@ -441,6 +555,7 @@ class SeriesVisualSignatureContract:
             "profile": self.profile.to_dict() if self.profile else None,
             "replacement_policy": self.replacement_policy.value,
             "max_area_ratio": self.max_area_ratio,
+            "relative_size": self.relative_size.value,
             "participation_rule": self.participation_rule,
             "style_integration_rule": self.style_integration_rule,
             "forbidden_behaviors": list(self.forbidden_behaviors),
@@ -450,6 +565,67 @@ class SeriesVisualSignatureContract:
 
 def is_supported_series_visual_signature_pipeline_version(value: Any) -> bool:
     return str(value or "").strip() in SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS
+
+
+def relative_size_from_max_area_ratio(value: Any) -> VisualRelativeSize:
+    ratio = _ratio_value(value, "max_area_ratio")
+    if ratio <= 0.10:
+        return VisualRelativeSize.SMALL
+    if ratio <= 0.18:
+        return VisualRelativeSize.MEDIUM_SMALL
+    if ratio <= 0.30:
+        return VisualRelativeSize.MEDIUM
+    if ratio <= 0.45:
+        return VisualRelativeSize.LARGE
+    raise ValueError("max_area_ratio cannot map to a supported relative size above 0.45")
+
+
+def canonical_series_visual_signature_identity_clause(
+    *,
+    display_name: str,
+    core_identity_traits: Sequence[str],
+    supporting_identity_traits: Sequence[str] = (),
+) -> str:
+    name = _require_text("display_name", display_name)
+    core = _dedupe_traits(
+        _trait_tuple("core_identity_traits", core_identity_traits, allow_empty=False)
+    )
+    supporting = _dedupe_traits(
+        _trait_tuple(
+            "supporting_identity_traits",
+            supporting_identity_traits,
+            allow_empty=True,
+        ),
+        excluded=core,
+    )
+    clause = f"Canonical recurring identity {name}: {', '.join((*core, *supporting))}."
+    if len(clause) > MAX_CANONICAL_IDENTITY_CHARS:
+        raise ValueError(
+            "canonical_identity_clause exceeds 400 characters; reduce identity traits before generation"
+        )
+    return clause
+
+
+def series_visual_signature_identity_content_sha256(
+    *,
+    display_name: str,
+    core_identity_traits: Sequence[str],
+    supporting_identity_traits: Sequence[str],
+    forbidden_traits: Sequence[str],
+) -> str:
+    payload = {
+        "display_name": _require_text("display_name", display_name),
+        "core_identity_traits": list(core_identity_traits),
+        "supporting_identity_traits": list(supporting_identity_traits),
+        "forbidden_traits": list(forbidden_traits),
+    }
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
 
 
 def _pipeline_version_value(value: Any) -> str:
@@ -494,7 +670,7 @@ def _optional_text(value: Any, *, max_chars: int = 300) -> str | None:
         return None
     if not isinstance(value, str):
         raise ValueError("optional text fields must be strings")
-    text = " ".join(value.strip().split())
+    text = unicodedata.normalize("NFC", " ".join(value.strip().split()))
     if not text:
         return None
     if len(text) > max_chars:
@@ -505,7 +681,7 @@ def _optional_text(value: Any, *, max_chars: int = 300) -> str | None:
 def _require_text(field_name: str, value: Any) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
-    return " ".join(value.strip().split())
+    return unicodedata.normalize("NFC", " ".join(value.strip().split()))
 
 
 def _text_tuple(field_name: str, values: Sequence[Any], *, allow_empty: bool) -> tuple[str, ...]:
@@ -538,6 +714,22 @@ def _trait_tuple(field_name: str, values: Sequence[Any], *, allow_empty: bool) -
     return result
 
 
+def _dedupe_traits(
+    values: Sequence[str],
+    *,
+    excluded: Sequence[str] = (),
+) -> tuple[str, ...]:
+    seen = {value.casefold() for value in excluded}
+    result: list[str] = []
+    for value in values:
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return tuple(result)
+
+
 def _optional_ratio(value: Any, field_name: str) -> float | None:
     if value is None or value == "":
         return None
@@ -557,6 +749,9 @@ def _ratio_value(value: Any, field_name: str) -> float:
 
 
 __all__ = [
+    "ALLOWED_TEXT_CHARACTER_ROLES",
+    "FORBIDDEN_TEXT_CHARACTER_ROLES",
+    "MAX_CANONICAL_IDENTITY_CHARS",
     "MAX_TRAIT_CHARS",
     "SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION",
     "SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION",
@@ -566,5 +761,8 @@ __all__ = [
     "SeriesVisualSignatureRole",
     "SignatureReplacementPolicy",
     "VisualSignatureProfileSnapshot",
+    "canonical_series_visual_signature_identity_clause",
     "is_supported_series_visual_signature_pipeline_version",
+    "relative_size_from_max_area_ratio",
+    "series_visual_signature_identity_content_sha256",
 ]

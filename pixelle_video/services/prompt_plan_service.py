@@ -46,6 +46,7 @@ def build_prompt_plan_bundle(
     final_prompt_template = _final_visual_prompt_template(planning_snapshot)
     for frame, rendered_prompt in zip(storyboard_plan.frames, rendered_items):
         prompt = _normalize_prompt(rendered_prompt.prompt)
+        v45_fields = _series_visual_signature_v45_prompt_plan_fields(rendered_prompt)
         frame_source_trace_id = trace_ids_by_frame.get(frame.frame_id) or source_trace_id
         draft_id = _stable_id(
             "image_prompt_draft",
@@ -59,6 +60,8 @@ def build_prompt_plan_bundle(
             frame.frame_id,
             draft_id,
             prompt,
+            str(v45_fields.get("final_negative_prompt") or ""),
+            str(v45_fields.get("contract_content_sha256") or ""),
         )
         draft = ImagePromptDraft(
             image_prompt_draft_id=draft_id,
@@ -76,8 +79,16 @@ def build_prompt_plan_bundle(
             storyboard_plan_id=storyboard_plan.plan_id,
             frame_id=frame.frame_id,
             image_prompt_draft_id=draft.image_prompt_draft_id,
-            prompt_sections=rendered_prompt.prompt_contract.prompt_sections(),
+            prompt_sections=(
+                v45_fields["prompt_sections"]
+                if v45_fields
+                else rendered_prompt.prompt_contract.prompt_sections()
+            ),
             final_prompt=prompt,
+            final_negative_prompt=v45_fields.get("final_negative_prompt"),
+            identity_content_sha256=v45_fields.get("identity_content_sha256"),
+            contract_content_sha256=v45_fields.get("contract_content_sha256"),
+            contract_version=v45_fields.get("contract_version"),
             source_trace_id=frame_source_trace_id,
             metadata=_build_prompt_plan_metadata(
                 frame_index=frame.index,
@@ -104,6 +115,65 @@ def _normalize_prompt(prompt: str) -> str:
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("image prompts must be non-empty strings")
     return prompt.strip()
+
+
+def _series_visual_signature_v45_prompt_plan_fields(
+    rendered_prompt: RenderedMediaPrompt,
+) -> dict[str, object]:
+    metadata = rendered_prompt.metadata_to_dict()
+    raw = metadata.get("series_visual_signature_v45")
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        raise ValueError("series_visual_signature_v45 prompt metadata must be a mapping")
+    prompt_sections = raw.get("prompt_sections")
+    if not isinstance(prompt_sections, Mapping):
+        raise ValueError(
+            "series_visual_signature_v45.prompt_sections must be a mapping"
+        )
+    normalized_sections = {
+        str(key).strip(): str(value).strip()
+        for key, value in prompt_sections.items()
+        if str(key).strip() and str(value).strip()
+    }
+    required_sections = {
+        "main_content",
+        "fixed_identity",
+        "role",
+        "placement",
+        "scene_fusion",
+        "style",
+        "subject_protection",
+    }
+    if not required_sections.issubset(normalized_sections):
+        missing = sorted(required_sections - set(normalized_sections))
+        raise ValueError(
+            "series_visual_signature_v45.prompt_sections is missing: "
+            + ", ".join(missing)
+        )
+    for section_name, section_value in normalized_sections.items():
+        if section_value not in rendered_prompt.prompt:
+            raise ValueError(
+                "series_visual_signature_v45.prompt_sections differs from final prompt: "
+                + section_name
+            )
+    fields: dict[str, object] = {"prompt_sections": normalized_sections}
+    negative_prompt = rendered_prompt.negative_prompt
+    if not isinstance(negative_prompt, str) or not negative_prompt.strip():
+        raise ValueError(
+            "series_visual_signature_v45 final negative prompt must be non-empty"
+        )
+    fields["final_negative_prompt"] = negative_prompt.strip()
+    for key in (
+        "identity_content_sha256",
+        "contract_content_sha256",
+        "contract_version",
+    ):
+        value = raw.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"series_visual_signature_v45.{key} must be non-empty")
+        fields[key] = value.strip()
+    return fields
 
 
 def _rendered_prompt_from_text(prompt: str) -> RenderedMediaPrompt:

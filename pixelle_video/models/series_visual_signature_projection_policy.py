@@ -17,6 +17,12 @@ DEFAULT_MAX_REQUIRED_SUBJECTS = 64
 DEFAULT_MAX_REQUIRED_SUBJECT_CHARS = 256
 DEFAULT_MAX_IDENTITY_TRAITS = 32
 DEFAULT_MAX_PROJECTION_AUDIT_BYTES = 512 * 1024
+DEFAULT_MAX_FINAL_POSITIVE_PROMPT_CHARS = 1200
+DEFAULT_MAX_FINAL_NEGATIVE_PROMPT_CHARS = 800
+DEFAULT_MAX_CANONICAL_IDENTITY_CHARS = 400
+DEFAULT_MAX_MAIN_AND_SUBJECT_CHARS = 400
+DEFAULT_MAX_PLACEMENT_AND_FUSION_CHARS = 300
+DEFAULT_MAX_STYLE_CHARS = 100
 
 # Only fixed protocol field names may be retained in observability. Unknown
 # compatibility keys may be accepted at runtime while callers migrate, but their
@@ -62,6 +68,12 @@ class SeriesVisualSignatureProjectionBudget:
     max_required_subject_chars: int = DEFAULT_MAX_REQUIRED_SUBJECT_CHARS
     max_identity_traits: int = DEFAULT_MAX_IDENTITY_TRAITS
     max_audit_bytes: int = DEFAULT_MAX_PROJECTION_AUDIT_BYTES
+    max_final_positive_prompt_chars: int = DEFAULT_MAX_FINAL_POSITIVE_PROMPT_CHARS
+    max_final_negative_prompt_chars: int = DEFAULT_MAX_FINAL_NEGATIVE_PROMPT_CHARS
+    max_canonical_identity_chars: int = DEFAULT_MAX_CANONICAL_IDENTITY_CHARS
+    max_main_and_subject_chars: int = DEFAULT_MAX_MAIN_AND_SUBJECT_CHARS
+    max_placement_and_fusion_chars: int = DEFAULT_MAX_PLACEMENT_AND_FUSION_CHARS
+    max_style_chars: int = DEFAULT_MAX_STYLE_CHARS
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -72,6 +84,12 @@ class SeriesVisualSignatureProjectionBudget:
             "max_required_subject_chars",
             "max_identity_traits",
             "max_audit_bytes",
+            "max_final_positive_prompt_chars",
+            "max_final_negative_prompt_chars",
+            "max_canonical_identity_chars",
+            "max_main_and_subject_chars",
+            "max_placement_and_fusion_chars",
+            "max_style_chars",
         ):
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -123,6 +141,11 @@ class SeriesVisualSignatureProjectionBudget:
             raise ValueError(
                 "visual signature projection identity-trait count exceeds deterministic runtime budget: "
                 f"{len(profile.identity_traits)} > {self.max_identity_traits}"
+            )
+        if len(profile.canonical_identity_clause) > self.max_canonical_identity_chars:
+            raise ValueError(
+                "visual signature canonical identity exceeds deterministic prompt budget: "
+                f"{len(profile.canonical_identity_clause)} > {self.max_canonical_identity_chars}"
             )
 
     def assert_audit_size(self, audit_payload: Mapping[str, Any]) -> int:
@@ -312,6 +335,8 @@ class SeriesVisualSignatureProjectionAuditPolicy:
         return {
             "profile_id": profile.profile_id,
             "identity_trait_count": len(profile.identity_traits),
+            "core_identity_trait_count": len(profile.core_identity_traits),
+            "supporting_identity_trait_count": len(profile.supporting_identity_traits),
             "style_safe_trait_count": len(profile.style_safe_traits),
             "forbidden_trait_count": len(profile.forbidden_traits),
             "source_asset_count": len(profile.source_asset_ids),
@@ -325,8 +350,14 @@ DEFAULT_SERIES_VISUAL_SIGNATURE_PROJECTION_AUDIT_POLICY = (
 
 
 __all__ = [
+    "DEFAULT_MAX_CANONICAL_IDENTITY_CHARS",
+    "DEFAULT_MAX_FINAL_NEGATIVE_PROMPT_CHARS",
+    "DEFAULT_MAX_FINAL_POSITIVE_PROMPT_CHARS",
+    "DEFAULT_MAX_MAIN_AND_SUBJECT_CHARS",
+    "DEFAULT_MAX_PLACEMENT_AND_FUSION_CHARS",
     "DEFAULT_MAX_PROJECTION_AUDIT_BYTES",
     "DEFAULT_MAX_PROJECTION_FRAMES",
+    "DEFAULT_MAX_STYLE_CHARS",
     "DEFAULT_SERIES_VISUAL_SIGNATURE_PROJECTION_AUDIT_POLICY",
     "DEFAULT_SERIES_VISUAL_SIGNATURE_PROJECTION_BUDGET",
     "SeriesVisualSignatureProjectionAuditPolicy",

@@ -10,11 +10,6 @@ from pixelle_video.models.series_visual_signature import (
 )
 from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
 
-_IDENTITY_TRAIT_FIELDS = (
-    "identity_lock",
-    "minimal_traits",
-    "identity_anchors",
-)
 _INSTRUCTION_LIKE_TRAIT_TERMS = (
     "ignore previous",
     "ignore all",
@@ -99,8 +94,10 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
         display_name = validate_series_visual_signature_identity_name(
             _read_field(ip_profile, "name")
         )
-        identity_traits = select_series_visual_signature_identity_traits(ip_profile)
-        if not identity_traits:
+        core_identity_traits, supporting_identity_traits = (
+            select_series_visual_signature_identity_layers(ip_profile)
+        )
+        if not core_identity_traits:
             raise ValueError(
                 "resolved IPProfile must provide explicit identity_lock, minimal_traits, "
                 "or identity_anchors; identity cannot be inferred from prose"
@@ -113,7 +110,9 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
         snapshot = VisualSignatureProfileSnapshot(
             profile_id=profile_id,
             display_name=display_name,
-            identity_traits=identity_traits,
+            identity_traits=(*core_identity_traits, *supporting_identity_traits),
+            core_identity_traits=core_identity_traits,
+            supporting_identity_traits=supporting_identity_traits,
             style_safe_traits=(),
             forbidden_traits=forbidden_traits,
             source_asset_ids=source_asset_ids,
@@ -143,6 +142,8 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             profile_id=profile.profile_id,
             display_name=display_name,
             identity_traits=identity_traits,
+            core_identity_traits=identity_traits,
+            supporting_identity_traits=(),
             style_safe_traits=(),
             forbidden_traits=(),
             source_asset_ids=tuple(profile.reference_assets),
@@ -170,16 +171,24 @@ def validate_series_visual_signature_profile_snapshot(
         )
 
     display_name = validate_series_visual_signature_identity_name(snapshot.display_name)
-    identity_traits = validate_series_visual_signature_identity_traits(
-        snapshot.identity_traits
+    core_identity_traits = validate_series_visual_signature_identity_traits(
+        snapshot.core_identity_traits or snapshot.identity_traits
     )
-    if not identity_traits:
+    if not core_identity_traits:
         raise ValueError("visual signature profile snapshot has no identity traits")
+    supporting_identity_traits = _dedupe_excluding(
+        validate_series_visual_signature_identity_traits(
+            snapshot.supporting_identity_traits
+        ),
+        excluded=core_identity_traits,
+    )
 
     return VisualSignatureProfileSnapshot(
         profile_id=snapshot.profile_id,
         display_name=display_name,
-        identity_traits=identity_traits,
+        identity_traits=(*core_identity_traits, *supporting_identity_traits),
+        core_identity_traits=core_identity_traits,
+        supporting_identity_traits=supporting_identity_traits,
         style_safe_traits=tuple(snapshot.style_safe_traits),
         forbidden_traits=tuple(snapshot.forbidden_traits),
         source_asset_ids=tuple(snapshot.source_asset_ids),
@@ -197,11 +206,32 @@ def validate_series_visual_signature_identity_name(value: Any) -> str:
 
 
 def select_series_visual_signature_identity_traits(source: Any) -> tuple[str, ...]:
-    for field_name in _IDENTITY_TRAIT_FIELDS:
-        values = _read_field(source, field_name)
-        if _has_identity_candidate(values):
-            return validate_series_visual_signature_identity_traits(values)
-    return ()
+    core_traits, supporting_traits = select_series_visual_signature_identity_layers(
+        source
+    )
+    return (*core_traits, *supporting_traits)
+
+
+def select_series_visual_signature_identity_layers(
+    source: Any,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    identity_lock = validate_series_visual_signature_identity_traits(
+        _read_field(source, "identity_lock")
+    )
+    minimal_traits = validate_series_visual_signature_identity_traits(
+        _read_field(source, "minimal_traits")
+    )
+    identity_anchors = validate_series_visual_signature_identity_traits(
+        _read_field(source, "identity_anchors")
+    )
+    core_traits = _dedupe((*identity_lock, *minimal_traits))
+    if not core_traits:
+        return identity_anchors, ()
+    supporting_traits = _dedupe_excluding(
+        identity_anchors,
+        excluded=core_traits,
+    )
+    return core_traits, supporting_traits
 
 
 def validate_series_visual_signature_identity_traits(values: Any) -> tuple[str, ...]:
@@ -244,16 +274,6 @@ def _validated_identity_phrase(value: Any, *, field_label: str) -> str:
     return text
 
 
-def _has_identity_candidate(value: Any) -> bool:
-    for item in _identity_sequence(value):
-        if isinstance(item, str):
-            if item.strip():
-                return True
-        elif item is not None:
-            return True
-    return False
-
-
 def _identity_sequence(value: Any) -> tuple[Any, ...]:
     if value is None:
         return ()
@@ -265,28 +285,15 @@ def _identity_sequence(value: Any) -> tuple[Any, ...]:
 
 
 def _safe_forbidden_traits(values: Any) -> tuple[str, ...]:
-    """Keep short appearance nouns only; instruction-like negatives stay upstream."""
+    """Validate every configured forbidden appearance fact without silent loss."""
 
     result: list[str] = []
-    for value in _sequence(values):
-        text = _text(value)
-        if not text or len(text) > MAX_TRAIT_CHARS:
-            continue
-        lowered = text.casefold()
-        if any(
-            token in lowered
-            for token in (
-                "do ",
-                "don't",
-                "must ",
-                "should ",
-                "never ",
-                "always ",
-                "prompt",
-                "instruction",
-                "system message",
-            )
-        ):
+    for index, value in enumerate(_sequence(values)):
+        text = _validated_identity_phrase(
+            value,
+            field_label=f"visual signature forbidden trait at index {index}",
+        )
+        if not text:
             continue
         result.append(text)
     return _dedupe(result)
@@ -334,12 +341,32 @@ def _dedupe(value: Any) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _dedupe_excluding(
+    value: Any,
+    *,
+    excluded: Sequence[str],
+) -> tuple[str, ...]:
+    seen = {item.casefold() for item in excluded}
+    result: list[str] = []
+    for item in _sequence(value):
+        text = _text(item)
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return tuple(result)
+
+
 def _text(value: Any) -> str:
     return " ".join(str(value or "").strip().split())
 
 
 __all__ = [
     "SeriesVisualSignatureProfileSnapshotBuilder",
+    "select_series_visual_signature_identity_layers",
     "select_series_visual_signature_identity_traits",
     "validate_series_visual_signature_identity_name",
     "validate_series_visual_signature_identity_traits",

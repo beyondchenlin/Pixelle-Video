@@ -8,6 +8,28 @@ from pixelle_video.architecture.legacy_signature_field_guard import (
 )
 from pixelle_video.models.z_image_prompt_bundle import ZImagePromptBundle
 
+_UNSUPPORTED_REGION_CONTROL_KEYS = frozenset(
+    {
+        "bbox",
+        "bboxes",
+        "bounding_box",
+        "bounding_boxes",
+        "mask",
+        "masks",
+        "depth",
+        "depth_map",
+        "depth_image",
+        "pose",
+        "poses",
+        "pose_map",
+        "keypoints",
+        "controlnet",
+        "conditioning_image",
+        "region",
+        "regions",
+    }
+)
+
 
 def project_z_image_prompt_bundle(
     *,
@@ -24,6 +46,7 @@ def project_z_image_prompt_bundle(
     config = dict(render_config or {})
     reject_deprecated_signature_fields(bundle.metadata, context="z-image bundle metadata")
     reject_deprecated_signature_fields(config, context="z-image render config")
+    _reject_unsupported_region_controls(config)
     return {
         "provider": "z_image",
         "prompt": bundle.positive_prompt,
@@ -34,3 +57,26 @@ def project_z_image_prompt_bundle(
         },
         "render_config": config,
     }
+
+
+def _reject_unsupported_region_controls(
+    value: Any,
+    *,
+    path: str = "render_config",
+) -> None:
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            normalized_key = str(key).strip().casefold().replace("-", "_")
+            child_path = f"{path}.{key}"
+            if normalized_key in _UNSUPPORTED_REGION_CONTROL_KEYS:
+                raise ValueError(
+                    "z-image workflow does not declare region control capability: "
+                    + child_path
+                )
+            _reject_unsupported_region_controls(child, path=child_path)
+    elif isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            _reject_unsupported_region_controls(child, path=f"{path}[{index}]")
+
+
+__all__ = ["project_z_image_prompt_bundle"]

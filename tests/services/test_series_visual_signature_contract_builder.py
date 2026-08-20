@@ -69,13 +69,12 @@ def test_builder_auto_role_uses_guide_for_relationship_map() -> None:
 
 
 def test_builder_explicit_role_wins_over_context() -> None:
-    contract = SeriesVisualSignatureContractBuilder().build(
-        request=_enabled_request(series_visual_signature_role="container"),
-        profile=_profile(),
-        role_context={"explanation_diagram_grammar": "process_flow"},
-    )
-
-    assert contract.role is SeriesVisualSignatureRole.CONTAINER
+    with pytest.raises(ValueError, match="container"):
+        SeriesVisualSignatureContractBuilder().build(
+            request=_enabled_request(series_visual_signature_role="container"),
+            profile=_profile(),
+            role_context={"explanation_diagram_grammar": "process_flow"},
+        )
 
 
 def test_builder_accepts_smaller_user_area_than_role_limit() -> None:

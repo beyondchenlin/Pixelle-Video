@@ -24,14 +24,11 @@ from pixelle_video.services.final_visual_prompt_compiler import FinalVisualPromp
 from pixelle_video.services.series_visual_signature_contract_builder import (
     SeriesVisualSignatureContractBuilder,
 )
-from pixelle_video.services.series_visual_signature_final_prompt_gate import (
-    assert_series_visual_signature_final_prompt,
-)
 from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
     validate_series_visual_signature_profile_snapshot,
 )
-from pixelle_video.services.series_visual_signature_prompt_presence import (
-    prompt_contains_term,
+from pixelle_video.services.visual_entity_placement_planner import (
+    VisualEntityPlacementPlanner,
 )
 
 
@@ -100,6 +97,13 @@ class SeriesVisualSignatureFrameProjection:
             "negative_prompt_chars": len(self.bundle.negative_prompt),
             "positive_prompt_sha256": _sha256(self.bundle.positive_prompt),
             "negative_prompt_sha256": _sha256(self.bundle.negative_prompt),
+            "identity_content_sha256": (
+                self.signature.profile.identity_content_sha256
+                if self.signature.profile is not None
+                else ""
+            ),
+            "contract_content_sha256": self.contract.contract_content_sha256,
+            "contract_version": self.contract.contract_version,
             "final_gate_passed": True,
         }
 
@@ -146,11 +150,8 @@ class SeriesVisualSignatureProjectionBatch:
 class SeriesVisualSignatureProjectionService:
     """Single production source for V4.5 visual-signature prompt projection.
 
-    Every frame first receives one complete subject/identity contract. A prompt
-    that already carries the canonical identity may preserve its LLM-authored
-    scene text, but preservation is only a text optimization: it never bypasses
-    required subjects, role resolution, area limits, negative protections, or the
-    final prompt gate.
+    Every frame receives one complete identity, placement and scene-fusion
+    contract before the shared final compiler and provider boundary run.
     """
 
     budget: SeriesVisualSignatureProjectionBudget = (
@@ -302,6 +303,15 @@ class SeriesVisualSignatureProjectionService:
             profile=profile,
             role_context=role_context,
         )
+        placement, fusion = VisualEntityPlacementPlanner().plan(
+            frame_id=frame_id,
+            base_prompt=base_prompt,
+            frame_context=frame_context,
+            base_visual_brief=base_visual_brief,
+            article_concretization=article_payload,
+            required_subjects=required_subjects,
+            signature=signature,
+        )
         contract = FinalVisualPromptContractV45(
             contract_id=f"v45:{frame_id}",
             frame_id=frame_id,
@@ -312,18 +322,9 @@ class SeriesVisualSignatureProjectionService:
             diagram_render=render_payload,
             visible_text_policy=visible_text_policy,
             projected_prompt_parts=(),
+            entity_placement=placement,
+            scene_fusion=fusion,
         )
-
-        if _identity_traits_present(base_prompt, profile):
-            return self._project_preserving_prompt(
-                frame_id=frame_id,
-                base_prompt=base_prompt,
-                base_negative_prompt=base_negative_prompt,
-                contract=contract,
-                signature=signature,
-                required_subjects=required_subjects,
-                visible_text_policy=visible_text_policy,
-            )
 
         bundle = FinalVisualPromptCompiler().compile(
             final_contract=contract,
@@ -336,83 +337,6 @@ class SeriesVisualSignatureProjectionService:
             signature=signature,
             required_subjects=required_subjects,
         )
-
-    def _project_preserving_prompt(
-        self,
-        *,
-        frame_id: str,
-        base_prompt: str,
-        base_negative_prompt: str | None,
-        contract: FinalVisualPromptContractV45,
-        signature: SeriesVisualSignatureContract,
-        required_subjects: Sequence[str],
-        visible_text_policy: str,
-    ) -> SeriesVisualSignatureFrameProjection:
-        """Preserve LLM scene prose while repairing only missing contract facts."""
-
-        profile = signature.profile
-        if profile is None:
-            raise ValueError("enabled visual signature preservation requires a profile")
-
-        positive_prompt = base_prompt
-        repair_parts: list[str] = []
-        if not prompt_contains_term(positive_prompt, profile.display_name):
-            repair_parts.append(
-                f"{profile.display_name} remains visibly recognizable in the scene"
-            )
-        for subject in required_subjects:
-            if not prompt_contains_term(positive_prompt, subject):
-                repair_parts.append(f"The scene clearly shows {subject}")
-        if repair_parts:
-            positive_prompt = ". ".join((positive_prompt, *repair_parts))
-
-        negative_prompt = _preserving_negative_prompt(
-            base_negative_prompt=base_negative_prompt,
-            visible_text_policy=visible_text_policy,
-        )
-        assert_series_visual_signature_final_prompt(
-            positive_prompt=positive_prompt,
-            negative_prompt=negative_prompt,
-            required_subjects=required_subjects,
-            signature=signature,
-            visible_text_policy=visible_text_policy,
-        )
-        bundle = FinalVisualPromptBundle(
-            positive_prompt=positive_prompt,
-            negative_prompt=negative_prompt,
-            locked_constraints=("canonical_v45_contract",),
-        )
-        return SeriesVisualSignatureFrameProjection(
-            frame_id=frame_id,
-            bundle=bundle,
-            contract=contract,
-            signature=signature,
-            required_subjects=tuple(required_subjects),
-        )
-
-
-def _preserving_negative_prompt(
-    *,
-    base_negative_prompt: str | None,
-    visible_text_policy: str,
-) -> str:
-    negative_parts: list[str] = (
-        [p.strip() for p in str(base_negative_prompt or "").split(",") if p.strip()]
-        if base_negative_prompt
-        else []
-    )
-    negative_parts.extend(
-        (
-            "recurring visual signature rendered as a photorealistic mascot",
-            "recurring visual signature rendered as a sticker overlay",
-            "recurring visual signature rendered as a logo overlay",
-            "recurring visual signature rendered as a watermark",
-            "duplicate recurring visual signature instances",
-        )
-    )
-    if str(visible_text_policy or "").strip() == "no_visible_text":
-        negative_parts.append("readable text")
-    return ", ".join(_dedupe(negative_parts))
 
 
 def _projection_context(
@@ -452,6 +376,12 @@ def _projection_context(
         frame_context.get("visible_text_policy"),
         "preserve_base",
     )
+    grammar = _first_text(
+        frame_context.get("effective_diagram_grammar"),
+        frame_context.get("explanation_diagram_grammar"),
+        frame_context.get("diagram_grammar"),
+        "plain_scene",
+    )
     return (
         {
             "anchor": {
@@ -464,7 +394,7 @@ def _projection_context(
                 "required_subjects": list(required_subjects),
             },
             "diagram": {
-                "grammar": "plain_scene",
+                "grammar": grammar,
                 "primary_visual_task": task,
                 "visual_metaphor": base_prompt,
             },
@@ -476,7 +406,10 @@ def _projection_context(
         },
         visible_text_policy,
         task,
-        {"primary_visual_task": task},
+        {
+            "effective_diagram_grammar": grammar,
+            "primary_visual_task": task,
+        },
     )
 
 
@@ -520,18 +453,6 @@ def _dedupe(values: Sequence[Any]) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _identity_traits_present(
-    prompt: str,
-    profile: VisualSignatureProfileSnapshot,
-) -> bool:
-    if not profile.identity_traits:
-        return False
-    return all(
-        prompt_contains_term(prompt, trait)
-        for trait in profile.identity_traits
-    )
-
-
 def _first_text(*values: Any) -> str:
     for value in values:
         raw = getattr(value, "value", value)
@@ -555,7 +476,11 @@ def _projection_reason_code(cause: Exception) -> str:
         return "missing_required_subjects"
     if "runtime budget" in message or "persistence budget" in message:
         return "projection_budget_exceeded"
-    if "protected visual prompt semantics exceed" in message:
+    if (
+        "protected visual prompt semantics exceed" in message
+        or "prompt budget" in message
+        or ("exceeds" in message and "character" in message)
+    ):
         return "protected_prompt_budget_exceeded"
     if "profile" in message or "identity" in message:
         return "identity_contract_invalid"

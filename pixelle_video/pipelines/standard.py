@@ -71,12 +71,14 @@ from pixelle_video.models.storyboard import (
     build_storyboard_config_planning_kwargs,
     build_storyboard_frame_planning_kwargs,
 )
+from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
 from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID
 from pixelle_video.models.video_generation_contract import (
     IPControlsContract,
     StoryboardControlsContract,
 )
+from pixelle_video.models.z_image_prompt_bundle import ZImagePromptBundle
 from pixelle_video.pipelines.comfyui_session import (
     maybe_local_comfyui_workflow_session,
 )
@@ -113,6 +115,9 @@ from pixelle_video.services.omnivoice_longform_blocks import build_omnivoice_lon
 from pixelle_video.services.prompt_trace_artifacts import (
     media_workflow_trace_context,
     write_final_prompt_artifact,
+)
+from pixelle_video.services.provider_z_image_adapter import (
+    project_z_image_prompt_bundle,
 )
 from pixelle_video.services.reference_image_visual_context_adapter import (
     ReferenceImageVisualContextAdapter,
@@ -189,6 +194,172 @@ from pixelle_video.utils.workflow_capabilities import (
 from pixelle_video.workflow_content_contracts import extract_workflow_file_trace
 
 LocalMediaSessionPolicy = Literal["none", "batch", "per_frame"]
+
+
+def _targets_z_image_workflow(workflow: Any) -> bool:
+    text = str(workflow or "").strip().casefold()
+    return (
+        not text
+        or "z_image" in text
+        or "z-image" in text
+        or "image_z" in text
+    )
+
+
+def _project_standard_z_image_signature_batch(
+    batch: StyledImagePromptBatch,
+) -> StyledImagePromptBatch:
+    """Make the actual standard-pipeline prompt pair pass the Z-Image boundary."""
+
+    rendered_prompts = tuple(batch.rendered_prompts or ())
+    prompt_plan_bundle = batch.prompt_plan_bundle
+    if not rendered_prompts:
+        raise ValueError(
+            "enabled V4.5 Z-Image generation requires per-frame rendered prompts"
+        )
+    if prompt_plan_bundle is None:
+        raise ValueError(
+            "enabled V4.5 Z-Image generation requires a prompt plan bundle"
+        )
+    prompt_plans = tuple(prompt_plan_bundle.prompt_plans)
+    if len(rendered_prompts) != len(prompt_plans):
+        raise ValueError(
+            "Z-Image rendered prompt count must match prompt plan count"
+        )
+    if len(batch.prompts) != len(rendered_prompts):
+        raise ValueError("Z-Image prompt count must match rendered prompt count")
+
+    planning_snapshot = dict(batch.planning_snapshot or {})
+    traces = {
+        str(frame_id): dict(trace)
+        for frame_id, trace in dict(
+            planning_snapshot.get("series_visual_signature_trace_by_frame") or {}
+        ).items()
+        if isinstance(trace, Mapping)
+    }
+    projected_prompts: list[str] = []
+    for index, (rendered, prompt_plan) in enumerate(
+        zip(rendered_prompts, prompt_plans)
+    ):
+        metadata = rendered.metadata_to_dict().get("series_visual_signature_v45")
+        if not isinstance(metadata, Mapping):
+            raise ValueError(
+                f"Z-Image frame {prompt_plan.frame_id} is missing V4.5 adapter metadata"
+            )
+        provider_bundle = ZImagePromptBundle(
+            positive_prompt=rendered.prompt,
+            negative_prompt=rendered.negative_prompt or "",
+            locked_constraints=("canonical_v45_contract",),
+            metadata={
+                "schema_version": "v4.5-signature",
+                "frame_id": prompt_plan.frame_id,
+                "contract_version": metadata.get("contract_version"),
+                "contract_content_sha256": metadata.get(
+                    "contract_content_sha256"
+                ),
+            },
+        )
+        provider_payload = project_z_image_prompt_bundle(bundle=provider_bundle)
+        prompt = str(provider_payload["prompt"])
+        negative_prompt = str(provider_payload["negative_prompt"])
+        if prompt != rendered.prompt or prompt != prompt_plan.final_prompt:
+            raise ValueError(
+                f"Z-Image frame {prompt_plan.frame_id} positive prompt differs across adapter, rendered prompt, and PromptPlan"
+            )
+        if (
+            negative_prompt != (rendered.negative_prompt or "")
+            or negative_prompt != (prompt_plan.final_negative_prompt or "")
+        ):
+            raise ValueError(
+                f"Z-Image frame {prompt_plan.frame_id} negative prompt differs across adapter, rendered prompt, and PromptPlan"
+            )
+        if prompt != batch.prompts[index]:
+            raise ValueError(
+                f"Z-Image frame {prompt_plan.frame_id} batch prompt differs from adapter prompt"
+            )
+        trace = traces.get(prompt_plan.frame_id)
+        if trace is None:
+            raise ValueError(
+                f"Z-Image frame {prompt_plan.frame_id} is missing a V4.5 trace record"
+            )
+        contract = trace.get("contract")
+        if not isinstance(contract, Mapping):
+            raise ValueError(
+                f"Z-Image frame {prompt_plan.frame_id} trace is missing the complete V4.5 contract"
+            )
+        identity_hash = str(metadata.get("identity_content_sha256") or "")
+        contract_hash = str(metadata.get("contract_content_sha256") or "")
+        contract_version = str(metadata.get("contract_version") or "")
+        signature_payload = contract.get("series_visual_signature")
+        signature_payload = (
+            dict(signature_payload) if isinstance(signature_payload, Mapping) else {}
+        )
+        profile_payload = signature_payload.get("profile")
+        profile_payload = (
+            dict(profile_payload) if isinstance(profile_payload, Mapping) else {}
+        )
+        consistency_pairs = (
+            ("trace final positive prompt", trace.get("final_positive_prompt"), prompt),
+            (
+                "trace final negative prompt",
+                trace.get("final_negative_prompt"),
+                negative_prompt,
+            ),
+            (
+                "PromptPlan identity hash",
+                prompt_plan.identity_content_sha256,
+                identity_hash,
+            ),
+            (
+                "PromptPlan contract hash",
+                prompt_plan.contract_content_sha256,
+                contract_hash,
+            ),
+            (
+                "PromptPlan contract version",
+                prompt_plan.contract_version,
+                contract_version,
+            ),
+            ("trace identity hash", trace.get("identity_content_sha256"), identity_hash),
+            ("trace contract hash", trace.get("contract_content_sha256"), contract_hash),
+            ("trace contract version", trace.get("contract_version"), contract_version),
+            (
+                "contract identity hash",
+                profile_payload.get("identity_content_sha256"),
+                identity_hash,
+            ),
+            (
+                "contract content hash",
+                contract.get("contract_content_sha256"),
+                contract_hash,
+            ),
+            (
+                "contract version",
+                contract.get("contract_version"),
+                contract_version,
+            ),
+        )
+        for label, actual, expected in consistency_pairs:
+            if actual != expected:
+                raise ValueError(
+                    f"Z-Image frame {prompt_plan.frame_id} {label} is inconsistent"
+                )
+        projected_prompts.append(prompt)
+        trace["adapter"] = {
+            "provider": "z_image",
+            "validated": True,
+            "capabilities": ["positive_prompt", "negative_prompt"],
+        }
+    if traces:
+        planning_snapshot["series_visual_signature_trace_by_frame"] = traces
+    return StyledImagePromptBatch(
+        prompts=projected_prompts,
+        negative_prompt=batch.negative_prompt,
+        resolved_style=batch.resolved_style,
+        planning_snapshot=planning_snapshot,
+        prompt_plan_bundle=prompt_plan_bundle,
+        rendered_prompts=list(rendered_prompts),
+    )
 
 
 @dataclass(frozen=True)
@@ -840,6 +1011,14 @@ class StandardPipeline(LinearVideoPipeline):
                 trace_context=self._llm_trace_context(ctx, operation="visual_prompt_planning"),
                 trace_recorder=trace_recorder,
             )
+            if (
+                series_visual_signature_request.enabled
+                and media_type == "image"
+                and _targets_z_image_workflow(ctx.params.get("media_workflow"))
+            ):
+                styled_batch = _project_standard_z_image_signature_batch(
+                    styled_batch
+                )
 
             ctx.image_prompts = styled_batch.prompts
             ctx.rendered_media_prompts = list(getattr(styled_batch, "rendered_prompts", ()) or ())
@@ -1131,7 +1310,8 @@ class StandardPipeline(LinearVideoPipeline):
         decisions = snapshot.get("visual_expression_decision_by_frame") or {}
         projected_parts = snapshot.get("series_visual_signature_projected_prompt_parts_by_frame") or {}
         repair_attempts = snapshot.get("series_visual_signature_repair_attempts") or {}
-        if not request and not plans:
+        v45_traces = snapshot.get("series_visual_signature_trace_by_frame") or {}
+        if not request and not plans and not v45_traces:
             return
 
         artifact_dir = Path(ctx.task_dir) / "prompt_traces" / "series_visual_signature"
@@ -1144,7 +1324,9 @@ class StandardPipeline(LinearVideoPipeline):
         artifacts["series_visual_signature_repair_attempts"] = self._write_json_artifact(artifact_dir / "series_visual_signature_repair_attempts.json", repair_attempts, root=Path(ctx.task_dir))
 
         frame_artifacts: dict[str, dict[str, str]] = {}
-        frame_ids = sorted(set(decisions) | set(plans) | set(critiques))
+        frame_ids = sorted(
+            set(decisions) | set(plans) | set(critiques) | set(v45_traces)
+        )
         for index, frame_id in enumerate(frame_ids, start=1):
             prefix = f"frame_{index:03d}"
             plan_payload = plans.get(frame_id) or {}
@@ -1155,8 +1337,18 @@ class StandardPipeline(LinearVideoPipeline):
                 "series_visual_signature_participation_decision": self._write_json_artifact(artifact_dir / f"series_visual_signature_participation_decision_{prefix}.json", self._series_visual_signature_participation_decision_payload(frame_id, plan_payload), root=Path(ctx.task_dir)),
                 "series_visual_signature_critique": self._write_json_artifact(artifact_dir / f"series_visual_signature_critique_{prefix}.json", critiques.get(frame_id) or {}, root=Path(ctx.task_dir)),
                 "series_visual_signature_projected_prompt_parts": self._write_json_artifact(artifact_dir / f"series_visual_signature_projected_prompt_parts_{prefix}.json", projected_parts.get(frame_id) or {}, root=Path(ctx.task_dir)),
+                "series_visual_signature_v45_contract": self._write_json_artifact(
+                    artifact_dir / f"series_visual_signature_v45_contract_{prefix}.json",
+                    v45_traces.get(frame_id) or {},
+                    root=Path(ctx.task_dir),
+                ),
             }
-            integrated_prompt = str(plan_payload.get("integrated_scene_prompt") or "")
+            v45_trace = v45_traces.get(frame_id) or {}
+            integrated_prompt = str(
+                v45_trace.get("final_positive_prompt")
+                or plan_payload.get("integrated_scene_prompt")
+                or ""
+            )
             prompt_path = artifact_dir / f"final_integrated_prompt_{prefix}.txt"
             prompt_path.write_text(integrated_prompt, encoding="utf-8")
             frame_artifacts[frame_id]["final_integrated_prompt"] = str(prompt_path.relative_to(Path(ctx.task_dir)))

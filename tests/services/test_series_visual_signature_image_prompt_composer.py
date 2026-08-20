@@ -164,6 +164,20 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
             "red collar",
             "small round ears",
         ],
+        "core_identity_traits": [
+            "black spots",
+            "black sunglasses",
+            "red collar",
+            "small round ears",
+        ],
+        "supporting_identity_traits": [],
+        "canonical_identity_clause": (
+            "Canonical recurring identity Dalmatian: black spots, black sunglasses, "
+            "red collar, small round ears."
+        ),
+        "identity_content_sha256": (
+            "de240f30303bfe2b937505a750c32bad2273c5edf80ffb9ad86da32837f163bd"
+        ),
         "requested_role": "auto",
     }
     assert "visual_story_ip_fusion_plan" not in generation_context
@@ -196,7 +210,7 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
     assert "worker" in final_prompt
     assert "assembly machine" in final_prompt
     assert "low quality" in (result.negative_prompt or "")
-    assert "recurring visual signature rendered as a watermark" in (
+    assert "sticker, corner badge, emblem, logo, or watermark overlay" in (
         result.negative_prompt or ""
     )
 
@@ -226,6 +240,8 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
     assert snapshot["series_visual_signature_profile_ref"] == {
         "profile_id": "dog_1",
         "identity_trait_count": 4,
+        "core_identity_trait_count": 4,
+        "supporting_identity_trait_count": 0,
         "style_safe_trait_count": 0,
         "forbidden_trait_count": 0,
         "source_asset_count": 0,
@@ -439,7 +455,15 @@ async def test_request_audit_never_persists_user_or_world_hint_text(monkeypatch)
     projection_text = str(projection_metadata)
     assert secret_hint not in projection_text
     assert world_hint not in projection_text
-    assert "black spots" not in projection_text
+    audit_metadata = {
+        key: value
+        for key, value in projection_metadata.items()
+        if key != "series_visual_signature_trace_by_frame"
+    }
+    assert "black spots" not in str(audit_metadata)
+    assert "black spots" in str(
+        projection_metadata["series_visual_signature_trace_by_frame"]
+    )
 
 
 @pytest.mark.asyncio

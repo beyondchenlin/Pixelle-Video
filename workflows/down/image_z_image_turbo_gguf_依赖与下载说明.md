@@ -6,6 +6,7 @@
 - 工作流类型：`selfhost` 本地 ComfyUI 文生图工作流
 - 输入参数：
   - `prompt`：必填，正向提示词
+  - `negative_prompt`：必填，负向提示词，并由独立文本编码节点送入采样器负向条件
   - `width`：可选，默认 `768`
   - `height`：可选，默认 `768`
 - 默认采样参数：
@@ -24,7 +25,6 @@
 - `VAELoader`
 - `PrimitiveStringMultiline`
 - `CLIPTextEncode`
-- `ConditioningZeroOut`
 - `EmptySD3LatentImage`
 - `ModelSamplingAuraFlow`
 - `KSampler`
@@ -234,6 +234,8 @@ rg -n "UnetLoaderGGUF|CLIPLoaderGGUF|easy int|VAEDecode" "workflows/selfhost/ima
 .venv\Scripts\python.exe -m pytest tests/test_selfhost_workflows.py -k z_image_turbo_gguf -v
 ```
 
+该检查必须同时确认 `prompt`、`negative_prompt`、`width` 和 `height` 四个参数，并确认采样器负向输入连接到 `negative_prompt` 对应的独立 `CLIPTextEncode` 节点，不能连接 `ConditioningZeroOut`。
+
 ### 8.5 检查 ComfyUI 前端是否已经包含 GGUF 分类映射
 
 ```powershell
@@ -280,6 +282,14 @@ Get-Item `
   - `E:\comfyui\resources\ComfyUI\web_custom_versions\desktop_app\assets\dialogService-DcRVP_r2.js.bak_20260423_gguf_map_fix`
 - 当前机器上，修复后 ComfyUI 右侧“缺失模型/未知模型”提示已消失
 
+以下项目已在 `2026-08-20` 重新执行验证：
+
+- 三份智图像模型工作流的参数解析和负向节点连线测试：`36 passed`
+- `image_z_image_turbo_gguf.json` 使用固定六帧、三个固定种子完成十八张真实生成，正向与负向条件均被后端接受
+- `image_z_image_turbo.json` 使用 `512 × 512`、固定种子 `424242` 完成真实双条件生成，输出大小 `221684` 字节
+- `image_z_image.json` 使用 `512 × 512`、固定种子 `424242` 完成真实双条件生成，输出大小 `238929` 字节
+- 三个工作流的真实生成均返回单张图片，未出现未知节点、缺失模型、负向参数缺失或采样器连线错误
+
 ## 10. 常见问题
 
 ### 10.1 这个工作流和 `image_z_image_turbo.json` 的区别是什么？
@@ -290,6 +300,7 @@ Get-Item `
 它们的输入接口保持一致，都是：
 
 - `prompt`
+- `negative_prompt`
 - `width`
 - `height`
 
@@ -330,7 +341,7 @@ tasks = build_z_image_download_tasks(
 
 因为它沿用了 `11.txt` / `z-image-turbo` 那套文生图结构：
 
-- 只使用 `prompt`
+- 使用 `prompt` 和 `negative_prompt` 两路独立文本条件
 - 用 `EmptySD3LatentImage` 生成空 `latent`
 - 不需要上传参考图
 
