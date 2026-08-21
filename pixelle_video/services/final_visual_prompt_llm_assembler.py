@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from pixelle_video.models.final_visual_prompt_assembly import (
+    FINAL_VISUAL_PROMPT_SECTION_KEYS,
     FinalVisualPromptAssemblyResponse,
 )
 from pixelle_video.models.final_visual_prompt_bundle import FinalVisualPromptBundle
@@ -32,6 +33,15 @@ _ASSEMBLY_SCHEMA_VERSION = "final_visual_prompt_assembly.v1"
 _ASSEMBLY_STAGE = "final_visual_prompt_assembly"
 _DEFAULT_MAX_CONCURRENCY = 4
 _MAX_MAX_CONCURRENCY = 8
+_LOCKED_PROMPT_SECTION_KEYS = (
+    "main_content",
+    "subject_protection",
+    "fixed_identity",
+    "instance_control",
+    "role",
+    "placement",
+    "scene_fusion",
+)
 
 
 @dataclass(frozen=True)
@@ -269,7 +279,13 @@ def _required_positive_facts(
     metadata = frame.bundle.to_dict()["metadata"]
     sections = dict(metadata.get("prompt_sections") or {})
     facts: list[str] = []
-    for section_name in ("main_content", "subject_protection", "fixed_identity"):
+    for section_name in (
+        "main_content",
+        "main_detail",
+        "subject_protection",
+        "fixed_identity",
+        "style",
+    ):
         _append_unique(facts, sections.get(section_name))
     for fact in (
         "Exactly one recurring identity exists in the whole frame",
@@ -277,6 +293,7 @@ def _required_positive_facts(
         "one head",
         "one location",
         "visually subordinate to the main content",
+        "keeps its original character form",
         signature.role.value,
     ):
         _append_unique(facts, fact)
@@ -344,8 +361,14 @@ def _validated_llm_bundle(
     attempt_count: int,
 ) -> FinalVisualPromptBundle:
     contract = frame.contract
+    prompt_sections = response.prompt_sections.to_prompt_sections()
+    positive_prompt = _join_prompt_sections(prompt_sections)
+    if response.positive_prompt != positive_prompt:
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final visual prompt assembly positive prompt differs from structured sections"
+        )
     assert_series_visual_signature_final_prompt(
-        positive_prompt=response.positive_prompt,
+        positive_prompt=positive_prompt,
         negative_prompt=response.negative_prompt,
         required_subjects=frame.required_subjects,
         signature=frame.signature,
@@ -354,20 +377,94 @@ def _validated_llm_bundle(
         scene_fusion=contract.scene_fusion,
         frame_id=frame.frame_id,
     )
-    return FinalVisualPromptBundle(
-        positive_prompt=response.positive_prompt,
-        negative_prompt=response.negative_prompt,
-        locked_constraints=frame.bundle.locked_constraints,
-        metadata={
-            **frame.bundle.to_dict()["metadata"],
-            "prompt_assembly": {
-                "mode": "llm",
-                "source": "llm",
-                "attempt_count": attempt_count,
-                "repaired": attempt_count > 1,
-            },
+    original_metadata = frame.bundle.to_dict()["metadata"]
+    updated_metadata = {
+        **original_metadata,
+        "prompt_sections": prompt_sections,
+        "prompt_budget": _updated_prompt_budget(
+            original_metadata.get("prompt_budget"),
+            prompt_sections=prompt_sections,
+            positive_prompt=positive_prompt,
+        ),
+        "prompt_assembly": {
+            "mode": "llm",
+            "source": "llm",
+            "attempt_count": attempt_count,
+            "repaired": attempt_count > 1,
         },
+    }
+    return FinalVisualPromptBundle(
+        positive_prompt=positive_prompt,
+        negative_prompt=response.negative_prompt,
+        locked_constraints=tuple(
+            prompt_sections[key] for key in _LOCKED_PROMPT_SECTION_KEYS if prompt_sections.get(key)
+        ),
+        metadata=updated_metadata,
     )
+
+
+def _join_prompt_sections(prompt_sections: Mapping[str, str]) -> str:
+    return ". ".join(
+        prompt_sections[key] for key in FINAL_VISUAL_PROMPT_SECTION_KEYS if prompt_sections.get(key)
+    )
+
+
+def _updated_prompt_budget(
+    original: Any,
+    *,
+    prompt_sections: Mapping[str, str],
+    positive_prompt: str,
+) -> dict[str, Any]:
+    budget = dict(original or {})
+    main_group = _join_selected_sections(
+        prompt_sections,
+        ("main_content", "main_detail", "subject_protection"),
+    )
+    placement_group = _join_selected_sections(
+        prompt_sections,
+        ("placement", "scene_fusion"),
+    )
+    identity_chars = len(prompt_sections.get("fixed_identity", ""))
+    budget.update(
+        {
+            "positive_prompt_chars": len(positive_prompt),
+            "main_and_subject_chars": len(main_group),
+            "rendered_identity_chars": identity_chars,
+            "canonical_identity_chars": identity_chars,
+            "single_instance_control_chars": len(prompt_sections.get("instance_control", "")),
+            "placement_and_fusion_chars": len(placement_group),
+            "role_and_action_chars": len(prompt_sections.get("role", "")),
+            "style_chars": len(prompt_sections.get("style", "")),
+        }
+    )
+    for metric_key, limit_key in (
+        ("main_and_subject_chars", "main_and_subject_limit"),
+        ("rendered_identity_chars", "rendered_identity_limit"),
+        ("single_instance_control_chars", "single_instance_control_limit"),
+        ("placement_and_fusion_chars", "placement_and_fusion_limit"),
+        ("role_and_action_chars", "role_and_action_limit"),
+        ("style_chars", "style_limit"),
+    ):
+        metric = budget.get(metric_key)
+        limit = budget.get(limit_key)
+        if (
+            isinstance(metric, int)
+            and not isinstance(metric, bool)
+            and isinstance(limit, int)
+            and not isinstance(limit, bool)
+            and metric > limit
+        ):
+            raise SeriesVisualSignatureFinalPromptGateError(
+                "final visual prompt assembly section budget exceeded: " + metric_key
+            )
+    return budget
+
+
+def _join_selected_sections(
+    prompt_sections: Mapping[str, str],
+    keys: tuple[str, ...],
+) -> str:
+    return ". ".join(prompt_sections[key] for key in keys if prompt_sections.get(key))
 
 
 def _annotated_bundle(

@@ -17,11 +17,14 @@ output_contract: JSON object matching FinalVisualPromptAssemblyResponse.
   "assembly_input": {assembly_input_json},
   "validation_feedback": {validation_feedback_json},
   "requirements": [
-    "Return JSON only with positive_prompt and negative_prompt.",
+    "Return JSON only with positive_prompt, negative_prompt, and prompt_sections.",
     "Write one coherent image-generation prompt, not a list of alternative scenes.",
     "Preserve the main scene and every required subject.",
     "Include every required_positive_fact_verbatim string verbatim in positive_prompt.",
     "Include every required_negative_fact_verbatim string verbatim in negative_prompt.",
+    "Return every semantic section in prompt_sections; preserve main_detail when it exists in the input and otherwise use an empty string.",
+    "Do not end individual prompt_sections values with a period.",
+    "Build positive_prompt by joining the non-empty prompt_sections values in required_output order with a period and one space.",
     "Each recurring-identity display name and identity trait must occur exactly once.",
     "There is exactly one recurring identity: never introduce a second, duplicate, pair, crowd, clone, reflection, poster, statue, toy, or background copy of it.",
     "Do not reinterpret an unobscured single identity as a separate foreground body.",
@@ -31,6 +34,17 @@ output_contract: JSON object matching FinalVisualPromptAssemblyResponse.
   ],
   "required_output": {{
     "positive_prompt": "string",
-    "negative_prompt": "string"
+    "negative_prompt": "string",
+    "prompt_sections": {{
+      "main_content": "string",
+      "main_detail": "string or empty string",
+      "subject_protection": "string",
+      "fixed_identity": "string",
+      "instance_control": "string",
+      "role": "string",
+      "placement": "string",
+      "scene_fusion": "string",
+      "style": "string"
+    }}
   }}
 }}
