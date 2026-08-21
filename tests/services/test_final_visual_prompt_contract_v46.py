@@ -198,6 +198,28 @@ def test_provider_prompt_leads_with_explicit_role_without_internal_anchor_jargon
     assert "%" not in bundle.positive_prompt
 
 
+def test_initial_prompt_prevents_extra_identity_instances_before_generation() -> None:
+    bundle = FinalVisualPromptCompiler().compile(final_contract=_v46_contract())
+
+    assert bundle.positive_prompt.count("斑点犬") == 1
+    assert "其他人物、动物、道具、模型和背景不采用其外观" in (
+        bundle.positive_prompt
+    )
+    assert "全画面仅一个指定角色实体" in bundle.positive_prompt
+    assert "第一次修复" not in bundle.positive_prompt
+    assert "duplicate recurring visual signature" in bundle.negative_prompt
+    assert "multiple or extra 斑点犬 instances" in bundle.negative_prompt
+    assert (
+        "cloned repeated reflected mirrored or background copies of 斑点犬"
+        in bundle.negative_prompt
+    )
+    assert (
+        "other people animals props models or background figures using the "
+        "recurring identity appearance or traits"
+        in bundle.negative_prompt
+    )
+
+
 def test_conflict_prompt_uses_one_actor_to_point_at_comparison_boundary() -> None:
     contract = _conflict_v46_contract()
     bundle = FinalVisualPromptCompiler().compile(final_contract=contract)

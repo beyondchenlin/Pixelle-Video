@@ -21,9 +21,11 @@ from pixelle_video.services.series_visual_signature_prompt_presence import (
     prompt_term_count,
 )
 from pixelle_video.services.series_visual_signature_rendering import (
+    SINGLE_IDENTITY_POSITIVE_GUARD,
     rendered_identity_terms,
     rendered_provider_action_verb,
     rendered_provider_participation_text,
+    rendered_single_identity_negative_facts,
 )
 
 
@@ -231,6 +233,7 @@ def assert_mandatory_content_bound_final_prompt(
     identity_chars: int,
 ) -> None:
     positive = normalize_prompt_text(positive_prompt)
+    negative = normalize_prompt_text(negative_prompt)
     if not positive:
         raise SeriesVisualSignatureFinalPromptGateError(
             "final V4.6 visual prompt gate failed: positive prompt is empty"
@@ -249,6 +252,16 @@ def assert_mandatory_content_bound_final_prompt(
             "final V4.6 visual prompt gate failed: identity profile is missing"
         )
     _assert_no_duplicate_identity_semantics(positive, profile.display_name)
+    if not prompt_contains_term(positive, SINGLE_IDENTITY_POSITIVE_GUARD):
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final V4.6 visual prompt gate failed: proactive single-identity guard is missing"
+        )
+    for index, fact in enumerate(rendered_single_identity_negative_facts(profile)):
+        if not prompt_contains_term(negative, fact):
+            raise SeriesVisualSignatureFinalPromptGateError(
+                "final V4.6 visual prompt gate failed: proactive single-identity "
+                f"negative fact is missing at index {index}"
+            )
     if main_content_chars / len(positive_prompt) < 0.35:
         raise SeriesVisualSignatureFinalPromptGateError(
             "final V4.6 visual prompt gate failed: main content ratio is below 35 percent "

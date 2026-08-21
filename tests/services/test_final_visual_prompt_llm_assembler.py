@@ -196,6 +196,31 @@ async def test_llm_assembler_repairs_business_gate_failure_once():
     assert "differs from structured sections" in llm.calls[1]["prompt"]
 
 
+@pytest.mark.asyncio
+async def test_llm_assembler_rejects_missing_initial_single_identity_guards():
+    projection = _projection()
+    draft = projection.frames[0].bundle
+    llm = _FakeLLM(
+        [
+            _assembly_response(draft, negative_prompt="blurry"),
+            _assembly_response(draft),
+        ]
+    )
+
+    result = await FinalVisualPromptLLMAssembler().assemble_batch(
+        llm_service=llm,
+        batch=projection,
+        trace_context=_trace_context(),
+        trace_recorder=object(),
+    )
+
+    assert len(llm.calls) == 2
+    assert "multiple or extra Dalmatian instances" in llm.calls[0]["prompt"]
+    assert result.audit["frames"][0]["source"] == "llm"
+    assert result.audit["frames"][0]["repaired"] is True
+    assert "single-identity negative fact is missing" in llm.calls[1]["prompt"]
+
+
 @pytest.mark.parametrize(
     "duplicate_clause",
     (

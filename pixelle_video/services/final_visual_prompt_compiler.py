@@ -35,10 +35,12 @@ from pixelle_video.services.series_visual_signature_prompt_presence import (
     prompt_contains_term,
 )
 from pixelle_video.services.series_visual_signature_rendering import (
+    SINGLE_IDENTITY_POSITIVE_GUARD,
     rendered_identity_clause,
     rendered_identity_traits,
     rendered_provider_action_verb,
     rendered_provider_participation_text,
+    rendered_single_identity_negative_facts,
 )
 from pixelle_video.services.visible_text_prompt_rewriter import (
     NO_VISIBLE_TEXT_DRAWING_CLAUSE,
@@ -249,10 +251,7 @@ class FinalVisualPromptCompiler:
         participation = _v46_participation_clause(plan)
         spatial = _v46_spatial_clause(mandatory.placement)
         fusion = _v46_fusion_clause(mandatory.scene_fusion)
-        instance_control = (
-            "全画面所有动作均由同一个指定角色的一副身体、一个头部和一个位置完成；"
-            "无副本、倒影或主体替代"
-        )
+        instance_control = SINGLE_IDENTITY_POSITIVE_GUARD
         style = _bounded_style_clause(contract.diagram_render)
         sections = {
             "main_content": main_content,
@@ -297,6 +296,7 @@ class FinalVisualPromptCompiler:
         main_section_chars = len(sections["main_content"])
         negative_parts = _split_negative_prompt(base_negative_prompt)
         negative_parts.extend(mandatory.forbidden_compositions)
+        negative_parts.extend(rendered_single_identity_negative_facts(profile))
         if contract.visible_text_policy == "no_visible_text":
             negative_parts.append(NO_VISIBLE_TEXT_NEGATIVE_PROMPT)
         negative_prompt = ", ".join(_dedupe_text(negative_parts))

@@ -43,6 +43,12 @@ _INTERNAL_PARTICIPATION_REFERENCE_REWRITES = (
     ("锚点必须通过", "指定角色必须通过"),
 )
 
+SINGLE_IDENTITY_POSITIVE_GUARD = (
+    "全画面仅一个指定角色实体；"
+    "其他人物、动物、道具、模型和背景不采用其外观；"
+    "无副本、倒影或主体替代"
+)
+
 
 def rendered_identity_traits(
     profile: VisualSignatureProfileSnapshot,
@@ -92,6 +98,23 @@ def rendered_identity_clause(profile: VisualSignatureProfileSnapshot) -> str:
     if traits:
         clause += ", visibly defined by " + ", ".join(traits)
     return clause
+
+
+def rendered_single_identity_negative_facts(
+    profile: VisualSignatureProfileSnapshot,
+) -> tuple[str, ...]:
+    """Return first-generation exclusions that keep the identity singular."""
+
+    display_name = normalize_prompt_text(profile.display_name)
+    return (
+        "duplicate recurring visual signature",
+        f"multiple or extra {display_name} instances",
+        f"cloned repeated reflected mirrored or background copies of {display_name}",
+        (
+            "other people animals props models or background figures using the "
+            "recurring identity appearance or traits"
+        ),
+    )
 
 
 def rendered_provider_action_verb(
@@ -162,9 +185,11 @@ def _remove_display_name(trait: str, display_name: str) -> str:
 
 
 __all__ = [
+    "SINGLE_IDENTITY_POSITIVE_GUARD",
     "rendered_identity_clause",
     "rendered_identity_terms",
     "rendered_identity_traits",
     "rendered_provider_action_verb",
     "rendered_provider_participation_text",
+    "rendered_single_identity_negative_facts",
 ]

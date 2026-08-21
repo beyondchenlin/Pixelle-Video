@@ -27,6 +27,9 @@ from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureFrameProjection,
     SeriesVisualSignatureProjectionBatch,
 )
+from pixelle_video.services.series_visual_signature_rendering import (
+    rendered_single_identity_negative_facts,
+)
 
 _ASSEMBLY_SCHEMA_VERSION = "final_visual_prompt_assembly.v1"
 _ASSEMBLY_STAGE = "final_visual_prompt_assembly"
@@ -290,10 +293,10 @@ def _required_negative_facts(
         "mismatched style",
         "centered or oversized",
         "unrelated display platform",
-        "duplicate recurring visual signature",
     ]
     profile = frame.signature.profile
     if profile is not None:
+        facts.extend(rendered_single_identity_negative_facts(profile))
         facts.extend(profile.forbidden_traits)
     facts.extend(frame.contract.mandatory_anchor_contract.forbidden_compositions)
     if frame.contract.visible_text_policy == "no_visible_text":

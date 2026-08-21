@@ -1,10 +1,12 @@
 from pixelle_video.models.content_bound_ip import IPParticipationMechanism
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.services.series_visual_signature_rendering import (
+    SINGLE_IDENTITY_POSITIVE_GUARD,
     rendered_identity_clause,
     rendered_identity_terms,
     rendered_provider_action_verb,
     rendered_provider_participation_text,
+    rendered_single_identity_negative_facts,
 )
 
 
@@ -31,6 +33,28 @@ def test_rendered_identity_drops_traits_subsumed_by_more_specific_traits() -> No
     )
 
     assert rendered_identity_terms(profile) == ("斑点狗", "黑色墨镜", "红色项圈")
+
+
+def test_single_identity_guards_separate_scene_entities_before_generation() -> None:
+    profile = VisualSignatureProfileSnapshot(
+        profile_id="dog_1",
+        display_name="斑点狗",
+        core_identity_traits=("黑色墨镜", "红色项圈"),
+    )
+
+    assert "其他人物、动物、道具、模型和背景不采用其外观" in (
+        SINGLE_IDENTITY_POSITIVE_GUARD
+    )
+    assert "全画面仅一个指定角色实体" in SINGLE_IDENTITY_POSITIVE_GUARD
+    assert rendered_single_identity_negative_facts(profile) == (
+        "duplicate recurring visual signature",
+        "multiple or extra 斑点狗 instances",
+        "cloned repeated reflected mirrored or background copies of 斑点狗",
+        (
+            "other people animals props models or background figures using the "
+            "recurring identity appearance or traits"
+        ),
+    )
 
 
 def test_provider_participation_text_rewrites_only_internal_anchor_reference() -> None:
