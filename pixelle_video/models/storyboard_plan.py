@@ -8,6 +8,8 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
+from pixelle_video.models.frame_identity import normalize_storyboard_frame_id
+
 
 class StoryboardGenerationMode(str, Enum):
     SMART = "smart"
@@ -62,6 +64,11 @@ class StoryboardPlanFrame:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "frame_id",
+            normalize_storyboard_frame_id(self.frame_id, allow_empty=True),
+        )
         object.__setattr__(self, "secondary_subjects", tuple(self.secondary_subjects))
         object.__setattr__(self, "continuity_anchors", tuple(self.continuity_anchors))
         object.__setattr__(self, "world_elements", tuple(self.world_elements))

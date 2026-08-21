@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
+from pixelle_video.models.frame_identity import normalize_storyboard_frame_id
 from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.size_contract import (
@@ -240,10 +241,15 @@ class StoryboardFrame:
     shot_purpose: Optional[str] = None
     frame_source: Optional[str] = None
     workbench_state: Optional[StoryboardFrameWorkbenchState] = None
+    # Stable planner identity. Unlike ``index``, this value must not change when
+    # frames are reordered, filtered, persisted, or passed across pipeline layers.
+    frame_id: Optional[str] = None
     
     def __post_init__(self):
         if self.created_at is None:
             self.created_at = datetime.now()
+        if self.frame_id is not None:
+            self.frame_id = normalize_storyboard_frame_id(self.frame_id)
         if isinstance(self.workbench_state, Mapping):
             self.workbench_state = StoryboardFrameWorkbenchState.from_dict(self.workbench_state)
         elif self.workbench_state is not None and not isinstance(

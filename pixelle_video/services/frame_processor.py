@@ -683,12 +683,14 @@ class FrameProcessor:
         trace_context = getattr(config, "media_prompt_trace_context", None)
         if trace_context:
             frame_ids_by_index = trace_context.get("frame_ids_by_index") or {}
-            frame_id = (
+            legacy_frame_id = (
                 frame_ids_by_index.get(str(frame.index))
                 if isinstance(frame_ids_by_index, dict)
                 else None
             )
-            resolved_frame_id = str(frame_id or frame.index + 1)
+            resolved_frame_id = str(
+                frame.frame_id or legacy_frame_id or frame.index + 1
+            )
             workflow_params_for_trace = {
                 "prompt": frame.image_prompt or "",
                 "width": config.media_width,

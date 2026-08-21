@@ -114,6 +114,7 @@ async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and
         frames=[
             StoryboardFrame(
                 index=0,
+                frame_id="frame_0001_stable",
                 narration="scene one",
                 image_prompt="styled prompt",
                 shot_type="medium_shot",
@@ -158,6 +159,7 @@ async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and
     assert loaded.frames[0].shot_type == "medium_shot"
     assert loaded.frames[0].shot_purpose == "context"
     assert loaded.frames[0].frame_source == "planner_generated"
+    assert loaded.frames[0].frame_id == "frame_0001_stable"
 
 
 @pytest.mark.asyncio

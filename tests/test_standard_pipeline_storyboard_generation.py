@@ -9,9 +9,15 @@ from pixelle_video.models.final_visual_prompt_contract import (
     FinalVisualPromptContract,
     RenderedMediaPrompt,
 )
+from pixelle_video.models.final_visual_prompt_contract_v45 import (
+    FinalVisualPromptContractV45,
+)
 from pixelle_video.models.media import MediaResult
-from pixelle_video.models.prompt_plan import PromptPlanBundle
-from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
+from pixelle_video.models.prompt_plan import PromptPlan, PromptPlanBundle
+from pixelle_video.models.series_visual_signature import (
+    SeriesVisualSignatureContract,
+    VisualSignatureProfileSnapshot,
+)
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
@@ -21,6 +27,9 @@ from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.services.series_visual_signature_rendered_output_gate import (
     SeriesVisualSignatureRenderedOutputGateError,
+)
+from pixelle_video.services.visual_entity_placement_planner import (
+    VisualEntityPlacementPlanner,
 )
 from pixelle_video.utils.template_util import get_template_orientation
 
@@ -153,6 +162,67 @@ def _plan(source_text="第一句。第二句。", mode="smart"):
     )
 
 
+def _output_gate_contract(
+    frame_id: str,
+    profile: VisualSignatureProfileSnapshot,
+) -> dict:
+    signature = SeriesVisualSignatureContract(
+        enabled=True,
+        role="guide",
+        profile=profile,
+        max_area_ratio=0.16,
+        participation_rule="Guide points to the article subject.",
+    )
+    article = {
+        "anchor": {"anchor_claim": "article chart"},
+        "diagram": {"grammar": "plain_scene", "visual_metaphor": "article chart"},
+        "render": {"render_style": "editorial_diagram"},
+    }
+    placement, fusion = VisualEntityPlacementPlanner().plan(
+        frame_id=frame_id,
+        base_prompt="article chart on a desk",
+        frame_context={
+            "diagram_grammar": "plain_scene",
+            "world_elements": ["desk"],
+            "lighting": "soft light",
+        },
+        base_visual_brief=None,
+        article_concretization=article,
+        required_subjects=("article chart",),
+        signature=signature,
+    )
+    return FinalVisualPromptContractV45(
+        contract_id=f"contract:{frame_id}",
+        frame_id=frame_id,
+        primary_visual_task="cognitive_explanation",
+        required_subjects=("article chart",),
+        article_concretization=article,
+        series_visual_signature=signature,
+        diagram_render={"render_style": "editorial_diagram"},
+        visible_text_policy="preserve_base",
+        entity_placement=placement,
+        scene_fusion=fusion,
+    ).to_dict()
+
+
+def _output_gate_trace(
+    frame_id: str,
+    profile: VisualSignatureProfileSnapshot,
+    *,
+    positive_prompt: str = "prompt",
+    negative_prompt: str = "",
+) -> dict:
+    contract = _output_gate_contract(frame_id, profile)
+    return {
+        "contract": contract,
+        "final_positive_prompt": positive_prompt,
+        "final_negative_prompt": negative_prompt,
+        "identity_content_sha256": profile.identity_content_sha256,
+        "contract_content_sha256": contract["contract_content_sha256"],
+        "contract_version": contract["contract_version"],
+    }
+
+
 def test_write_final_prompt_trace_artifact_uses_plan_frame_ids_and_media_sizes(tmp_path):
     plan = StoryboardPlan.build(
         mode="smart",
@@ -226,6 +296,38 @@ def test_write_final_prompt_trace_artifact_uses_plan_frame_ids_and_media_sizes(t
     assert '"media_workflow": "selfhost/image_trace_default.json"' in content
 
 
+def test_prompt_plan_resolution_prefers_stable_frame_identity_over_position() -> None:
+    plan = _plan()
+    target_frame_id = plan.frames[1].frame_id
+    prompt_plan = PromptPlan(
+        prompt_plan_id="prompt-plan-beta",
+        storyboard_plan_id=plan.plan_id,
+        frame_id=target_frame_id,
+        image_prompt_draft_id="draft-beta",
+        prompt_sections={"scene": "stable identity scene"},
+        final_prompt="stable identity prompt",
+    )
+    ctx = PipelineContext(input_text="Scene.", params={})
+    ctx.planning_snapshot = {
+        "storyboard_generation": plan.to_dict(),
+        "prompt_plan_bundle": {"prompt_plans": [prompt_plan.to_dict()]},
+    }
+    frame = StoryboardFrame(
+        index=0,
+        frame_id=target_frame_id,
+        narration="Scene.",
+        image_prompt="stable identity prompt",
+    )
+
+    storyboard_id, resolved_frame_id, resolved_plan = StandardPipeline(
+        _DummyCore()
+    )._resolve_frame_prompt_plan(ctx, frame)
+
+    assert storyboard_id == plan.plan_id
+    assert resolved_frame_id == target_frame_id
+    assert resolved_plan == prompt_plan
+
+
 def test_write_series_signature_trace_artifact_preserves_complete_v45_record(
     tmp_path,
 ) -> None:
@@ -289,7 +391,8 @@ async def test_standard_pipeline_records_auto_output_validation_skip_without_vis
         media_height=1024,
     )
     frame = StoryboardFrame(
-        index=plan.frames[0].index,
+        index=0,
+        frame_id=frame_id,
         narration="Scene.",
         image_prompt="prompt",
     )
@@ -300,15 +403,7 @@ async def test_standard_pipeline_records_auto_output_validation_skip_without_vis
     ctx.storyboard = Storyboard(title="Test", config=config, frames=[frame])
     ctx.planning_snapshot = {
         "series_visual_signature_trace_by_frame": {
-            frame_id: {
-                "contract": {
-                    "series_visual_signature": {
-                        "enabled": True,
-                        "max_area_ratio": 0.16,
-                        "profile": profile.to_dict(),
-                    }
-                }
-            }
+            frame_id: _output_gate_trace(frame_id, profile)
         }
     }
 
@@ -325,6 +420,124 @@ async def test_standard_pipeline_records_auto_output_validation_skip_without_vis
     assert audit["accepted"] is True
     assert audit["attempt_count"] == 1
     assert audit["attempts"][0]["reason"] == "vision_llm_disabled"
+
+
+def test_output_validation_rejects_missing_runtime_frame_identity_before_media(
+    tmp_path,
+) -> None:
+    plan = _plan()
+    frame_id = plan.frames[0].frame_id
+    profile = VisualSignatureProfileSnapshot(
+        profile_id="dog_1",
+        display_name="Dalmatian",
+        core_identity_traits=("black spots", "black sunglasses"),
+    )
+    ctx = PipelineContext(input_text="Scene.", params={})
+    ctx.task_id = "task-output-gate-missing-runtime-id"
+    ctx.task_dir = str(tmp_path)
+    ctx.storyboard_plan = plan
+    ctx.storyboard = Storyboard(
+        title="Test",
+        config=StoryboardConfig(
+            task_id=ctx.task_id,
+            media_width=1024,
+            media_height=1024,
+        ),
+        frames=[StoryboardFrame(index=0, narration="Scene.", image_prompt="prompt")],
+    )
+    ctx.planning_snapshot = {
+        "series_visual_signature_trace_by_frame": {
+            frame_id: _output_gate_trace(frame_id, profile)
+        }
+    }
+
+    with pytest.raises(ValueError, match="stable frame_id"):
+        StandardPipeline(_DummyCore())._configure_series_visual_signature_output_gate(
+            ctx,
+            media_type="image",
+        )
+
+
+def test_output_validation_rejects_contract_identity_mismatch_before_media(
+    tmp_path,
+) -> None:
+    plan = _plan()
+    frame_id = plan.frames[0].frame_id
+    profile = VisualSignatureProfileSnapshot(
+        profile_id="dog_1",
+        display_name="Dalmatian",
+        core_identity_traits=("black spots", "black sunglasses"),
+    )
+    ctx = PipelineContext(input_text="Scene.", params={})
+    ctx.task_id = "task-output-gate-contract-id-mismatch"
+    ctx.task_dir = str(tmp_path)
+    ctx.storyboard = Storyboard(
+        title="Test",
+        config=StoryboardConfig(
+            task_id=ctx.task_id,
+            media_width=1024,
+            media_height=1024,
+        ),
+        frames=[
+            StoryboardFrame(
+                index=0,
+                frame_id=frame_id,
+                narration="Scene.",
+                image_prompt="prompt",
+            )
+        ],
+    )
+    ctx.planning_snapshot = {
+        "series_visual_signature_trace_by_frame": {
+            frame_id: _output_gate_trace("different-frame-id", profile)
+        }
+    }
+
+    with pytest.raises(ValueError, match="trace key must match contract frame_id"):
+        StandardPipeline(_DummyCore())._configure_series_visual_signature_output_gate(
+            ctx,
+            media_type="image",
+        )
+
+
+def test_output_validation_rejects_prompt_lineage_drift_before_media(tmp_path) -> None:
+    plan = _plan()
+    frame_id = plan.frames[0].frame_id
+    profile = VisualSignatureProfileSnapshot(
+        profile_id="dog_1",
+        display_name="Dalmatian",
+        core_identity_traits=("black spots", "black sunglasses"),
+    )
+    ctx = PipelineContext(input_text="Scene.", params={})
+    ctx.task_id = "task-output-gate-prompt-drift"
+    ctx.task_dir = str(tmp_path)
+    ctx.storyboard = Storyboard(
+        title="Test",
+        config=StoryboardConfig(
+            task_id=ctx.task_id,
+            media_width=1024,
+            media_height=1024,
+        ),
+        frames=[
+            StoryboardFrame(
+                index=0,
+                frame_id=frame_id,
+                narration="Scene.",
+                image_prompt="runtime prompt changed after trace creation",
+            )
+        ],
+    )
+    ctx.planning_snapshot = {
+        "series_visual_signature_trace_by_frame": {
+            frame_id: _output_gate_trace(frame_id, profile)
+        }
+    }
+
+    with pytest.raises(ValueError, match="trace prompt must match"):
+        StandardPipeline(_DummyCore())._configure_series_visual_signature_output_gate(
+            ctx,
+            media_type="image",
+        )
 
 
 def test_strict_signature_output_validation_fails_before_media_without_vision(
@@ -755,12 +968,30 @@ async def test_standard_z_image_request_matches_prompt_plan_and_v45_trace(
         return str(tmp_path / "frame.png")
 
     monkeypatch.setattr(processor, "_download_media", fake_download_media)
+    ctx.config.media_prompt_trace_context = {
+        "artifact_path": str(tmp_path / "prompt_traces" / "final_visual_prompts.md"),
+        "task_root": str(tmp_path),
+        "task_id": ctx.task_id,
+        "workflow": ctx.config.media_workflow,
+        "workflow_input": ctx.config.media_workflow,
+        "requested_workflow": ctx.config.media_workflow,
+        "media_type": "image",
+        "frame_ids_by_index": {"0": prompt_plan.frame_id},
+    }
+    ctx.config.media_prompt_trace_context["frame_ids_by_index"]["0"] = (
+        "legacy-positional-id-must-not-win"
+    )
     await processor._step_generate_media(ctx.storyboard.frames[0], ctx.config)
 
     assert captured_request["prompt"] == prompt_plan.final_prompt
     assert captured_request["prompt"] == trace["final_positive_prompt"]
     assert captured_request["negative_prompt"] == prompt_plan.final_negative_prompt
     assert captured_request["negative_prompt"] == trace["final_negative_prompt"]
+    assert (
+        captured_request["media_prompt_trace_context"]["frame_id"]
+        == ctx.storyboard.frames[0].frame_id
+        == prompt_plan.frame_id
+    )
     for unsupported in ("bbox", "mask", "depth", "pose"):
         assert unsupported not in captured_request
 
@@ -1127,6 +1358,10 @@ async def test_initialize_storyboard_defaults_template_to_canvas_orientation():
     assert (ctx.config.canvas_width, ctx.config.canvas_height) == (1280, 720)
     assert ctx.config.video_orientation == "landscape"
     assert get_template_orientation(ctx.config.frame_template) == "landscape"
+    assert [frame.index for frame in ctx.storyboard.frames] == [0, 1]
+    assert [frame.frame_id for frame in ctx.storyboard.frames] == [
+        plan_frame.frame_id for plan_frame in ctx.storyboard_plan.frames
+    ]
 
 
 @pytest.mark.asyncio

@@ -153,6 +153,7 @@ def test_historical_frame_without_workbench_state_still_loads():
     )
 
     assert frame.workbench_state is None
+    assert frame.frame_id is None
 
 
 def test_storyboard_frame_accepts_mapping_workbench_state_payload():

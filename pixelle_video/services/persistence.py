@@ -595,6 +595,7 @@ class PersistenceService:
         """Convert StoryboardFrame to dict"""
         return {
             "index": frame.index,
+            "frame_id": frame.frame_id,
             "narration": frame.narration,
             "image_prompt": frame.image_prompt,
             "negative_prompt": frame.negative_prompt,
@@ -619,6 +620,7 @@ class PersistenceService:
         """Convert dict to StoryboardFrame"""
         return StoryboardFrame(
             index=data["index"],
+            frame_id=data.get("frame_id"),
             narration=data["narration"],
             image_prompt=data["image_prompt"],
             negative_prompt=data.get("negative_prompt"),
