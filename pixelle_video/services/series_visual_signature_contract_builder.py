@@ -16,13 +16,6 @@ from pixelle_video.services.series_visual_signature_role_resolver import (
     resolve_series_visual_signature_role,
 )
 
-_ROLE_MAX_AREA_RATIO = {
-    SeriesVisualSignatureRole.CORE_ACTOR: 0.45,
-    SeriesVisualSignatureRole.SILENT_WITNESS: 0.16,
-    SeriesVisualSignatureRole.OPERATOR: 0.28,
-    SeriesVisualSignatureRole.GUIDE: 0.20,
-}
-
 _ROLE_RULES = {
     SeriesVisualSignatureRole.CORE_ACTOR: "The visual signature may lead action only while article-required subjects stay visible.",
     SeriesVisualSignatureRole.SILENT_WITNESS: "The visual signature observes quietly and must not drive the visual explanation.",
@@ -39,6 +32,8 @@ class SeriesVisualSignatureContractBuilder:
         profile: VisualSignatureProfileSnapshot | Mapping[str, Any] | None = None,
         strict_user_mode: bool = False,
         role_context: Mapping[str, Any] | None = None,
+        suggested_area_ratio: float | None = None,
+        suggested_role: SeriesVisualSignatureRole | str | None = None,
     ) -> SeriesVisualSignatureContract:
         normalized_request = (
             request
@@ -64,23 +59,31 @@ class SeriesVisualSignatureContractBuilder:
                 f"requested={normalized_request.profile_id}, resolved={normalized_profile.profile_id}"
             )
 
-        role = resolve_series_visual_signature_role(
-            normalized_request.role,
-            context=role_context,
+        role_source = (
+            normalized_request.role
+            if normalized_request.role_was_explicit or suggested_role is None
+            else suggested_role
         )
+        role = resolve_series_visual_signature_role(role_source, context=role_context)
         if role in FORBIDDEN_TEXT_CHARACTER_ROLES:
             raise ValueError(
                 "text character role is incompatible with recurring identity: "
                 f"{role.value}"
             )
-        role_limit = _ROLE_MAX_AREA_RATIO[role]
         requested_area = normalized_request.max_area_ratio
-        if requested_area is not None and requested_area > role_limit:
+        max_area_ratio = (
+            requested_area
+            if requested_area is not None
+            else suggested_area_ratio
+        )
+        if max_area_ratio is None:
             raise ValueError(
-                "series_visual_signature_max_area_ratio exceeds the semantic limit for "
-                f"role {role.value}: requested={requested_area}, max={role_limit}"
+                "enabled series visual signature requires a semantic area ratio"
             )
-        max_area_ratio = requested_area if requested_area is not None else role_limit
+        if not 0.0 < float(max_area_ratio) <= 1.0:
+            raise ValueError(
+                "series_visual_signature_max_area_ratio must be greater than 0 and at most 1"
+            )
         return SeriesVisualSignatureContract(
             enabled=True,
             role=role,
@@ -97,7 +100,7 @@ class SeriesVisualSignatureContractBuilder:
                 "do not replace required article subjects",
                 "do not appear as a sticker, logo, watermark, or corner badge",
                 "do not use photorealistic animal or mascot language in hand-drawn styles",
-                "do not exceed the configured relative size",
+                "use the semantically planned frame area without hiding required subjects",
             ),
         )
 

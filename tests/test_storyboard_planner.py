@@ -391,6 +391,73 @@ def test_apply_frame_overrides_rejects_snapshot_identity_mismatch():
         )
 
 
+def test_plan_identity_anchor_only_override_validates_without_mutating_frame_plan():
+    plans = [
+        FramePlan(scene_id="1", shot_type="wide_shot", prompt_intent="opening")
+    ]
+    prompt_contexts = PromptContextEnvelope(
+        plan_context={
+            "plan_id": "plan_abc",
+            "plan_revision": 1,
+            "source_digest": "a" * 64,
+        },
+        frame_contexts=[{"frame_id": "frame_0001"}],
+    )
+
+    overridden = apply_frame_overrides(
+        frame_plans=plans,
+        frame_overrides=[
+            {
+                "plan_id": "plan_abc",
+                "plan_revision": 1,
+                "frame_id": "frame_0001",
+                "source_digest": "a" * 64,
+                "locked_fields": [
+                    "mandatory_anchor_area_ratio",
+                    "mandatory_anchor_action_verb",
+                ],
+                "mandatory_anchor_area_ratio": 0.8,
+                "mandatory_anchor_action_verb": "holds",
+                "override_source": "user_preview",
+            }
+        ],
+        prompt_contexts=prompt_contexts,
+    )
+
+    assert overridden == plans
+
+
+def test_plan_identity_anchor_override_rejects_invalid_area_ratio():
+    plans = [
+        FramePlan(scene_id="1", shot_type="wide_shot", prompt_intent="opening")
+    ]
+    prompt_contexts = PromptContextEnvelope(
+        plan_context={
+            "plan_id": "plan_abc",
+            "plan_revision": 1,
+            "source_digest": "a" * 64,
+        },
+        frame_contexts=[{"frame_id": "frame_0001"}],
+    )
+
+    with pytest.raises(ValueError, match="area ratio"):
+        apply_frame_overrides(
+            frame_plans=plans,
+            frame_overrides=[
+                {
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "a" * 64,
+                    "locked_fields": ["mandatory_anchor_area_ratio"],
+                    "mandatory_anchor_area_ratio": 1.1,
+                    "override_source": "user_preview",
+                }
+            ],
+            prompt_contexts=prompt_contexts,
+        )
+
+
 def test_parse_storyboard_frames_raises_when_required_fields_are_missing():
     with pytest.raises(ValueError, match="missing required storyboard frame field"):
         parse_storyboard_frames(

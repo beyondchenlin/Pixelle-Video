@@ -30,12 +30,14 @@ class VisualHorizontalPosition(str, Enum):
     LEFT = "left"
     CENTER = "center"
     RIGHT = "right"
+    CROSS_FRAME = "cross_frame"
 
 
 class VisualDepthPosition(str, Enum):
     FOREGROUND = "foreground"
     MIDGROUND = "midground"
     BACKGROUND = "background"
+    FULL_FRAME = "full_frame"
 
 
 class VisualRelativeSize(str, Enum):
@@ -43,6 +45,7 @@ class VisualRelativeSize(str, Enum):
     MEDIUM_SMALL = "medium_small"
     MEDIUM = "medium"
     LARGE = "large"
+    FULL_FRAME = "full_frame"
 
 
 class VisualVisibleExtent(str, Enum):
@@ -50,6 +53,8 @@ class VisualVisibleExtent(str, Enum):
     HALF_BODY = "half_body"
     PARTIAL = "partial"
     DISTANT_SILHOUETTE = "distant_silhouette"
+    HEADSHOT = "headshot"
+    RECOGNIZABLE_DETAIL = "recognizable_detail"
 
 
 @dataclass(frozen=True)
@@ -69,6 +74,7 @@ class VisualEntityPlacement:
     orientation: str
     visible_extent: VisualVisibleExtent | str
     visible_core_traits: Sequence[str]
+    area_ratio: float | None = None
 
     def __post_init__(self) -> None:
         frame_id = _require_text(
@@ -158,6 +164,11 @@ class VisualEntityPlacement:
                 max_items=MAX_VISUAL_ENTITY_CORE_TRAITS,
             ),
         )
+        object.__setattr__(
+            self,
+            "area_ratio",
+            _area_ratio(self.area_ratio, relative_size=self.relative_size),
+        )
 
     @classmethod
     def from_mapping(
@@ -182,6 +193,7 @@ class VisualEntityPlacement:
             orientation=source.get("orientation", ""),
             visible_extent=source.get("visible_extent", ""),
             visible_core_traits=source.get("visible_core_traits") or (),
+            area_ratio=source.get("area_ratio"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -199,6 +211,7 @@ class VisualEntityPlacement:
             "orientation": self.orientation,
             "visible_extent": self.visible_extent.value,
             "visible_core_traits": list(self.visible_core_traits),
+            "area_ratio": self.area_ratio,
         }
 
 
@@ -342,6 +355,24 @@ def _enum_value(
             if text == item.value or text.lower() == item.name.lower():
                 return item
     raise ValueError(f"frame {frame_id}: {field_path} must be a valid {enum_cls.__name__}")
+
+
+def _area_ratio(value: Any, *, relative_size: VisualRelativeSize) -> float:
+    if value is None:
+        value = {
+            VisualRelativeSize.SMALL: 0.10,
+            VisualRelativeSize.MEDIUM_SMALL: 0.18,
+            VisualRelativeSize.MEDIUM: 0.30,
+            VisualRelativeSize.LARGE: 0.45,
+            VisualRelativeSize.FULL_FRAME: 1.0,
+        }[relative_size]
+    try:
+        ratio = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("placement.area_ratio must be a number") from exc
+    if not 0.0 < ratio <= 1.0:
+        raise ValueError("placement.area_ratio must be greater than 0 and at most 1")
+    return round(ratio, 4)
 
 
 def _require_text(

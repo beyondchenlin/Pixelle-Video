@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from pixelle_video.models.content_bound_ip import ContentBoundIPPresencePlan
 from pixelle_video.models.final_visual_prompt_contract_v45 import (
     FinalVisualPromptContractV45,
     final_visual_prompt_contract_content_sha256,
@@ -73,6 +74,35 @@ def _signature(*, forbidden_traits=()) -> SeriesVisualSignatureContract:
     )
 
 
+def _participation_plan(
+    *,
+    frame_id: str,
+    base_prompt: str,
+    required_subjects=(),
+    frame_context=None,
+) -> ContentBoundIPPresencePlan:
+    target = next(iter(required_subjects), "scene subject")
+    return ContentBoundIPPresencePlan(
+        frame_id=frame_id,
+        participation_mechanism="explanation_director",
+        cognitive_anchor="explain",
+        physical_metaphor="scene model",
+        scene_arena="scene",
+        semantic_action=f"points to {target}",
+        action_verb="points to",
+        interaction_target=target,
+        action_result="relation is visible",
+        scene_binding=f"beside {target}",
+        composition_role="visible guide",
+        semantic_necessity="the guide reveals the relation",
+        adjacent_frame_difference="this frame uses its own target",
+        recommended_area_ratio=0.18,
+        recommended_horizontal_position="center",
+        recommended_depth_position="midground",
+        recommended_visible_extent="full_body",
+    )
+
+
 def _contract(
     *,
     frame_id: str = "frame-1",
@@ -100,6 +130,12 @@ def _contract(
         article_concretization=article,
         required_subjects=required_subjects,
         signature=signature,
+        participation_plan=_participation_plan(
+            frame_id=frame_id,
+            base_prompt=base_prompt,
+            required_subjects=required_subjects,
+            frame_context={"diagram_grammar": grammar},
+        ),
     )
     return FinalVisualPromptContractV45(
         contract_id=f"contract:{frame_id}",
@@ -380,6 +416,11 @@ def test_provider_prompt_mentions_chinese_identity_name_and_traits_once() -> Non
         article_concretization=article,
         required_subjects=("工程师", "原型机"),
         signature=signature,
+        participation_plan=_participation_plan(
+            frame_id="frame-zh",
+            base_prompt=base_prompt,
+            required_subjects=("工程师", "原型机"),
+        ),
     )
     contract = FinalVisualPromptContractV45(
         contract_id="contract:frame-zh",
@@ -418,6 +459,11 @@ def test_physical_support_prefers_ground_plane_over_table_surface() -> None:
         article_concretization={"diagram": {"grammar": "plain_scene"}},
         required_subjects=("woman", "map"),
         signature=signature,
+        participation_plan=_participation_plan(
+            frame_id="frame-ground",
+            base_prompt="a woman reviews a map beside a table on a studio floor",
+            required_subjects=("woman", "map"),
+        ),
     )
 
     assert placement.support_relation == "feet on existing floor"
@@ -432,6 +478,11 @@ def test_support_matching_does_not_treat_ascii_substrings_as_scene_surfaces() ->
         article_concretization={"diagram": {"grammar": "plain_scene"}},
         required_subjects=("cell",),
         signature=_signature(),
+        participation_plan=_participation_plan(
+            frame_id="frame-pathology",
+            base_prompt="a pathology illustration of a cell",
+            required_subjects=("cell",),
+        ),
     )
 
     assert placement.support_relation == "feet on existing ground"
@@ -444,7 +495,7 @@ def test_contrast_board_uses_abstract_scene_contract() -> None:
     assert contract.scene_fusion.contact_relation == NOT_APPLICABLE
 
 
-def test_walking_scene_uses_shared_motion_instead_of_static_role_fallback() -> None:
+def test_placement_consumes_explicit_semantic_action_without_role_fallback() -> None:
     signature = _signature()
     placement, _ = VisualEntityPlacementPlanner().plan(
         frame_id="frame-walk",
@@ -454,11 +505,16 @@ def test_walking_scene_uses_shared_motion_instead_of_static_role_fallback() -> N
         article_concretization={"diagram": {"grammar": "plain_scene"}},
         required_subjects=("man", "riverside path"),
         signature=signature,
+        participation_plan=_participation_plan(
+            frame_id="frame-walk",
+            base_prompt="a man walking along a riverside path",
+            required_subjects=("man", "riverside path"),
+        ),
     )
 
-    assert placement.action == "walks with it"
-    assert placement.spatial_relation == "alongside"
-    assert placement.orientation == "faces movement direction"
+    assert placement.action == "points to man"
+    assert placement.spatial_relation == "beside man"
+    assert placement.orientation == "body and gaze directed toward man"
     assert placement.support_relation == "feet on existing path"
 
 
@@ -644,7 +700,10 @@ def test_batch_projection_fails_atomically_after_a_later_frame_error() -> None:
         SeriesVisualSignatureProjectionService().project_batch(
             base_prompts=["worker on a factory floor", "Dalmatian beside a machine"],
             frame_ids=["frame-good", "frame-bad"],
-            frame_contexts=[{}, {}],
+            frame_contexts=[
+                {"primary_subject": "worker"},
+                {"primary_subject": "machine"},
+            ],
             request=_request(),
             profile=profile,
         )

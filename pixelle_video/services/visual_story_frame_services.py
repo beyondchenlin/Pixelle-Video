@@ -35,7 +35,7 @@ class FrameVisualPlanBatchService:
     """Plan article-bound frame visuals only.
 
     Recurring IP/signature semantics are intentionally absent. The canonical
-    V4.5 final projection stage owns visual-signature participation.
+    V4.6 final projection stage owns visual-signature participation.
     """
 
     async def plan(

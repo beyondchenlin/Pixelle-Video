@@ -12,6 +12,7 @@ from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.video_generation_contract import (
     PLAN_FRAME_OVERRIDE_IDENTITY_FIELDS,
     PLAN_FRAME_OVERRIDE_VALUE_FIELDS,
+    normalize_plan_frame_overrides,
 )
 
 _USER_OVERRIDE_FIELDS = {
@@ -39,6 +40,9 @@ _PLAN_OVERRIDE_TO_FRAME_PLAN_FIELD = {
     "continuity_anchors": "continuity_anchors",
     "focus_detail": "focus_detail",
 }
+_MANDATORY_ANCHOR_OVERRIDE_FIELDS = (
+    PLAN_FRAME_OVERRIDE_VALUE_FIELDS - set(_PLAN_OVERRIDE_TO_FRAME_PLAN_FIELD)
+)
 _REPAIR_SHOT_TYPE_PRIORITY = (
     "close_up",
     "medium_shot",
@@ -288,6 +292,8 @@ def _apply_plan_identity_override(
     if not frame_ids_by_scene_id:
         raise ValueError("plan-identity frame overrides require prompt_contexts with frame_id values")
 
+    override = normalize_plan_frame_overrides([override])[0]
+
     invalid_keys = (
         set(override.keys())
         - PLAN_FRAME_OVERRIDE_IDENTITY_FIELDS
@@ -324,14 +330,27 @@ def _apply_plan_identity_override(
     if original is None:
         raise ValueError(f"frame override frame_id does not match any frame plan: {frame_id}")
 
-    requested_locked_fields = _ensure_plan_locked_fields(override.get("locked_fields"))
+    raw_locked_fields = _ensure_override_sequence(
+        "locked_fields", override.get("locked_fields")
+    )
+    for field_name in _MANDATORY_ANCHOR_OVERRIDE_FIELDS:
+        if field_name in override and field_name not in raw_locked_fields:
+            raise ValueError(
+                f"frame override field {field_name} must be listed in locked_fields"
+            )
+    requested_locked_fields = _ensure_plan_locked_fields(raw_locked_fields)
     translated_override = {
         _PLAN_OVERRIDE_TO_FRAME_PLAN_FIELD[field_name]: override[field_name]
         for field_name in PLAN_FRAME_OVERRIDE_VALUE_FIELDS
-        if field_name in override
+        if field_name in override and field_name in _PLAN_OVERRIDE_TO_FRAME_PLAN_FIELD
     }
     if "override_source" in override:
         translated_override["override_source"] = override["override_source"]
+    if not requested_locked_fields:
+        override_source = translated_override.get("override_source")
+        if override_source is not None and override_source != "user_preview":
+            raise ValueError("unsupported frame override_source")
+        return scene_id
     by_scene_id[scene_id] = _replace_frame_plan_values(
         original=original,
         requested_locked_fields=requested_locked_fields,
@@ -353,11 +372,18 @@ def _ensure_legacy_locked_fields(value: Any) -> tuple[str, ...]:
 def _ensure_plan_locked_fields(value: Any) -> tuple[str, ...]:
     requested_locked_fields = _ensure_override_sequence("locked_fields", value)
     invalid_locked_fields = [
-        field_name for field_name in requested_locked_fields if field_name not in _PLAN_OVERRIDE_TO_FRAME_PLAN_FIELD
+        field_name
+        for field_name in requested_locked_fields
+        if field_name not in _PLAN_OVERRIDE_TO_FRAME_PLAN_FIELD
+        and field_name not in _MANDATORY_ANCHOR_OVERRIDE_FIELDS
     ]
     if invalid_locked_fields:
         raise ValueError(f"unsupported locked frame field: {invalid_locked_fields[0]}")
-    return tuple(_PLAN_OVERRIDE_TO_FRAME_PLAN_FIELD[field_name] for field_name in requested_locked_fields)
+    return tuple(
+        _PLAN_OVERRIDE_TO_FRAME_PLAN_FIELD[field_name]
+        for field_name in requested_locked_fields
+        if field_name in _PLAN_OVERRIDE_TO_FRAME_PLAN_FIELD
+    )
 
 
 def _replace_frame_plan_values(

@@ -1,3 +1,5 @@
+import pytest
+
 from pixelle_video.models.asset_bible import IPProfile, IPRenderingStyle
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.series_visual_signature import (
@@ -24,6 +26,7 @@ from pixelle_video.models.visual_style_contract import (
 from pixelle_video.services.base_visual_brief_planner import BaseVisualBriefPlanner
 from pixelle_video.services.provider_prompt_projector import ProviderPromptProjector
 from pixelle_video.services.series_visual_signature_projection_service import (
+    SeriesVisualSignatureProjectionError,
     SeriesVisualSignatureProjectionService,
 )
 from pixelle_video.services.visual_anchor_placement_planner import VisualAnchorPlacementPlanner
@@ -164,7 +167,7 @@ def test_visual_prompt_planning_projector_accepts_series_visual_signature_strate
     assert rendered.prompt_contract.metadata["series_visual_signature_strategy"] == role_strategy.to_dict()
 
 
-def test_provider_prompt_assembly_compacts_main_content_without_losing_contract():
+def test_v46_projection_rejects_overbudget_provider_prompt_without_truncating():
     base_prompt = (
         "一幅充满未来感的城市景象，融合了现实与梦想。"
         "画面中可见特斯拉汽车穿梭在街道上，远处有一枚火箭正在升空。"
@@ -231,19 +234,16 @@ def test_provider_prompt_assembly_compacts_main_content_without_losing_contract(
         display_name="斑点狗",
         identity_traits=("黑色墨镜", "斑点花纹"),
     )
-    result = SeriesVisualSignatureProjectionService().project_batch(
-        base_prompts=[rendered.prompt],
-        frame_ids=["frame-1"],
-        frame_contexts=[{}],
-        request=request,
-        profile=profile,
-    )
+    with pytest.raises(SeriesVisualSignatureProjectionError) as exc_info:
+        SeriesVisualSignatureProjectionService().project_batch(
+            base_prompts=[rendered.prompt],
+            frame_ids=["frame-1"],
+            frame_contexts=[{"primary_subject": "城市街道"}],
+            request=request,
+            profile=profile,
+        )
 
-    bundle = result.frames[0].bundle
-    assert bundle.metadata["prompt_budget"]["main_visual"]["compacted"] is True
-    assert "斑点狗" in bundle.positive_prompt
-    assert "黑色墨镜" in bundle.positive_prompt
-    assert "斑点花纹" in bundle.positive_prompt
+    assert exc_info.value.reason_code == "protected_prompt_budget_exceeded"
 
 
 def test_planner_uses_content_bound_participant_for_named_comparison_subjects_by_default():

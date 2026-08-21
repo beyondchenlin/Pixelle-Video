@@ -11,9 +11,6 @@ from pixelle_video.models.series_visual_signature import (
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.services import visual_prompt_composer as composer_module
-from pixelle_video.services.final_visual_prompt_llm_assembler import (
-    deterministic_prompt_assembly_result,
-)
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.services.visual_prompt_composer import VisualPromptComposer
 
@@ -93,7 +90,6 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
 ) -> None:
     base_prompt = "worker beside assembly machine, neutral cinematic scene"
     captured_generation = {}
-    captured_assembly = {}
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured_generation.update(kwargs)
@@ -103,19 +99,6 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
         composer_module,
         "generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
-    )
-
-    async def fake_assemble_batch(_self, **kwargs):
-        captured_assembly.update(kwargs)
-        return deterministic_prompt_assembly_result(
-            kwargs["batch"],
-            reason_code="test_trace_unavailable",
-        )
-
-    monkeypatch.setattr(
-        composer_module.FinalVisualPromptLLMAssembler,
-        "assemble_batch",
-        fake_assemble_batch,
     )
 
     result = await VisualPromptComposer().compose(
@@ -182,13 +165,13 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
         },
     )
 
-    # Canonical V4.5 keeps every identity runtime input out of base generation.
+    # Canonical V4.6 keeps every identity runtime input out of base generation.
     assert captured_generation["series_visual_signature_enabled"] is False
     assert captured_generation["series_visual_signature_request"] is None
     assert captured_generation["series_visual_signature_profile"] is None
     assert captured_generation["ip_profile"] is None
     assert captured_generation["scene_casts_by_frame"] is None
-    assert captured_assembly["llm_service"] is None
+    assert not hasattr(composer_module, "FinalVisualPromptLLMAssembler")
     generation_context = captured_generation["prompt_contexts"].frame_contexts[0]
     assert "canonical_visual_identity" not in generation_context
     for identity_fact in (
@@ -299,20 +282,11 @@ async def test_canonical_prompt_composer_skips_llm_assembly_when_user_disables_i
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         return await _base_batch(**kwargs)
 
-    async def fail_if_called(_self, **_kwargs):
-        raise AssertionError("LLM prompt assembly must not run when disabled")
-
     monkeypatch.setattr(
         composer_module,
         "generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
-    monkeypatch.setattr(
-        composer_module.FinalVisualPromptLLMAssembler,
-        "assemble_batch",
-        fail_if_called,
-    )
-
     result = await VisualPromptComposer().compose(
         llm_service=object(),
         storyboard_plan=_storyboard_plan(),
@@ -329,6 +303,7 @@ async def test_canonical_prompt_composer_skips_llm_assembly_when_user_disables_i
     assert assembly["mode"] == "deterministic"
     assert assembly["llm_frame_count"] == 0
     assert assembly["fallback_frame_count"] == 0
+    assert assembly["llm_requested_but_not_executed"] is False
 
 
 @pytest.mark.asyncio
@@ -543,7 +518,7 @@ async def test_compatibility_adapter_compiles_legacy_controls_once(
     snapshot_text = str(result.planning_snapshot)
     assert "literal_character" not in snapshot_text
     assert "global" not in snapshot_text
-    assert "mandatory" not in snapshot_text
+    assert "'series_visual_signature_participation_mode': 'mandatory'" not in snapshot_text
     frame_id = _storyboard_plan().frames[0].frame_id
     prompt_budget = result.planning_snapshot[
         "series_visual_signature_trace_by_frame"
@@ -553,7 +528,7 @@ async def test_compatibility_adapter_compiles_legacy_controls_once(
         "positive_prompt_limit"
     ]
     rendered_metadata = result.rendered_prompts[0].metadata_to_dict()
-    assert rendered_metadata["series_visual_signature_v45"][
+    assert rendered_metadata["series_visual_signature_v46"][
         "prompt_budget"
     ] == prompt_budget
 

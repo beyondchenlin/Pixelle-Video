@@ -1,6 +1,6 @@
 ---
 prompt_id: final_visual_prompt_assembly
-version: 1
+version: 2
 stage: final_visual_prompt_assembly
 purpose: Assemble one coherent provider prompt from the complete protected visual contract.
 output_contract: JSON object matching FinalVisualPromptAssemblyResponse.
@@ -22,14 +22,14 @@ output_contract: JSON object matching FinalVisualPromptAssemblyResponse.
     "Preserve the main scene and every required subject.",
     "Include every required_positive_fact_verbatim string verbatim in positive_prompt.",
     "Include every required_negative_fact_verbatim string verbatim in negative_prompt.",
-    "Return every semantic section in prompt_sections; preserve main_detail when it exists in the input and otherwise use an empty string.",
-    "Do not end individual prompt_sections values with a period.",
-    "Build positive_prompt by joining the non-empty prompt_sections values in required_output order with a period and one space.",
+    "Return every protected V4.6 semantic section in prompt_sections; style may be an empty string.",
+    "Do not end individual prompt_sections values with punctuation.",
+    "Build positive_prompt by joining the non-empty prompt_sections values in required_output order with a Chinese semicolon.",
     "Each recurring-identity display name and identity trait must occur exactly once.",
     "There is exactly one recurring identity: never introduce a second, duplicate, pair, crowd, clone, reflection, poster, statue, toy, or background copy of it.",
     "Do not reinterpret an unobscured single identity as a separate foreground body.",
     "Resolve repeated or conflicting prose around the protected facts without deleting those facts.",
-    "Keep positive_prompt within 1200 characters and negative_prompt within 800 characters.",
+    "Keep positive_prompt and negative_prompt within 800 characters.",
     "Do not output Markdown fences, explanations, headings, or extra keys."
   ],
   "required_output": {{
@@ -37,14 +37,12 @@ output_contract: JSON object matching FinalVisualPromptAssemblyResponse.
     "negative_prompt": "string",
     "prompt_sections": {{
       "main_content": "string",
-      "main_detail": "string or empty string",
-      "subject_protection": "string",
-      "fixed_identity": "string",
+      "participation": "string",
+      "identity": "string",
       "instance_control": "string",
-      "role": "string",
       "placement": "string",
       "scene_fusion": "string",
-      "style": "string"
+      "style": "string or empty string"
     }}
   }}
 }}

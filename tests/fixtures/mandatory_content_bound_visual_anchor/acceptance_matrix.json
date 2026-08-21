@@ -1,0 +1,109 @@
+{
+  "schema_version": "mandatory_content_bound_visual_anchor_acceptance.v1",
+  "workflow_version": "fixed-image-workflow.v1",
+  "image_model_version": "fixture-contract-only",
+  "inspector_version": "rendered-output-gate.v2",
+  "seed_set": [104729, 130363, 155921],
+  "categories": [
+    {
+      "id": "character_story",
+      "name": "人物故事",
+      "original_copy": "林岚在旧车站把父亲留下的相机交给妹妹，完成跨越二十年的和解。",
+      "base_scene": "旧车站月台上，林岚把父亲留下的相机交给妹妹，远处列车灯光照亮两人的和解时刻。",
+      "structured_subject_truth": ["林岚", "妹妹", "父亲留下的相机"],
+      "allowed_anchor_roles": ["guide", "core_actor"],
+      "forbidden_replacements": ["不得用视觉锚点替代林岚", "不得删除妹妹", "不得把相机改成装饰牌"],
+      "manual_checklist": ["人物关系清楚", "交付动作清楚", "相机仍是内容主体"]
+    },
+    {
+      "id": "abstract_viewpoint",
+      "name": "抽象观点",
+      "original_copy": "信任不是一句承诺，而是透明规则、连续行动与可验证结果共同形成的结构。",
+      "base_scene": "透明规则、连续行动与可验证结果形成三座相连的桥墩，共同支撑代表信任的桥面。",
+      "structured_subject_truth": ["透明规则", "连续行动", "可验证结果", "信任结构"],
+      "allowed_anchor_roles": ["guide"],
+      "forbidden_replacements": ["不得把信任结构替换成角色肖像", "不得删除任一桥墩"],
+      "manual_checklist": ["三项因果同时可见", "抽象关系可读", "角色动作不替代观点"]
+    },
+    {
+      "id": "tutorial_process",
+      "name": "教程流程",
+      "original_copy": "先清洗数据，再划分训练集和验证集，最后比较误差并调整参数。",
+      "base_scene": "数据清洗槽连接训练集与验证集两条通道，末端误差仪表驱动参数调节轮。",
+      "structured_subject_truth": ["数据清洗", "训练集", "验证集", "误差仪表", "参数调节轮"],
+      "allowed_anchor_roles": ["operator", "guide"],
+      "forbidden_replacements": ["不得跳过清洗步骤", "不得合并训练集和验证集", "不得遮挡误差仪表"],
+      "manual_checklist": ["步骤顺序清楚", "输入输出清楚", "关键操作有可见结果"]
+    },
+    {
+      "id": "product_explanation",
+      "name": "产品说明",
+      "original_copy": "净水器通过前置滤芯、活性炭层和反渗透膜依次处理水流，并由废水口排出杂质。",
+      "base_scene": "剖面净水器展示水流依次穿过前置滤芯、活性炭层和反渗透膜，杂质从废水口排出。",
+      "structured_subject_truth": ["前置滤芯", "活性炭层", "反渗透膜", "废水口", "水流"],
+      "allowed_anchor_roles": ["guide", "operator"],
+      "forbidden_replacements": ["不得用角色替代滤芯", "不得改变水流顺序", "不得删除废水口"],
+      "manual_checklist": ["产品结构准确", "处理顺序准确", "杂质去向明确"]
+    },
+    {
+      "id": "conflict_contrast",
+      "name": "冲突对比",
+      "original_copy": "低价方案减少当期投入却增加维护停机，高价方案提高初始成本但降低长期故障。",
+      "base_scene": "天平左侧是低价投入与频繁维护停机，右侧是高初始成本与较少长期故障，两条时间轴并列延伸。",
+      "structured_subject_truth": ["低价方案", "维护停机", "高价方案", "长期故障"],
+      "allowed_anchor_roles": ["guide"],
+      "forbidden_replacements": ["不得把两种方案合并", "不得隐藏维护停机", "不得用角色胜负代替成本对比"],
+      "manual_checklist": ["两侧方案同时可见", "短期长期维度清楚", "无预设胜负"]
+    },
+    {
+      "id": "data_scale",
+      "name": "数据尺度",
+      "original_copy": "一座城市每天产生一万两千吨生活垃圾，相当于连续装满六百辆大型卡车。",
+      "base_scene": "城市垃圾处理场前，一万两千吨生活垃圾形成巨大体量，六百辆大型卡车组成连续尺度参照。",
+      "structured_subject_truth": ["城市", "一万两千吨生活垃圾", "六百辆大型卡车"],
+      "allowed_anchor_roles": ["guide"],
+      "forbidden_replacements": ["不得用角色体型替代卡车尺度", "不得删除数字对应物"],
+      "manual_checklist": ["数量与参照对应", "尺度差可读", "城市语境保留"]
+    },
+    {
+      "id": "emotional_narrative",
+      "name": "情绪叙事",
+      "original_copy": "深夜的未读消息不断堆积，周宁在工作桌前感到压力，却先关闭通知并写下明天的第一步。",
+      "base_scene": "深夜工作桌前，周宁面对堆积的未读消息，关闭通知后在纸上写下明天的第一步。",
+      "structured_subject_truth": ["周宁", "未读消息", "关闭通知", "明天的第一步"],
+      "allowed_anchor_roles": ["core_actor", "guide"],
+      "forbidden_replacements": ["不得用角色替代周宁", "不得删除关闭通知动作", "不得美化压力"],
+      "manual_checklist": ["压力来源清楚", "应对动作清楚", "情绪不过度戏剧化"]
+    },
+    {
+      "id": "natural_space",
+      "name": "自然空间",
+      "original_copy": "红树林的根系减缓潮水、截留泥沙，并为幼鱼提供躲避捕食者的浅水空间。",
+      "base_scene": "潮间带红树林根系减缓潮水并截留泥沙，幼鱼在根系围成的浅水空间躲避捕食者。",
+      "structured_subject_truth": ["红树林根系", "潮水", "泥沙", "幼鱼", "捕食者"],
+      "allowed_anchor_roles": ["guide"],
+      "forbidden_replacements": ["不得用角色替代幼鱼", "不得删除潮水和泥沙", "不得改变生态关系"],
+      "manual_checklist": ["自然过程准确", "幼鱼庇护关系明确", "角色融入环境"]
+    },
+    {
+      "id": "serious_content",
+      "name": "严肃内容",
+      "original_copy": "事故调查显示，疏散通道被货物堵塞，报警器维护记录缺失，导致人员撤离延误。",
+      "base_scene": "中性事故调查模型展示被货物堵塞的疏散通道、缺失的报警器维护记录与人员撤离延误的因果链。",
+      "structured_subject_truth": ["疏散通道", "货物", "报警器维护记录", "人员撤离延误"],
+      "allowed_anchor_roles": ["guide"],
+      "forbidden_replacements": ["不得进入写实事故现场", "不得卖萌庆祝", "不得遮盖受影响人员"],
+      "manual_checklist": ["事实链完整", "表达克制", "不制造虚构伤亡画面"]
+    }
+  ],
+  "frame_variants": [
+    {"id": "small_left_back", "area_ratio": 0.12, "horizontal": "left", "depth": "background", "extent": "full_body", "action": "指向", "target_index": 0},
+    {"id": "small_right_front", "area_ratio": 0.18, "horizontal": "right", "depth": "foreground", "extent": "full_body", "action": "连接", "target_index": 1},
+    {"id": "medium_center_mid", "area_ratio": 0.28, "horizontal": "center", "depth": "midground", "extent": "full_body", "action": "整理", "target_index": 2},
+    {"id": "large_left_mid", "area_ratio": 0.36, "horizontal": "left", "depth": "midground", "extent": "half_body", "action": "推动", "target_index": 0},
+    {"id": "large_right_mid", "area_ratio": 0.45, "horizontal": "right", "depth": "midground", "extent": "half_body", "action": "检验", "target_index": 1},
+    {"id": "dominant_center_front", "area_ratio": 0.60, "horizontal": "center", "depth": "foreground", "extent": "headshot", "action": "托住", "target_index": 2},
+    {"id": "cross_frame_detail", "area_ratio": 0.80, "horizontal": "cross_frame", "depth": "full_frame", "extent": "recognizable_detail", "action": "贯穿", "target_index": 0},
+    {"id": "full_frame_action", "area_ratio": 1.0, "horizontal": "cross_frame", "depth": "full_frame", "extent": "headshot", "action": "围绕并呈现", "target_index": 1}
+  ]
+}

@@ -6,7 +6,13 @@ from types import SimpleNamespace
 import pytest
 
 from pixelle_video.models.llm_interaction_trace import LLMTraceRecordingError
-from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
+from pixelle_video.models.series_visual_signature import (
+    SeriesVisualSignatureRequest,
+    VisualSignatureProfileSnapshot,
+)
+from pixelle_video.services.series_visual_signature_projection_service import (
+    SeriesVisualSignatureProjectionService,
+)
 from pixelle_video.services.series_visual_signature_rendered_output_gate import (
     SeriesVisualSignatureRenderedOutputGate,
     SeriesVisualSignatureRenderedOutputGateError,
@@ -111,7 +117,6 @@ async def test_rendered_output_gate_passes_one_small_subordinate_identity(tmp_pa
         ({"identity_instance_count": 2}, "identity_instance_count_not_one"),
         ({"largest_identity_area_ratio": 0.35}, "identity_area_ratio_exceeded"),
         ({"identity_traits_visible": False}, "identity_traits_not_visible"),
-        ({"identity_is_primary_focus": True}, "identity_became_primary_focus"),
         ({"confidence": 0.3}, "review_confidence_below_threshold"),
     ],
 )
@@ -146,7 +151,34 @@ async def test_rendered_output_gate_rejects_each_visual_contract_violation(
 
 
 @pytest.mark.asyncio
-async def test_auto_mode_skips_without_vision_but_required_mode_fails_preflight(
+async def test_primary_focus_is_allowed_when_other_contract_checks_pass(tmp_path) -> None:
+    gate, _ = _gate(
+        tmp_path,
+        {
+            "identity_instance_count": 1,
+            "largest_identity_area_ratio": 0.16,
+            "identity_traits_visible": True,
+            "identity_is_primary_focus": True,
+            "confidence": 0.95,
+        },
+    )
+
+    result = await gate.evaluate(
+        image_path=_image(tmp_path),
+        frame_id="frame-1",
+        generation_attempt=0,
+        profile=_profile(),
+        max_area_ratio=0.16,
+        trace_context=SimpleNamespace(),
+        trace_recorder=SimpleNamespace(),
+    )
+
+    assert result.passed is True
+    assert result.identity_is_primary_focus is True
+
+
+@pytest.mark.asyncio
+async def test_all_modes_fail_closed_without_vision_and_write_unavailable_audit(
     tmp_path,
 ) -> None:
     automatic = SeriesVisualSignatureRenderedOutputGate(
@@ -154,17 +186,25 @@ async def test_auto_mode_skips_without_vision_but_required_mode_fails_preflight(
         mode="auto",
         task_dir=tmp_path,
     )
-    result = await automatic.evaluate(
-        image_path=_image(tmp_path),
-        frame_id="frame-1",
-        generation_attempt=0,
-        profile=_profile(),
-        max_area_ratio=0.16,
-        trace_context=None,
-        trace_recorder=None,
-    )
-    assert result.status == "skipped"
-    assert result.reason == "vision_llm_disabled"
+    with pytest.raises(
+        SeriesVisualSignatureRenderedOutputGateError,
+        match="vision_llm_disabled",
+    ) as automatic_error:
+        await automatic.evaluate(
+            image_path=_image(tmp_path),
+            frame_id="frame-1",
+            generation_attempt=0,
+            profile=_profile(),
+            max_area_ratio=0.16,
+            trace_context=None,
+            trace_recorder=None,
+        )
+    assert automatic_error.value.result is not None
+    assert automatic_error.value.result.status == "unavailable"
+    assert automatic_error.value.result.accepted is False
+    assert (
+        tmp_path / automatic_error.value.result.artifact_relative_path
+    ).is_file()
 
     required = SeriesVisualSignatureRenderedOutputGate(
         vision_config={"enabled": False},
@@ -192,24 +232,29 @@ async def test_auto_mode_skips_without_vision_but_required_mode_fails_preflight(
 
 
 @pytest.mark.asyncio
-async def test_auto_mode_skips_runtime_vision_failure_without_regeneration(
+async def test_runtime_vision_failure_is_unavailable_and_never_accepted(
     tmp_path,
 ) -> None:
     gate, _ = _gate(tmp_path, RuntimeError("provider unavailable"))
 
-    result = await gate.evaluate(
-        image_path=_image(tmp_path),
-        frame_id="frame-1",
-        generation_attempt=0,
-        profile=_profile(),
-        max_area_ratio=0.16,
-        trace_context=SimpleNamespace(),
-        trace_recorder=SimpleNamespace(),
-    )
+    with pytest.raises(
+        SeriesVisualSignatureRenderedOutputGateError,
+        match="vision review was unavailable",
+    ) as exc_info:
+        await gate.evaluate(
+            image_path=_image(tmp_path),
+            frame_id="frame-1",
+            generation_attempt=0,
+            profile=_profile(),
+            max_area_ratio=0.16,
+            trace_context=SimpleNamespace(),
+            trace_recorder=SimpleNamespace(),
+        )
 
-    assert result.status == "skipped"
-    assert result.accepted is True
-    assert result.reason == "vision_review_failed"
+    assert exc_info.value.result is not None
+    assert exc_info.value.result.status == "unavailable"
+    assert exc_info.value.result.accepted is False
+    assert exc_info.value.result.reason == "vision_review_failed"
 
 
 @pytest.mark.asyncio
@@ -242,7 +287,7 @@ async def test_fail_policy_raises_runtime_vision_failure_without_regeneration(
             trace_recorder=SimpleNamespace(),
         )
     assert exc_info.value.result is not None
-    assert exc_info.value.result.status == "failed"
+    assert exc_info.value.result.status == "unavailable"
     assert (tmp_path / exc_info.value.result.artifact_relative_path).is_file()
 
 
@@ -428,7 +473,7 @@ async def test_rendered_output_gate_rejects_image_outside_task_directory(
 def test_rendered_output_policy_bounds_cost_and_strict_mode() -> None:
     assert resolve_rendered_output_validation_mode(
         {}, strict_signature_enforcement=False
-    ) == "auto"
+    ) == "required"
     assert resolve_rendered_output_validation_mode(
         {}, strict_signature_enforcement=True
     ) == "required"
@@ -437,8 +482,137 @@ def test_rendered_output_policy_bounds_cost_and_strict_mode() -> None:
             {"series_visual_signature_output_validation_mode": "off"},
             strict_signature_enforcement=True,
         )
-    assert resolve_rendered_output_max_attempts({}) == 2
-    with pytest.raises(ValueError, match="between 1 and 3"):
+    assert resolve_rendered_output_max_attempts({}) == 3
+    with pytest.raises(ValueError, match="must equal 3"):
         resolve_rendered_output_max_attempts(
             {"series_visual_signature_output_max_attempts": 4}
         )
+
+
+def _mandatory_contract(frame_id: str = "frame-strict"):
+    request = SeriesVisualSignatureRequest.from_mapping(
+        {
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_profile_id": "dog_1",
+            "series_visual_signature_role": "auto",
+        }
+    )
+    projection = SeriesVisualSignatureProjectionService().project_frame(
+        frame_id=frame_id,
+        base_prompt="工人在操作台上依次连接输入模块和输出模块",
+        frame_context={
+            "frame_source_text": "工人连接输入模块和输出模块。",
+            "primary_subject": "工人",
+            "secondary_subjects": ["输入模块", "输出模块"],
+        },
+        request=request,
+        profile=_profile(),
+    )
+    return projection.contract.mandatory_anchor_contract
+
+
+def _strict_review(contract, **overrides):
+    review = {
+        "identity_instance_count": 1,
+        "largest_identity_area_ratio": contract.placement.area_ratio,
+        "identity_traits_visible": True,
+        "identity_is_primary_focus": True,
+        "required_subjects_visible": True,
+        "missing_subject_ids": [],
+        "anchor_action_matches": True,
+        "interaction_target_visible": True,
+        "content_claim_preserved": True,
+        "anchor_replaced_required_subject": False,
+        "support_valid": True,
+        "contact_valid": True,
+        "occlusion_valid": True,
+        "lighting_valid": True,
+        "perspective_valid": True,
+        "anatomy_valid": True,
+        "duplicate_body_absent": True,
+        "sticker_edge_absent": True,
+        "unrelated_text_absent": True,
+        "confidence": 0.96,
+        "evidence": "单实例锚点执行约定动作，全部主体与空间关系清楚可见。",
+    }
+    review.update(overrides)
+    return review
+
+
+@pytest.mark.asyncio
+async def test_strict_mandatory_contract_checks_all_rendered_relations(tmp_path) -> None:
+    contract = _mandatory_contract()
+    gate, fake = _gate(tmp_path, _strict_review(contract))
+
+    result = await gate.evaluate(
+        image_path=_image(tmp_path),
+        frame_id=contract.frame_id,
+        generation_attempt=0,
+        profile=_profile(),
+        max_area_ratio=0.01,
+        mandatory_contract=contract,
+        trace_context=SimpleNamespace(),
+        trace_recorder=SimpleNamespace(),
+    )
+
+    assert result.status == "passed"
+    assert result.accepted is True
+    assert result.max_area_ratio == contract.placement.area_ratio
+    assert set(result.inspection_checks) == {
+        "identity_traits_visible",
+        "identity_is_primary_focus",
+        "required_subjects_visible",
+        "anchor_action_matches",
+        "interaction_target_visible",
+        "content_claim_preserved",
+        "anchor_replaced_required_subject",
+        "support_valid",
+        "contact_valid",
+        "occlusion_valid",
+        "lighting_valid",
+        "perspective_valid",
+        "anatomy_valid",
+        "duplicate_body_absent",
+        "sticker_edge_absent",
+        "unrelated_text_absent",
+    }
+    inspection_prompt = fake.messages[0][1]["content"][0]["text"]
+    assert contract.content_claim in inspection_prompt
+    assert contract.participation_plan.interaction_target in inspection_prompt
+    assert all(
+        subject.subject_id in inspection_prompt
+        for subject in contract.required_subjects
+    )
+
+
+@pytest.mark.asyncio
+async def test_strict_mandatory_contract_reports_missing_subject_for_repair(
+    tmp_path,
+) -> None:
+    contract = _mandatory_contract("frame-missing")
+    missing_id = contract.required_subjects[0].subject_id
+    gate, _ = _gate(
+        tmp_path,
+        _strict_review(
+            contract,
+            required_subjects_visible=False,
+            missing_subject_ids=[missing_id],
+        ),
+    )
+
+    result = await gate.evaluate(
+        image_path=_image(tmp_path),
+        frame_id=contract.frame_id,
+        generation_attempt=1,
+        profile=_profile(),
+        max_area_ratio=contract.placement.area_ratio,
+        mandatory_contract=contract,
+        trace_context=SimpleNamespace(),
+        trace_recorder=SimpleNamespace(),
+    )
+
+    assert result.status == "failed"
+    assert result.accepted is False
+    assert result.missing_subject_ids == (missing_id,)
+    assert "required_subject_missing" in result.failure_codes
+    assert result.repair_instructions

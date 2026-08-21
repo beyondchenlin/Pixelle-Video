@@ -111,7 +111,7 @@ def test_prompt_context_payload_can_carry_ip_scene_description():
     assert payload["prompt_contexts"][0]["style_context"]["style_kind"] == "visual_only"
 
 
-def test_image_prompt_template_explains_ip_integration():
+def test_image_prompt_template_prepares_content_bound_scene_without_legacy_mark_stage():
     prompt = build_image_prompt_prompt(
         narrations=["Start from Changle Gate."],
         min_words=30,
@@ -128,8 +128,8 @@ def test_image_prompt_template_explains_ip_integration():
     )
 
     assert "ip_scene_description" in prompt
-    assert "subject-first base image prompt" in prompt
-    assert "separate downstream visual_anchor_placement stage" in prompt
+    assert "create action-ready scenes, not mark-ready carriers" in prompt
+    assert "separate downstream visual_anchor_placement stage" not in prompt
     assert "do not output field names" in prompt.lower()
 
 

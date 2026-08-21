@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -10,6 +11,10 @@ from pixelle_video.models.final_visual_prompt_bundle import FinalVisualPromptBun
 from pixelle_video.models.final_visual_prompt_contract_v45 import (
     FinalVisualPromptContractV45,
 )
+from pixelle_video.models.final_visual_prompt_contract_v46 import (
+    FINAL_VISUAL_PROMPT_CONTRACT_V46_SCHEMA,
+    FinalVisualPromptContractV46,
+)
 from pixelle_video.models.series_visual_signature import SeriesVisualSignatureContract
 from pixelle_video.models.visual_entity_placement import (
     DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS,
@@ -19,10 +24,15 @@ from pixelle_video.models.visual_entity_placement import (
 )
 from pixelle_video.models.z_image_prompt_bundle import ZImagePromptBundle
 from pixelle_video.services.series_visual_signature_final_prompt_gate import (
+    assert_mandatory_content_bound_final_prompt,
     assert_series_visual_signature_final_prompt,
+)
+from pixelle_video.services.series_visual_signature_prompt_presence import (
+    prompt_contains_term,
 )
 from pixelle_video.services.series_visual_signature_rendering import (
     rendered_identity_clause,
+    rendered_identity_traits,
 )
 from pixelle_video.services.visible_text_prompt_rewriter import (
     NO_VISIBLE_TEXT_DRAWING_CLAUSE,
@@ -62,6 +72,11 @@ class FinalVisualPromptCompiler:
         final_contract: Any,
         base_negative_prompt: str | None = None,
     ) -> FinalVisualPromptBundle:
+        if _is_v46_contract(final_contract):
+            return self._compile_v46(
+                final_contract=final_contract,
+                base_negative_prompt=base_negative_prompt,
+            )
         contract = _to_mapping(final_contract)
         reject_deprecated_signature_fields(contract, context="final contract")
         concretization = dict(contract.get("article_concretization") or {})
@@ -197,6 +212,122 @@ class FinalVisualPromptCompiler:
             negative_prompt=negative_prompt,
             locked_constraints=locked_constraints,
             metadata=metadata,
+        )
+
+    def _compile_v46(
+        self,
+        *,
+        final_contract: Any,
+        base_negative_prompt: str | None,
+    ) -> FinalVisualPromptBundle:
+        contract = FinalVisualPromptContractV46.from_mapping(final_contract)
+        mandatory = contract.mandatory_anchor_contract
+        plan = mandatory.participation_plan
+        profile = mandatory.identity_contract.profile
+        if profile is None:
+            raise ValueError("V4.6 mandatory anchor identity profile is missing")
+
+        main_scene = mandatory.final_scene_description
+        if contract.visible_text_policy == "no_visible_text":
+            main_scene = rewrite_for_no_visible_text(main_scene)
+        main_content = _v46_main_content(
+            main_scene=main_scene,
+            content_claim=mandatory.content_claim,
+            required_subjects=mandatory.required_subject_labels,
+        )
+        identity = _v46_identity_clause(
+            display_name=profile.display_name,
+            traits=rendered_identity_traits(profile),
+            anchor_subject_overlap=mandatory.anchor_subject_overlap,
+        )
+        participation = (
+            f"锚点执行{plan.action_verb}，动作目标是{plan.interaction_target}；"
+            f"{plan.action_result}；{plan.semantic_necessity}；{plan.scene_binding}"
+        )
+        spatial = _v46_spatial_clause(mandatory.placement)
+        fusion = _v46_fusion_clause(mandatory.scene_fusion)
+        instance_control = (
+            "全画面仅有一个锚点实例、身体、头部和位置；"
+            "无副本、倒影或主体替代"
+        )
+        style = _bounded_style_clause(contract.diagram_render)
+        sections = {
+            "main_content": main_content,
+            "identity": identity,
+            "participation": participation,
+            "instance_control": instance_control,
+            "placement": spatial,
+            "scene_fusion": fusion,
+            "style": style,
+        }
+        paragraphs = _v46_prompt_paragraphs(sections)
+        positive_prompt = "\n".join(paragraphs)
+        if len(positive_prompt) > 800:
+            sections.pop("style")
+            paragraphs = _v46_prompt_paragraphs(sections)
+            positive_prompt = "\n".join(paragraphs)
+        content_chars = len(paragraphs[0])
+        if content_chars / len(positive_prompt) < 0.35 and "style" in sections:
+            sections.pop("style")
+            paragraphs = _v46_prompt_paragraphs(sections)
+            positive_prompt = "\n".join(paragraphs)
+            content_chars = len(paragraphs[0])
+        if len(positive_prompt) > 800:
+            raise ValueError(
+                "protected visual prompt semantics exceed V4.6 800 character prompt budget"
+            )
+
+        main_section_chars = len(sections["main_content"])
+        main_chars = len(paragraphs[0])
+        identity_chars = len(paragraphs[1])
+        negative_parts = _split_negative_prompt(base_negative_prompt)
+        negative_parts.extend(mandatory.forbidden_compositions)
+        if contract.visible_text_policy == "no_visible_text":
+            negative_parts.append(NO_VISIBLE_TEXT_NEGATIVE_PROMPT)
+        negative_prompt = ", ".join(_dedupe_text(negative_parts))
+        if len(negative_prompt) > 800:
+            raise ValueError("final negative prompt exceeds 800 characters")
+
+        assert_mandatory_content_bound_final_prompt(
+            positive_prompt=positive_prompt,
+            negative_prompt=negative_prompt,
+            contract=mandatory,
+            main_content_chars=main_chars,
+            identity_chars=identity_chars,
+        )
+        prompt_budget = {
+            "positive_prompt_chars": len(positive_prompt),
+            "positive_prompt_limit": 800,
+            "main_content_chars": main_chars,
+            "main_content_section_chars": main_section_chars,
+            "content_bound_action_chars": len(sections["participation"]),
+            "main_content_ratio": round(main_chars / len(positive_prompt), 4),
+            "main_content_min_ratio": 0.35,
+            "identity_chars": identity_chars,
+            "identity_ratio": round(identity_chars / len(positive_prompt), 4),
+            "identity_max_ratio": 0.30,
+            "hard_truncated": False,
+        }
+        return FinalVisualPromptBundle(
+            positive_prompt=positive_prompt,
+            negative_prompt=negative_prompt,
+            locked_constraints=paragraphs,
+            metadata={
+                "schema_version": FINAL_VISUAL_PROMPT_CONTRACT_V46_SCHEMA,
+                "contract_id": contract.contract_id,
+                "frame_id": contract.frame_id,
+                "contract_version": contract.contract_version,
+                "contract_content_sha256": contract.contract_content_sha256,
+                "mandatory_anchor_contract_sha256": (
+                    mandatory.contract_content_sha256
+                ),
+                "identity_content_sha256": profile.identity_content_sha256,
+                "compiler": "FinalVisualPromptCompiler",
+                "required_subjects": list(mandatory.required_subject_labels),
+                "prompt_sections": sections,
+                "prompt_paragraphs": list(paragraphs),
+                "prompt_budget": prompt_budget,
+            },
         )
 
     def compile_for_z_image(
@@ -521,6 +652,11 @@ def _to_mapping(value: Any) -> dict[str, Any]:
     else:
         raise ValueError("final_contract must be a mapping or expose to_dict()")
     if (
+        isinstance(value, FinalVisualPromptContractV46)
+        or payload.get("schema_version") == FINAL_VISUAL_PROMPT_CONTRACT_V46_SCHEMA
+    ):
+        return FinalVisualPromptContractV46.from_mapping(payload).to_dict()
+    if (
         isinstance(value, FinalVisualPromptContractV45)
         or payload.get("schema_version") == "v4.5-signature"
     ):
@@ -576,7 +712,132 @@ def _required_subjects(value: Any) -> tuple[str, ...]:
         value = (value,)
     if not isinstance(value, Sequence):
         raise ValueError("required_subjects must be a sequence of strings")
-    return _dedupe_text(value)
+    labels: list[Any] = []
+    for item in value:
+        if isinstance(item, Mapping):
+            labels.append(item.get("label") or item.get("source_phrase") or "")
+        else:
+            labels.append(item)
+    return _dedupe_text(labels)
+
+
+def _is_v46_contract(value: Any) -> bool:
+    if isinstance(value, FinalVisualPromptContractV46):
+        return True
+    if isinstance(value, Mapping):
+        return (
+            value.get("schema_version") == FINAL_VISUAL_PROMPT_CONTRACT_V46_SCHEMA
+            or value.get("contract_version") == "final_visual_prompt_contract.v4_6"
+        )
+    return False
+
+
+def _v46_main_content(
+    *,
+    main_scene: str,
+    content_claim: str,
+    required_subjects: Sequence[str],
+) -> str:
+    parts = ["文案主画面：" + " ".join(str(main_scene).split())]
+    if content_claim and not prompt_contains_term(parts[0], content_claim):
+        parts.append("画面主张是" + content_claim)
+    missing = [
+        subject
+        for subject in required_subjects
+        if not prompt_contains_term("；".join(parts), subject)
+    ]
+    if missing:
+        parts.append("必须完整保留并清晰显示" + "、".join(missing))
+    return "；".join(parts)
+
+
+def _v46_identity_clause(
+    *,
+    display_name: str,
+    traits: Sequence[str],
+    anchor_subject_overlap: bool,
+) -> str:
+    if anchor_subject_overlap:
+        clause = "该原文主体同时保持视觉锚点身份"
+    else:
+        clause = f"唯一视觉锚点为{display_name}"
+    if traits:
+        clause += "，可见特征为" + "、".join(traits)
+    return clause
+
+
+def _v46_spatial_clause(placement: VisualEntityPlacement) -> str:
+    horizontal = {
+        "left": "画面左侧",
+        "center": "画面中央",
+        "right": "画面右侧",
+        "cross_frame": "跨越画面",
+    }[placement.horizontal_position.value]
+    depth = {
+        "foreground": "前部空间",
+        "midground": "中部空间",
+        "background": "后部空间",
+        "full_frame": "全画面空间",
+    }[placement.depth_position.value]
+    extent = {
+        "full_body": "全身可见",
+        "half_body": "半身可见",
+        "partial": "局部但身份可识别",
+        "distant_silhouette": "远景轮廓且身份可识别",
+        "headshot": "头肩特写",
+        "recognizable_detail": "身份特征细节清晰可见",
+    }[placement.visible_extent.value]
+    return (
+        f"锚点位于{horizontal}的{depth}，约占画面{placement.area_ratio:.0%}；"
+        f"{_natural_spatial_fact(placement.support_relation)}；"
+        f"身体和视线朝向{placement.relation_target}；{extent}"
+    )
+
+
+def _v46_fusion_clause(fusion: VisualEntitySceneFusion) -> str:
+    facts = [fusion.occlusion_relation, fusion.style_relation]
+    if fusion.scene_type is VisualSceneType.PHYSICAL_SCENE:
+        facts.extend(
+            (
+                fusion.perspective_relation,
+                fusion.contact_relation,
+                fusion.lighting_relation,
+                fusion.shadow_relation,
+            )
+        )
+    return "场景融合：" + "；".join(_natural_fusion_fact(value) for value in facts)
+
+
+def _v46_prompt_paragraphs(sections: Mapping[str, str]) -> tuple[str, ...]:
+    paragraphs = (
+        "；".join((sections["main_content"], sections["participation"])),
+        "；".join((sections["identity"], sections["instance_control"])),
+        "；".join((sections["placement"], sections["scene_fusion"])),
+        sections.get("style", ""),
+    )
+    return tuple(paragraph for paragraph in paragraphs if paragraph)
+
+
+def _natural_spatial_fact(value: str) -> str:
+    replacements = {
+        "feet on existing ground": "双脚与既有地面稳定接触",
+        "at node or path": "身体稳定连接既有节点或路径",
+    }
+    return replacements.get(value, value)
+
+
+def _natural_fusion_fact(value: str) -> str:
+    replacements = {
+        "unobscured single identity": "身份特征与必要主体无遮挡",
+        "same line/material/texture/realism": "线条、材质、纹理和真实程度统一",
+        "same diagram linework/material/texture": "线条、材质和纹理与图解统一",
+        "scene perspective": "尺寸和地平线服从场景透视",
+        "feet on existing ground": "双脚稳定接地",
+        "matches scene light": "受光方向和色温匹配场景",
+        "scene-soft contact shadow": "落点保留自然接触阴影",
+        "diagram links pass behind body, not core traits": "图解连线从身体后方经过且不遮挡身份特征",
+    }
+    return replacements.get(value, value)
 
 
 def _optional_visual_details(main_visual: str, *values: Any) -> tuple[str, ...]:
@@ -678,37 +939,33 @@ def _first_non_empty(*values: Any) -> str:
 
 
 def _shorten(text: str, limit: int) -> str:
-    if limit <= 0:
-        return ""
-    text = " ".join(text.split())
-    if len(text) <= limit:
-        return text
-    if limit == 1:
-        return "…"
-    return text[: limit - 1].rstrip() + "…"
+    return _fit_complete_phrases(text, limit)
 
 
 def _shorten_optional(text: str, limit: int) -> str:
-    """Fit non-protected detail without cutting protected prompt facts."""
+    """Fit optional details by dropping whole phrases, never slicing facts."""
 
-    text = " ".join(str(text or "").strip().split())
-    if limit <= 0:
+    return _fit_complete_phrases(text, limit)
+
+
+def _fit_complete_phrases(text: str, limit: int) -> str:
+    normalized = " ".join(str(text or "").strip().split())
+    if limit <= 0 or not normalized:
         return ""
-    if len(text) <= limit:
-        return text
-    if limit == 1:
-        return "…"
-
-    prefix = text[: limit - 1].rstrip()
-    minimum_boundary = max(12, limit // 2)
-    boundaries = tuple(
-        index
-        for token in ("。", "；", ";", "，", ",", ".", " ")
-        if (index := prefix.rfind(token)) >= minimum_boundary
+    if len(normalized) <= limit:
+        return normalized
+    phrases = tuple(
+        phrase.strip()
+        for phrase in re.findall(r"[^。；;.!?！？]+[。；;.!?！？]?", normalized)
+        if phrase.strip()
     )
-    if boundaries:
-        prefix = prefix[: max(boundaries)].rstrip(" .,:;，。；：")
-    return prefix + "…"
+    included: list[str] = []
+    for phrase in phrases:
+        candidate = " ".join((*included, phrase))
+        if len(candidate) > limit:
+            break
+        included.append(phrase)
+    return " ".join(included)
 
 
 __all__ = [

@@ -25,6 +25,10 @@ FORMAL_CONTENT_IP_WORLD_FIELDS = frozenset(
         "series_visual_signature_fallback_mode",
         "series_visual_signature_min_visibility",
         "series_visual_signature_llm_prompt_assembly_enabled",
+        "mandatory_content_bound_anchor",
+        "series_visual_signature_contract_version",
+        "series_visual_signature_output_validation_mode",
+        "series_visual_signature_output_max_attempts",
     }
 )
 HELPER_ONLY_CONTENT_IP_WORLD_FIELDS = frozenset(

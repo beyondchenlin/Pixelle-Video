@@ -2,15 +2,28 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from pixelle_video.models.article_concretization import ArticleConcretizationPlan
+from pixelle_video.models.content_bound_ip import (
+    ContentBoundIPPresencePlan,
+    IPParticipationMechanism,
+)
 from pixelle_video.models.final_visual_prompt_bundle import FinalVisualPromptBundle
-from pixelle_video.models.final_visual_prompt_contract_v45 import FinalVisualPromptContractV45
+from pixelle_video.models.final_visual_prompt_contract_v46 import (
+    FinalVisualPromptContractV46,
+)
+from pixelle_video.models.mandatory_content_bound_visual_anchor import (
+    MandatoryContentBoundVisualAnchorContract,
+    SemanticRemovalMode,
+    SemanticRemovalTest,
+    build_subject_anchors,
+)
 from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureContract,
     SeriesVisualSignatureRequest,
+    SeriesVisualSignatureRole,
     VisualSignatureProfileSnapshot,
 )
 from pixelle_video.models.series_visual_signature_projection_policy import (
@@ -20,6 +33,7 @@ from pixelle_video.models.series_visual_signature_projection_policy import (
     SeriesVisualSignatureProjectionBudget,
     SeriesVisualSignatureProjectionMetrics,
 )
+from pixelle_video.services.content_bound_ip_planner import ContentBoundIPPlanner
 from pixelle_video.services.final_visual_prompt_compiler import FinalVisualPromptCompiler
 from pixelle_video.services.series_visual_signature_base_prompt_gate import (
     assert_series_visual_signature_base_prompt_is_identity_isolated,
@@ -79,7 +93,7 @@ class SeriesVisualSignatureProjectionError(RuntimeError):
 class SeriesVisualSignatureFrameProjection:
     frame_id: str
     bundle: FinalVisualPromptBundle
-    contract: FinalVisualPromptContractV45
+    contract: FinalVisualPromptContractV46
     signature: SeriesVisualSignatureContract
     required_subjects: tuple[str, ...]
 
@@ -155,7 +169,7 @@ class SeriesVisualSignatureProjectionBatch:
 
 @dataclass(frozen=True)
 class SeriesVisualSignatureProjectionService:
-    """Single production source for V4.5 visual-signature prompt projection.
+    """Single production source for V4.6 mandatory-anchor prompt projection.
 
     Every frame receives one complete identity, placement and scene-fusion
     contract before the shared final compiler and provider boundary run.
@@ -234,6 +248,22 @@ class SeriesVisualSignatureProjectionService:
                     article_plan=plans_by_frame.get(frame_id),
                     base_visual_brief=briefs.get(frame_id),
                     base_negative_prompt=base_negative_prompts[index],
+                    previous_frame_summary=(
+                        _frame_summary(
+                            frame_contexts[index - 1],
+                            str(base_prompts[index - 1] or ""),
+                        )
+                        if index > 0
+                        else ""
+                    ),
+                    next_frame_summary=(
+                        _frame_summary(
+                            frame_contexts[index + 1],
+                            str(base_prompts[index + 1] or ""),
+                        )
+                        if index + 1 < count
+                        else ""
+                    ),
                 )
             except SeriesVisualSignatureProjectionError:
                 raise
@@ -279,6 +309,8 @@ class SeriesVisualSignatureProjectionService:
         article_plan: ArticleConcretizationPlan | None = None,
         base_visual_brief: Mapping[str, Any] | None = None,
         base_negative_prompt: str | None = None,
+        previous_frame_summary: str = "",
+        next_frame_summary: str = "",
     ) -> SeriesVisualSignatureFrameProjection:
         frame_id = _text(frame_id)
         base_prompt = _text(base_prompt)
@@ -300,10 +332,14 @@ class SeriesVisualSignatureProjectionService:
         )
         self.budget.assert_profile(profile)
 
-        required_subjects = _required_subjects(
+        required_subject_anchors, subject_source_resolution = _required_subjects(
+            frame_id=frame_id,
             article_plan=article_plan,
             frame_context=frame_context,
             base_visual_brief=base_visual_brief,
+        )
+        required_subjects = tuple(
+            subject.label for subject in required_subject_anchors
         )
         self.budget.assert_required_subjects(required_subjects)
         assert_series_visual_signature_base_prompt_is_identity_isolated(
@@ -320,10 +356,44 @@ class SeriesVisualSignatureProjectionService:
                 required_subjects=required_subjects,
             )
         )
+        article_payload["subject_source_resolution"] = subject_source_resolution
+        content_claim = _first_text(
+            frame_context.get("local_claim"),
+            frame_context.get("frame_source_text"),
+            frame_context.get("source_text"),
+            article_payload.get("anchor", {}).get("anchor_claim")
+            if isinstance(article_payload.get("anchor"), Mapping)
+            else "",
+            base_prompt,
+        )
+        planner_payload = ContentBoundIPPlanner().plan_for_frame(
+            {
+                **dict(frame_context),
+                "frame_id": frame_id,
+                "local_claim": content_claim,
+                "visual_task": task,
+                "physical_metaphor": base_prompt,
+            },
+            selected_visual_route=role_context,
+            article_summary={
+                "core_claim": content_claim,
+                "required_subjects": list(required_subjects),
+            },
+            required_subjects=required_subjects,
+            previous_frame_summary=previous_frame_summary,
+            next_frame_summary=next_frame_summary,
+            ip_profile=profile.to_dict(),
+        )
+        participation_plan = ContentBoundIPPresencePlan.from_mapping(
+            planner_payload.get("content_bound_ip_presence_plan") or planner_payload,
+            frame_id=frame_id,
+        )
         signature = SeriesVisualSignatureContractBuilder().build(
             request=request,
             profile=profile,
             role_context=role_context,
+            suggested_area_ratio=participation_plan.recommended_area_ratio,
+            suggested_role=_signature_role(participation_plan.participation_mechanism),
         )
         placement, fusion = VisualEntityPlacementPlanner().plan(
             frame_id=frame_id,
@@ -333,19 +403,50 @@ class SeriesVisualSignatureProjectionService:
             article_concretization=article_payload,
             required_subjects=required_subjects,
             signature=signature,
+            participation_plan=participation_plan,
         )
-        contract = FinalVisualPromptContractV45(
-            contract_id=f"v45:{frame_id}",
+        anchor_subject_overlap = _anchor_subject_overlap(
+            profile=profile,
+            required_subjects=required_subject_anchors,
+        )
+        removal_test = SemanticRemovalTest(
+            mode=(
+                SemanticRemovalMode.ANCHOR_IS_ARTICLE_SUBJECT
+                if anchor_subject_overlap
+                else SemanticRemovalMode.ANCHOR_DISTINCT_FROM_SUBJECT
+            ),
+            content_survives_without_anchor_or_brand_identity=True,
+            anchor_contribution_is_meaningful=True,
+            content_survival_evidence=(
+                "Removing brand-specific identity traits preserves the named article subject, action, and event."
+                if anchor_subject_overlap
+                else "All structured article subjects remain protected independently of the recurring identity."
+            ),
+            anchor_contribution_evidence=participation_plan.semantic_necessity,
+        )
+        mandatory_contract = MandatoryContentBoundVisualAnchorContract(
+            frame_id=frame_id,
+            content_claim=content_claim,
+            required_subjects=required_subject_anchors,
+            visual_thesis=base_prompt,
+            participation_plan=participation_plan,
+            identity_contract=signature,
+            placement=placement,
+            scene_fusion=fusion,
+            semantic_removal_test=removal_test,
+            final_scene_description=base_prompt,
+            forbidden_compositions=fusion.forbidden_compositions,
+            anchor_subject_overlap=anchor_subject_overlap,
+        )
+        contract = FinalVisualPromptContractV46(
+            contract_id=f"v46:{frame_id}",
             frame_id=frame_id,
             primary_visual_task=task,
-            required_subjects=required_subjects,
+            mandatory_anchor_contract=mandatory_contract,
             article_concretization=article_payload,
-            series_visual_signature=signature,
             diagram_render=render_payload,
             visible_text_policy=visible_text_policy,
             projected_prompt_parts=(),
-            entity_placement=placement,
-            scene_fusion=fusion,
         )
 
         bundle = FinalVisualPromptCompiler().compile(
@@ -440,27 +541,153 @@ def _projection_context(
 
 def _required_subjects(
     *,
+    frame_id: str,
     article_plan: ArticleConcretizationPlan | None,
     frame_context: Mapping[str, Any],
     base_visual_brief: Mapping[str, Any] | None,
-) -> tuple[str, ...]:
-    values: list[Any] = []
+) -> tuple[tuple[Any, ...], dict[str, Any]]:
+    sources: list[tuple[str, Sequence[Any]]] = []
+    explicit = frame_context.get("required_subjects")
+    if isinstance(explicit, Sequence) and not isinstance(explicit, (str, bytes)):
+        locked_fields = frame_context.get("locked_fields")
+        is_user_override = (
+            isinstance(locked_fields, Sequence)
+            and not isinstance(locked_fields, (str, bytes))
+            and "required_subjects" in locked_fields
+        )
+        sources.append(
+            (
+                "user_frame_override" if is_user_override else "frame_article_evidence",
+                explicit,
+            )
+        )
     if article_plan is not None:
-        values.extend(article_plan.anchor.required_subjects)
+        sources.append(("frame_article_evidence", article_plan.anchor.required_subjects))
     if isinstance(base_visual_brief, Mapping):
         subjects = base_visual_brief.get("main_subjects")
         if isinstance(subjects, Sequence) and not isinstance(subjects, (str, bytes)):
-            values.extend(subjects)
+            sources.append(("article_level_evidence", subjects))
+    inferred: list[Any] = []
     primary = frame_context.get("primary_subject")
     if primary is not None:
-        values.append(primary)
+        inferred.append(primary)
     secondary = frame_context.get("secondary_subjects")
     if isinstance(secondary, Sequence) and not isinstance(secondary, (str, bytes)):
-        values.extend(secondary)
-    explicit = frame_context.get("required_subjects")
-    if isinstance(explicit, Sequence) and not isinstance(explicit, (str, bytes)):
-        values.extend(explicit)
-    return _dedupe(values)
+        inferred.extend(secondary)
+    if inferred:
+        sources.append(("auditable_visual_carrier", inferred))
+
+    subjects: list[Any] = []
+    subject_sources: list[str] = []
+    selected_by_id: dict[str, int] = {}
+    selected_by_label: dict[str, int] = {}
+    overridden: list[dict[str, str]] = []
+    for source_name, values in sources:
+        candidates = build_subject_anchors(
+            frame_id=frame_id,
+            values=values,
+            evidence_source=source_name,
+        )
+        for candidate in candidates:
+            existing_index = selected_by_id.get(candidate.subject_id)
+            if existing_index is None:
+                existing_index = selected_by_label.get(candidate.label.casefold())
+            if existing_index is not None:
+                existing = subjects[existing_index]
+                evidence_ids = tuple(
+                    dict.fromkeys(
+                        (*existing.evidence_span_ids, *candidate.evidence_span_ids)
+                    )
+                )
+                subjects[existing_index] = replace(
+                    existing,
+                    evidence_span_ids=evidence_ids,
+                    loss_policy=(
+                        "must_keep"
+                        if "must_keep"
+                        in {existing.loss_policy, candidate.loss_policy}
+                        else existing.loss_policy
+                    ),
+                )
+                overridden.append(
+                    {
+                        "subject_id": existing.subject_id,
+                        "retained_source": subject_sources[existing_index],
+                        "ignored_source": source_name,
+                        "reason": "higher_priority_source_retained_and_evidence_merged",
+                    }
+                )
+                continue
+            index = len(subjects)
+            subjects.append(candidate)
+            subject_sources.append(source_name)
+            selected_by_id[candidate.subject_id] = index
+            selected_by_label[candidate.label.casefold()] = index
+
+    if not subjects:
+        raise ValueError(
+            f"frame {frame_id}: structured required subjects must not be empty"
+        )
+    return (
+        tuple(subjects),
+        {
+            "priority_order": [
+                "user_frame_override",
+                "frame_article_evidence",
+                "article_level_evidence",
+                "auditable_visual_carrier",
+            ],
+            "selected": [
+                {"subject_id": subject.subject_id, "source": source}
+                for subject, source in zip(subjects, subject_sources)
+            ],
+            "overridden": overridden,
+        },
+    )
+
+
+def _signature_role(
+    mechanism: IPParticipationMechanism,
+) -> SeriesVisualSignatureRole:
+    if mechanism is IPParticipationMechanism.ACTION_EXECUTOR:
+        return SeriesVisualSignatureRole.OPERATOR
+    if mechanism is IPParticipationMechanism.READER_PROXY:
+        return SeriesVisualSignatureRole.CORE_ACTOR
+    return SeriesVisualSignatureRole.GUIDE
+
+
+def _anchor_subject_overlap(
+    *,
+    profile: VisualSignatureProfileSnapshot,
+    required_subjects: Sequence[Any],
+) -> bool:
+    identity_names = {
+        value.casefold()
+        for value in (profile.display_name, profile.profile_id)
+        if str(value or "").strip()
+    }
+    for subject in required_subjects:
+        values = (
+            str(getattr(subject, "label", "")),
+            str(getattr(subject, "source_phrase", "")),
+        )
+        if any(
+            identity in value.casefold()
+            for identity in identity_names
+            for value in values
+        ):
+            return True
+    return False
+
+
+def _frame_summary(frame_context: Mapping[str, Any], base_prompt: str) -> str:
+    return _first_text(
+        frame_context.get("local_claim"),
+        frame_context.get("frame_source_text"),
+        frame_context.get("source_text"),
+        frame_context.get("visual_goal"),
+        base_prompt,
+    )
 
 
 def _dedupe(values: Sequence[Any]) -> tuple[str, ...]:

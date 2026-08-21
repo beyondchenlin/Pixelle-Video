@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from pixelle_video.models.content_bound_ip import ContentBoundIPPresencePlan
 from pixelle_video.models.final_visual_prompt_contract_v45 import (
     FinalVisualPromptContractV45,
 )
@@ -62,6 +63,22 @@ def _final_contract(
         article_concretization=article,
         required_subjects=required_subjects,
         signature=signature,
+        participation_plan=ContentBoundIPPresencePlan(
+            frame_id=frame_id,
+            participation_mechanism="explanation_director",
+            cognitive_anchor="explain",
+            physical_metaphor="diagram model",
+            scene_arena="diagram",
+            semantic_action="points to diagram",
+            action_verb="points to",
+            interaction_target="diagram",
+            action_result="relation is visible",
+            scene_binding="beside diagram",
+            composition_role="visible guide",
+            semantic_necessity="the guide reveals the relation",
+            adjacent_frame_difference="single frame",
+            recommended_area_ratio=0.18,
+        ),
     )
     return FinalVisualPromptContractV45(
         contract_id=contract_id,
@@ -187,7 +204,7 @@ def test_base_negative_prompt_is_preserved_without_global_logo_ban() -> None:
     assert not bundle.negative_prompt.startswith("logo")
 
 
-def test_long_main_visual_is_compacted_without_truncating_protected_semantics() -> None:
+def test_long_main_visual_is_dropped_as_a_whole_without_truncating_protected_semantics() -> None:
     long_visual = "complex causal mechanism " * 120
     bundle = FinalVisualPromptCompiler().compile(
         final_contract=_final_contract(
@@ -199,11 +216,13 @@ def test_long_main_visual_is_compacted_without_truncating_protected_semantics() 
         )
     )
 
-    assert bundle.positive_prompt.startswith("Main scene: complex causal mechanism")
+    assert long_visual.strip() not in bundle.positive_prompt
+    assert "complex causal mechan" not in bundle.positive_prompt
     assert "worker" in bundle.positive_prompt
     assert "machine" in bundle.positive_prompt
     assert "The single recurring identity is Dalmatian" in bundle.positive_prompt
     assert bundle.metadata["prompt_budget"]["main_visual"]["compacted"] is True
+    assert "..." not in bundle.positive_prompt
 
 
 def test_protected_semantics_over_budget_fail_instead_of_truncating() -> None:

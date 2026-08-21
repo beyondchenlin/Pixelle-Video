@@ -26,6 +26,12 @@ EDITABLE_STORYBOARD_FIELDS: tuple[str, ...] = (
     "continuity_anchors",
     "focus_detail",
     "prompt_intent",
+    "mandatory_anchor_area_ratio",
+    "mandatory_anchor_horizontal_position",
+    "mandatory_anchor_depth_position",
+    "mandatory_anchor_visible_extent",
+    "mandatory_anchor_action_verb",
+    "mandatory_anchor_interaction_target",
 )
 LIST_LIKE_STORYBOARD_FIELDS = {"world_elements", "continuity_anchors"}
 
@@ -70,6 +76,13 @@ def _normalize_override_value(field_name: str, value: Any) -> Any:
         else:
             parts = []
         return [item for item in parts if item]
+
+    if field_name == "mandatory_anchor_area_ratio":
+        try:
+            ratio = float(value)
+        except (TypeError, ValueError):
+            return None
+        return ratio if 0.0 < ratio <= 1.0 else None
 
     if value is None:
         return None

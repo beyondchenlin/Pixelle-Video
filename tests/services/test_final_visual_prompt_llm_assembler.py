@@ -15,7 +15,7 @@ from pixelle_video.services.final_visual_prompt_llm_assembler import (
     deterministic_prompt_assembly_result,
 )
 from pixelle_video.services.prompt_plan_service import (
-    _series_visual_signature_v45_prompt_plan_fields,
+    _series_visual_signature_v46_prompt_plan_fields,
 )
 from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
     SeriesVisualSignatureProfileSnapshotBuilder,
@@ -97,7 +97,7 @@ def _assembly_response(
     bundle_payload = bundle.to_dict()
     prompt_sections = dict(bundle_payload["metadata"]["prompt_sections"])
     prompt_sections.update(section_overrides or {})
-    compiled_positive = ". ".join(
+    compiled_positive = "；".join(
         prompt_sections[key] for key in FINAL_VISUAL_PROMPT_SECTION_KEYS if prompt_sections.get(key)
     )
     return FinalVisualPromptAssemblyResponse(
@@ -113,14 +113,17 @@ def _assembly_response(
 async def test_llm_assembler_accepts_valid_structured_prompt_and_records_source():
     projection = _projection()
     draft = projection.frames[0].bundle
-    rewritten_role = (
-        "Role guide; this same identity points toward it and keeps its original character form"
+    original_participation = draft.to_dict()["metadata"]["prompt_sections"][
+        "participation"
+    ]
+    rewritten_participation = (
+        original_participation + "；动作关系保持清晰"
     )
     llm = _FakeLLM(
         [
             _assembly_response(
                 draft,
-                section_overrides={"role": rewritten_role},
+                section_overrides={"participation": rewritten_participation},
             )
         ]
     )
@@ -133,14 +136,14 @@ async def test_llm_assembler_accepts_valid_structured_prompt_and_records_source(
     )
 
     assert result.batch.prompts != projection.prompts
-    assert rewritten_role in result.batch.prompts[0]
+    assert rewritten_participation in result.batch.prompts[0]
     assert result.audit["status"] == "passed"
     assert result.audit["llm_frame_count"] == 1
     assert result.audit["fallback_frame_count"] == 0
     assert result.audit["frames"][0]["source"] == "llm"
     assert result.audit["frames"][0]["attempt_count"] == 1
     metadata = result.batch.frames[0].bundle.to_dict()["metadata"]
-    assert metadata["prompt_sections"]["role"] == rewritten_role
+    assert metadata["prompt_sections"]["participation"] == rewritten_participation
     assert metadata["prompt_budget"]["positive_prompt_chars"] == len(result.batch.prompts[0])
     assert metadata["prompt_assembly"] == {
         "mode": "llm",
@@ -159,8 +162,8 @@ async def test_llm_assembler_accepts_valid_structured_prompt_and_records_source(
         result.batch.frames,
         bundle_metadata_by_frame={"frame-1": metadata},
     )[0]
-    plan_fields = _series_visual_signature_v45_prompt_plan_fields(rendered)
-    assert plan_fields["prompt_sections"]["role"] == rewritten_role
+    plan_fields = _series_visual_signature_v46_prompt_plan_fields(rendered)
+    assert plan_fields["prompt_sections"]["participation"] == rewritten_participation
 
 
 @pytest.mark.asyncio

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pixelle_video.models.series_visual_signature import (
+    MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION,
     SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION,
     SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION,
     SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS,
@@ -40,6 +41,10 @@ SERIES_VISUAL_SIGNATURE_CONTROL_OPTION_KEYS = frozenset(
         "series_visual_signature_mode",
         "series_visual_signature_consistency_mode",
         "series_visual_signature_llm_prompt_assembly_enabled",
+        "mandatory_content_bound_anchor",
+        "series_visual_signature_contract_version",
+        "series_visual_signature_output_validation_mode",
+        "series_visual_signature_output_max_attempts",
         "generation_world_hint",
         *PRESENTATION_CONTROL_OPTION_KEYS,
     }
@@ -75,21 +80,46 @@ class SeriesVisualSignatureControlsContract:
     strategy: SeriesVisualSignatureStrategyControls = field(default_factory=SeriesVisualSignatureStrategyControls)
     presentation_policy: SeriesVisualSignaturePresentationPolicy = field(default_factory=SeriesVisualSignaturePresentationPolicy)
     generation_world_hint: str | None = None
-    llm_prompt_assembly_enabled: bool = True
+    llm_prompt_assembly_enabled: bool = False
+    mandatory_content_bound_anchor: bool = False
+    contract_version: str | None = None
+    output_validation_mode: str = "required"
+    output_max_attempts: int = 3
     explicit_fields: tuple[str, ...] = ()
     source_mapping: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
     def from_mapping(cls, source: Mapping[str, Any] | None) -> "SeriesVisualSignatureControlsContract":
         mapping = dict(source or {})
+        enabled = coerce_bool(
+            mapping.get("series_visual_signature_enabled", False),
+            default=False,
+        )
         explicit_fields = tuple(
             key
             for key in sorted(SERIES_VISUAL_SIGNATURE_CONTROL_OPTION_KEYS)
             if key in mapping and mapping.get(key) is not None
         )
-        presentation_policy = SeriesVisualSignaturePresentationPolicy.from_mapping(mapping)
+        requested_presentation_policy = (
+            SeriesVisualSignaturePresentationPolicy.from_mapping(mapping)
+        )
+        if enabled:
+            _validate_mandatory_anchor_control_values(mapping)
+            presentation_policy = SeriesVisualSignaturePresentationPolicy.from_mapping(
+                {
+                    "series_visual_signature_presentation_mode": (
+                        "content_bound_mandatory_ip"
+                    ),
+                    "series_visual_signature_enforcement": "strict",
+                    "series_visual_signature_fallback_enabled": False,
+                    "series_visual_signature_fallback_mode": "disabled",
+                    "series_visual_signature_min_visibility": "clear",
+                }
+            )
+        else:
+            presentation_policy = requested_presentation_policy
         return cls(
-            enabled=coerce_bool(mapping.get("series_visual_signature_enabled", False), default=False),
+            enabled=enabled,
             asset_bible_id=_normalize_optional_string(mapping.get("series_visual_signature_asset_bible_id")),
             profile_id=_normalize_optional_string(mapping.get("series_visual_signature_profile_id")),
             expression_mode=VisualExpressionMode.from_value(mapping.get("series_visual_signature_expression_mode")),
@@ -102,8 +132,26 @@ class SeriesVisualSignatureControlsContract:
             generation_world_hint=_normalize_optional_string(mapping.get("generation_world_hint")),
             llm_prompt_assembly_enabled=coerce_bool(
                 mapping.get("series_visual_signature_llm_prompt_assembly_enabled"),
-                default=True,
+                default=False,
             ),
+            mandatory_content_bound_anchor=(
+                coerce_bool(
+                    mapping.get("mandatory_content_bound_anchor"),
+                    default=True,
+                )
+                if enabled
+                else False
+            ),
+            contract_version=(
+                str(
+                    mapping.get("series_visual_signature_contract_version")
+                    or MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION
+                )
+                if enabled
+                else None
+            ),
+            output_validation_mode="required",
+            output_max_attempts=3,
             explicit_fields=explicit_fields,
             source_mapping=mapping,
         )
@@ -124,6 +172,10 @@ class SeriesVisualSignatureControlsContract:
             "series_visual_signature_structure_mode": self.structure_mode.value,
             "series_visual_signature_participation_mode": self.participation_mode.value,
             "series_visual_signature_llm_prompt_assembly_enabled": self.llm_prompt_assembly_enabled,
+            "mandatory_content_bound_anchor": self.mandatory_content_bound_anchor,
+            "series_visual_signature_contract_version": self.contract_version,
+            "series_visual_signature_output_validation_mode": self.output_validation_mode,
+            "series_visual_signature_output_max_attempts": self.output_max_attempts,
             **self.presentation_policy.to_generation_dict(),
         }
 
@@ -157,6 +209,10 @@ class SeriesVisualSignatureControlsContract:
             **self.presentation_policy.to_dict(),
             "generation_world_hint": self.generation_world_hint,
             "series_visual_signature_llm_prompt_assembly_enabled": self.llm_prompt_assembly_enabled,
+            "mandatory_content_bound_anchor": self.mandatory_content_bound_anchor,
+            "series_visual_signature_contract_version": self.contract_version,
+            "series_visual_signature_output_validation_mode": self.output_validation_mode,
+            "series_visual_signature_output_max_attempts": self.output_max_attempts,
             "explicit_fields": list(self.explicit_fields),
         }
 
@@ -166,6 +222,34 @@ def _normalize_optional_string(value: Any) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _validate_mandatory_anchor_control_values(mapping: Mapping[str, Any]) -> None:
+    if "mandatory_content_bound_anchor" in mapping and not coerce_bool(
+        mapping.get("mandatory_content_bound_anchor"),
+        default=False,
+    ):
+        raise ValueError(
+            "enabled series visual signature requires mandatory_content_bound_anchor"
+        )
+    contract_version = mapping.get("series_visual_signature_contract_version")
+    if contract_version is not None and (
+        str(contract_version).strip()
+        != MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION
+    ):
+        raise ValueError(
+            "enabled series visual signature requires final visual prompt contract V4.6"
+        )
+    validation_mode = mapping.get("series_visual_signature_output_validation_mode")
+    if validation_mode is not None and str(validation_mode).strip().lower() != "required":
+        raise ValueError(
+            "enabled series visual signature requires rendered-output validation"
+        )
+    attempts = mapping.get("series_visual_signature_output_max_attempts")
+    if attempts is not None and (type(attempts) is not int or attempts != 3):
+        raise ValueError(
+            "enabled series visual signature requires exactly 3 output attempts"
+        )
 
 
 SeriesVisualSignatureRequestContract = SeriesVisualSignatureControlsContract

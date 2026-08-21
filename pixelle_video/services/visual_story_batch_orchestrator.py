@@ -39,7 +39,7 @@ _CONTENT_ROUTE_KEYS = (
 class VisualStoryBatchOrchestrator:
     """Content-only local loop planner + batch LLM orchestrator.
 
-    Recurring visual identity is intentionally absent here. The canonical V4.5
+    Recurring visual identity is intentionally absent here. The canonical V4.6
     projection stage owns all visual-signature participation after the content
     prompt has been generated.
     """

@@ -26,7 +26,7 @@ class VisualStoryQualityGate:
 
     Visual Story owns content routes and frame visual plans only. Any active
     recurring-IP/signature plan at this stage is a regression because canonical
-    V4.5 final projection is the sole visual-signature owner.
+    V4.6 final projection is the sole visual-signature owner.
     """
 
     def validate(
@@ -101,7 +101,7 @@ class VisualStoryQualityGate:
                 findings.append(
                     _error(
                         "legacy_ip_runtime_reintroduced",
-                        f"{fusion_plan.frame_id}: active recurring-IP planning is forbidden in Visual Story; canonical V4.5 final projection owns visual signatures",
+                        f"{fusion_plan.frame_id}: active recurring-IP planning is forbidden in Visual Story; canonical V4.6 final projection owns visual signatures",
                     )
                 )
         return findings

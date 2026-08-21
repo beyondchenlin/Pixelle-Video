@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import hashlib
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from pixelle_video.models.content_bound_ip import ContentBoundIPPresencePlan
 from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureContract,
-    SeriesVisualSignatureRole,
 )
 from pixelle_video.models.visual_entity_placement import (
     DEFAULT_VISUAL_ENTITY_FORBIDDEN_COMPOSITIONS,
@@ -16,7 +15,6 @@ from pixelle_video.models.visual_entity_placement import (
     VisualEntityPlacement,
     VisualEntitySceneFusion,
     VisualHorizontalPosition,
-    VisualRelativeSize,
     VisualSceneType,
     VisualVisibleExtent,
 )
@@ -66,6 +64,7 @@ class VisualEntityPlacementPlanner:
         article_concretization: Mapping[str, Any] | None,
         required_subjects: Sequence[str],
         signature: SeriesVisualSignatureContract,
+        participation_plan: ContentBoundIPPresencePlan,
     ) -> tuple[VisualEntityPlacement, VisualEntitySceneFusion]:
         if not signature.enabled or signature.profile is None:
             raise ValueError(
@@ -75,38 +74,40 @@ class VisualEntityPlacementPlanner:
             frame_context=frame_context,
             article_concretization=article_concretization,
         )
-        relation_target = _relation_target(
-            scene_type=scene_type,
-            frame_context=frame_context,
-            base_visual_brief=base_visual_brief,
-            required_subjects=required_subjects,
+        if participation_plan.frame_id != frame_id:
+            raise ValueError(
+                f"frame {frame_id}: participation plan frame id must match placement"
+            )
+        horizontal_position = VisualHorizontalPosition(
+            participation_plan.recommended_horizontal_position
         )
-        horizontal_position = _horizontal_position(frame_id)
+        depth_position = VisualDepthPosition(
+            participation_plan.recommended_depth_position
+        )
         support_relation = _support_relation(
             scene_type=scene_type,
             base_prompt=base_prompt,
             frame_context=frame_context,
-        )
-        action, spatial_relation, orientation = _role_behavior(
-            role=signature.role,
-            base_prompt=base_prompt,
-            frame_context=frame_context,
-            base_visual_brief=base_visual_brief,
         )
         placement = VisualEntityPlacement(
             frame_id=frame_id,
             scene_type=scene_type,
             instance_count=1,
             horizontal_position=horizontal_position,
-            depth_position=VisualDepthPosition.MIDGROUND,
+            depth_position=depth_position,
             relative_size=signature.relative_size,
-            relation_target=relation_target,
-            spatial_relation=spatial_relation,
+            relation_target=participation_plan.interaction_target,
+            spatial_relation=participation_plan.scene_binding,
             support_relation=support_relation,
-            action=action,
-            orientation=orientation,
-            visible_extent=_visible_extent(signature.relative_size),
+            action=participation_plan.semantic_action,
+            orientation=(
+                f"body and gaze directed toward {participation_plan.interaction_target}"
+            ),
+            visible_extent=VisualVisibleExtent(
+                participation_plan.recommended_visible_extent
+            ),
             visible_core_traits=signature.profile.core_identity_traits[:2],
+            area_ratio=participation_plan.recommended_area_ratio,
         )
         fusion = _scene_fusion(
             frame_id=frame_id,
@@ -142,43 +143,6 @@ def _scene_type(
     return VisualSceneType.PHYSICAL_SCENE
 
 
-def _relation_target(
-    *,
-    scene_type: VisualSceneType,
-    frame_context: Mapping[str, Any],
-    base_visual_brief: Mapping[str, Any] | None,
-    required_subjects: Sequence[str],
-) -> str:
-    for value in required_subjects:
-        text = _text(value)
-        if text:
-            return _compact_fact_label(text)
-    brief = dict(base_visual_brief or {})
-    for value in _sequence(brief.get("main_subjects")):
-        text = _text(value)
-        if text:
-            return _compact_fact_label(text)
-    primary_subject = _text(frame_context.get("primary_subject"))
-    if primary_subject:
-        return _compact_fact_label(primary_subject)
-    if scene_type is VisualSceneType.ABSTRACT_DIAGRAM:
-        return "diagram node"
-    for value in _sequence(frame_context.get("world_elements")):
-        text = _text(value)
-        if text:
-            return _compact_fact_label(text)
-    return "scene subject"
-
-
-def _horizontal_position(frame_id: str) -> VisualHorizontalPosition:
-    digest = hashlib.sha256(str(frame_id).encode("utf-8")).digest()
-    return (
-        VisualHorizontalPosition.LEFT
-        if digest[0] % 2 == 0
-        else VisualHorizontalPosition.RIGHT
-    )
-
-
 def _support_relation(
     *,
     scene_type: VisualSceneType,
@@ -195,88 +159,6 @@ def _support_relation(
             if text and _contains_scene_term(lowered, term):
                 return f"feet on existing {term}"
     return "feet on existing ground"
-
-
-def _role_behavior(
-    *,
-    role: SeriesVisualSignatureRole,
-    base_prompt: str,
-    frame_context: Mapping[str, Any],
-    base_visual_brief: Mapping[str, Any] | None,
-) -> tuple[str, str, str]:
-    prompt = base_prompt.casefold()
-    if any(
-        _contains_scene_term(prompt, marker)
-        for marker in (
-            "walking",
-            "walks",
-            "strolling",
-            "strolls",
-            "同行",
-            "行走",
-            "散步",
-        )
-    ):
-        return (
-            "walks with it",
-            "alongside",
-            "faces movement direction",
-        )
-    action_fact = _frame_action_fact(
-        frame_context=frame_context,
-        base_visual_brief=base_visual_brief,
-        base_prompt=base_prompt,
-    )
-    if role is SeriesVisualSignatureRole.CORE_ACTOR:
-        return (
-            f"acts within {action_fact}",
-            "beside",
-            "3/4 toward it",
-        )
-    if role is SeriesVisualSignatureRole.OPERATOR:
-        return (
-            f"demonstrates {action_fact}",
-            "beside",
-            "3/4 toward it",
-        )
-    if role is SeriesVisualSignatureRole.GUIDE:
-        return (
-            "points toward it",
-            "beside",
-            "3/4 toward it",
-        )
-    return (
-        "observes it",
-        "beside",
-        "3/4 toward it",
-    )
-
-
-def _frame_action_fact(
-    *,
-    frame_context: Mapping[str, Any],
-    base_visual_brief: Mapping[str, Any] | None,
-    base_prompt: str,
-) -> str:
-    brief = dict(base_visual_brief or {})
-    for value in (
-        frame_context.get("prompt_intent"),
-        frame_context.get("visual_goal"),
-        frame_context.get("shot_purpose"),
-        brief.get("core_message"),
-        frame_context.get("frame_source_text"),
-        base_prompt,
-    ):
-        text = _text(value).strip(" .,:;，。；：")
-        if text:
-            return _compact_fact_label(text, limit=72)
-    return "the visible scene action"
-
-
-def _visible_extent(relative_size: VisualRelativeSize) -> VisualVisibleExtent:
-    if relative_size is VisualRelativeSize.LARGE:
-        return VisualVisibleExtent.HALF_BODY
-    return VisualVisibleExtent.FULL_BODY
 
 
 def _scene_fusion(
@@ -367,19 +249,6 @@ def _contains_scene_term(text: str, term: str) -> bool:
         )
         return pattern.search(text) is not None
     return normalized_term in text.casefold()
-
-
-def _compact_fact_label(text: str, limit: int = 32) -> str:
-    """Create a compact derived label without implying it is the full source fact."""
-
-    if len(text) <= limit:
-        return text
-    prefix = text[:limit].rstrip(" .,:;，。；：")
-    if " " in prefix:
-        word_bounded = prefix.rsplit(" ", 1)[0].rstrip(" .,:;，。；：")
-        if len(word_bounded) >= limit // 2:
-            return word_bounded
-    return prefix
 
 
 def _sequence(value: Any) -> tuple[Any, ...]:

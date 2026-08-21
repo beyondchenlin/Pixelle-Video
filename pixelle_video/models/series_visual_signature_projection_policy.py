@@ -17,7 +17,7 @@ DEFAULT_MAX_REQUIRED_SUBJECTS = 64
 DEFAULT_MAX_REQUIRED_SUBJECT_CHARS = 256
 DEFAULT_MAX_IDENTITY_TRAITS = 32
 DEFAULT_MAX_PROJECTION_AUDIT_BYTES = 512 * 1024
-DEFAULT_MAX_FINAL_POSITIVE_PROMPT_CHARS = 1200
+DEFAULT_MAX_FINAL_POSITIVE_PROMPT_CHARS = 800
 DEFAULT_MAX_FINAL_NEGATIVE_PROMPT_CHARS = 800
 DEFAULT_MAX_CANONICAL_IDENTITY_CHARS = 400
 DEFAULT_MAX_MAIN_AND_SUBJECT_CHARS = 400
@@ -49,6 +49,10 @@ _AUDITABLE_SERIES_VISUAL_SIGNATURE_OPTION_KEYS = frozenset(
         "series_visual_signature_min_visibility",
         "series_visual_signature_llm_prompt_assembly_enabled",
         "series_visual_signature_strategy",
+        "mandatory_content_bound_anchor",
+        "series_visual_signature_contract_version",
+        "series_visual_signature_output_validation_mode",
+        "series_visual_signature_output_max_attempts",
     }
 )
 
@@ -265,13 +269,13 @@ class SeriesVisualSignatureProjectionAuditPolicy:
     This avoids reintroducing a second storage or runtime authority.
     """
 
-    schema_version: str = "series_visual_signature_projection_audit.v3"
+    schema_version: str = "series_visual_signature_projection_audit.v4"
     payload_class: str = "bounded_hash_count_only"
     retention_owner: str = "parent_planning_snapshot"
     retention_mode: str = "inherit_parent_planning_snapshot_atomically"
     independent_retention_allowed: bool = False
     independent_cleanup_allowed: bool = False
-    production_identity_owner: str = "canonical_v45_projection"
+    production_identity_owner: str = "mandatory_content_bound_v46_projection"
     compatibility_adapter_scope: str = "input_normalization_only"
     legacy_prompt_runtime_allowed: bool = False
     shadow_runtime_allowed: bool = False

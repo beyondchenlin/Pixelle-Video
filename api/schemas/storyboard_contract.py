@@ -21,6 +21,12 @@ StoryboardOverrideField = Literal[
     "world_elements",
     "continuity_anchors",
     "focus_detail",
+    "mandatory_anchor_area_ratio",
+    "mandatory_anchor_horizontal_position",
+    "mandatory_anchor_depth_position",
+    "mandatory_anchor_visible_extent",
+    "mandatory_anchor_action_verb",
+    "mandatory_anchor_interaction_target",
 ]
 
 
@@ -58,6 +64,38 @@ class StoryboardFrameOverride(BaseModel):
     world_elements: Optional[List[str]] = Field(None, description="Locked world element overrides")
     continuity_anchors: Optional[List[str]] = Field(None, description="Locked continuity anchor overrides")
     focus_detail: Optional[str] = Field(None, description="Locked focus detail override")
+    mandatory_anchor_area_ratio: Optional[float] = Field(
+        None,
+        gt=0,
+        le=1,
+        description="Locked mandatory visual-anchor frame-area ratio",
+    )
+    mandatory_anchor_horizontal_position: Optional[
+        Literal["left", "center", "right", "cross_frame"]
+    ] = Field(None, description="Locked mandatory visual-anchor horizontal position")
+    mandatory_anchor_depth_position: Optional[
+        Literal["foreground", "midground", "background", "full_frame"]
+    ] = Field(None, description="Locked mandatory visual-anchor depth position")
+    mandatory_anchor_visible_extent: Optional[
+        Literal[
+            "full_body",
+            "half_body",
+            "partial",
+            "distant_silhouette",
+            "headshot",
+            "recognizable_detail",
+        ]
+    ] = Field(None, description="Locked mandatory visual-anchor visible extent")
+    mandatory_anchor_action_verb: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="Locked mandatory visual-anchor action verb",
+    )
+    mandatory_anchor_interaction_target: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="Locked mandatory visual-anchor interaction target",
+    )
 
     @model_validator(mode="after")
     def validate_locked_field_values(self) -> "StoryboardFrameOverride":

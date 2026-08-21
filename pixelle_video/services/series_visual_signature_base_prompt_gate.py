@@ -25,7 +25,7 @@ def assert_series_visual_signature_base_prompt_is_identity_isolated(
     """Enforce single ownership of recurring identity at the projection boundary.
 
     The base prompt and structured source-subject contract belong to article
-    content. Recurring identity belongs to deterministic V4.5 projection. Any
+    content. Recurring identity belongs to deterministic V4.6 projection. Any
     overlap is ambiguous and would let a provider interpret two mentions as two
     instances, so the frame fails closed instead of publishing a duplicate-prone
     prompt.

@@ -39,11 +39,15 @@ class _FakeStyleConfigUI:
 
 def _default_presentation_payload():
     return {
-        "series_visual_signature_llm_prompt_assembly_enabled": True,
+        "series_visual_signature_llm_prompt_assembly_enabled": False,
+        "mandatory_content_bound_anchor": True,
+        "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
+        "series_visual_signature_output_validation_mode": "required",
+        "series_visual_signature_output_max_attempts": 3,
         "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
-        "series_visual_signature_enforcement": "soft",
-        "series_visual_signature_fallback_enabled": True,
-        "series_visual_signature_fallback_mode": "auto_repair",
+        "series_visual_signature_enforcement": "strict",
+        "series_visual_signature_fallback_enabled": False,
+        "series_visual_signature_fallback_mode": "disabled",
         "series_visual_signature_min_visibility": "clear",
     }
 
@@ -86,18 +90,11 @@ def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
         "style_ip_series_visual_signature_participation_mode",
         "style_ip_series_visual_signature_mode",
         "style_ip_series_visual_signature_consistency_mode",
-        "style_ip_series_visual_signature_presentation_mode",
-        "style_ip_series_visual_signature_fallback_mode",
     ]
-    assembly_toggle = next(
-        call
+    assert all(
+        call.get("key")
+        != "style_ip_series_visual_signature_llm_prompt_assembly_enabled"
         for call in fake_ui.toggle_calls
-        if call["key"]
-        == "style_ip_series_visual_signature_llm_prompt_assembly_enabled"
-    )
-    assert assembly_toggle["value"] is True
-    assert assembly_toggle["help"] == (
-        "series_visual_signature.prompt_assembly.llm_enabled_help"
     )
 
 
@@ -210,8 +207,6 @@ def test_render_series_visual_signature_controls_supports_content_state_prefix()
         "content_ip_series_visual_signature_participation_mode",
         "content_ip_series_visual_signature_mode",
         "content_ip_series_visual_signature_consistency_mode",
-        "content_ip_series_visual_signature_presentation_mode",
-        "content_ip_series_visual_signature_fallback_mode",
     ]
 
 
@@ -362,7 +357,7 @@ def test_style_config_treats_string_false_fallback_state_as_disabled():
     assert payload["series_visual_signature_fallback_mode"] == "disabled"
 
 
-def test_style_config_allows_disabling_llm_prompt_assembly():
+def test_style_config_keeps_prompt_assembly_deterministic():
     fake_ui = _FakeStyleConfigUI()
     fake_ui.session_state["style_series_visual_signature_enabled"] = True
     fake_ui.session_state[
@@ -386,3 +381,8 @@ def test_style_config_allows_disabling_llm_prompt_assembly():
     )
 
     assert payload["series_visual_signature_llm_prompt_assembly_enabled"] is False
+    assert all(
+        call.get("key")
+        != "style_ip_series_visual_signature_llm_prompt_assembly_enabled"
+        for call in fake_ui.toggle_calls
+    )

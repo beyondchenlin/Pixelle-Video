@@ -22,6 +22,7 @@ def test_planning_service_is_global_not_article_concretization_owned() -> None:
             "series_visual_signature_enabled": True,
             "series_visual_signature_profile_id": "dog_1",
             "series_visual_signature_role": "guide",
+            "series_visual_signature_max_area_ratio": 0.35,
             "article_concretization_enabled": False,
         }
     )
@@ -38,6 +39,7 @@ def test_planning_service_resolves_auto_role_from_request_context() -> None:
             "series_visual_signature_enabled": True,
             "series_visual_signature_profile_id": "dog_1",
             "series_visual_signature_role": "auto",
+            "series_visual_signature_max_area_ratio": 0.35,
             "cognitive_anchor_kind": "causal_mechanism",
             "explanation_diagram_grammar": "process_flow",
         }

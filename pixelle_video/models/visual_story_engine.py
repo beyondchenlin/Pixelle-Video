@@ -217,7 +217,7 @@ class VisualRouteScores:
     ``ip_compatibility`` and ``final`` remain accepted solely so historical
     serialized payloads keep loading during migration. Neither field is allowed
     to influence route ranking. Recurring visual identity is owned by the
-    canonical V4.5 projection stage, and model-supplied final scores are treated
+    canonical V4.6 projection stage, and model-supplied final scores are treated
     as untrusted derived data.
     """
 
