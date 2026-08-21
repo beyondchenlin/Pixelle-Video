@@ -824,6 +824,26 @@ function Get-BackendArgumentsBase64 {
     )
 }
 
+function Get-BackendFileSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = $null
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead(
+            [System.IO.Path]::GetFullPath($Path)
+        )
+        $hashBytes = $sha256.ComputeHash($stream)
+        return [BitConverter]::ToString($hashBytes).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        if ($null -ne $stream) {
+            $stream.Dispose()
+        }
+        $sha256.Dispose()
+    }
+}
+
 function Get-BackendLaunchIdentity {
     param([System.Collections.IDictionary]$Config)
 
@@ -840,7 +860,7 @@ function Get-BackendLaunchIdentity {
             path = [System.IO.Path]::GetFullPath($configurationPath)
             exists = [bool]$exists
             sha256 = if ($exists) {
-                (Get-FileHash -LiteralPath $configurationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                Get-BackendFileSha256 -Path $configurationPath
             }
             else {
                 $null

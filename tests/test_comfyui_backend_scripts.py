@@ -847,6 +847,7 @@ def test_backend_launch_identity_changes_when_path_config_content_changes(
         f"""
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+function Get-FileHash {{ throw 'launch identity must not depend on Get-FileHash' }}
 . '{ps_single_quote(SCRIPT_DIR / "backend_common.ps1")}'
 $config = Resolve-PixelleComfyUIBackendConfig `
     -PythonExe '{ps_single_quote(sys.executable)}' `
