@@ -17,6 +17,7 @@ class _WrappedFramePlanLLM:
                         "local_claim": "claim",
                         "visual_task": "show claim",
                         "visual_logic": "use selected route",
+                        "required_subjects": ["worker"],
                     }
                 ]
             }
@@ -40,6 +41,30 @@ class _RepairableFramePlanLLM:
                     "local_claim": "claim",
                     "visual_task": "show claim",
                     "visual_logic": "use selected route",
+                    "required_subjects": ["worker"],
+                }
+            ]
+        }
+
+
+class _RepairableMissingSubjectsLLM:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def __call__(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        return {
+            "frame_visual_plans": [
+                {
+                    "frame_id": "frame-1",
+                    "frame_index": 1,
+                    "source_text": "source",
+                    "local_claim": "claim",
+                    "visual_task": "show claim",
+                    "visual_logic": "use selected route",
+                    "required_subjects": (
+                        [] if len(self.calls) == 1 else ["worker"]
+                    ),
                 }
             ]
         }
@@ -87,3 +112,16 @@ async def test_frame_plan_service_repairs_one_contract_failure_before_fallback()
     assert "frame_visual_plans" in llm.calls[1]["prompt"]
     assert "missing_frame_collection" in llm.calls[1]["prompt"]
     assert "unexpected" not in llm.calls[1]["prompt"]
+
+
+async def test_frame_plan_service_repairs_empty_required_subjects():
+    llm = _RepairableMissingSubjectsLLM()
+
+    outcome = await FrameVisualPlanBatchService().plan_with_diagnostics(
+        **_request_kwargs(llm),
+    )
+
+    assert outcome.fallback_used is False
+    assert outcome.plans[0]["required_subjects"] == ["worker"]
+    assert len(llm.calls) == 2
+    assert "missing_required_subjects" in llm.calls[1]["prompt"]

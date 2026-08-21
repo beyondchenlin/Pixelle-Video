@@ -64,6 +64,14 @@ def attach_visual_story_context(
             frame["reference_image"] = reference_image_payload
         if visual:
             frame["visual_story_frame_plan"] = visual
+            required_subjects = visual.get("required_subjects")
+            if (
+                "required_subjects" not in frame
+                and isinstance(required_subjects, Sequence)
+                and not isinstance(required_subjects, (str, bytes))
+                and any(str(subject or "").strip() for subject in required_subjects)
+            ):
+                frame["required_subjects"] = list(required_subjects)
         if fusion:
             frame["visual_story_ip_fusion_plan"] = fusion
         frame_contexts.append(frame)

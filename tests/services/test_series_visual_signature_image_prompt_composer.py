@@ -35,6 +35,24 @@ def _storyboard_plan() -> StoryboardPlan:
     )
 
 
+def _storyboard_plan_without_subject_fields() -> StoryboardPlan:
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="A worker operates a machine.",
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="A worker operates a machine.",
+                visual_goal="show the production process",
+                prompt_intent="explain the bottleneck",
+                frame_id="frame-1",
+            )
+        ],
+    )
+
+
 def _ip_profile():
     return SimpleNamespace(
         series_visual_signature_profile_id="dog_1",
@@ -235,7 +253,6 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
     assert "sticker, corner badge, emblem, logo, or watermark overlay" in (
         result.negative_prompt or ""
     )
-
     snapshot = result.planning_snapshot
     assert snapshot["existing"] is True
     assert "series_visual_signature_shadow_comparison" not in snapshot
@@ -273,6 +290,49 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
         "forbidden_trait_count": 0,
         "source_asset_count": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_visual_story_required_subjects_reach_signature_projection(
+    monkeypatch,
+) -> None:
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        return StyledImagePromptBatch(
+            prompts=["worker beside assembly machine, neutral cinematic scene"],
+            negative_prompt="low quality",
+            resolved_style=None,
+            planning_snapshot={},
+        )
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await VisualPromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan_without_subject_fields(),
+        image_config={},
+        ip_profile=_ip_profile(),
+        series_visual_signature_request=_enabled_request(),
+        visual_story_context={
+            "frame_visual_plans": [
+                {
+                    "frame_id": "frame-1",
+                    "frame_index": 1,
+                    "source_text": "A worker operates a machine.",
+                    "local_claim": "show the production process",
+                    "visual_task": "explain the bottleneck",
+                    "visual_logic": "show the worker and machine",
+                    "required_subjects": ["worker", "assembly machine"],
+                }
+            ]
+        },
+    )
+
+    mandatory = result.rendered_prompts[0].prompt_contract.mandatory_anchor_contract
+    assert mandatory.required_subject_labels == ("worker", "assembly machine")
 
 
 @pytest.mark.asyncio

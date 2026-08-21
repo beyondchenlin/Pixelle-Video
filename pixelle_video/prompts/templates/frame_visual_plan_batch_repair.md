@@ -16,4 +16,4 @@ Expected frame IDs:
 
 Regenerate the requested plans from the original request. Do not discuss or quote the previous response.
 
-Return one top-level JSON object with exactly one frame_visual_plans array. The array must contain exactly one object for every expected frame ID, with no duplicates or extra frame IDs. Preserve each frame_id exactly. Return JSON only, without markdown fences, commentary, or alternative wrapper keys.
+Return one top-level JSON object with exactly one frame_visual_plans array. The array must contain exactly one object for every expected frame ID, with no duplicates or extra frame IDs. Preserve each frame_id exactly. Every plan must include at least one non-empty required_subjects item grounded in that frame's source content. Return JSON only, without markdown fences, commentary, or alternative wrapper keys.

@@ -59,6 +59,7 @@ async def test_batch_orchestrator_returns_prompt_context_with_fallbacks():
     assert all(
         batch["visual_plan_fallback_used"] for batch in result.diagnostics["batch_diagnostics"]
     )
+    assert all(plan["required_subjects"] for plan in result.frame_visual_plans)
 
 
 @pytest.mark.asyncio
@@ -68,12 +69,22 @@ async def test_batch_orchestrator_preserves_bare_single_frame_batch_response():
         [
             {
                 "frame_visual_plans": [
-                    {"frame_id": frame_id, "source_text": frame_id, "visual_task": "explain"}
+                    {
+                        "frame_id": frame_id,
+                        "source_text": frame_id,
+                        "visual_task": "explain",
+                        "required_subjects": [frame_id],
+                    }
                     for frame_id in first_batch_ids
                 ]
             },
             {"frame_ip_fusion_plans": [{"frame_id": frame_id} for frame_id in first_batch_ids]},
-            {"frame_id": "frame-5", "source_text": "frame-5", "visual_task": "explain"},
+            {
+                "frame_id": "frame-5",
+                "source_text": "frame-5",
+                "visual_task": "explain",
+                "required_subjects": ["frame-5"],
+            },
             {"frame_id": "frame-5"},
         ]
     )

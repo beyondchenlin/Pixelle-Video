@@ -111,11 +111,15 @@ class FrameVisualPlanBatchService:
                     trace_recorder=trace_recorder,
                 )
                 try:
-                    plans = parse_frame_batch_response(
+                    raw_plans = parse_frame_batch_response(
                         response,
                         primary_key="frame_visual_plans",
                         expected_frame_ids=expected_frame_ids,
                         stage="frame_visual_plan_response",
+                    )
+                    plans = _normalize_frame_visual_plans(
+                        raw_plans,
+                        expected_frame_ids=expected_frame_ids,
                     )
                     break
                 except FrameBatchContractError as exc:
@@ -131,17 +135,8 @@ class FrameVisualPlanBatchService:
                         expected_frame_ids=expected_frame_ids,
                         error_code=exc.code,
                     )
-            normalized_plans = tuple(
-                FrameVisualPlan.from_mapping(item).to_dict()
-                for item in plans
-            )
-            validated = validate_frame_batch_coverage(
-                normalized_plans,
-                expected_frame_ids=expected_frame_ids,
-                stage="frame_visual_plan_output",
-            )
             return FrameBatchPlanOutcome(
-                plans=validated,
+                plans=plans,
                 source="model_content_only",
                 diagnostics={"visual_signature_owner": "canonical_v4_5_projection"},
             )
@@ -221,9 +216,7 @@ def _fallback_visual_plan(frame: Mapping[str, Any]) -> dict[str, Any]:
             "Apply the selected visual route to this frame without inventing "
             "unsupported subjects or recurring identity behavior."
         ),
-        required_subjects=[
-            value for value in (frame.get("primary_subject"),) if value
-        ],
+        required_subjects=_fallback_required_subjects(frame),
         forbidden_losses=(
             "do not drop article subjects",
             "do not replace the source claim",
@@ -231,6 +224,59 @@ def _fallback_visual_plan(frame: Mapping[str, Any]) -> dict[str, Any]:
         evidence_refs=(),
         visible_text_policy="no_visible_text",
     ).to_dict()
+
+
+def _normalize_frame_visual_plans(
+    plans: tuple[dict[str, Any], ...],
+    *,
+    expected_frame_ids: tuple[str, ...],
+) -> tuple[dict[str, Any], ...]:
+    normalized: list[dict[str, Any]] = []
+    for item in plans:
+        plan = FrameVisualPlan.from_mapping(item)
+        if not plan.required_subjects:
+            raise FrameBatchContractError(
+                "missing_required_subjects",
+                "frame_visual_plan_response",
+                f"frame {plan.frame_id} must include at least one required subject",
+            )
+        normalized.append(plan.to_dict())
+    return validate_frame_batch_coverage(
+        normalized,
+        expected_frame_ids=expected_frame_ids,
+        stage="frame_visual_plan_output",
+    )
+
+
+def _fallback_required_subjects(frame: Mapping[str, Any]) -> tuple[str, ...]:
+    subjects: list[str] = []
+    for key in (
+        "required_subjects",
+        "primary_subject",
+        "secondary_subjects",
+        "continuity_anchors",
+    ):
+        value = frame.get(key)
+        values = (
+            value
+            if isinstance(value, (list, tuple))
+            else (value,)
+        )
+        for item in values:
+            text = str(item or "").strip()
+            if text and text not in subjects:
+                subjects.append(text)
+    if subjects:
+        return tuple(subjects)
+    return (
+        str(
+            frame.get("visual_goal")
+            or frame.get("prompt_intent")
+            or frame.get("source_text")
+            or frame.get("frame_source_text")
+            or "frame content"
+        ).strip(),
+    )
 
 
 __all__ = ["FrameBatchPlanOutcome", "FrameVisualPlanBatchService"]

@@ -1,6 +1,6 @@
 ---
 prompt_id: frame_visual_plan_batch
-version: 3
+version: 4
 stage: frame_visual_plan_batch
 purpose: Produce bounded content-bound visual plans for one execution batch.
 output_contract: JSON object with frame_visual_plans array.
@@ -47,6 +47,7 @@ Each plan must include:
 
 Rules:
 - Preserve the source frame meaning and required subjects.
+- Every frame must contain at least one non-empty `required_subjects` item. Use concrete people, objects, environments, or visible content carriers grounded in that frame; never return an empty list.
 - The IP is not inserted here, but the base scene must contain a natural action affordance for the IP.
 - Do not solve IP presence by inventing a sticker, logo, corner badge, watermark, bookmark, label, stamp, bookplate, surface mark, or small decorative card.
 - If the current article point is serious or sensitive, use a neutral explanation space such as an archive desk, model table, relationship map, or evidence wall. Do not place the recurring IP inside a literal disaster, crime, mourning, medical, financial, or political-conflict scene.
@@ -69,7 +70,7 @@ Required response shape:
       "physical_metaphor": "one concrete physical metaphor",
       "scene_arena": "one concrete scene arena",
       "ip_action_affordance": "a natural later action affordance",
-      "required_subjects": [],
+      "required_subjects": ["at least one concrete source-grounded subject"],
       "forbidden_losses": [],
       "forbidden_ip_forms": [],
       "evidence_refs": [],
