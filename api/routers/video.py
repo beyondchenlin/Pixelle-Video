@@ -167,6 +167,11 @@ def build_video_generation_params(
     if request_body.project_id is not None:
         video_params["project_id"] = request_body.project_id
 
+    if request_body.series_visual_signature_enabled:
+        video_params["series_visual_signature_llm_prompt_assembly_enabled"] = (
+            request_body.series_visual_signature_llm_prompt_assembly_enabled
+        )
+
     for key in (
         "series_visual_signature_expression_mode",
         "series_visual_signature_structure_mode",

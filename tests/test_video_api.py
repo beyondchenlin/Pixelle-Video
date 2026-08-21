@@ -239,6 +239,7 @@ def test_video_generate_request_accepts_series_visual_signature_controls():
     assert request.series_visual_signature_enabled is True
     assert request.series_visual_signature_asset_bible_id == "bible_demo"
     assert request.series_visual_signature_profile_id == "ip_main"
+    assert request.series_visual_signature_llm_prompt_assembly_enabled is True
 
 
 def test_video_generate_request_accepts_v44_planning_controls():
@@ -388,7 +389,23 @@ def test_build_video_generation_params_copies_series_visual_signature_controls()
     assert params["series_visual_signature_enabled"] is True
     assert params["series_visual_signature_asset_bible_id"] == "bible_demo"
     assert params["series_visual_signature_profile_id"] == "ip_main"
+    assert params["series_visual_signature_llm_prompt_assembly_enabled"] is True
     assert "series_visual_signature_presentation_mode" not in params
+
+
+def test_build_video_generation_params_copies_llm_prompt_assembly_opt_out():
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            series_visual_signature_enabled=True,
+            series_visual_signature_asset_bible_id="bible_demo",
+            series_visual_signature_profile_id="ip_main",
+            series_visual_signature_llm_prompt_assembly_enabled=False,
+        ),
+        request_id="req_test",
+    )
+
+    assert params["series_visual_signature_llm_prompt_assembly_enabled"] is False
 
 
 def test_build_video_generation_params_copies_explicit_presentation_controls():

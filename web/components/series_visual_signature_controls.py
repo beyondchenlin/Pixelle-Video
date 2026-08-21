@@ -117,6 +117,30 @@ def render_series_visual_signature_controls(
 
     _render_ip_capability_preview(selected_profile, ui=ui, translate=translate)
 
+    llm_prompt_assembly_enabled = coerce_bool(
+        ui.toggle(
+            translate("series_visual_signature.prompt_assembly.llm_enabled"),
+            value=coerce_bool(
+                ui.session_state.get(
+                    _state_key(
+                        state_key_prefix,
+                        "series_visual_signature_llm_prompt_assembly_enabled",
+                    ),
+                    True,
+                ),
+                default=True,
+            ),
+            key=_state_key(
+                state_key_prefix,
+                "series_visual_signature_llm_prompt_assembly_enabled",
+            ),
+            help=translate(
+                "series_visual_signature.prompt_assembly.llm_enabled_help"
+            ),
+        ),
+        default=True,
+    )
+
     series_visual_signature_expression_mode = _select_valid_option(
         ui=ui,
         label=translate(f"{normalized_label_prefix}.series_visual_signature_expression_mode"),
@@ -173,6 +197,7 @@ def render_series_visual_signature_controls(
         "series_visual_signature_participation_mode": series_visual_signature_participation_mode,
         "series_visual_signature_mode": series_visual_signature_mode,
         "series_visual_signature_consistency_mode": series_visual_signature_consistency_mode,
+        "series_visual_signature_llm_prompt_assembly_enabled": llm_prompt_assembly_enabled,
         **presentation_payload,
     }
     ip_profile_world_hint = first_text(selected_profile.get("world_hint"))

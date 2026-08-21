@@ -50,6 +50,7 @@ def test_series_visual_signature_controls_accepts_v4_fields():
         "series_visual_signature_expression_mode": "infographic_layout",
         "series_visual_signature_structure_mode": "workflow",
         "series_visual_signature_participation_mode": "operator_demonstrator",
+        "series_visual_signature_llm_prompt_assembly_enabled": True,
         "series_visual_signature_presentation_mode": "visible_supporting_character",
         "series_visual_signature_enforcement": "soft",
         "series_visual_signature_fallback_enabled": True,
@@ -154,6 +155,7 @@ def test_normalize_standard_video_generation_params_preserves_v4_fields():
     assert normalized["series_visual_signature_expression_mode"] == "infographic_layout"
     assert normalized["series_visual_signature_structure_mode"] == "workflow"
     assert normalized["series_visual_signature_participation_mode"] == "operator_demonstrator"
+    assert normalized["series_visual_signature_llm_prompt_assembly_enabled"] is True
     assert normalized["series_visual_signature_presentation_mode"] == "visible_supporting_character"
     assert normalized["series_visual_signature_enforcement"] == "soft"
     assert normalized["series_visual_signature_fallback_enabled"] is True
@@ -162,6 +164,16 @@ def test_normalize_standard_video_generation_params_preserves_v4_fields():
     assert normalized["series_visual_signature_mode"] == "supporting_integration"
     assert normalized["series_visual_signature_consistency_mode"] == "supporting_character"
     assert normalized["effective_series_visual_signature_mode"] == "supporting_integration"
+
+
+def test_series_visual_signature_prompt_assembly_defaults_to_llm_and_accepts_opt_out():
+    default_request = SeriesVisualSignatureRequest.from_mapping(_enabled_params())
+    local_request = SeriesVisualSignatureRequest.from_mapping(
+        _enabled_params(series_visual_signature_llm_prompt_assembly_enabled=False)
+    )
+
+    assert default_request.llm_prompt_assembly_enabled is True
+    assert local_request.llm_prompt_assembly_enabled is False
 
 
 def test_normalize_standard_video_generation_params_keeps_string_false_disabled():

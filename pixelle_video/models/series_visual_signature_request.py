@@ -39,6 +39,7 @@ SERIES_VISUAL_SIGNATURE_CONTROL_OPTION_KEYS = frozenset(
         "series_visual_signature_participation_mode",
         "series_visual_signature_mode",
         "series_visual_signature_consistency_mode",
+        "series_visual_signature_llm_prompt_assembly_enabled",
         "generation_world_hint",
         *PRESENTATION_CONTROL_OPTION_KEYS,
     }
@@ -74,6 +75,7 @@ class SeriesVisualSignatureControlsContract:
     strategy: SeriesVisualSignatureStrategyControls = field(default_factory=SeriesVisualSignatureStrategyControls)
     presentation_policy: SeriesVisualSignaturePresentationPolicy = field(default_factory=SeriesVisualSignaturePresentationPolicy)
     generation_world_hint: str | None = None
+    llm_prompt_assembly_enabled: bool = True
     explicit_fields: tuple[str, ...] = ()
     source_mapping: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
@@ -98,6 +100,10 @@ class SeriesVisualSignatureControlsContract:
             strategy=presentation_policy.strategy_controls(),
             presentation_policy=presentation_policy,
             generation_world_hint=_normalize_optional_string(mapping.get("generation_world_hint")),
+            llm_prompt_assembly_enabled=coerce_bool(
+                mapping.get("series_visual_signature_llm_prompt_assembly_enabled"),
+                default=True,
+            ),
             explicit_fields=explicit_fields,
             source_mapping=mapping,
         )
@@ -117,6 +123,7 @@ class SeriesVisualSignatureControlsContract:
             "series_visual_signature_expression_mode": self.expression_mode.value,
             "series_visual_signature_structure_mode": self.structure_mode.value,
             "series_visual_signature_participation_mode": self.participation_mode.value,
+            "series_visual_signature_llm_prompt_assembly_enabled": self.llm_prompt_assembly_enabled,
             **self.presentation_policy.to_generation_dict(),
         }
 
@@ -149,6 +156,7 @@ class SeriesVisualSignatureControlsContract:
             "series_visual_signature_participation_mode": self.participation_mode.value,
             **self.presentation_policy.to_dict(),
             "generation_world_hint": self.generation_world_hint,
+            "series_visual_signature_llm_prompt_assembly_enabled": self.llm_prompt_assembly_enabled,
             "explicit_fields": list(self.explicit_fields),
         }
 

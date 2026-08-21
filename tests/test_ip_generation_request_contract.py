@@ -23,6 +23,7 @@ def test_formal_field_set_is_narrow():
         "series_visual_signature_fallback_enabled",
         "series_visual_signature_fallback_mode",
         "series_visual_signature_min_visibility",
+        "series_visual_signature_llm_prompt_assembly_enabled",
     }
 
 
@@ -75,6 +76,7 @@ def test_build_formal_payload_drops_helper_and_removed_fields():
         "series_visual_signature_fallback_enabled": False,
         "series_visual_signature_fallback_mode": "disabled",
         "series_visual_signature_min_visibility": "prominent",
+        "series_visual_signature_llm_prompt_assembly_enabled": True,
         "effective_series_visual_signature_mode": "supporting_integration",
     }
     assert "unknown" not in payload
@@ -100,6 +102,7 @@ def test_enabled_ip_omits_blank_ids_but_preserves_world_hint():
         "series_visual_signature_fallback_enabled": True,
         "series_visual_signature_fallback_mode": "auto_repair",
         "series_visual_signature_min_visibility": "clear",
+        "series_visual_signature_llm_prompt_assembly_enabled": True,
         "effective_series_visual_signature_mode": "supporting_integration",
         "generation_world_hint": "request world",
     }
