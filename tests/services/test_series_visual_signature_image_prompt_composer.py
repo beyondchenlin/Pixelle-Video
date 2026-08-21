@@ -336,6 +336,52 @@ async def test_visual_story_required_subjects_reach_signature_projection(
 
 
 @pytest.mark.asyncio
+async def test_signature_projection_uses_identity_isolated_base_brief_not_provider_prompt(
+    monkeypatch,
+) -> None:
+    base_prompt = "worker beside assembly machine, neutral cinematic scene"
+    provider_prompt = ". ".join(
+        (
+            base_prompt,
+            *("provider-facing repeated constraint" for _ in range(80)),
+        )
+    )
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        return StyledImagePromptBatch(
+            prompts=[provider_prompt],
+            negative_prompt="low quality",
+            resolved_style=None,
+            planning_snapshot={
+                "base_visual_briefs_by_frame": {
+                    "frame-1": {
+                        "main_subjects": ["worker", "assembly machine"],
+                        "base_image_prompt": base_prompt,
+                    }
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await VisualPromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan(),
+        image_config={},
+        ip_profile=_ip_profile(),
+        series_visual_signature_request=_enabled_request(),
+    )
+
+    assert base_prompt in result.prompts[0]
+    assert "provider-facing repeated constraint" not in result.prompts[0]
+    assert len(result.prompts[0]) <= 800
+
+
+@pytest.mark.asyncio
 async def test_canonical_prompt_composer_skips_llm_assembly_when_user_disables_it(
     monkeypatch,
 ) -> None:

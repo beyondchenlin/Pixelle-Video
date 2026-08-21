@@ -294,12 +294,17 @@ class VisualPromptComposer:
             briefs = dict(
                 planning_snapshot.get("base_visual_briefs_by_frame") or {}
             )
+            projection_base_prompts = _projection_base_prompts(
+                batch=batch,
+                frame_ids=tuple(frame.frame_id for frame in storyboard_plan.frames),
+                briefs=briefs,
+            )
             base_negative_prompts = _base_negative_prompts(
                 batch=batch,
                 frame_count=storyboard_plan.resolved_scene_count,
             )
             projection = SeriesVisualSignatureProjectionService().project_batch(
-                base_prompts=batch.prompts,
+                base_prompts=projection_base_prompts,
                 frame_ids=[frame.frame_id for frame in storyboard_plan.frames],
                 frame_contexts=prompt_contexts.frame_contexts,
                 request=resolved_signature_request,
@@ -561,6 +566,36 @@ def _base_negative_prompts(
             )
         return tuple(item.negative_prompt for item in rendered)
     return tuple(batch.negative_prompt for _ in range(frame_count))
+
+
+def _projection_base_prompts(
+    *,
+    batch: StyledImagePromptBatch,
+    frame_ids: Sequence[str],
+    briefs: Mapping[str, Mapping[str, Any]],
+) -> tuple[str, ...]:
+    rendered_prompts = tuple(str(prompt or "").strip() for prompt in batch.prompts)
+    if len(rendered_prompts) != len(frame_ids):
+        raise ValueError(
+            "rendered prompt count must match frame count before visual signature projection"
+        )
+    if not briefs:
+        return rendered_prompts
+
+    result: list[str] = []
+    for frame_id in frame_ids:
+        brief = briefs.get(frame_id)
+        if brief is None:
+            raise ValueError(
+                f"base visual brief is missing for projection frame {frame_id}"
+            )
+        base_prompt = str(brief.get("base_image_prompt") or "").strip()
+        if not base_prompt:
+            raise ValueError(
+                f"base visual brief for frame {frame_id} must include base_image_prompt"
+            )
+        result.append(base_prompt)
+    return tuple(result)
 
 
 def _project_rendered_prompts(
