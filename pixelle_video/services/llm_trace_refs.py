@@ -36,6 +36,39 @@ def llm_trace_refs_from_records(records: Sequence[Any]) -> list[dict[str, str]]:
     return refs
 
 
+def llm_trace_refs_for_accepted_attempts(
+    records: Sequence[Any],
+    *,
+    stage: str,
+    accepted_attempts_by_frame: Mapping[str, int],
+) -> list[dict[str, str]]:
+    normalized_stage = str(stage or "").strip()
+    accepted = {
+        str(frame_id).strip(): attempt
+        for frame_id, attempt in accepted_attempts_by_frame.items()
+        if str(frame_id).strip()
+        and type(attempt) is int
+        and attempt > 0
+    }
+    if not normalized_stage or not accepted:
+        return []
+
+    selected: list[Any] = []
+    for trace in records:
+        context = getattr(trace, "context", None)
+        if str(getattr(context, "stage", "") or "").strip() != normalized_stage:
+            continue
+        frame_id = str(getattr(context, "frame_id", "") or "").strip()
+        metadata = getattr(context, "metadata", None)
+        if not isinstance(metadata, Mapping):
+            continue
+        attempt = metadata.get("attempt")
+        if accepted.get(frame_id) != attempt:
+            continue
+        selected.append(trace)
+    return llm_trace_refs_from_records(selected)
+
+
 def merge_llm_trace_refs(*groups: object) -> list[dict[str, str]]:
     refs: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -64,6 +97,7 @@ def _trace_status_value(trace: Any) -> str:
 
 __all__ = [
     "LLMTraceCollector",
+    "llm_trace_refs_for_accepted_attempts",
     "llm_trace_refs_from_records",
     "merge_llm_trace_refs",
 ]

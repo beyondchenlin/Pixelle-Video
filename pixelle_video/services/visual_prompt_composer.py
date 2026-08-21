@@ -36,7 +36,7 @@ from pixelle_video.services.final_visual_prompt_llm_assembler import (
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import (
     LLMTraceCollector,
-    llm_trace_refs_from_records,
+    llm_trace_refs_for_accepted_attempts,
     merge_llm_trace_refs,
 )
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
@@ -328,8 +328,14 @@ class VisualPromptComposer:
                     max_concurrency=max_concurrency,
                 )
                 if assembly_trace_collector is not None:
-                    final_assembly_trace_refs = llm_trace_refs_from_records(
-                        assembly_trace_collector.records
+                    final_assembly_trace_refs = llm_trace_refs_for_accepted_attempts(
+                        assembly_trace_collector.records,
+                        stage="final_visual_prompt_assembly",
+                        accepted_attempts_by_frame={
+                            str(item["frame_id"]): int(item["attempt_count"])
+                            for item in assembly_result.audit["frames"]
+                            if item["source"] == "llm"
+                        },
                     )
             else:
                 assembly_result = deterministic_prompt_assembly_result(projection)
