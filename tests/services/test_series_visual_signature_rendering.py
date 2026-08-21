@@ -67,3 +67,29 @@ def test_provider_action_verb_collapses_legacy_timeline_action_to_one_position()
         "在整条时间线左下方的单一位置，"
         "用一只前爪指向贯穿全部阶段的同一条总线"
     )
+
+
+def test_provider_action_verb_separates_one_facilitator_from_group_members() -> None:
+    rendered = rendered_provider_action_verb(
+        "连接",
+        participation_mechanism=IPParticipationMechanism.SYSTEM_COMPONENT,
+        interaction_target="设计团队, 讨论, 修改设计方案, 最终定稿",
+        physical_metaphor="设计团队围绕讨论桌修改方案",
+    )
+
+    assert rendered == (
+        "固定站在讨论桌旁的地面上，"
+        "用一只前爪指向桌面中央同一份定稿方案"
+    )
+    assert rendered_provider_action_verb(
+        "连接",
+        participation_mechanism=IPParticipationMechanism.SYSTEM_COMPONENT,
+        interaction_target="设计团队围绕讨论桌",
+        user_overrode_action=True,
+    ) == "连接"
+    assert rendered_provider_action_verb(
+        "连接",
+        participation_mechanism=IPParticipationMechanism.SYSTEM_COMPONENT,
+        interaction_target="技术团队",
+        physical_metaphor="团队在会议室讨论服务器架构",
+    ) == "连接"

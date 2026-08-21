@@ -243,6 +243,12 @@ def assert_mandatory_content_bound_final_prompt(
         raise SeriesVisualSignatureFinalPromptGateError(
             "final V4.6 visual prompt gate failed: negative prompt exceeds 800 characters"
         )
+    profile = contract.identity_contract.profile
+    if profile is None:
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final V4.6 visual prompt gate failed: identity profile is missing"
+        )
+    _assert_no_duplicate_identity_semantics(positive, profile.display_name)
     if main_content_chars / len(positive_prompt) < 0.35:
         raise SeriesVisualSignatureFinalPromptGateError(
             "final V4.6 visual prompt gate failed: main content ratio is below 35 percent "
@@ -258,12 +264,6 @@ def assert_mandatory_content_bound_final_prompt(
                 "final V4.6 visual prompt gate failed: required subject missing "
                 f"at index {index}"
             )
-    profile = contract.identity_contract.profile
-    if profile is None:
-        raise SeriesVisualSignatureFinalPromptGateError(
-            "final V4.6 visual prompt gate failed: identity profile is missing"
-        )
-    _assert_no_duplicate_identity_semantics(positive, profile.display_name)
     for index, term in enumerate(rendered_identity_terms(profile)):
         if prompt_term_count(positive, term) != 1:
             raise SeriesVisualSignatureFinalPromptGateError(

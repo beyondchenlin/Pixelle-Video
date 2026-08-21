@@ -107,6 +107,31 @@ def _timeline_v46_contract() -> FinalVisualPromptContractV46:
     return projection.contract
 
 
+def _group_v46_contract() -> FinalVisualPromptContractV46:
+    request = SeriesVisualSignatureRequest.from_mapping(
+        {
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_profile_id": "dog_1",
+            "series_visual_signature_role": "auto",
+        }
+    )
+    projection = SeriesVisualSignatureProjectionService().project_frame(
+        frame_id="frame-group",
+        base_prompt=(
+            "设计团队围绕讨论桌，展示他们反复修改设计方案并最终定稿的过程"
+        ),
+        frame_context={
+            "frame_source_text": "每个按钮和颜色都经过团队无数次推敲。",
+            "required_subjects": [
+                "设计团队, 讨论, 修改设计方案, 最终定稿"
+            ],
+        },
+        request=request,
+        profile=_profile(),
+    )
+    return projection.contract
+
+
 def _v45_contract() -> FinalVisualPromptContractV45:
     return FinalVisualPromptContractV45(
         contract_id="legacy:frame-1",
@@ -143,6 +168,7 @@ def test_provider_prompt_leads_with_explicit_role_without_internal_anchor_jargon
         "文案主画面"
     )
     assert "锚点" not in bundle.positive_prompt
+    assert "%" not in bundle.positive_prompt
 
 
 def test_conflict_prompt_uses_one_actor_to_point_at_comparison_boundary() -> None:
@@ -190,6 +216,8 @@ def test_timeline_prompt_uses_one_actor_at_one_shared_control_position() -> None
     assert placement.depth_position.value == "midground"
     assert placement.visible_extent.value == "full_body"
     assert placement.area_ratio == pytest.approx(0.24)
+    assert "在画面中保持中等体量" in bundle.positive_prompt
+    assert "%" not in bundle.positive_prompt
     assert len(bundle.positive_prompt) <= 800
 
     repaired = MandatoryVisualAnchorPromptRepairService().repair(
@@ -201,6 +229,43 @@ def test_timeline_prompt_uses_one_actor_at_one_shared_control_position() -> None
     assert "固定在整条时间线左下方" in repaired.bundle.positive_prompt
     assert "只指向同一条总线" in repaired.bundle.positive_prompt
     assert "不在各阶段重复" in repaired.bundle.positive_prompt
+    assert len(repaired.bundle.positive_prompt) <= 800
+
+
+def test_group_prompt_keeps_one_facilitator_distinct_from_human_team() -> None:
+    contract = _group_v46_contract()
+    mandatory = contract.mandatory_anchor_contract
+    plan = mandatory.participation_plan
+    placement = mandatory.placement
+    bundle = FinalVisualPromptCompiler().compile(final_contract=contract)
+
+    assert plan.action_verb == (
+        "固定站在讨论桌旁的地面上，"
+        "用一只前爪指向桌面中央同一份定稿方案"
+    )
+    assert plan.scene_binding == (
+        "一个指定角色固定站在讨论桌旁的地面上，只在一个位置主持；"
+        "设计团队成员保持为人类，不采用指定角色外观"
+    )
+    assert placement.horizontal_position.value == "left"
+    assert placement.depth_position.value == "midground"
+    assert placement.visible_extent.value == "full_body"
+    assert placement.area_ratio == pytest.approx(0.24)
+    assert placement.support_relation == "feet on existing 地面"
+    assert "设计团队成员保持为人类" in bundle.positive_prompt
+    assert "feet on existing 桌" not in bundle.positive_prompt
+    assert "%" not in bundle.positive_prompt
+    assert len(bundle.positive_prompt) <= 800
+
+    repaired = MandatoryVisualAnchorPromptRepairService().repair(
+        contract=contract,
+        failure_codes=("identity_instance_count_not_one",),
+        repair_pass=1,
+        base_negative_prompt=None,
+    )
+    assert "固定站在讨论桌旁" in repaired.bundle.positive_prompt
+    assert "其余团队成员保持为人类" in repaired.bundle.positive_prompt
+    assert "不采用角色外观" in repaired.bundle.positive_prompt
     assert len(repaired.bundle.positive_prompt) <= 800
 
 

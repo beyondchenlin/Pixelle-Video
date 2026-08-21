@@ -13,6 +13,11 @@ from pixelle_video.models.content_bound_ip import (
     contains_weak_ip_action_language,
     is_serious_content_text,
 )
+from pixelle_video.services.structured_group_composition import (
+    SINGLE_FACILITATOR_GROUP_ACTION,
+    SINGLE_FACILITATOR_GROUP_BINDING,
+    is_structured_group_scene,
+)
 from pixelle_video.services.structured_timeline_composition import (
     SINGLE_ACTOR_TIMELINE_ACTION,
     SINGLE_ACTOR_TIMELINE_BINDING,
@@ -131,17 +136,36 @@ class ContentBoundIPPlanner:
             physical_metaphor,
             target,
         )
+        structured_group = is_structured_group_scene(
+            text,
+            physical_metaphor,
+            target,
+        )
         if (
-            structured_timeline
+            (structured_timeline or structured_group)
             and "mandatory_anchor_action_verb" not in override_values
         ):
-            action_verb = SINGLE_ACTOR_TIMELINE_ACTION
+            action_verb = (
+                SINGLE_FACILITATOR_GROUP_ACTION
+                if structured_group
+                else SINGLE_ACTOR_TIMELINE_ACTION
+            )
         semantic_action = _semantic_action_with_verb(
             action_verb,
             cognitive_anchor,
             target,
         )
-        if structured_timeline:
+        if structured_group:
+            action_result = (
+                "设计团队围绕桌面中央同一份方案讨论并完成定稿，"
+                f"指定角色只负责一次指示，直接表达{cognitive_anchor}"
+            )
+            scene_binding = SINGLE_FACILITATOR_GROUP_BINDING
+            semantic_necessity = (
+                "指定角色必须在讨论桌旁单一位置指向同一份方案，"
+                f"使{cognitive_anchor}成为可见过程"
+            )
+        elif structured_timeline:
             action_result = (
                 "整条时间线由同一条总线串联，观众从单一角色反应读出压力与选择，"
                 f"直接表达{cognitive_anchor}"
@@ -169,7 +193,7 @@ class ContentBoundIPPlanner:
             text=text,
             serious_content=serious,
         )
-        if structured_timeline:
+        if structured_timeline or structured_group:
             area_ratio, horizontal, depth, visible_extent = (
                 0.24,
                 "left",

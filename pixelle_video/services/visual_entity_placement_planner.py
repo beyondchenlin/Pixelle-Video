@@ -88,6 +88,7 @@ class VisualEntityPlacementPlanner:
             scene_type=scene_type,
             base_prompt=base_prompt,
             frame_context=frame_context,
+            participation_text=participation_plan.scene_binding,
         )
         placement = VisualEntityPlacement(
             frame_id=frame_id,
@@ -148,10 +149,15 @@ def _support_relation(
     scene_type: VisualSceneType,
     base_prompt: str,
     frame_context: Mapping[str, Any],
+    participation_text: str = "",
 ) -> str:
     if scene_type is VisualSceneType.ABSTRACT_DIAGRAM:
         return "at node or path"
-    candidates = [*_sequence(frame_context.get("world_elements")), base_prompt]
+    candidates = [
+        participation_text,
+        *_sequence(frame_context.get("world_elements")),
+        base_prompt,
+    ]
     for term in _SUPPORT_TERMS:
         for candidate in candidates:
             text = _text(candidate)

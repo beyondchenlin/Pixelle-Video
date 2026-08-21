@@ -787,6 +787,9 @@ def _v46_participation_clause(plan: ContentBoundIPPresencePlan) -> str:
         participation_mechanism=plan.participation_mechanism,
         interaction_target=plan.interaction_target,
         physical_metaphor=plan.physical_metaphor,
+        user_overrode_action=(
+            "mandatory_anchor_action_verb" in plan.user_override_fields
+        ),
     )
 
     def render_plan_text(value: str) -> str:
@@ -835,8 +838,15 @@ def _v46_spatial_clause(placement: VisualEntityPlacement) -> str:
         "headshot": "头肩特写",
         "recognizable_detail": "身份特征细节清晰可见",
     }[placement.visible_extent.value]
+    relative_size = {
+        "small": "在画面中保持小体量",
+        "medium_small": "在画面中保持中小体量",
+        "medium": "在画面中保持中等体量",
+        "large": "在画面中保持较大体量",
+        "full_frame": "覆盖画面主体区域",
+    }[placement.relative_size.value]
     return (
-        f"该指定角色位于{horizontal}的{depth}，约占画面{placement.area_ratio:.0%}；"
+        f"该指定角色位于{horizontal}的{depth}，{relative_size}；"
         f"{_natural_spatial_fact(placement.support_relation)}；"
         f"身体和视线朝向{placement.relation_target}；{extent}"
     )

@@ -10,6 +10,9 @@ from pixelle_video.models.final_visual_prompt_contract_v46 import (
     FinalVisualPromptContractV46,
 )
 from pixelle_video.services.final_visual_prompt_compiler import FinalVisualPromptCompiler
+from pixelle_video.services.structured_group_composition import (
+    is_structured_group_scene,
+)
 from pixelle_video.services.structured_timeline_composition import (
     is_structured_timeline_scene,
 )
@@ -153,7 +156,15 @@ def _repair_clause(
         "identity_area_ratio_exceeded",
         "duplicate_body_detected",
     }:
-        if is_structured_timeline_scene(
+        if is_structured_group_scene(
+            plan.interaction_target,
+            plan.physical_metaphor,
+        ):
+            fragments.append(
+                "只画一个指定角色实体，固定站在讨论桌旁；"
+                "其余团队成员保持为人类且不采用角色外观"
+            )
+        elif is_structured_timeline_scene(
             plan.interaction_target,
             plan.physical_metaphor,
         ):
