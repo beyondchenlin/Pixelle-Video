@@ -117,28 +117,9 @@ def render_series_visual_signature_controls(
 
     _render_ip_capability_preview(selected_profile, ui=ui, translate=translate)
 
-    llm_prompt_assembly_enabled = coerce_bool(
-        ui.toggle(
-            translate("series_visual_signature.prompt_assembly.llm_enabled"),
-            value=coerce_bool(
-                ui.session_state.get(
-                    _state_key(
-                        state_key_prefix,
-                        "series_visual_signature_llm_prompt_assembly_enabled",
-                    ),
-                    True,
-                ),
-                default=True,
-            ),
-            key=_state_key(
-                state_key_prefix,
-                "series_visual_signature_llm_prompt_assembly_enabled",
-            ),
-            help=translate(
-                "series_visual_signature.prompt_assembly.llm_enabled_help"
-            ),
-        ),
-        default=True,
+    llm_prompt_assembly_enabled = False
+    ui.caption(
+        translate("series_visual_signature.prompt_assembly.deterministic_v46")
     )
 
     series_visual_signature_expression_mode = _select_valid_option(
@@ -198,6 +179,10 @@ def render_series_visual_signature_controls(
         "series_visual_signature_mode": series_visual_signature_mode,
         "series_visual_signature_consistency_mode": series_visual_signature_consistency_mode,
         "series_visual_signature_llm_prompt_assembly_enabled": llm_prompt_assembly_enabled,
+        "mandatory_content_bound_anchor": True,
+        "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
+        "series_visual_signature_output_validation_mode": "required",
+        "series_visual_signature_output_max_attempts": 3,
         **presentation_payload,
     }
     ip_profile_world_hint = first_text(selected_profile.get("world_hint"))
@@ -329,50 +314,12 @@ def _render_presentation_policy_controls(
     state_key_prefix: str,
     label_key_prefix: str,
 ) -> dict[str, Any]:
-    presentation_options = (
-        "content_bound_mandatory_ip",
-        "visible_supporting_character",
-        "primary_character",
-        "legacy_visual_mark",
-    )
-    fallback_options = ("auto_repair", "default_signature", "disabled")
-    presentation_mode = _select_valid_option(
-        ui=ui,
-        label=translate("series_visual_signature.presentation.label"),
-        key=_state_key(state_key_prefix, "series_visual_signature_presentation_mode"),
-        options=presentation_options,
-        format_func=lambda value: translate(f"series_visual_signature.presentation.{value}"),
-    )
-    fallback_enabled = coerce_bool(
-        ui.toggle(
-            translate("series_visual_signature.fallback.enabled"),
-            value=coerce_bool(ui.session_state.get(_state_key(state_key_prefix, "series_visual_signature_fallback_enabled"), True), default=True),
-            key=_state_key(state_key_prefix, "series_visual_signature_fallback_enabled"),
-            help=translate("series_visual_signature.fallback.enabled_help"),
-        ),
-        default=True,
-    )
-    fallback_mode = _select_valid_option(
-        ui=ui,
-        label=translate("series_visual_signature.fallback.mode"),
-        key=_state_key(state_key_prefix, "series_visual_signature_fallback_mode"),
-        options=fallback_options,
-        format_func=lambda value: translate(f"series_visual_signature.fallback.{value}"),
-    )
-    strict = coerce_bool(
-        ui.toggle(
-            translate("series_visual_signature.enforcement.strict"),
-            value=coerce_bool(ui.session_state.get(_state_key(state_key_prefix, "series_visual_signature_enforcement_strict"), False), default=False),
-            key=_state_key(state_key_prefix, "series_visual_signature_enforcement_strict"),
-            help=translate("series_visual_signature.enforcement.strict_help"),
-        ),
-        default=False,
-    )
+    ui.caption(translate("series_visual_signature.presentation.mandatory_v46_note"))
     return {
-        "series_visual_signature_presentation_mode": presentation_mode,
-        "series_visual_signature_enforcement": "strict" if strict else "soft",
-        "series_visual_signature_fallback_enabled": fallback_enabled,
-        "series_visual_signature_fallback_mode": fallback_mode if fallback_enabled else "disabled",
+        "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
+        "series_visual_signature_enforcement": "strict",
+        "series_visual_signature_fallback_enabled": False,
+        "series_visual_signature_fallback_mode": "disabled",
         "series_visual_signature_min_visibility": "clear",
     }
 

@@ -18,11 +18,10 @@ from pixelle_video.models.llm_interaction_trace import (
     LLMTraceContext,
     trace_context_with_prompt_template,
 )
-from pixelle_video.models.visual_entity_placement import VisualSceneType
 from pixelle_video.prompts.template_loader import render_prompt_template
 from pixelle_video.services.series_visual_signature_final_prompt_gate import (
     SeriesVisualSignatureFinalPromptGateError,
-    assert_series_visual_signature_final_prompt,
+    assert_mandatory_content_bound_final_prompt,
 )
 from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureFrameProjection,
@@ -35,10 +34,9 @@ _DEFAULT_MAX_CONCURRENCY = 4
 _MAX_MAX_CONCURRENCY = 8
 _LOCKED_PROMPT_SECTION_KEYS = (
     "main_content",
-    "subject_protection",
-    "fixed_identity",
+    "participation",
+    "identity",
     "instance_control",
-    "role",
     "placement",
     "scene_fusion",
 )
@@ -272,57 +270,11 @@ def _render_assembly_prompt(
 def _required_positive_facts(
     frame: SeriesVisualSignatureFrameProjection,
 ) -> list[str]:
-    contract = frame.contract
-    signature = frame.signature
-    placement = contract.entity_placement
-    fusion = contract.scene_fusion
     metadata = frame.bundle.to_dict()["metadata"]
     sections = dict(metadata.get("prompt_sections") or {})
     facts: list[str] = []
-    for section_name in (
-        "main_content",
-        "main_detail",
-        "subject_protection",
-        "fixed_identity",
-        "style",
-    ):
+    for section_name in _LOCKED_PROMPT_SECTION_KEYS:
         _append_unique(facts, sections.get(section_name))
-    for fact in (
-        "Exactly one recurring identity exists in the whole frame",
-        "one body",
-        "one head",
-        "one location",
-        "visually subordinate to the main content",
-        "keeps its original character form",
-        signature.role.value,
-    ):
-        _append_unique(facts, fact)
-    if placement is not None:
-        for fact in (
-            "Same identity:",
-            placement.horizontal_position.value,
-            placement.depth_position.value,
-            placement.relative_size.value.replace("_", "-"),
-            placement.relation_target,
-            placement.spatial_relation,
-            placement.support_relation,
-            placement.action,
-            placement.orientation,
-            placement.visible_extent.value.replace("_", "-"),
-            "defining traits visible",
-        ):
-            _append_unique(facts, fact)
-    if fusion is not None:
-        fusion_fields = [fusion.occlusion_relation, fusion.style_relation]
-        if fusion.scene_type is VisualSceneType.PHYSICAL_SCENE:
-            fusion_fields[1:1] = [
-                fusion.perspective_relation,
-                fusion.contact_relation,
-                fusion.lighting_relation,
-                fusion.shadow_relation,
-            ]
-        for fact in fusion_fields:
-            _append_unique(facts, fact)
     return facts
 
 
@@ -343,9 +295,7 @@ def _required_negative_facts(
     profile = frame.signature.profile
     if profile is not None:
         facts.extend(profile.forbidden_traits)
-    fusion = frame.contract.scene_fusion
-    if fusion is not None:
-        facts.extend(fusion.forbidden_compositions)
+    facts.extend(frame.contract.mandatory_anchor_contract.forbidden_compositions)
     if frame.contract.visible_text_policy == "no_visible_text":
         facts.append("readable text")
     result: list[str] = []
@@ -367,15 +317,24 @@ def _validated_llm_bundle(
         raise SeriesVisualSignatureFinalPromptGateError(
             "final visual prompt assembly positive prompt differs from structured sections"
         )
-    assert_series_visual_signature_final_prompt(
+    main_content_chars = len(
+        _join_selected_sections(
+            prompt_sections,
+            ("main_content", "participation"),
+        )
+    )
+    identity_chars = len(
+        _join_selected_sections(
+            prompt_sections,
+            ("identity", "instance_control"),
+        )
+    )
+    assert_mandatory_content_bound_final_prompt(
         positive_prompt=positive_prompt,
         negative_prompt=response.negative_prompt,
-        required_subjects=frame.required_subjects,
-        signature=frame.signature,
-        visible_text_policy=contract.visible_text_policy,
-        placement=contract.entity_placement,
-        scene_fusion=contract.scene_fusion,
-        frame_id=frame.frame_id,
+        contract=contract.mandatory_anchor_contract,
+        main_content_chars=main_content_chars,
+        identity_chars=identity_chars,
     )
     original_metadata = frame.bundle.to_dict()["metadata"]
     updated_metadata = {
@@ -404,7 +363,7 @@ def _validated_llm_bundle(
 
 
 def _join_prompt_sections(prompt_sections: Mapping[str, str]) -> str:
-    return ". ".join(
+    return "；".join(
         prompt_sections[key] for key in FINAL_VISUAL_PROMPT_SECTION_KEYS if prompt_sections.get(key)
     )
 
@@ -418,45 +377,29 @@ def _updated_prompt_budget(
     budget = dict(original or {})
     main_group = _join_selected_sections(
         prompt_sections,
-        ("main_content", "main_detail", "subject_protection"),
+        ("main_content", "participation"),
     )
     placement_group = _join_selected_sections(
         prompt_sections,
         ("placement", "scene_fusion"),
     )
-    identity_chars = len(prompt_sections.get("fixed_identity", ""))
+    identity_group = _join_selected_sections(
+        prompt_sections,
+        ("identity", "instance_control"),
+    )
     budget.update(
         {
             "positive_prompt_chars": len(positive_prompt),
-            "main_and_subject_chars": len(main_group),
-            "rendered_identity_chars": identity_chars,
-            "canonical_identity_chars": identity_chars,
+            "main_content_chars": len(main_group),
+            "main_content_ratio": round(len(main_group) / len(positive_prompt), 4),
+            "identity_chars": len(identity_group),
+            "identity_ratio": round(len(identity_group) / len(positive_prompt), 4),
             "single_instance_control_chars": len(prompt_sections.get("instance_control", "")),
             "placement_and_fusion_chars": len(placement_group),
-            "role_and_action_chars": len(prompt_sections.get("role", "")),
+            "content_bound_action_chars": len(prompt_sections.get("participation", "")),
             "style_chars": len(prompt_sections.get("style", "")),
         }
     )
-    for metric_key, limit_key in (
-        ("main_and_subject_chars", "main_and_subject_limit"),
-        ("rendered_identity_chars", "rendered_identity_limit"),
-        ("single_instance_control_chars", "single_instance_control_limit"),
-        ("placement_and_fusion_chars", "placement_and_fusion_limit"),
-        ("role_and_action_chars", "role_and_action_limit"),
-        ("style_chars", "style_limit"),
-    ):
-        metric = budget.get(metric_key)
-        limit = budget.get(limit_key)
-        if (
-            isinstance(metric, int)
-            and not isinstance(metric, bool)
-            and isinstance(limit, int)
-            and not isinstance(limit, bool)
-            and metric > limit
-        ):
-            raise SeriesVisualSignatureFinalPromptGateError(
-                "final visual prompt assembly section budget exceeded: " + metric_key
-            )
     return budget
 
 
@@ -464,7 +407,7 @@ def _join_selected_sections(
     prompt_sections: Mapping[str, str],
     keys: tuple[str, ...],
 ) -> str:
-    return ". ".join(prompt_sections[key] for key in keys if prompt_sections.get(key))
+    return "；".join(prompt_sections[key] for key in keys if prompt_sections.get(key))
 
 
 def _annotated_bundle(

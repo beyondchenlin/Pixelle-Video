@@ -64,6 +64,9 @@ MAX_TRAIT_CHARS = 64
 MAX_CANONICAL_IDENTITY_CHARS = 400
 SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION = "v4_expression"
 SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION = "v4_2_identity_contract"
+MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION = (
+    "final_visual_prompt_contract.v4_6"
+)
 SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS = frozenset(
     {
         SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION,
@@ -213,6 +216,57 @@ class SeriesVisualSignatureRequest:
             for key, value in data.items()
             if str(key).startswith("series_visual_signature_")
         }
+        if enabled:
+            mandatory_anchor = _bool_value(
+                data.get("mandatory_content_bound_anchor", True),
+                "mandatory_content_bound_anchor",
+            )
+            if not mandatory_anchor:
+                raise ValueError(
+                    "enabled series visual signature requires mandatory_content_bound_anchor"
+                )
+            contract_version = str(
+                data.get(
+                    "series_visual_signature_contract_version",
+                    MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION,
+                )
+                or ""
+            ).strip()
+            if contract_version != MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION:
+                raise ValueError(
+                    "enabled series visual signature requires final visual prompt contract V4.6"
+                )
+            required_values = {
+                "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
+                "series_visual_signature_enforcement": "strict",
+                "series_visual_signature_fallback_enabled": False,
+                "series_visual_signature_fallback_mode": "disabled",
+                "series_visual_signature_min_visibility": "clear",
+                "series_visual_signature_output_validation_mode": "required",
+                "series_visual_signature_output_max_attempts": 3,
+            }
+            for field_name, required_value in required_values.items():
+                supplied = data.get(field_name)
+                if supplied is None:
+                    continue
+                if isinstance(required_value, bool):
+                    supplied = _bool_value(supplied, field_name)
+                elif isinstance(required_value, int):
+                    if isinstance(supplied, bool) or not isinstance(supplied, int):
+                        raise ValueError(f"{field_name} must be an integer")
+                else:
+                    supplied = str(supplied).strip()
+                if supplied != required_value:
+                    raise ValueError(
+                        f"enabled series visual signature requires {field_name}={required_value}"
+                    )
+            compatibility_options.update(
+                {
+                    "mandatory_content_bound_anchor": True,
+                    "series_visual_signature_contract_version": contract_version,
+                    **required_values,
+                }
+            )
         return cls(
             enabled=enabled,
             asset_bible_id=asset_bible_id
@@ -323,7 +377,7 @@ class SeriesVisualSignatureRequest:
         return _bool_value(
             self.compatibility_options.get(
                 "series_visual_signature_llm_prompt_assembly_enabled",
-                True,
+                False,
             ),
             "series_visual_signature_llm_prompt_assembly_enabled",
         )
@@ -345,6 +399,10 @@ class SeriesVisualSignatureRequest:
                 "series_visual_signature_enabled": True,
                 "series_visual_signature_profile_id": self.profile_id,
                 "series_visual_signature_role": self.role.value,
+                "mandatory_content_bound_anchor": True,
+                "series_visual_signature_contract_version": (
+                    MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION
+                ),
             }
         )
         if self.asset_bible_id is not None:
@@ -369,6 +427,12 @@ class SeriesVisualSignatureRequest:
                 "series_visual_signature_user_hint": self.user_hint,
                 "series_visual_signature_asset_bible_id": self.asset_bible_id,
                 "generation_world_hint": self.generation_world_hint,
+                "mandatory_content_bound_anchor": self.enabled,
+                "series_visual_signature_contract_version": (
+                    MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION
+                    if self.enabled
+                    else None
+                ),
             }
         )
         return payload
@@ -634,7 +698,7 @@ def relative_size_from_max_area_ratio(value: Any) -> VisualRelativeSize:
         return VisualRelativeSize.MEDIUM
     if ratio <= 0.45:
         return VisualRelativeSize.LARGE
-    raise ValueError("max_area_ratio cannot map to a supported relative size above 0.45")
+    return VisualRelativeSize.FULL_FRAME
 
 
 def canonical_series_visual_signature_identity_clause(
@@ -866,6 +930,7 @@ __all__ = [
     "ALLOWED_TEXT_CHARACTER_ROLES",
     "FORBIDDEN_TEXT_CHARACTER_ROLES",
     "MAX_CANONICAL_IDENTITY_CHARS",
+    "MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION",
     "MAX_TRAIT_CHARS",
     "SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION",
     "SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION",

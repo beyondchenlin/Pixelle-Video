@@ -9,13 +9,10 @@ from pixelle_video.models.final_visual_prompt_contract import (
     FinalVisualPromptContract,
     RenderedMediaPrompt,
 )
-from pixelle_video.models.final_visual_prompt_contract_v45 import (
-    FinalVisualPromptContractV45,
-)
 from pixelle_video.models.media import MediaResult
 from pixelle_video.models.prompt_plan import PromptPlan, PromptPlanBundle
 from pixelle_video.models.series_visual_signature import (
-    SeriesVisualSignatureContract,
+    SeriesVisualSignatureRequest,
     VisualSignatureProfileSnapshot,
 )
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
@@ -25,11 +22,11 @@ from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
+from pixelle_video.services.series_visual_signature_projection_service import (
+    SeriesVisualSignatureProjectionService,
+)
 from pixelle_video.services.series_visual_signature_rendered_output_gate import (
     SeriesVisualSignatureRenderedOutputGateError,
-)
-from pixelle_video.services.visual_entity_placement_planner import (
-    VisualEntityPlacementPlanner,
 )
 from pixelle_video.utils.template_util import get_template_orientation
 
@@ -166,43 +163,25 @@ def _output_gate_contract(
     frame_id: str,
     profile: VisualSignatureProfileSnapshot,
 ) -> dict:
-    signature = SeriesVisualSignatureContract(
-        enabled=True,
-        role="guide",
-        profile=profile,
-        max_area_ratio=0.16,
-        participation_rule="Guide points to the article subject.",
+    request = SeriesVisualSignatureRequest.from_mapping(
+        {
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_profile_id": profile.profile_id,
+            "series_visual_signature_role": "auto",
+        }
     )
-    article = {
-        "anchor": {"anchor_claim": "article chart"},
-        "diagram": {"grammar": "plain_scene", "visual_metaphor": "article chart"},
-        "render": {"render_style": "editorial_diagram"},
-    }
-    placement, fusion = VisualEntityPlacementPlanner().plan(
+    return SeriesVisualSignatureProjectionService().project_frame(
         frame_id=frame_id,
         base_prompt="article chart on a desk",
         frame_context={
-            "diagram_grammar": "plain_scene",
+            "frame_source_text": "The article chart shows the main relation.",
+            "primary_subject": "article chart",
             "world_elements": ["desk"],
             "lighting": "soft light",
         },
-        base_visual_brief=None,
-        article_concretization=article,
-        required_subjects=("article chart",),
-        signature=signature,
-    )
-    return FinalVisualPromptContractV45(
-        contract_id=f"contract:{frame_id}",
-        frame_id=frame_id,
-        primary_visual_task="cognitive_explanation",
-        required_subjects=("article chart",),
-        article_concretization=article,
-        series_visual_signature=signature,
-        diagram_render={"render_style": "editorial_diagram"},
-        visible_text_policy="preserve_base",
-        entity_placement=placement,
-        scene_fusion=fusion,
-    ).to_dict()
+        request=request,
+        profile=profile,
+    ).contract.to_dict()
 
 
 def _output_gate_trace(
@@ -328,12 +307,12 @@ def test_prompt_plan_resolution_prefers_stable_frame_identity_over_position() ->
     assert resolved_plan == prompt_plan
 
 
-def test_write_series_signature_trace_artifact_preserves_complete_v45_record(
+def test_write_series_signature_trace_artifact_preserves_complete_v46_record(
     tmp_path,
 ) -> None:
     trace = {
         "contract": {
-            "schema_version": "v4.5-signature",
+            "schema_version": "v4.6-content-bound-anchor",
             "frame_id": "frame_alpha",
             "entity_placement": {"horizontal_position": "left"},
             "scene_fusion": {"style_relation": "same render style/material"},
@@ -342,10 +321,10 @@ def test_write_series_signature_trace_artifact_preserves_complete_v45_record(
         "final_negative_prompt": "exact negative prompt",
         "identity_content_sha256": "a" * 64,
         "contract_content_sha256": "b" * 64,
-        "contract_version": "final_visual_prompt_contract.v4_5",
+        "contract_version": "final_visual_prompt_contract.v4_6",
     }
     ctx = PipelineContext(input_text="Scene.", params={})
-    ctx.task_id = "task-v45-trace"
+    ctx.task_id = "task-v46-trace"
     ctx.task_dir = str(tmp_path)
     ctx.planning_snapshot = {
         "series_visual_signature_trace_by_frame": {"frame_alpha": trace}
@@ -357,7 +336,7 @@ def test_write_series_signature_trace_artifact_preserves_complete_v45_record(
         tmp_path
         / "prompt_traces"
         / "series_visual_signature"
-        / "series_visual_signature_v45_contract_frame_001.json"
+        / "series_visual_signature_v46_contract_frame_001.json"
     )
     assert artifact_path.exists()
     assert json.loads(artifact_path.read_text(encoding="utf-8")) == trace
@@ -370,8 +349,7 @@ def test_write_series_signature_trace_artifact_preserves_complete_v45_record(
     assert prompt_path.read_text(encoding="utf-8") == "exact positive prompt"
 
 
-@pytest.mark.asyncio
-async def test_standard_pipeline_records_auto_output_validation_skip_without_vision(
+def test_standard_pipeline_fails_closed_when_output_inspection_is_unavailable(
     tmp_path,
 ) -> None:
     plan = _plan()
@@ -408,18 +386,16 @@ async def test_standard_pipeline_records_auto_output_validation_skip_without_vis
     }
 
     pipeline = StandardPipeline(_DummyCore())
-    pipeline._configure_series_visual_signature_output_gate(ctx, media_type="image")
+    with pytest.raises(
+        SeriesVisualSignatureRenderedOutputGateError,
+        match="vision_llm_disabled",
+    ):
+        pipeline._configure_series_visual_signature_output_gate(
+            ctx,
+            media_type="image",
+        )
 
-    assert ctx.generated_media_validator is not None
-    assert ctx.media_generation_max_attempts == 2
-    assert await ctx.generated_media_validator(frame, 0) is True
-    audit = ctx.planning_snapshot[
-        "series_visual_signature_rendered_output_audit_by_frame"
-    ][frame_id]
-    assert audit["final_status"] == "skipped"
-    assert audit["accepted"] is True
-    assert audit["attempt_count"] == 1
-    assert audit["attempts"][0]["reason"] == "vision_llm_disabled"
+    assert ctx.generated_media_validator is None
 
 
 def test_output_validation_rejects_missing_runtime_frame_identity_before_media(
@@ -552,6 +528,11 @@ def test_strict_signature_output_validation_fails_before_media_without_vision(
     ctx.task_id = "task-output-gate-strict"
     ctx.task_dir = str(tmp_path)
     ctx.storyboard_plan = plan
+    profile = VisualSignatureProfileSnapshot(
+        profile_id="dog_1",
+        display_name="Dalmatian",
+        core_identity_traits=("black spots", "black sunglasses"),
+    )
     ctx.storyboard = Storyboard(
         title="Test",
         config=StoryboardConfig(
@@ -559,11 +540,18 @@ def test_strict_signature_output_validation_fails_before_media_without_vision(
             media_width=1024,
             media_height=1024,
         ),
-        frames=[StoryboardFrame(index=0, narration="Scene.", image_prompt="prompt")],
+        frames=[
+            StoryboardFrame(
+                index=0,
+                frame_id=frame_id,
+                narration="Scene.",
+                image_prompt="prompt",
+            )
+        ],
     )
     ctx.planning_snapshot = {
         "series_visual_signature_trace_by_frame": {
-            frame_id: {"contract": {"series_visual_signature": {"enabled": True}}}
+            frame_id: _output_gate_trace(frame_id, profile)
         }
     }
 
@@ -817,7 +805,7 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_standard_z_image_request_matches_prompt_plan_and_v45_trace(
+async def test_standard_z_image_request_matches_prompt_plan_and_v46_trace(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -835,26 +823,24 @@ async def test_standard_z_image_request_matches_prompt_plan_and_v45_trace(
         traces = {}
         prompts = []
         for index, frame in enumerate(plan.frames, start=1):
-            negative = f"final V4.5 negative for {frame.frame_id}"
+            negative = f"final V4.6 negative for {frame.frame_id}"
             sections = {
                 "main_content": f"main {index}",
-                "fixed_identity": "fixed identity",
-                "role": "guide",
+                "identity": "fixed identity",
+                "participation": "guide operates the content subject",
+                "instance_control": "single anchor instance",
                 "placement": "left midground small beside target",
                 "scene_fusion": "shared perspective light shadow style",
                 "style": "editorial diagram",
-                "subject_protection": "keep subject visible",
             }
             prompt = ". ".join(sections.values())
             contract = FinalVisualPromptContract(
                 scene=sections["main_content"],
                 composition=sections["placement"],
                 style_assignment=sections["style"],
-                character_layer_style=sections["fixed_identity"],
+                character_layer_style=sections["identity"],
                 world_layer_style=sections["scene_fusion"],
-                integration_priority=(
-                    sections["role"] + ". " + sections["subject_protection"]
-                ),
+                    integration_priority=sections["participation"],
             )
             rendered.append(
                 RenderedMediaPrompt(
@@ -862,13 +848,13 @@ async def test_standard_z_image_request_matches_prompt_plan_and_v45_trace(
                     negative_prompt=negative,
                     prompt_contract=contract,
                     renderer_id="final_visual_prompt_compiler",
-                    renderer_version="v4.5",
+                    renderer_version="v4.6",
                     metadata={
-                        "series_visual_signature_v45": {
+                        "series_visual_signature_v46": {
                             "prompt_sections": sections,
                             "identity_content_sha256": "a" * 64,
                             "contract_content_sha256": "b" * 64,
-                            "contract_version": "final_visual_prompt_contract.v4_5",
+                            "contract_version": "final_visual_prompt_contract.v4_6",
                         }
                     },
                 )
@@ -876,7 +862,7 @@ async def test_standard_z_image_request_matches_prompt_plan_and_v45_trace(
             prompts.append(prompt)
             traces[frame.frame_id] = {
                 "contract": {
-                    "contract_version": "final_visual_prompt_contract.v4_5",
+                    "contract_version": "final_visual_prompt_contract.v4_6",
                     "contract_content_sha256": "b" * 64,
                     "series_visual_signature": {
                         "profile": {"identity_content_sha256": "a" * 64}
@@ -886,7 +872,7 @@ async def test_standard_z_image_request_matches_prompt_plan_and_v45_trace(
                 "final_negative_prompt": negative,
                 "identity_content_sha256": "a" * 64,
                 "contract_content_sha256": "b" * 64,
-                "contract_version": "final_visual_prompt_contract.v4_5",
+                "contract_version": "final_visual_prompt_contract.v4_6",
             }
         prompt_plan_bundle = build_prompt_plan_bundle(
             storyboard_plan=plan,
@@ -932,8 +918,8 @@ async def test_standard_z_image_request_matches_prompt_plan_and_v45_trace(
             "series_visual_signature_profile_id": "ip_main",
         },
     )
-    ctx.task_id = "task-z-image-v45"
-    ctx.title = "Z-Image V4.5 integration"
+    ctx.task_id = "task-z-image-v46"
+    ctx.title = "Z-Image V4.6 integration"
     ctx.storyboard_plan = plan
 
     pipeline = StandardPipeline(core)

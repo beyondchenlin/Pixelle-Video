@@ -64,6 +64,53 @@ def test_build_frame_override_payload_only_keeps_locked_fields():
     }
 
 
+def test_build_frame_override_payload_normalizes_mandatory_anchor_controls():
+    payload = build_frame_override_payload(
+        plan_id="plan_abc",
+        plan_revision=2,
+        frame_id="frame_0001",
+        source_digest="a" * 64,
+        locked_fields=[
+            "mandatory_anchor_area_ratio",
+            "mandatory_anchor_horizontal_position",
+            "mandatory_anchor_depth_position",
+            "mandatory_anchor_visible_extent",
+            "mandatory_anchor_action_verb",
+            "mandatory_anchor_interaction_target",
+        ],
+        values={
+            "mandatory_anchor_area_ratio": "0.8",
+            "mandatory_anchor_horizontal_position": "cross_frame",
+            "mandatory_anchor_depth_position": "full_frame",
+            "mandatory_anchor_visible_extent": "headshot",
+            "mandatory_anchor_action_verb": "holds",
+            "mandatory_anchor_interaction_target": "safety barrier",
+        },
+    )
+
+    assert payload is not None
+    assert payload["mandatory_anchor_area_ratio"] == 0.8
+    assert payload["mandatory_anchor_horizontal_position"] == "cross_frame"
+    assert payload["mandatory_anchor_depth_position"] == "full_frame"
+    assert payload["mandatory_anchor_visible_extent"] == "headshot"
+    assert payload["mandatory_anchor_action_verb"] == "holds"
+    assert payload["mandatory_anchor_interaction_target"] == "safety barrier"
+
+
+def test_build_frame_override_payload_drops_invalid_anchor_area_ratio():
+    assert (
+        build_frame_override_payload(
+            plan_id="plan_abc",
+            plan_revision=2,
+            frame_id="frame_0001",
+            source_digest="a" * 64,
+            locked_fields=["mandatory_anchor_area_ratio"],
+            values={"mandatory_anchor_area_ratio": "1.1"},
+        )
+        is None
+    )
+
+
 def test_collect_storyboard_preview_overrides_skips_empty_entries():
     planning_snapshot = {
         "storyboard_generation": {

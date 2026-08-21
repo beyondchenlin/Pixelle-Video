@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
+from pixelle_video.models.mandatory_content_bound_visual_anchor import (
+    MandatoryContentBoundVisualAnchorContract,
+)
 from pixelle_video.models.series_visual_signature import (
     FORBIDDEN_TEXT_CHARACTER_ROLES,
     SeriesVisualSignatureContract,
@@ -217,6 +220,86 @@ def assert_series_visual_signature_final_prompt(
             )
 
 
+def assert_mandatory_content_bound_final_prompt(
+    *,
+    positive_prompt: str,
+    negative_prompt: str,
+    contract: MandatoryContentBoundVisualAnchorContract,
+    main_content_chars: int,
+    identity_chars: int,
+) -> None:
+    positive = normalize_prompt_text(positive_prompt)
+    if not positive:
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final V4.6 visual prompt gate failed: positive prompt is empty"
+        )
+    if len(positive_prompt) > 800:
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final V4.6 visual prompt gate failed: positive prompt exceeds 800 characters"
+        )
+    if len(negative_prompt) > 800:
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final V4.6 visual prompt gate failed: negative prompt exceeds 800 characters"
+        )
+    if main_content_chars / len(positive_prompt) < 0.35:
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final V4.6 visual prompt gate failed: main content ratio is below 35 percent "
+            f"({main_content_chars}/{len(positive_prompt)})"
+        )
+    if identity_chars / len(positive_prompt) > 0.30:
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final V4.6 visual prompt gate failed: identity ratio exceeds 30 percent"
+        )
+    for index, subject in enumerate(contract.required_subjects):
+        if not prompt_contains_term(positive, subject.label):
+            raise SeriesVisualSignatureFinalPromptGateError(
+                "final V4.6 visual prompt gate failed: required subject missing "
+                f"at index {index}"
+            )
+    profile = contract.identity_contract.profile
+    if profile is None:
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final V4.6 visual prompt gate failed: identity profile is missing"
+        )
+    _assert_no_duplicate_identity_semantics(positive, profile.display_name)
+    for index, term in enumerate(rendered_identity_terms(profile)):
+        if prompt_term_count(positive, term) != 1:
+            raise SeriesVisualSignatureFinalPromptGateError(
+                "final V4.6 visual prompt gate failed: identity fact must appear exactly once "
+                f"at index {index}"
+            )
+    plan = contract.participation_plan
+    for field_name, value in (
+        ("action_verb", plan.action_verb),
+        ("interaction_target", plan.interaction_target),
+        ("action_result", plan.action_result),
+    ):
+        if not prompt_contains_term(positive, value):
+            raise SeriesVisualSignatureFinalPromptGateError(
+                f"final V4.6 visual prompt gate failed: {field_name} is missing"
+            )
+    forbidden_tokens = {
+        "silent_witness",
+        "midground",
+        "foreground",
+        "background",
+        "medium_small",
+        "full_body",
+        "half_body",
+        "not_applicable",
+        "content_bound_ip_presence_plan",
+        "series_visual_signature",
+        "entity_placement",
+        "scene_fusion",
+    }
+    leaked = sorted(token for token in forbidden_tokens if token in positive.casefold())
+    if leaked:
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final V4.6 visual prompt gate failed: internal control token leaked: "
+            + ", ".join(leaked)
+        )
+
+
 def _assert_no_duplicate_identity_semantics(
     positive_prompt: str,
     display_name: str,
@@ -244,4 +327,5 @@ def _assert_no_duplicate_identity_semantics(
 __all__ = [
     "SeriesVisualSignatureFinalPromptGateError",
     "assert_series_visual_signature_final_prompt",
+    "assert_mandatory_content_bound_final_prompt",
 ]

@@ -57,7 +57,7 @@ class IPParticipationMechanism(str, Enum):
         return default or cls.EXPLANATION_DIRECTOR
 
 
-CONTENT_BOUND_POLICY_VERSION = "content_bound_ip_presence.v2"
+CONTENT_BOUND_POLICY_VERSION = "content_bound_ip_presence.v3"
 
 DECORATIVE_IP_TERMS: tuple[str, ...] = (
     "贴纸", "logo", "Logo", "LOGO", "角标", "水印", "书签", "标签", "卡片", "小卡片", "印章",
@@ -122,8 +122,11 @@ class ContentBoundIPPresencePlan:
     semantic_action: str
     action_verb: str
     interaction_target: str
+    action_result: str
     scene_binding: str
     composition_role: str
+    semantic_necessity: str
+    adjacent_frame_difference: str
     scale_role: str = "supporting but readable"
     identity_binding: str = "same configured recurring identity"
     relation_to_article_subject: str = "preserves article subjects and does not replace them"
@@ -133,6 +136,12 @@ class ContentBoundIPPresencePlan:
     rewrite_instruction: str = ""
     serious_content_strategy: str = ""
     forbidden_ip_forms: tuple[str, ...] = field(default_factory=lambda: DEFAULT_FORBIDDEN_IP_FORMS)
+    recommended_area_ratio: float = 0.28
+    recommended_horizontal_position: str = "center"
+    recommended_depth_position: str = "midground"
+    recommended_visible_extent: str = "full_body"
+    user_override_source: str = ""
+    user_override_fields: tuple[str, ...] = ()
     version: str = CONTENT_BOUND_POLICY_VERSION
 
     def __post_init__(self) -> None:
@@ -145,8 +154,11 @@ class ContentBoundIPPresencePlan:
         object.__setattr__(self, "semantic_action", _require_text(self.semantic_action, "semantic_action"))
         object.__setattr__(self, "action_verb", _require_text(self.action_verb, "action_verb"))
         object.__setattr__(self, "interaction_target", _require_text(self.interaction_target, "interaction_target"))
+        object.__setattr__(self, "action_result", _require_text(self.action_result, "action_result"))
         object.__setattr__(self, "scene_binding", _require_text(self.scene_binding, "scene_binding"))
         object.__setattr__(self, "composition_role", _require_text(self.composition_role, "composition_role"))
+        object.__setattr__(self, "semantic_necessity", _require_text(self.semantic_necessity, "semantic_necessity"))
+        object.__setattr__(self, "adjacent_frame_difference", _require_text(self.adjacent_frame_difference, "adjacent_frame_difference"))
         object.__setattr__(self, "scale_role", _optional_text(self.scale_role) or "supporting but readable")
         object.__setattr__(self, "identity_binding", _optional_text(self.identity_binding) or "same configured recurring identity")
         object.__setattr__(self, "relation_to_article_subject", _optional_text(self.relation_to_article_subject) or "preserves article subjects")
@@ -156,6 +168,14 @@ class ContentBoundIPPresencePlan:
         object.__setattr__(self, "rewrite_instruction", _optional_text(self.rewrite_instruction))
         object.__setattr__(self, "serious_content_strategy", _optional_text(self.serious_content_strategy))
         object.__setattr__(self, "forbidden_ip_forms", _text_tuple(self.forbidden_ip_forms or DEFAULT_FORBIDDEN_IP_FORMS))
+        object.__setattr__(self, "recommended_area_ratio", _positive_ratio(self.recommended_area_ratio, "recommended_area_ratio"))
+        object.__setattr__(self, "recommended_horizontal_position", _require_text(self.recommended_horizontal_position, "recommended_horizontal_position"))
+        object.__setattr__(self, "recommended_depth_position", _require_text(self.recommended_depth_position, "recommended_depth_position"))
+        object.__setattr__(self, "recommended_visible_extent", _require_text(self.recommended_visible_extent, "recommended_visible_extent"))
+        object.__setattr__(self, "user_override_source", _optional_text(self.user_override_source))
+        object.__setattr__(self, "user_override_fields", _text_tuple(self.user_override_fields))
+        if self.user_override_fields and not self.user_override_source:
+            raise ValueError("user_override_source is required when user overrides are applied")
         object.__setattr__(self, "version", _optional_text(self.version) or CONTENT_BOUND_POLICY_VERSION)
 
     @classmethod
@@ -172,8 +192,11 @@ class ContentBoundIPPresencePlan:
             semantic_action=data.get("semantic_action") or data.get("action_or_function") or data.get("duty_goal") or "explains the article point through a concrete action",
             action_verb=data.get("action_verb") or _verb_from_text(data.get("semantic_action") or data.get("action_or_function")) or "arranges",
             interaction_target=data.get("interaction_target") or data.get("target") or "the explanatory model",
+            action_result=data.get("action_result") or "the explanatory relationship becomes visible",
             scene_binding=data.get("scene_binding") or data.get("placement_logic") or "the recurring character directly interacts with the explanatory model",
             composition_role=data.get("composition_role") or data.get("presentation_form") or "中景可见参与者，动作服务画面解释",
+            semantic_necessity=data.get("semantic_necessity") or "the recurring identity performs the visible explanatory action",
+            adjacent_frame_difference=data.get("adjacent_frame_difference") or "frame boundary; no adjacent comparison is available",
             scale_role=data.get("scale_role") or "supporting but readable",
             identity_binding=data.get("identity_binding") or "same configured recurring identity",
             relation_to_article_subject=data.get("relation_to_article_subject") or "preserves article subjects and does not replace them",
@@ -183,6 +206,12 @@ class ContentBoundIPPresencePlan:
             rewrite_instruction=data.get("rewrite_instruction") or "",
             serious_content_strategy=data.get("serious_content_strategy") or "",
             forbidden_ip_forms=tuple(data.get("forbidden_ip_forms") or DEFAULT_FORBIDDEN_IP_FORMS),
+            recommended_area_ratio=data.get("recommended_area_ratio") or 0.28,
+            recommended_horizontal_position=data.get("recommended_horizontal_position") or "center",
+            recommended_depth_position=data.get("recommended_depth_position") or "midground",
+            recommended_visible_extent=data.get("recommended_visible_extent") or "full_body",
+            user_override_source=data.get("user_override_source") or "",
+            user_override_fields=tuple(data.get("user_override_fields") or ()),
         )
 
     @property
@@ -208,8 +237,11 @@ class ContentBoundIPPresencePlan:
             "semantic_action": self.semantic_action,
             "action_verb": self.action_verb,
             "interaction_target": self.interaction_target,
+            "action_result": self.action_result,
             "scene_binding": self.scene_binding,
             "composition_role": self.composition_role,
+            "semantic_necessity": self.semantic_necessity,
+            "adjacent_frame_difference": self.adjacent_frame_difference,
             "scale_role": self.scale_role,
             "identity_binding": self.identity_binding,
             "relation_to_article_subject": self.relation_to_article_subject,
@@ -219,6 +251,12 @@ class ContentBoundIPPresencePlan:
             "rewrite_instruction": self.rewrite_instruction,
             "serious_content_strategy": self.serious_content_strategy,
             "forbidden_ip_forms": list(self.forbidden_ip_forms),
+            "recommended_area_ratio": self.recommended_area_ratio,
+            "recommended_horizontal_position": self.recommended_horizontal_position,
+            "recommended_depth_position": self.recommended_depth_position,
+            "recommended_visible_extent": self.recommended_visible_extent,
+            "user_override_source": self.user_override_source,
+            "user_override_fields": list(self.user_override_fields),
         }
 
     def to_frame_ip_fusion_payload(self, *, style_harmonization: str = "hybrid_layered") -> dict[str, Any]:
@@ -239,10 +277,19 @@ class ContentBoundIPPresencePlan:
             "duty_goal": self.semantic_action,
             "action_verb": self.action_verb,
             "interaction_target": self.interaction_target,
+            "action_result": self.action_result,
             "scene_binding": self.scene_binding,
             "presentation_form": self.presentation_form.value,
             "fallback_presentation": self.presentation_form.value,
             "semantic_removal_test": self.semantic_removal_test,
+            "semantic_necessity": self.semantic_necessity,
+            "adjacent_frame_difference": self.adjacent_frame_difference,
+            "recommended_area_ratio": self.recommended_area_ratio,
+            "recommended_horizontal_position": self.recommended_horizontal_position,
+            "recommended_depth_position": self.recommended_depth_position,
+            "recommended_visible_extent": self.recommended_visible_extent,
+            "user_override_source": self.user_override_source,
+            "user_override_fields": list(self.user_override_fields),
             "channel_identity_removal_test": "removing the recurring character removes the channel identity from this frame",
             "ip_participation_mechanism": self.participation_mechanism.value,
             "cognitive_anchor": self.cognitive_anchor,
@@ -345,6 +392,16 @@ def _score(value: Any) -> float:
         return 0.0
     if number > 1.0:
         return min(number / 10.0, 1.0) if number <= 10 else 1.0
+    return round(number, 4)
+
+
+def _positive_ratio(value: Any, field_name: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a number") from exc
+    if not 0.0 < number <= 1.0:
+        raise ValueError(f"{field_name} must be greater than 0 and at most 1")
     return round(number, 4)
 
 

@@ -80,6 +80,9 @@ class ContentBoundIPPlanner:
         style_harmonization: Mapping[str, Any] | None = None,
         article_summary: Mapping[str, Any] | None = None,
         ip_profile: Mapping[str, Any] | None = None,
+        required_subjects: Sequence[str] = (),
+        previous_frame_summary: str = "",
+        next_frame_summary: str = "",
         force_rewrite: bool = False,
         rewrite_reason: str = "",
     ) -> dict[str, Any]:
@@ -100,10 +103,48 @@ class ContentBoundIPPlanner:
         cognitive_anchor = str(visual_plan.get("cognitive_anchor") or _infer_cognitive_anchor(text, mechanism))
         physical_metaphor = str(visual_plan.get("physical_metaphor") or _physical_metaphor(mechanism, cognitive_anchor, text))
         scene_arena = str(visual_plan.get("scene_arena") or _scene_arena(mechanism, text, serious_content=serious))
-        action_verb = _action_verb(mechanism, cognitive_anchor)
-        target = _interaction_target(mechanism, cognitive_anchor, physical_metaphor)
-        semantic_action = _semantic_action(mechanism, cognitive_anchor, target)
+        override_values, override_source = _mandatory_anchor_overrides(visual_plan)
+        action_verb = str(
+            override_values.get("mandatory_anchor_action_verb")
+            or _action_verb(mechanism, cognitive_anchor)
+        )
+        normalized_subjects = tuple(
+            subject
+            for subject in (_first_text(value) for value in required_subjects)
+            if subject
+        )
+        target = str(
+            override_values.get("mandatory_anchor_interaction_target")
+            or (
+                normalized_subjects[0]
+                if normalized_subjects
+                else _interaction_target(mechanism, cognitive_anchor, physical_metaphor)
+            )
+        )
+        semantic_action = _semantic_action_with_verb(
+            action_verb,
+            cognitive_anchor,
+            target,
+        )
+        action_result = _action_result(mechanism, target, cognitive_anchor)
         scene_binding = _scene_binding(mechanism, scene_arena, action_verb, target, serious_content=serious)
+        area_ratio, horizontal, depth, visible_extent = _semantic_placement(
+            mechanism=mechanism,
+            text=text,
+            serious_content=serious,
+        )
+        area_ratio = float(
+            override_values.get("mandatory_anchor_area_ratio", area_ratio)
+        )
+        horizontal = str(
+            override_values.get("mandatory_anchor_horizontal_position", horizontal)
+        )
+        depth = str(
+            override_values.get("mandatory_anchor_depth_position", depth)
+        )
+        visible_extent = str(
+            override_values.get("mandatory_anchor_visible_extent", visible_extent)
+        )
         rewrite_required = force_rewrite or _needs_rewrite_for_content_bound_ip(visual_plan)
         rewrite_instruction = rewrite_reason or (
             f"Rewrite the frame around {physical_metaphor} in {scene_arena}, with the recurring character visibly {action_verb} {target}."
@@ -119,8 +160,19 @@ class ContentBoundIPPlanner:
             semantic_action=semantic_action,
             action_verb=action_verb,
             interaction_target=target,
+            action_result=action_result,
             scene_binding=scene_binding,
             composition_role=_composition_role(mechanism, serious_content=serious),
+            semantic_necessity=(
+                f"锚点必须通过{action_verb}{target}使{cognitive_anchor}成为可见过程，"
+                "而不是作为无关装饰出现"
+            ),
+            adjacent_frame_difference=_adjacent_frame_difference(
+                mechanism=mechanism,
+                action_verb=action_verb,
+                previous_frame_summary=previous_frame_summary,
+                next_frame_summary=next_frame_summary,
+            ),
             scale_role=_scale_role(mechanism),
             relation_to_article_subject="The recurring character explains or embodies the frame claim without replacing named article subjects.",
             semantic_removal_test="If the recurring character is removed, the frame loses the visible agent/state/component that performs the cognitive action.",
@@ -129,6 +181,12 @@ class ContentBoundIPPlanner:
             rewrite_instruction=rewrite_instruction,
             serious_content_strategy=_serious_strategy(serious),
             forbidden_ip_forms=tuple(visual_plan.get("forbidden_ip_forms") or DEFAULT_FORBIDDEN_IP_FORMS),
+            recommended_area_ratio=area_ratio,
+            recommended_horizontal_position=horizontal,
+            recommended_depth_position=depth,
+            recommended_visible_extent=visible_extent,
+            user_override_source=override_source,
+            user_override_fields=tuple(override_values),
         )
         payload = presence.to_frame_ip_fusion_payload(
             style_harmonization=str(style.get("mode") or "hybrid_layered"),
@@ -414,8 +472,96 @@ def _interaction_target(mechanism: IPParticipationMechanism, cognitive_anchor: s
     return targets[mechanism]
 
 
-def _semantic_action(mechanism: IPParticipationMechanism, cognitive_anchor: str, target: str) -> str:
-    return f"通过{_action_verb(mechanism, cognitive_anchor)}{target}来表达“{cognitive_anchor}”这个文章认知动作"
+def _semantic_action_with_verb(action_verb: str, cognitive_anchor: str, target: str) -> str:
+    return f"通过{action_verb}{target}来表达“{cognitive_anchor}”这个文章认知动作"
+
+
+def _action_result(
+    mechanism: IPParticipationMechanism,
+    target: str,
+    cognitive_anchor: str,
+) -> str:
+    results = {
+        IPParticipationMechanism.ACTION_EXECUTOR: "关键步骤被执行并产生可见结果",
+        IPParticipationMechanism.READER_PROXY: "观众能够从角色反应读出压力与选择",
+        IPParticipationMechanism.OBSERVATION_GATEWAY: "视线和姿态把注意力引向关键发现",
+        IPParticipationMechanism.SYSTEM_COMPONENT: "系统连接关系和功能流向变得清楚",
+        IPParticipationMechanism.CONFLICT_PARTICIPANT: "对立力量的方向和结果同时可见",
+        IPParticipationMechanism.SCALE_REFERENCE: "目标的尺度、距离或压力获得可读参照",
+        IPParticipationMechanism.EXPLANATION_DIRECTOR: "因果节点和阅读顺序变得清楚",
+        IPParticipationMechanism.TRANSFORMATION_MEDIUM: "输入经过动作后形成可见输出",
+    }
+    return f"{target}经过锚点参与后，{results[mechanism]}，直接表达{cognitive_anchor}"
+
+
+def _semantic_placement(
+    *,
+    mechanism: IPParticipationMechanism,
+    text: str,
+    serious_content: bool,
+) -> tuple[float, str, str, str]:
+    if serious_content:
+        return 0.24, "left", "midground", "full_body"
+    if _has_any(text, ("特写", "肖像", "表情", "close-up", "portrait", "reaction")):
+        return 0.68, "center", "foreground", "half_body"
+    placements = {
+        IPParticipationMechanism.ACTION_EXECUTOR: (0.36, "center", "midground", "full_body"),
+        IPParticipationMechanism.READER_PROXY: (0.52, "center", "foreground", "half_body"),
+        IPParticipationMechanism.OBSERVATION_GATEWAY: (0.24, "left", "foreground", "full_body"),
+        IPParticipationMechanism.SYSTEM_COMPONENT: (0.42, "center", "midground", "partial"),
+        IPParticipationMechanism.CONFLICT_PARTICIPANT: (0.40, "center", "midground", "full_body"),
+        IPParticipationMechanism.SCALE_REFERENCE: (0.16, "left", "foreground", "full_body"),
+        IPParticipationMechanism.EXPLANATION_DIRECTOR: (0.30, "right", "midground", "full_body"),
+        IPParticipationMechanism.TRANSFORMATION_MEDIUM: (0.38, "center", "midground", "partial"),
+    }
+    return placements[mechanism]
+
+
+def _mandatory_anchor_overrides(
+    frame_visual_plan: Mapping[str, Any],
+) -> tuple[dict[str, Any], str]:
+    field_names = (
+        "mandatory_anchor_area_ratio",
+        "mandatory_anchor_horizontal_position",
+        "mandatory_anchor_depth_position",
+        "mandatory_anchor_visible_extent",
+        "mandatory_anchor_action_verb",
+        "mandatory_anchor_interaction_target",
+    )
+    values = {
+        field_name: frame_visual_plan[field_name]
+        for field_name in field_names
+        if frame_visual_plan.get(field_name) is not None
+    }
+    if not values:
+        return {}, ""
+    source = _first_text(frame_visual_plan.get("override_source")) or "user_frame_override"
+    return values, source
+
+
+def _adjacent_frame_difference(
+    *,
+    mechanism: IPParticipationMechanism,
+    action_verb: str,
+    previous_frame_summary: str,
+    next_frame_summary: str,
+) -> str:
+    previous = _first_text(previous_frame_summary)
+    following = _first_text(next_frame_summary)
+    if not previous and not following:
+        return "任务仅有当前帧；以当前语义职责和动作作为构图区分依据"
+    neighbors = "；".join(
+        part
+        for part in (
+            f"前帧：{previous}" if previous else "",
+            f"后帧：{following}" if following else "",
+        )
+        if part
+    )
+    return (
+        f"当前帧使用{mechanism.value}职责并执行{action_verb}，"
+        f"与相邻帧摘要区分：{neighbors}"
+    )
 
 
 def _scene_binding(mechanism: IPParticipationMechanism, scene_arena: str, action_verb: str, target: str, *, serious_content: bool) -> str:

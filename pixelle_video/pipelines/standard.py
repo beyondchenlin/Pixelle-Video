@@ -37,8 +37,11 @@ from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.models.asset_bible import AssetBible, IPProfile
 from pixelle_video.models.caption_speech_plan import build_caption_speech_plan
 from pixelle_video.models.creation_package import CreationPackage
-from pixelle_video.models.final_visual_prompt_contract_v45 import (
-    FinalVisualPromptContractV45,
+from pixelle_video.models.final_visual_prompt_contract_reader import (
+    read_final_visual_prompt_contract,
+)
+from pixelle_video.models.final_visual_prompt_contract_v46 import (
+    FinalVisualPromptContractV46,
 )
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.media_placement import MediaBox
@@ -118,6 +121,9 @@ from pixelle_video.services.llm_trace_refs import (
     LLMTraceCollector,
     llm_trace_refs_from_records,
     merge_llm_trace_refs,
+)
+from pixelle_video.services.mandatory_visual_anchor_prompt_repair import (
+    MandatoryVisualAnchorPromptRepairService,
 )
 from pixelle_video.services.media_geometry_resolver import MediaGeometryResolver
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
@@ -234,11 +240,11 @@ def _project_standard_z_image_signature_batch(
     prompt_plan_bundle = batch.prompt_plan_bundle
     if not rendered_prompts:
         raise ValueError(
-            "enabled V4.5 Z-Image generation requires per-frame rendered prompts"
+            "enabled V4.6 Z-Image generation requires per-frame rendered prompts"
         )
     if prompt_plan_bundle is None:
         raise ValueError(
-            "enabled V4.5 Z-Image generation requires a prompt plan bundle"
+            "enabled V4.6 Z-Image generation requires a prompt plan bundle"
         )
     prompt_plans = tuple(prompt_plan_bundle.prompt_plans)
     if len(rendered_prompts) != len(prompt_plans):
@@ -260,17 +266,17 @@ def _project_standard_z_image_signature_batch(
     for index, (rendered, prompt_plan) in enumerate(
         zip(rendered_prompts, prompt_plans)
     ):
-        metadata = rendered.metadata_to_dict().get("series_visual_signature_v45")
+        metadata = rendered.metadata_to_dict().get("series_visual_signature_v46")
         if not isinstance(metadata, Mapping):
             raise ValueError(
-                f"Z-Image frame {prompt_plan.frame_id} is missing V4.5 adapter metadata"
+                f"Z-Image frame {prompt_plan.frame_id} is missing V4.6 adapter metadata"
             )
         provider_bundle = ZImagePromptBundle(
             positive_prompt=rendered.prompt,
             negative_prompt=rendered.negative_prompt or "",
-            locked_constraints=("canonical_v45_contract",),
+            locked_constraints=("canonical_v46_contract",),
             metadata={
-                "schema_version": "v4.5-signature",
+                "schema_version": "v4.6-content-bound-anchor",
                 "frame_id": prompt_plan.frame_id,
                 "contract_version": metadata.get("contract_version"),
                 "contract_content_sha256": metadata.get(
@@ -299,12 +305,12 @@ def _project_standard_z_image_signature_batch(
         trace = traces.get(prompt_plan.frame_id)
         if trace is None:
             raise ValueError(
-                f"Z-Image frame {prompt_plan.frame_id} is missing a V4.5 trace record"
+                f"Z-Image frame {prompt_plan.frame_id} is missing a V4.6 trace record"
             )
         contract = trace.get("contract")
         if not isinstance(contract, Mapping):
             raise ValueError(
-                f"Z-Image frame {prompt_plan.frame_id} trace is missing the complete V4.5 contract"
+                f"Z-Image frame {prompt_plan.frame_id} trace is missing the complete V4.6 contract"
             )
         identity_hash = str(metadata.get("identity_content_sha256") or "")
         contract_hash = str(metadata.get("contract_content_sha256") or "")
@@ -1363,6 +1369,14 @@ class StandardPipeline(LinearVideoPipeline):
                 "largest_identity_area_ratio",
                 "identity_traits_visible",
                 "identity_is_primary_focus",
+                "required_subjects_visible",
+                "anchor_action_matches",
+                "interaction_target_visible",
+                "content_claim_preserved",
+                "anchor_replaced_required_subject",
+                "support_contact_occlusion",
+                "lighting_perspective",
+                "anatomy_duplicates_sticker_text",
             ],
         }
         snapshot["series_visual_signature_rendered_output_policy"] = policy_audit
@@ -1383,7 +1397,6 @@ class StandardPipeline(LinearVideoPipeline):
             task_dir=ctx.task_dir,
             max_generation_attempts=max_attempts,
         )
-        gate.assert_availability_policy()
         if ctx.storyboard is None:
             raise ValueError(
                 "rendered-output validation requires an initialized storyboard"
@@ -1407,7 +1420,7 @@ class StandardPipeline(LinearVideoPipeline):
         runtime_frames_by_id = {
             str(frame.frame_id): frame for frame in ctx.storyboard.frames
         }
-        frame_contracts: dict[str, FinalVisualPromptContractV45] = {}
+        frame_contracts: dict[str, FinalVisualPromptContractV46] = {}
         for frame_id in runtime_frame_ids:
             trace = traces[frame_id]
             runtime_frame = runtime_frames_by_id[frame_id]
@@ -1432,7 +1445,14 @@ class StandardPipeline(LinearVideoPipeline):
                 raise ValueError(
                     "rendered-output validation requires a complete frame contract"
                 )
-            contract = FinalVisualPromptContractV45.from_mapping(contract_payload)
+            contract = read_final_visual_prompt_contract(
+                contract_payload,
+                resume_generation=True,
+            )
+            if not isinstance(contract, FinalVisualPromptContractV46):
+                raise ValueError(
+                    "rendered-output validation requires a V4.6 frame contract"
+                )
             if contract.frame_id != frame_id:
                 raise ValueError(
                     "rendered-output validation trace key must match contract frame_id"
@@ -1459,14 +1479,9 @@ class StandardPipeline(LinearVideoPipeline):
                 raise ValueError(
                     "rendered-output validation contract version must match the frame contract"
                 )
-            frame_contracts[frame_id] = replace(
-                contract,
-                series_visual_signature=replace(
-                    signature,
-                    profile=validated_profile,
-                ),
-            )
+            frame_contracts[frame_id] = contract
 
+        gate.assert_availability_policy()
         ctx.runtime_resources.append(gate)
         ctx.media_generation_max_attempts = gate.max_generation_attempts
         trace_recorder = (
@@ -1499,6 +1514,7 @@ class StandardPipeline(LinearVideoPipeline):
                     generation_attempt=generation_attempt,
                     profile=signature.profile,
                     max_area_ratio=signature.max_area_ratio,
+                    mandatory_contract=contract.mandatory_anchor_contract,
                     trace_context=(
                         self._llm_trace_context(
                             ctx,
@@ -1525,7 +1541,26 @@ class StandardPipeline(LinearVideoPipeline):
                 frame_id=frame_id,
                 result=result.to_dict(),
             )
-            return result.accepted
+            if result.passed:
+                return True
+            if generation_attempt + 1 < gate.max_generation_attempts:
+                repair = MandatoryVisualAnchorPromptRepairService().repair(
+                    contract=contract,
+                    failure_codes=result.failure_codes,
+                    repair_pass=generation_attempt + 1,
+                    base_negative_prompt=(
+                        frame.negative_prompt or ctx.media_negative_prompt
+                    ),
+                )
+                frame_contracts[frame_id] = repair.contract
+                frame.image_prompt = repair.bundle.positive_prompt
+                frame.negative_prompt = repair.bundle.negative_prompt
+                self._record_series_visual_signature_repair_audit(
+                    ctx,
+                    frame_id=frame_id,
+                    repair=repair.audit_dict(),
+                )
+            return False
 
         ctx.generated_media_validator = validate_generated_frame
 
@@ -1556,7 +1591,21 @@ class StandardPipeline(LinearVideoPipeline):
                 "attempts": attempts,
                 "attempt_count": len(attempts),
                 "final_status": result.get("status"),
-                "accepted": result.get("status") in {"passed", "skipped"},
+                "accepted": result.get("status") == "passed",
+                "user_status": (
+                    "passed"
+                    if result.get("status") == "passed"
+                    else (
+                        "auto_repairing"
+                        if int(result.get("generation_attempt") or 0) < 2
+                        and result.get("status") == "failed"
+                        else "failed"
+                    )
+                ),
+                "remaining_repair_attempts": max(
+                    0,
+                    2 - int(result.get("generation_attempt") or 0),
+                ),
             }
         )
         audits[frame_id] = frame_audit
@@ -1573,6 +1622,33 @@ class StandardPipeline(LinearVideoPipeline):
                 "series_visual_signature_rendered_output_audit_by_frame"
             ] = audits
 
+    @staticmethod
+    def _record_series_visual_signature_repair_audit(
+        ctx: PipelineContext,
+        *,
+        frame_id: str,
+        repair: Mapping[str, Any],
+    ) -> None:
+        snapshot = dict(ctx.planning_snapshot or {})
+        repairs = {
+            str(key): list(value)
+            for key, value in dict(
+                snapshot.get("mandatory_visual_anchor_repairs_by_frame") or {}
+            ).items()
+            if isinstance(value, list)
+        }
+        repairs.setdefault(frame_id, []).append(dict(repair))
+        snapshot["mandatory_visual_anchor_repairs_by_frame"] = repairs
+        ctx.planning_snapshot = snapshot
+        ctx.observability["mandatory_visual_anchor_repairs_by_frame"] = repairs
+        if ctx.storyboard is not None:
+            ctx.storyboard.planning_snapshot = dict(
+                ctx.storyboard.planning_snapshot or {}
+            )
+            ctx.storyboard.planning_snapshot[
+                "mandatory_visual_anchor_repairs_by_frame"
+            ] = repairs
+
     def _write_series_visual_signature_trace_artifacts(self, ctx: PipelineContext) -> None:
         if not ctx.task_dir or not ctx.planning_snapshot:
             return
@@ -1587,8 +1663,8 @@ class StandardPipeline(LinearVideoPipeline):
         decisions = snapshot.get("visual_expression_decision_by_frame") or {}
         projected_parts = snapshot.get("series_visual_signature_projected_prompt_parts_by_frame") or {}
         repair_attempts = snapshot.get("series_visual_signature_repair_attempts") or {}
-        v45_traces = snapshot.get("series_visual_signature_trace_by_frame") or {}
-        if not request and not plans and not v45_traces:
+        v46_traces = snapshot.get("series_visual_signature_trace_by_frame") or {}
+        if not request and not plans and not v46_traces:
             return
 
         artifact_dir = Path(ctx.task_dir) / "prompt_traces" / "series_visual_signature"
@@ -1602,7 +1678,7 @@ class StandardPipeline(LinearVideoPipeline):
 
         frame_artifacts: dict[str, dict[str, str]] = {}
         frame_ids = sorted(
-            set(decisions) | set(plans) | set(critiques) | set(v45_traces)
+            set(decisions) | set(plans) | set(critiques) | set(v46_traces)
         )
         for index, frame_id in enumerate(frame_ids, start=1):
             prefix = f"frame_{index:03d}"
@@ -1614,15 +1690,15 @@ class StandardPipeline(LinearVideoPipeline):
                 "series_visual_signature_participation_decision": self._write_json_artifact(artifact_dir / f"series_visual_signature_participation_decision_{prefix}.json", self._series_visual_signature_participation_decision_payload(frame_id, plan_payload), root=Path(ctx.task_dir)),
                 "series_visual_signature_critique": self._write_json_artifact(artifact_dir / f"series_visual_signature_critique_{prefix}.json", critiques.get(frame_id) or {}, root=Path(ctx.task_dir)),
                 "series_visual_signature_projected_prompt_parts": self._write_json_artifact(artifact_dir / f"series_visual_signature_projected_prompt_parts_{prefix}.json", projected_parts.get(frame_id) or {}, root=Path(ctx.task_dir)),
-                "series_visual_signature_v45_contract": self._write_json_artifact(
-                    artifact_dir / f"series_visual_signature_v45_contract_{prefix}.json",
-                    v45_traces.get(frame_id) or {},
+                "series_visual_signature_v46_contract": self._write_json_artifact(
+                    artifact_dir / f"series_visual_signature_v46_contract_{prefix}.json",
+                    v46_traces.get(frame_id) or {},
                     root=Path(ctx.task_dir),
                 ),
             }
-            v45_trace = v45_traces.get(frame_id) or {}
+            v46_trace = v46_traces.get(frame_id) or {}
             integrated_prompt = str(
-                v45_trace.get("final_positive_prompt")
+                v46_trace.get("final_positive_prompt")
                 or plan_payload.get("integrated_scene_prompt")
                 or ""
             )

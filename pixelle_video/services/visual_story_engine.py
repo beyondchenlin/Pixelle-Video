@@ -59,7 +59,7 @@ class VisualStoryEngineService:
 
     Recurring visual identity is intentionally outside this engine. This stage
     owns article understanding, content route selection, and content frame plans.
-    The canonical V4.5 visual-signature projector is the only identity owner.
+    The canonical V4.6 visual-signature projector is the only identity owner.
 
     Historical ``ip_profile`` and ``image_config`` parameters remain accepted so
     existing callers do not break, but they cannot influence route analysis,
@@ -137,7 +137,7 @@ class VisualStoryEngineService:
             frame_ip_fusion_plans=frame_ip_fusion_plans,
             channel_memory_intent=(
                 "Keep article route, composition logic, and scene style stable across frames. "
-                "Recurring visual identity is owned only by canonical V4.5 final projection."
+                "Recurring visual identity is owned only by canonical V4.6 final projection."
             ),
         )
         VisualStoryQualityGate().assert_valid(plan)
@@ -455,7 +455,7 @@ def _content_only_candidate(candidate: VisualRouteCandidate) -> VisualRouteCandi
         style_family=candidate.style_family,
         recommended_ip_role=VisualSignatureRole.NONE,
         ip_fit_reason=(
-            "Recurring identity is out of scope for Visual Story; canonical V4.5 final projection owns it."
+            "Recurring identity is out of scope for Visual Story; canonical V4.6 final projection owns it."
         ),
         route_specific_rules=candidate.route_specific_rules,
         risk_notes=candidate.risk_notes,
@@ -498,7 +498,7 @@ def _neutral_compatibility(
         compatibility_score=0.0,
         reason=(
             "Recurring identity compatibility is intentionally not evaluated in "
-            "Visual Story; canonical V4.5 final projection owns it."
+            "Visual Story; canonical V4.6 final projection owns it."
         ),
         mitigation_rules=(),
     )
@@ -511,7 +511,7 @@ def _content_style_plan(
         route_id=selected_route.route_id,
         mode=StyleHarmonizationMode.MATCH_ROUTE_STYLE,
         ip_style_policy=(
-            "No recurring identity styling occurs in Visual Story; canonical V4.5 projection owns identity styling."
+            "No recurring identity styling occurs in Visual Story; canonical V4.6 projection owns identity styling."
         ),
         scene_style_policy=(
             f"Scene follows {selected_route.style_family.value} and the selected content route premise."

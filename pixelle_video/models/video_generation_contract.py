@@ -71,6 +71,12 @@ PLAN_FRAME_OVERRIDE_VALUE_FIELDS = frozenset(
         "world_elements",
         "continuity_anchors",
         "focus_detail",
+        "mandatory_anchor_area_ratio",
+        "mandatory_anchor_horizontal_position",
+        "mandatory_anchor_depth_position",
+        "mandatory_anchor_visible_extent",
+        "mandatory_anchor_action_verb",
+        "mandatory_anchor_interaction_target",
     }
 )
 PLAN_FRAME_OVERRIDE_METADATA_FIELDS = PLAN_FRAME_OVERRIDE_IDENTITY_FIELDS | frozenset(
@@ -119,6 +125,10 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "series_visual_signature_fallback_mode",
     "series_visual_signature_min_visibility",
     "series_visual_signature_llm_prompt_assembly_enabled",
+    "mandatory_content_bound_anchor",
+    "series_visual_signature_contract_version",
+    "series_visual_signature_output_validation_mode",
+    "series_visual_signature_output_max_attempts",
 )
 ARTICLE_VISUAL_PLANNING_OPTION_KEYS = (
     *ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,
@@ -145,7 +155,11 @@ class IPControlsContract:
     series_visual_signature_mode: str = "auto"
     series_visual_signature_consistency_mode: str = "off"
     effective_series_visual_signature_mode: str = "auto"
-    series_visual_signature_llm_prompt_assembly_enabled: bool = True
+    series_visual_signature_llm_prompt_assembly_enabled: bool = False
+    mandatory_content_bound_anchor: bool = False
+    series_visual_signature_contract_version: str | None = None
+    series_visual_signature_output_validation_mode: str = "required"
+    series_visual_signature_output_max_attempts: int = 3
 
     @classmethod
     def from_mapping(cls, params: Mapping[str, Any] | None) -> "IPControlsContract":
@@ -165,6 +179,10 @@ class IPControlsContract:
             series_visual_signature_consistency_mode=visual_controls.strategy.consistency_mode.value,
             effective_series_visual_signature_mode=visual_controls.strategy.effective_signature_mode.value,
             series_visual_signature_llm_prompt_assembly_enabled=visual_controls.llm_prompt_assembly_enabled,
+            mandatory_content_bound_anchor=visual_controls.mandatory_content_bound_anchor,
+            series_visual_signature_contract_version=visual_controls.contract_version,
+            series_visual_signature_output_validation_mode=visual_controls.output_validation_mode,
+            series_visual_signature_output_max_attempts=visual_controls.output_max_attempts,
         )
 
     def validate(self) -> None:
@@ -191,6 +209,16 @@ class IPControlsContract:
         payload["effective_series_visual_signature_mode"] = self.effective_series_visual_signature_mode
         payload["series_visual_signature_llm_prompt_assembly_enabled"] = (
             self.series_visual_signature_llm_prompt_assembly_enabled
+        )
+        payload["mandatory_content_bound_anchor"] = self.mandatory_content_bound_anchor
+        payload["series_visual_signature_contract_version"] = (
+            self.series_visual_signature_contract_version
+        )
+        payload["series_visual_signature_output_validation_mode"] = (
+            self.series_visual_signature_output_validation_mode
+        )
+        payload["series_visual_signature_output_max_attempts"] = (
+            self.series_visual_signature_output_max_attempts
         )
         return payload
 
@@ -547,6 +575,7 @@ def normalize_plan_frame_overrides(
         for field_name in provided_fields:
             if field_name not in locked_fields:
                 raise ValueError(f"frame override field {field_name} must be listed in locked_fields")
+        _validate_mandatory_anchor_overrides(normalized_override)
 
         if storyboard_plan is not None:
             if normalized_override["plan_id"] != storyboard_plan.plan_id:
@@ -575,6 +604,56 @@ def _validate_source_digest(value: Any) -> None:
         or any(char not in "0123456789abcdef" for char in value)
     ):
         raise ValueError("frame override source_digest must be a SHA-256 hex digest")
+
+
+def _validate_mandatory_anchor_overrides(override: dict[str, Any]) -> None:
+    ratio = override.get("mandatory_anchor_area_ratio")
+    if ratio is not None:
+        if isinstance(ratio, bool):
+            raise ValueError("mandatory anchor area ratio must be a number")
+        try:
+            numeric_ratio = float(ratio)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("mandatory anchor area ratio must be a number") from exc
+        if not 0.0 < numeric_ratio <= 1.0:
+            raise ValueError("mandatory anchor area ratio must be in (0, 1]")
+        if numeric_ratio != ratio:
+            override["mandatory_anchor_area_ratio"] = numeric_ratio
+
+    allowed_values = {
+        "mandatory_anchor_horizontal_position": {
+            "left",
+            "center",
+            "right",
+            "cross_frame",
+        },
+        "mandatory_anchor_depth_position": {
+            "foreground",
+            "midground",
+            "background",
+            "full_frame",
+        },
+        "mandatory_anchor_visible_extent": {
+            "full_body",
+            "half_body",
+            "partial",
+            "distant_silhouette",
+            "headshot",
+            "recognizable_detail",
+        },
+    }
+    for field_name, allowed in allowed_values.items():
+        value = override.get(field_name)
+        if value is not None and str(value).strip() not in allowed:
+            raise ValueError(f"unsupported {field_name}: {value}")
+
+    for field_name in (
+        "mandatory_anchor_action_verb",
+        "mandatory_anchor_interaction_target",
+    ):
+        value = override.get(field_name)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError(f"{field_name} must be a non-empty string")
 
 
 def _normalize_locked_fields(value: Any) -> list[str]:

@@ -4,11 +4,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 FINAL_VISUAL_PROMPT_SECTION_KEYS = (
     "main_content",
-    "main_detail",
-    "subject_protection",
-    "fixed_identity",
+    "participation",
+    "identity",
     "instance_control",
-    "role",
     "placement",
     "scene_fusion",
     "style",
@@ -20,15 +18,13 @@ class FinalVisualPromptAssemblySections(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    main_content: str = Field(min_length=1, max_length=1200)
-    main_detail: str = Field(default="", max_length=1200)
-    subject_protection: str = Field(min_length=1, max_length=1200)
-    fixed_identity: str = Field(min_length=1, max_length=1200)
-    instance_control: str = Field(min_length=1, max_length=1200)
-    role: str = Field(min_length=1, max_length=1200)
-    placement: str = Field(min_length=1, max_length=1200)
-    scene_fusion: str = Field(min_length=1, max_length=1200)
-    style: str = Field(min_length=1, max_length=1200)
+    main_content: str = Field(min_length=1, max_length=800)
+    participation: str = Field(min_length=1, max_length=800)
+    identity: str = Field(min_length=1, max_length=800)
+    instance_control: str = Field(min_length=1, max_length=800)
+    placement: str = Field(min_length=1, max_length=800)
+    scene_fusion: str = Field(min_length=1, max_length=800)
+    style: str = Field(default="", max_length=800)
 
     @field_validator("*", mode="before")
     @classmethod
@@ -47,7 +43,7 @@ class FinalVisualPromptAssemblyResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    positive_prompt: str = Field(min_length=1, max_length=1200)
+    positive_prompt: str = Field(min_length=1, max_length=800)
     negative_prompt: str = Field(default="", max_length=800)
     prompt_sections: FinalVisualPromptAssemblySections
 

@@ -1071,6 +1071,62 @@ def test_video_generate_request_accepts_plan_identity_frame_overrides():
     assert request.frame_overrides[0].locked_fields == ["visual_goal", "prompt_intent"]
 
 
+def test_video_generate_request_accepts_mandatory_anchor_frame_overrides():
+    request = VideoGenerateRequest(
+        text="demo",
+        frame_overrides=[
+            {
+                "plan_id": "plan_abc",
+                "plan_revision": 1,
+                "frame_id": "frame_0001",
+                "source_digest": "a" * 64,
+                "locked_fields": [
+                    "mandatory_anchor_area_ratio",
+                    "mandatory_anchor_horizontal_position",
+                    "mandatory_anchor_depth_position",
+                    "mandatory_anchor_visible_extent",
+                    "mandatory_anchor_action_verb",
+                    "mandatory_anchor_interaction_target",
+                ],
+                "mandatory_anchor_area_ratio": 0.8,
+                "mandatory_anchor_horizontal_position": "cross_frame",
+                "mandatory_anchor_depth_position": "full_frame",
+                "mandatory_anchor_visible_extent": "headshot",
+                "mandatory_anchor_action_verb": "holds",
+                "mandatory_anchor_interaction_target": "safety barrier",
+            }
+        ],
+    )
+
+    override = request.frame_overrides[0]
+    assert override.mandatory_anchor_area_ratio == 0.8
+    assert override.mandatory_anchor_horizontal_position == "cross_frame"
+    assert override.mandatory_anchor_depth_position == "full_frame"
+    assert override.mandatory_anchor_visible_extent == "headshot"
+    assert override.mandatory_anchor_action_verb == "holds"
+    assert override.mandatory_anchor_interaction_target == "safety barrier"
+
+
+@pytest.mark.parametrize("ratio", [0, 1.1])
+def test_video_generate_request_rejects_invalid_mandatory_anchor_area_ratio(
+    ratio,
+):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_overrides=[
+                {
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "a" * 64,
+                    "locked_fields": ["mandatory_anchor_area_ratio"],
+                    "mandatory_anchor_area_ratio": ratio,
+                }
+            ],
+        )
+
+
 def test_video_generate_request_rejects_removed_narration_text_frame_override():
     with pytest.raises(ValidationError):
         VideoGenerateRequest(

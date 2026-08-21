@@ -232,7 +232,7 @@ def test_legacy_image_prompt_composer_is_adapter_not_second_prompt_runtime() -> 
 
 def test_projection_policy_forbids_raw_observability_and_independent_retention() -> None:
     text = PROJECTION_POLICY.read_text(encoding="utf-8-sig")
-    assert 'schema_version: str = "series_visual_signature_projection_audit.v3"' in text
+    assert 'schema_version: str = "series_visual_signature_projection_audit.v4"' in text
     assert 'payload_class: str = "bounded_hash_count_only"' in text
     assert 'retention_owner: str = "parent_planning_snapshot"' in text
     assert (

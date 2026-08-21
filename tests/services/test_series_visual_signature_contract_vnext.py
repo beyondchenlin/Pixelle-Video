@@ -100,12 +100,16 @@ def test_preserved_prompt_uses_requested_guide_contract() -> None:
 
     frame = result.frames[0]
     assert frame.signature.role.value == "guide"
-    assert frame.signature.max_area_ratio == pytest.approx(0.20)
+    assert frame.signature.max_area_ratio == pytest.approx(
+        frame.contract.content_bound_plan.recommended_area_ratio
+    )
+    assert 0.0 < frame.signature.max_area_ratio <= 1.0
     assert frame.required_subjects == ("worker",)
     assert prompt in frame.bundle.positive_prompt
     assert frame.contract.entity_placement is not None
     assert frame.contract.scene_fusion is not None
-    assert "scene perspective" in frame.bundle.positive_prompt
+    assert frame.bundle.metadata["prompt_sections"]["scene_fusion"]
+    assert "midground" not in frame.bundle.positive_prompt
 
 
 def test_signature_is_inserted_once_without_dropping_subject_contract() -> None:

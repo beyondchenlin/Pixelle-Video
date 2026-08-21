@@ -69,7 +69,20 @@ def _request(**overrides) -> SeriesVisualSignatureRequest:
         "series_visual_signature_mode": "supporting_integration",
     }
     payload.update(overrides)
-    return SeriesVisualSignatureRequest.from_mapping(payload)
+    raw_role = payload.get("series_visual_signature_role", "auto")
+    return SeriesVisualSignatureRequest(
+        enabled=True,
+        asset_bible_id=str(payload["series_visual_signature_asset_bible_id"]),
+        profile_id=str(payload["series_visual_signature_profile_id"]),
+        role=raw_role,
+        role_was_explicit=raw_role not in {None, "", "none", "auto"},
+        max_area_ratio=payload.get("series_visual_signature_max_area_ratio"),
+        compatibility_options={
+            key: value
+            for key, value in payload.items()
+            if key.startswith("series_visual_signature_")
+        },
+    )
 
 
 @pytest.mark.asyncio

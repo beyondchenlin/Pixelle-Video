@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pixelle_video.models.content_bound_ip import ContentBoundIPPresencePlan
 from pixelle_video.models.final_visual_prompt_contract_v45 import (
     FinalVisualPromptContractV45,
 )
@@ -46,6 +47,22 @@ def test_long_required_subject_is_preserved_in_full_when_budget_allows() -> None
         article_concretization=article,
         required_subjects=(subject,),
         signature=signature,
+        participation_plan=ContentBoundIPPresencePlan(
+            frame_id="frame-1",
+            participation_mechanism="explanation_director",
+            cognitive_anchor="explain",
+            physical_metaphor="production model",
+            scene_arena="diagram",
+            semantic_action="points to machine",
+            action_verb="points to",
+            interaction_target="machine",
+            action_result="bottleneck is visible",
+            scene_binding="beside machine",
+            composition_role="visible guide",
+            semantic_necessity="the guide reveals the bottleneck",
+            adjacent_frame_difference="single frame",
+            recommended_area_ratio=0.18,
+        ),
     )
     bundle = ArticleConcretizationPromptCompiler().compile_for_z_image(
         final_contract=FinalVisualPromptContractV45(

@@ -5,7 +5,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pixelle_video.models.final_visual_prompt_contract_v46 import (
+        FinalVisualPromptContractV46,
+    )
 
 from pixelle_video.models.series_visual_signature_strategy import SeriesVisualSignatureStrategy
 from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, VisibleTextPolicy
@@ -189,7 +194,7 @@ class FinalVisualPromptContract:
 class RenderedMediaPrompt:
     prompt: str
     negative_prompt: str | None
-    prompt_contract: FinalVisualPromptContract
+    prompt_contract: FinalVisualPromptContract | FinalVisualPromptContractV46
     renderer_id: str
     renderer_version: str
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -429,11 +434,11 @@ def _sanitize_v44_contract_metadata(value: Any) -> dict[str, Any]:
 
 def _rendered_prompt_metadata(
     metadata: Mapping[str, Any],
-    prompt_contract: FinalVisualPromptContract,
+    prompt_contract: FinalVisualPromptContract | FinalVisualPromptContractV46,
 ) -> dict[str, Any]:
     _reject_rendered_trace_metadata(metadata)
     rendered_metadata = _detach_metadata(metadata)
-    trace_metadata = _v44_trace_metadata(prompt_contract.metadata)
+    trace_metadata = _v44_trace_metadata(getattr(prompt_contract, "metadata", {}))
     trace_summary = trace_metadata.get("v44_contract")
     for key in V44_TRACE_METADATA_KEYS:
         if key not in trace_metadata:

@@ -131,7 +131,7 @@ def resolve_article_concretization(
 
     Historical visual-signature inputs remain accepted at this boundary so old
     callers deserialize safely, but they are intentionally non-operative. Role
-    selection belongs exclusively to the canonical V4.5 final projection stage.
+    selection belongs exclusively to the canonical V4.6 final projection stage.
     """
 
     template_ratio = _diagram_aspect_ratio(template_aspect_ratio, "template_aspect_ratio")
@@ -429,18 +429,18 @@ def _deprecated_signature_input_warnings(
     if request.series_visual_signature_role is not SeriesVisualSignatureRole.NONE:
         warnings.append(
             "article-level series_visual_signature_role is deprecated and ignored; "
-            "canonical V4.5 final projection owns role resolution."
+            "canonical V4.6 final projection owns role resolution."
         )
     if str(series_visual_signature_profile_id or "").strip():
         warnings.append(
             "article-level series_visual_signature_profile_id is deprecated and ignored; "
-            "canonical V4.5 final projection owns profile resolution."
+            "canonical V4.6 final projection owns profile resolution."
         )
     strategy = _series_visual_signature_strategy_text(series_visual_signature_strategy)
     if strategy and strategy not in {"auto", "none"}:
         warnings.append(
             "article-level series_visual_signature_strategy is deprecated and ignored; "
-            "canonical V4.5 final projection owns visual-signature strategy."
+            "canonical V4.6 final projection owns visual-signature strategy."
         )
     return tuple(warnings)
 

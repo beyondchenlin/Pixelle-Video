@@ -6,7 +6,6 @@ from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 from pixelle_video.models.article_concretization import ArticleConcretizationPlan
 from pixelle_video.models.final_visual_prompt_contract import (
     V44_TRACE_METADATA_KEYS,
-    FinalVisualPromptContract,
     RenderedMediaPrompt,
 )
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
@@ -30,15 +29,10 @@ from pixelle_video.services.article_concretization_pipeline import (
     article_concretization_snapshot,
 )
 from pixelle_video.services.final_visual_prompt_llm_assembler import (
-    FinalVisualPromptLLMAssembler,
     deterministic_prompt_assembly_result,
 )
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
-from pixelle_video.services.llm_trace_refs import (
-    LLMTraceCollector,
-    llm_trace_refs_for_accepted_attempts,
-    merge_llm_trace_refs,
-)
+from pixelle_video.services.llm_trace_refs import merge_llm_trace_refs
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.services.reference_image_visual_context_adapter import (
     current_reference_image_visual_story_context_patch,
@@ -120,7 +114,7 @@ class VisualPromptComposer:
     this service. When recurring identity is enabled, raw Asset Bible identity is
     first validated into one canonical runtime snapshot. Identity facts are kept
     out of the content-prompt LLM boundary, every legacy signature-generator
-    control remains hard-disabled, and canonical V4.5 projection is the sole owner
+    control remains hard-disabled, and canonical V4.6 projection is the sole owner
     of the final subject/identity contract.
     """
 
@@ -314,35 +308,15 @@ class VisualPromptComposer:
                 base_visual_briefs_by_frame=briefs,
                 base_negative_prompts=base_negative_prompts,
             )
-            if resolved_signature_request.llm_prompt_assembly_enabled:
-                assembly_trace_collector = (
-                    LLMTraceCollector(trace_recorder)
-                    if trace_recorder is not None
-                    else None
-                )
-                assembly_result = await FinalVisualPromptLLMAssembler().assemble_batch(
-                    llm_service=llm_service,
-                    batch=projection,
-                    trace_context=trace_context,
-                    trace_recorder=assembly_trace_collector,
-                    max_concurrency=max_concurrency,
-                )
-                if assembly_trace_collector is not None:
-                    final_assembly_trace_refs = llm_trace_refs_for_accepted_attempts(
-                        assembly_trace_collector.records,
-                        stage="final_visual_prompt_assembly",
-                        accepted_attempts_by_frame={
-                            str(item["frame_id"]): int(item["attempt_count"])
-                            for item in assembly_result.audit["frames"]
-                            if item["source"] == "llm"
-                        },
-                    )
-            else:
-                assembly_result = deterministic_prompt_assembly_result(projection)
+            assembly_result = deterministic_prompt_assembly_result(projection)
             projection = assembly_result.batch
-            planning_snapshot["series_visual_signature_prompt_assembly"] = dict(
-                assembly_result.audit
-            )
+            planning_snapshot["series_visual_signature_prompt_assembly"] = {
+                **dict(assembly_result.audit),
+                "production_mode": "deterministic_v46_only",
+                "llm_requested_but_not_executed": bool(
+                    resolved_signature_request.llm_prompt_assembly_enabled
+                ),
+            }
             bundle_metadata_by_frame = {
                 frame.frame_id: frame.bundle.to_dict()["metadata"]
                 for frame in projection.frames
@@ -387,6 +361,9 @@ class VisualPromptComposer:
                     ),
                     "contract_content_sha256": frame.contract.contract_content_sha256,
                     "contract_version": frame.contract.contract_version,
+                    "user_status": "image_generating",
+                    "generation_attempt": 0,
+                    "remaining_repair_attempts": 2,
                     "prompt_budget": dict(
                         bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
                         or {}
@@ -412,6 +389,9 @@ class VisualPromptComposer:
                     ),
                     "contract_content_sha256": frame.contract.contract_content_sha256,
                     "contract_version": frame.contract.contract_version,
+                    "user_status": "image_generating",
+                    "generation_attempt": 0,
+                    "remaining_repair_attempts": 2,
                     "prompt_budget": dict(
                         bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
                         or {}
@@ -609,7 +589,7 @@ def _project_rendered_prompts(
             )
         prompt_sections = dict(bundle_metadata.get("prompt_sections") or {})
         prompt_budget = dict(bundle_metadata.get("prompt_budget") or {})
-        metadata["series_visual_signature_v45"] = {
+        metadata["series_visual_signature_v46"] = {
             "contract_id": projection.contract.contract_id,
             "role": projection.signature.role.value,
             "max_area_ratio": projection.signature.max_area_ratio,
@@ -631,10 +611,7 @@ def _project_rendered_prompts(
             RenderedMediaPrompt(
                 prompt=projection.bundle.positive_prompt,
                 negative_prompt=projection.bundle.negative_prompt or None,
-                prompt_contract=_projected_prompt_contract(
-                    projection=projection,
-                    prompt_sections=prompt_sections,
-                ),
+                prompt_contract=projection.contract,
                 renderer_id=(
                     base_rendered.renderer_id
                     if base_rendered is not None
@@ -643,52 +620,12 @@ def _project_rendered_prompts(
                 renderer_version=(
                     base_rendered.renderer_version
                     if base_rendered is not None
-                    else "v4.5"
+                    else "v4.6"
                 ),
                 metadata=metadata,
             )
         )
     return result
-
-
-def _projected_prompt_contract(
-    *,
-    projection: Any,
-    prompt_sections: Mapping[str, str],
-) -> FinalVisualPromptContract:
-    required_keys = (
-        "main_content",
-        "fixed_identity",
-        "role",
-        "placement",
-        "scene_fusion",
-        "style",
-        "subject_protection",
-    )
-    missing = [key for key in required_keys if not str(prompt_sections.get(key) or "").strip()]
-    if missing:
-        raise ValueError(
-            "projected V4.5 prompt sections are incomplete: " + ", ".join(missing)
-        )
-    return FinalVisualPromptContract(
-        scene=prompt_sections["main_content"],
-        composition=prompt_sections["placement"],
-        style_assignment=prompt_sections["style"],
-        character_layer_style=prompt_sections["fixed_identity"],
-        world_layer_style=prompt_sections["scene_fusion"],
-        integration_priority=(
-            prompt_sections["role"] + ". " + prompt_sections["subject_protection"]
-        ),
-        negative_rules=tuple(
-            part.strip()
-            for part in projection.bundle.negative_prompt.split(",")
-            if part.strip()
-        ),
-        metadata={
-            "series_visual_signature_contract_v45": projection.contract.to_dict()
-        },
-        version=projection.contract.contract_version,
-    )
 
 
 def _projection_negative_prompt(

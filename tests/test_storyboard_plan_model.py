@@ -117,6 +117,67 @@ def test_storyboard_plan_builds_stable_generated_identity_for_preview_replay():
     )
 
 
+def test_plan_frame_overrides_normalize_mandatory_anchor_controls() -> None:
+    normalized = normalize_plan_frame_overrides(
+        [
+            {
+                "plan_id": "plan_abc",
+                "plan_revision": 1,
+                "frame_id": "frame_0001",
+                "source_digest": "a" * 64,
+                "locked_fields": [
+                    "mandatory_anchor_area_ratio",
+                    "mandatory_anchor_horizontal_position",
+                    "mandatory_anchor_depth_position",
+                    "mandatory_anchor_visible_extent",
+                    "mandatory_anchor_action_verb",
+                    "mandatory_anchor_interaction_target",
+                ],
+                "mandatory_anchor_area_ratio": "0.75",
+                "mandatory_anchor_horizontal_position": "right",
+                "mandatory_anchor_depth_position": "foreground",
+                "mandatory_anchor_visible_extent": "half_body",
+                "mandatory_anchor_action_verb": "points",
+                "mandatory_anchor_interaction_target": "risk boundary",
+            }
+        ]
+    )
+
+    assert normalized[0]["mandatory_anchor_area_ratio"] == 0.75
+    assert normalized[0]["mandatory_anchor_horizontal_position"] == "right"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bad_value"),
+    [
+        ("mandatory_anchor_area_ratio", 0),
+        ("mandatory_anchor_area_ratio", 1.01),
+        ("mandatory_anchor_horizontal_position", "upper_left"),
+        ("mandatory_anchor_depth_position", "sideways"),
+        ("mandatory_anchor_visible_extent", "invisible"),
+        ("mandatory_anchor_action_verb", ""),
+        ("mandatory_anchor_interaction_target", ""),
+    ],
+)
+def test_plan_frame_overrides_reject_invalid_mandatory_anchor_controls(
+    field_name,
+    bad_value,
+) -> None:
+    with pytest.raises(ValueError):
+        normalize_plan_frame_overrides(
+            [
+                {
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "a" * 64,
+                    "locked_fields": [field_name],
+                    field_name: bad_value,
+                }
+            ]
+        )
+
+
 def test_storyboard_plan_canonicalizes_explicit_frame_identity_at_the_source():
     plan = StoryboardPlan.build(
         mode="smart",

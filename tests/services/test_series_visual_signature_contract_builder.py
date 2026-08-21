@@ -37,16 +37,12 @@ def test_builder_returns_disabled_contract_when_request_disabled() -> None:
     assert contract.profile is None
 
 
-def test_builder_auto_role_uses_conservative_fallback_without_context() -> None:
-    contract = SeriesVisualSignatureContractBuilder().build(
-        request=_enabled_request(),
-        profile=_profile(),
-    )
-
-    assert contract.enabled is True
-    assert contract.role is SeriesVisualSignatureRole.SILENT_WITNESS
-    assert contract.max_area_ratio == pytest.approx(0.16)
-    assert "photorealistic" in " ".join(contract.forbidden_behaviors)
+def test_builder_requires_semantic_area_instead_of_using_role_cap() -> None:
+    with pytest.raises(ValueError, match="semantic area ratio"):
+        SeriesVisualSignatureContractBuilder().build(
+            request=_enabled_request(),
+            profile=_profile(),
+        )
 
 
 def test_builder_auto_role_uses_operator_for_process_flow() -> None:
@@ -54,10 +50,11 @@ def test_builder_auto_role_uses_operator_for_process_flow() -> None:
         request=_enabled_request(),
         profile=_profile(),
         role_context={"explanation_diagram_grammar": "process_flow"},
+        suggested_area_ratio=0.36,
     )
 
     assert contract.role is SeriesVisualSignatureRole.OPERATOR
-    assert contract.max_area_ratio == pytest.approx(0.28)
+    assert contract.max_area_ratio == pytest.approx(0.36)
 
 
 def test_builder_auto_role_uses_guide_for_relationship_map() -> None:
@@ -65,10 +62,11 @@ def test_builder_auto_role_uses_guide_for_relationship_map() -> None:
         request=_enabled_request(),
         profile=_profile(),
         role_context={"explanation_diagram_grammar": "relationship_map"},
+        suggested_area_ratio=0.24,
     )
 
     assert contract.role is SeriesVisualSignatureRole.GUIDE
-    assert contract.max_area_ratio == pytest.approx(0.2)
+    assert contract.max_area_ratio == pytest.approx(0.24)
 
 
 def test_builder_explicit_role_wins_over_context() -> None:
@@ -92,15 +90,17 @@ def test_builder_accepts_smaller_user_area_than_role_limit() -> None:
     assert contract.max_area_ratio == pytest.approx(0.12)
 
 
-def test_builder_rejects_user_area_above_role_semantic_limit() -> None:
-    with pytest.raises(ValueError, match="exceeds the semantic limit"):
-        SeriesVisualSignatureContractBuilder().build(
-            request=_enabled_request(
-                series_visual_signature_role="guide",
-                series_visual_signature_max_area_ratio=0.8,
-            ),
-            profile=_profile(),
-        )
+def test_builder_accepts_full_frame_user_area_without_legacy_role_cap() -> None:
+    contract = SeriesVisualSignatureContractBuilder().build(
+        request=_enabled_request(
+            series_visual_signature_role="guide",
+            series_visual_signature_max_area_ratio=0.8,
+        ),
+        profile=_profile(),
+    )
+
+    assert contract.max_area_ratio == pytest.approx(0.8)
+    assert contract.relative_size.value == "full_frame"
 
 
 def test_builder_requires_profile_id_when_enabled() -> None:

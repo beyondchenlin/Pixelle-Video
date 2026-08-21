@@ -55,7 +55,7 @@ def _project(
 def test_projection_audit_has_explicit_denominator_and_full_coverage() -> None:
     audit = _project().audit_dict()
 
-    assert audit["schema_version"] == "series_visual_signature_projection_audit.v3"
+    assert audit["schema_version"] == "series_visual_signature_projection_audit.v4"
     assert audit["status"] == "passed"
     assert audit["expected_frame_count"] == 1
     assert audit["attempted_frame_count"] == 1
@@ -87,7 +87,9 @@ def test_projection_metrics_separate_observation_coverage_from_success_rate() ->
 def test_projection_audit_encodes_single_runtime_ownership() -> None:
     policy = _project().audit_dict()["audit_policy"]
 
-    assert policy["production_identity_owner"] == "canonical_v45_projection"
+    assert policy["production_identity_owner"] == (
+        "mandatory_content_bound_v46_projection"
+    )
     assert policy["compatibility_adapter_scope"] == "input_normalization_only"
     assert policy["legacy_prompt_runtime_allowed"] is False
     assert policy["shadow_runtime_allowed"] is False

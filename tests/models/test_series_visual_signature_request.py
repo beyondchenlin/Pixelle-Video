@@ -45,19 +45,23 @@ def test_series_visual_signature_controls_accepts_v4_fields():
     assert controls.structure_mode.value == "workflow"
     assert controls.participation_mode.value == "operator_demonstrator"
     assert controls.strategy.signature_mode.value == "supporting_integration"
-    assert controls.strategy.consistency_mode.value == "supporting_character"
+    assert controls.strategy.consistency_mode.value == "off"
     assert controls.to_generation_dict() == {
         "series_visual_signature_expression_mode": "infographic_layout",
         "series_visual_signature_structure_mode": "workflow",
         "series_visual_signature_participation_mode": "operator_demonstrator",
-        "series_visual_signature_llm_prompt_assembly_enabled": True,
-        "series_visual_signature_presentation_mode": "visible_supporting_character",
-        "series_visual_signature_enforcement": "soft",
-        "series_visual_signature_fallback_enabled": True,
-        "series_visual_signature_fallback_mode": "auto_repair",
+        "series_visual_signature_llm_prompt_assembly_enabled": False,
+        "mandatory_content_bound_anchor": True,
+        "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
+        "series_visual_signature_output_validation_mode": "required",
+        "series_visual_signature_output_max_attempts": 3,
+        "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
+        "series_visual_signature_enforcement": "strict",
+        "series_visual_signature_fallback_enabled": False,
+        "series_visual_signature_fallback_mode": "disabled",
         "series_visual_signature_min_visibility": "clear",
         "series_visual_signature_mode": "supporting_integration",
-        "series_visual_signature_consistency_mode": "supporting_character",
+        "series_visual_signature_consistency_mode": "off",
         "effective_series_visual_signature_mode": "supporting_integration",
     }
 
@@ -84,7 +88,7 @@ def test_series_visual_signature_controls_reject_invalid_strategy_facts(field_na
         SeriesVisualSignatureControlsContract.from_mapping(_enabled_params(**{field_name: bad_value}))
 
 
-def test_primary_character_forces_subject_replacement():
+def test_mandatory_v46_blocks_primary_character_subject_replacement():
     request = SeriesVisualSignatureRequest.from_mapping(
         _enabled_params(
             series_visual_signature_mode="supporting_integration",
@@ -92,8 +96,10 @@ def test_primary_character_forces_subject_replacement():
         )
     )
 
-    assert request.effective_signature_mode is SeriesVisualSignatureMode.SUBJECT_REPLACEMENT
-    assert request.strategy.to_dict()["effective_series_visual_signature_mode"] == "subject_replacement"
+    assert request.effective_signature_mode is SeriesVisualSignatureMode.SUPPORTING_INTEGRATION
+    assert request.strategy.to_dict()["effective_series_visual_signature_mode"] == (
+        "supporting_integration"
+    )
 
 
 def test_supporting_character_forces_supporting_integration():
@@ -146,6 +152,42 @@ def test_series_visual_signature_request_requires_profile_when_enabled():
         request.validate()
 
 
+@pytest.mark.parametrize(
+    ("field_name", "bad_value"),
+    [
+        ("mandatory_content_bound_anchor", False),
+        ("series_visual_signature_contract_version", "final_visual_prompt_contract.v4_5"),
+        ("series_visual_signature_presentation_mode", "legacy_visual_mark"),
+        ("series_visual_signature_enforcement", "soft"),
+        ("series_visual_signature_fallback_enabled", True),
+        ("series_visual_signature_fallback_mode", "auto_repair"),
+        ("series_visual_signature_output_validation_mode", "optional"),
+        ("series_visual_signature_output_max_attempts", 2),
+    ],
+)
+def test_canonical_request_rejects_controls_that_weaken_mandatory_v46(
+    field_name,
+    bad_value,
+):
+    with pytest.raises(ValueError):
+        SeriesVisualSignatureRequest.from_mapping(
+            _enabled_params(**{field_name: bad_value})
+        )
+
+
+def test_canonical_request_materializes_mandatory_v46_policy() -> None:
+    request = SeriesVisualSignatureRequest.from_mapping(_enabled_params())
+    payload = request.to_generation_dict()
+
+    assert payload["series_visual_signature_presentation_mode"] == (
+        "content_bound_mandatory_ip"
+    )
+    assert payload["series_visual_signature_enforcement"] == "strict"
+    assert payload["series_visual_signature_fallback_enabled"] is False
+    assert payload["series_visual_signature_output_validation_mode"] == "required"
+    assert payload["series_visual_signature_output_max_attempts"] == 3
+
+
 def test_normalize_standard_video_generation_params_preserves_v4_fields():
     normalized = normalize_standard_video_generation_params(_enabled_params())
 
@@ -155,25 +197,29 @@ def test_normalize_standard_video_generation_params_preserves_v4_fields():
     assert normalized["series_visual_signature_expression_mode"] == "infographic_layout"
     assert normalized["series_visual_signature_structure_mode"] == "workflow"
     assert normalized["series_visual_signature_participation_mode"] == "operator_demonstrator"
-    assert normalized["series_visual_signature_llm_prompt_assembly_enabled"] is True
-    assert normalized["series_visual_signature_presentation_mode"] == "visible_supporting_character"
-    assert normalized["series_visual_signature_enforcement"] == "soft"
-    assert normalized["series_visual_signature_fallback_enabled"] is True
-    assert normalized["series_visual_signature_fallback_mode"] == "auto_repair"
+    assert normalized["series_visual_signature_llm_prompt_assembly_enabled"] is False
+    assert normalized["mandatory_content_bound_anchor"] is True
+    assert normalized["series_visual_signature_contract_version"] == "final_visual_prompt_contract.v4_6"
+    assert normalized["series_visual_signature_output_validation_mode"] == "required"
+    assert normalized["series_visual_signature_output_max_attempts"] == 3
+    assert normalized["series_visual_signature_presentation_mode"] == "content_bound_mandatory_ip"
+    assert normalized["series_visual_signature_enforcement"] == "strict"
+    assert normalized["series_visual_signature_fallback_enabled"] is False
+    assert normalized["series_visual_signature_fallback_mode"] == "disabled"
     assert normalized["series_visual_signature_min_visibility"] == "clear"
     assert normalized["series_visual_signature_mode"] == "supporting_integration"
-    assert normalized["series_visual_signature_consistency_mode"] == "supporting_character"
+    assert normalized["series_visual_signature_consistency_mode"] == "off"
     assert normalized["effective_series_visual_signature_mode"] == "supporting_integration"
 
 
-def test_series_visual_signature_prompt_assembly_defaults_to_llm_and_accepts_opt_out():
+def test_series_visual_signature_prompt_assembly_is_deterministic_even_when_requested():
     default_request = SeriesVisualSignatureRequest.from_mapping(_enabled_params())
     local_request = SeriesVisualSignatureRequest.from_mapping(
-        _enabled_params(series_visual_signature_llm_prompt_assembly_enabled=False)
+        _enabled_params(series_visual_signature_llm_prompt_assembly_enabled=True)
     )
 
-    assert default_request.llm_prompt_assembly_enabled is True
-    assert local_request.llm_prompt_assembly_enabled is False
+    assert default_request.llm_prompt_assembly_enabled is False
+    assert local_request.llm_prompt_assembly_enabled is True
 
 
 def test_normalize_standard_video_generation_params_keeps_string_false_disabled():
@@ -220,11 +266,11 @@ def test_normalize_standard_video_generation_params_constrains_v44_supporting_st
     )
 
     assert normalized["series_visual_signature_strategy"] == strategy
-    assert normalized["series_visual_signature_consistency_mode"] == "primary_character"
+    assert normalized["series_visual_signature_consistency_mode"] == "off"
     assert normalized["effective_series_visual_signature_mode"] == "supporting_integration"
 
 
-def test_normalize_standard_video_generation_params_allows_participant_subject_replacement():
+def test_normalize_standard_video_generation_params_blocks_participant_subject_replacement():
     normalized = normalize_standard_video_generation_params(
         _enabled_params(
             series_visual_signature_mode="auto",
@@ -234,8 +280,8 @@ def test_normalize_standard_video_generation_params_allows_participant_subject_r
     )
 
     assert normalized["series_visual_signature_strategy"] == "participant"
-    assert normalized["series_visual_signature_consistency_mode"] == "primary_character"
-    assert normalized["effective_series_visual_signature_mode"] == "subject_replacement"
+    assert normalized["series_visual_signature_consistency_mode"] == "off"
+    assert normalized["effective_series_visual_signature_mode"] == "supporting_integration"
 
 
 def test_normalize_standard_video_generation_params_defaults_host_explainer_to_content_bound():
@@ -248,7 +294,7 @@ def test_normalize_standard_video_generation_params_defaults_host_explainer_to_c
     )
 
     assert normalized["series_visual_signature_strategy"] == "host_explainer"
-    assert normalized["series_visual_signature_consistency_mode"] == "primary_character"
+    assert normalized["series_visual_signature_consistency_mode"] == "off"
     assert normalized["effective_series_visual_signature_mode"] == "supporting_integration"
 
 

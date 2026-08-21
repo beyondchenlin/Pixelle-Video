@@ -72,8 +72,8 @@ class VisualPromptPlanningResult:
         if self.legacy_visual_anchor_disabled:
             snapshot["legacy_visual_anchor_pipeline"] = {
                 "enabled": False,
-                "owner": "series_visual_signature_v45",
-                "reason": "canonical V4.5 visual signature owns identity projection",
+                "owner": "series_visual_signature_v46",
+                "reason": "canonical V4.6 visual signature owns identity projection",
             }
         if self.visual_expression_decisions:
             snapshot["visual_expression_decision_by_frame"] = {decision.frame_id: decision.to_dict() for decision in self.visual_expression_decisions}
@@ -110,7 +110,7 @@ class VisualPromptPlanningService:
     """Subject-first planning with one identity owner at a time.
 
     Legacy visual-anchor planning remains available for legacy callers. Once a
-    canonical V4.5 visual-signature request is enabled, however, the legacy
+    canonical V4.6 visual-signature request is enabled, however, the legacy
     anchor planners are disabled before any planning call. The generic provider
     projector may still render the identity-neutral base brief, but it receives
     neither an anchor profile nor an anchor placement plan and therefore cannot
@@ -319,7 +319,7 @@ def _legacy_anchor_inputs(
     base_anchor_packages: Sequence[IPFrameAdaptationPackage],
     series_visual_signature_request: SeriesVisualSignatureRequest | None,
 ) -> tuple[bool, IPProfile | None, tuple[IPFrameAdaptationPackage, ...], bool]:
-    if _canonical_v45_enabled(series_visual_signature_request):
+    if _canonical_v46_enabled(series_visual_signature_request):
         return False, None, (), True
     return (
         bool(visual_anchor_enabled),
@@ -329,7 +329,7 @@ def _legacy_anchor_inputs(
     )
 
 
-def _canonical_v45_enabled(
+def _canonical_v46_enabled(
     request: SeriesVisualSignatureRequest | None,
 ) -> bool:
     return bool(request is not None and request.enabled)
