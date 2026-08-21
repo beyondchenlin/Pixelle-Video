@@ -280,7 +280,8 @@ def test_image_prompt_template_preserves_json_contract_and_explains_ip_scene_des
     assert "Only output JSON" in prompt
     assert "ip_scene_description" in prompt
     assert "list[str]" not in prompt
-    assert "Weave" in prompt
+    assert "weave it into the scene" in prompt
+    assert "Do not invent or insert a recurring identity" in prompt
 
 
 def test_image_prompt_template_carries_ip_scene_description_and_style_context():
@@ -300,7 +301,7 @@ def test_image_prompt_template_carries_ip_scene_description_and_style_context():
 
     assert "ip_scene_description" in prompt
     assert "style_context" in prompt
-    assert "Weave" in prompt
+    assert "weave it into the scene" in prompt
     assert "overlay" in prompt.lower()
 
 

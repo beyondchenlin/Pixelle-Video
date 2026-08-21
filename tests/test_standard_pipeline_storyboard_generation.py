@@ -11,6 +11,7 @@ from pixelle_video.models.final_visual_prompt_contract import (
 )
 from pixelle_video.models.media import MediaResult
 from pixelle_video.models.prompt_plan import PromptPlanBundle
+from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
@@ -18,6 +19,9 @@ from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
+from pixelle_video.services.series_visual_signature_rendered_output_gate import (
+    SeriesVisualSignatureRenderedOutputGateError,
+)
 from pixelle_video.utils.template_util import get_template_orientation
 
 
@@ -262,6 +266,102 @@ def test_write_series_signature_trace_artifact_preserves_complete_v45_record(
         / "final_integrated_prompt_frame_001.txt"
     )
     assert prompt_path.read_text(encoding="utf-8") == "exact positive prompt"
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_records_auto_output_validation_skip_without_vision(
+    tmp_path,
+) -> None:
+    plan = _plan()
+    frame_id = plan.frames[0].frame_id
+    profile = VisualSignatureProfileSnapshot(
+        profile_id="dog_1",
+        display_name="Dalmatian",
+        core_identity_traits=("black spots", "black sunglasses"),
+    )
+    ctx = PipelineContext(input_text="Scene.", params={})
+    ctx.task_id = "task-output-gate"
+    ctx.task_dir = str(tmp_path)
+    ctx.storyboard_plan = plan
+    config = StoryboardConfig(
+        task_id=ctx.task_id,
+        media_width=1024,
+        media_height=1024,
+    )
+    frame = StoryboardFrame(
+        index=plan.frames[0].index,
+        narration="Scene.",
+        image_prompt="prompt",
+    )
+    image_path = tmp_path / "frame.png"
+    image_path.write_bytes(b"image-bytes")
+    frame.image_path = str(image_path)
+    frame.media_type = "image"
+    ctx.storyboard = Storyboard(title="Test", config=config, frames=[frame])
+    ctx.planning_snapshot = {
+        "series_visual_signature_trace_by_frame": {
+            frame_id: {
+                "contract": {
+                    "series_visual_signature": {
+                        "enabled": True,
+                        "max_area_ratio": 0.16,
+                        "profile": profile.to_dict(),
+                    }
+                }
+            }
+        }
+    }
+
+    pipeline = StandardPipeline(_DummyCore())
+    pipeline._configure_series_visual_signature_output_gate(ctx, media_type="image")
+
+    assert ctx.generated_media_validator is not None
+    assert ctx.media_generation_max_attempts == 2
+    assert await ctx.generated_media_validator(frame, 0) is True
+    audit = ctx.planning_snapshot[
+        "series_visual_signature_rendered_output_audit_by_frame"
+    ][frame_id]
+    assert audit["final_status"] == "skipped"
+    assert audit["accepted"] is True
+    assert audit["attempt_count"] == 1
+    assert audit["attempts"][0]["reason"] == "vision_llm_disabled"
+
+
+def test_strict_signature_output_validation_fails_before_media_without_vision(
+    tmp_path,
+) -> None:
+    plan = _plan()
+    frame_id = plan.frames[0].frame_id
+    ctx = PipelineContext(
+        input_text="Scene.",
+        params={"series_visual_signature_enforcement": "strict"},
+    )
+    ctx.task_id = "task-output-gate-strict"
+    ctx.task_dir = str(tmp_path)
+    ctx.storyboard_plan = plan
+    ctx.storyboard = Storyboard(
+        title="Test",
+        config=StoryboardConfig(
+            task_id=ctx.task_id,
+            media_width=1024,
+            media_height=1024,
+        ),
+        frames=[StoryboardFrame(index=0, narration="Scene.", image_prompt="prompt")],
+    )
+    ctx.planning_snapshot = {
+        "series_visual_signature_trace_by_frame": {
+            frame_id: {"contract": {"series_visual_signature": {"enabled": True}}}
+        }
+    }
+
+    with pytest.raises(
+        SeriesVisualSignatureRenderedOutputGateError,
+        match="vision_llm_disabled",
+    ):
+        StandardPipeline(_DummyCore())._configure_series_visual_signature_output_gate(
+            ctx,
+            media_type="image",
+        )
 
 
 @pytest.mark.asyncio

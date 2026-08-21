@@ -21,6 +21,9 @@ from pixelle_video.models.series_visual_signature_projection_policy import (
     SeriesVisualSignatureProjectionMetrics,
 )
 from pixelle_video.services.final_visual_prompt_compiler import FinalVisualPromptCompiler
+from pixelle_video.services.series_visual_signature_base_prompt_gate import (
+    assert_series_visual_signature_base_prompt_is_identity_isolated,
+)
 from pixelle_video.services.series_visual_signature_contract_builder import (
     SeriesVisualSignatureContractBuilder,
 )
@@ -104,7 +107,11 @@ class SeriesVisualSignatureFrameProjection:
             ),
             "contract_content_sha256": self.contract.contract_content_sha256,
             "contract_version": self.contract.contract_version,
+            # Compatibility alias retained for existing trace readers. This gate
+            # validates provider prompts, not rendered pixels.
             "final_gate_passed": True,
+            "prompt_contract_gate_passed": True,
+            "rendered_output_gate_passed": None,
         }
 
 
@@ -299,6 +306,11 @@ class SeriesVisualSignatureProjectionService:
             base_visual_brief=base_visual_brief,
         )
         self.budget.assert_required_subjects(required_subjects)
+        assert_series_visual_signature_base_prompt_is_identity_isolated(
+            base_prompt=base_prompt,
+            required_subjects=required_subjects,
+            profile=profile,
+        )
 
         article_payload, render_payload, visible_text_policy, task, role_context = (
             _projection_context(
@@ -485,6 +497,8 @@ def _sha256(value: str) -> str:
 
 def _projection_reason_code(cause: Exception) -> str:
     message = str(cause).casefold()
+    if "signature-free base prompt gate failed" in message:
+        return "base_prompt_identity_leak"
     if "structured required subjects" in message:
         return "missing_required_subjects"
     if "runtime budget" in message or "persistence budget" in message:

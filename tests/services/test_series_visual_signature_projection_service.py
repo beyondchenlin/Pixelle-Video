@@ -10,6 +10,7 @@ from pixelle_video.services.series_visual_signature_profile_snapshot_builder imp
     SeriesVisualSignatureProfileSnapshotBuilder,
 )
 from pixelle_video.services.series_visual_signature_projection_service import (
+    SeriesVisualSignatureProjectionError,
     SeriesVisualSignatureProjectionService,
 )
 from pixelle_video.services.visible_text_prompt_rewriter import (
@@ -143,7 +144,6 @@ def test_projection_passes_through_when_no_required_subjects_exist() -> None:
         assert trait in frame.bundle.positive_prompt
     assert frame.contract.contract_id == "v45:frame-1"
     assert frame.contract.series_visual_signature is not None
-
     audit = result.audit_dict()
     assert audit["status"] == "passed"
     assert audit["expected_frame_count"] == 1
@@ -158,6 +158,36 @@ def test_projection_passes_through_when_no_required_subjects_exist() -> None:
     assert len(frame_audit["positive_prompt_sha256"]) == 64
     assert len(frame_audit["negative_prompt_sha256"]) == 64
 
+
+@pytest.mark.parametrize(
+    ("base_prompt", "frame_context"),
+    [
+        ("Dalmatian beside a factory worker", {"primary_subject": "worker"}),
+        ("worker beside a machine", {"primary_subject": "Dalmatian"}),
+        ("worker with black spots on a chart", {"primary_subject": "worker"}),
+    ],
+)
+def test_projection_fails_closed_when_content_boundary_contains_identity_facts(
+    base_prompt,
+    frame_context,
+) -> None:
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=_request(),
+        ip_profile=_ip_profile(),
+    )
+
+    with pytest.raises(SeriesVisualSignatureProjectionError) as exc_info:
+        SeriesVisualSignatureProjectionService().project_batch(
+            base_prompts=[base_prompt],
+            frame_ids=["frame-1"],
+            frame_contexts=[frame_context],
+            request=_request(),
+            profile=profile,
+        )
+
+    assert exc_info.value.reason_code == "base_prompt_identity_leak"
+    assert "Dalmatian" not in str(exc_info.value)
+    assert "black spots" not in str(exc_info.value)
 
 def test_projection_passes_through_empty_subjects_in_mixed_batch() -> None:
     profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
@@ -278,7 +308,7 @@ def test_projection_preserves_base_prompt_and_all_identity_traits() -> None:
     assert len(audit["frames"][0]["positive_prompt_sha256"]) == 64
 
 
-def test_projection_passes_through_when_llm_already_included_ip() -> None:
+def test_projection_rejects_base_prompt_that_already_included_identity() -> None:
     profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
         request=_request(),
         ip_profile=_ip_profile(),
@@ -289,20 +319,16 @@ def test_projection_passes_through_when_llm_already_included_ip() -> None:
         "stands beside a timeline showing Musk's achievements"
     )
 
-    result = SeriesVisualSignatureProjectionService().project_batch(
-        base_prompts=[llm_prompt],
-        frame_ids=["frame-1"],
-        frame_contexts=[{}],
-        request=_request(),
-        profile=profile,
-    )
+    with pytest.raises(SeriesVisualSignatureProjectionError) as exc_info:
+        SeriesVisualSignatureProjectionService().project_batch(
+            base_prompts=[llm_prompt],
+            frame_ids=["frame-1"],
+            frame_contexts=[{}],
+            request=_request(),
+            profile=profile,
+        )
 
-    assert result.expected_frame_count == 1
-    frame = result.frames[0]
-    assert frame.signature.enabled is True
-    assert frame.signature.role.value == "silent_witness"
-    assert "timeline showing Musk" in frame.bundle.positive_prompt
-    assert "Dalmatian" in frame.bundle.positive_prompt
+    assert exc_info.value.reason_code == "base_prompt_identity_leak"
 
 
 def test_projection_fallback_injects_when_llm_missed_ip() -> None:
@@ -362,13 +388,13 @@ def test_projection_treats_long_generated_prompt_as_bounded_optional_detail() ->
     frame = result.frames[0]
     metadata = frame.bundle.to_dict()["metadata"]
     prompt_budget = metadata["prompt_budget"]
-    assert "Steve Jobs presents an early Macintosh on stage" in frame.bundle.positive_prompt
+    assert frame.bundle.positive_prompt.startswith(
+        "Main scene: Steve Jobs stands on a product launch stage with an early Macintosh"
+    )
     assert generated_prompt not in frame.bundle.positive_prompt
     assert len(frame.bundle.positive_prompt) <= 1200
     assert prompt_budget["main_and_subject_chars"] <= 400
-    assert prompt_budget["optional_visual_detail"]["included"] is True
-    assert prompt_budget["optional_visual_detail"]["compacted"] is True
-    assert metadata["prompt_sections"]["main_detail"].startswith("Visual detail:")
+    assert prompt_budget["main_visual"]["compacted"] is True
     for trait in profile.identity_traits:
         assert trait in frame.bundle.positive_prompt
 
@@ -406,7 +432,9 @@ def test_projection_accepts_browser_chinese_prompt_with_visual_signature() -> No
 
     frame = result.frames[0]
     metadata = frame.bundle.to_dict()["metadata"]
-    assert "展示乔布斯的形象及其对世界的影响力和经历的起伏" in frame.bundle.positive_prompt
+    assert frame.bundle.positive_prompt.startswith(
+        "Main scene: 乔布斯站在档案室的档案桌旁"
+    )
     assert "乔布斯" in frame.bundle.positive_prompt
     assert "苹果公司" in frame.bundle.positive_prompt
     assert "黑色墨镜" in frame.bundle.positive_prompt
@@ -414,7 +442,7 @@ def test_projection_accepts_browser_chinese_prompt_with_visual_signature() -> No
     assert generated_prompt not in frame.bundle.positive_prompt
     assert len(frame.bundle.positive_prompt) <= 1200
     assert metadata["prompt_budget"]["main_and_subject_chars"] <= 400
-    assert metadata["prompt_budget"]["optional_visual_detail"]["compacted"] is True
+    assert metadata["prompt_budget"]["main_visual"]["compacted"] is True
     assert frame.bundle.positive_prompt.count(NO_VISIBLE_TEXT_DRAWING_CLAUSE) == 1
 
 

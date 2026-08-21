@@ -21,7 +21,11 @@ from pixelle_video.models.z_image_prompt_bundle import ZImagePromptBundle
 from pixelle_video.services.series_visual_signature_final_prompt_gate import (
     assert_series_visual_signature_final_prompt,
 )
+from pixelle_video.services.series_visual_signature_rendering import (
+    rendered_identity_clause,
+)
 from pixelle_video.services.visible_text_prompt_rewriter import (
+    NO_VISIBLE_TEXT_DRAWING_CLAUSE,
     NO_VISIBLE_TEXT_NEGATIVE_PROMPT,
     rewrite_for_no_visible_text,
     rewrite_visible_text_drawing_risks,
@@ -30,9 +34,13 @@ from pixelle_video.services.visible_text_prompt_rewriter import (
 MAX_Z_IMAGE_POSITIVE_PROMPT_CHARS = 1200
 MAX_Z_IMAGE_NEGATIVE_PROMPT_CHARS = 800
 MAX_MAIN_AND_SUBJECT_CHARS = 400
-MAX_CANONICAL_IDENTITY_CHARS = 400
+MAX_RENDERED_IDENTITY_CHARS = 400
+# Public compatibility alias. The persisted canonical clause remains an audit
+# source, while provider-facing rendering now uses a deduplicated clause.
+MAX_CANONICAL_IDENTITY_CHARS = MAX_RENDERED_IDENTITY_CHARS
 MAX_PLACEMENT_AND_FUSION_CHARS = 300
 MAX_ROLE_AND_ACTION_CHARS = 200
+MAX_INSTANCE_CONTROL_CHARS = 240
 MAX_STYLE_CHARS = 100
 
 SERIES_VISUAL_SIGNATURE_NEGATIVE_PROTECTIONS = (
@@ -73,15 +81,15 @@ class FinalVisualPromptCompiler:
         prompt_budget: dict[str, Any] | None = None
         if signature.enabled:
             main_visual = _first_non_empty(
-                anchor.get("anchor_claim"),
-                contract.get("visual_concretization_summary"),
                 diagram.get("visual_metaphor"),
+                contract.get("visual_concretization_summary"),
+                anchor.get("anchor_claim"),
                 "one clear explanation visual",
             )
             optional_visual_details = _optional_visual_details(
                 main_visual,
-                diagram.get("visual_metaphor"),
                 contract.get("visual_concretization_summary"),
+                anchor.get("anchor_claim"),
             )
             if visible_text_policy == "no_visible_text":
                 main_visual = rewrite_for_no_visible_text(main_visual)
@@ -161,6 +169,7 @@ class FinalVisualPromptCompiler:
             in {
                 "main_content",
                 "fixed_identity",
+                "instance_control",
                 "role",
                 "placement",
                 "scene_fusion",
@@ -228,13 +237,19 @@ def _signature_prompt_sections(
     if fusion is None:
         raise ValueError("enabled series visual signature requires scene_fusion")
 
+    subject_protection = _subject_protection_clause(required_subjects)
+    fitted_main_visual, main_visual_audit = _fit_main_visual(
+        main_visual=main_visual,
+        subject_protection=subject_protection,
+    )
     sections = {
-        "main_content": f"Main scene: {main_visual}",
+        "main_content": f"Main scene: {fitted_main_visual}",
         "main_detail": "",
-        "subject_protection": _subject_protection_clause(required_subjects),
-        "fixed_identity": profile.canonical_identity_clause,
+        "subject_protection": subject_protection,
+        "fixed_identity": rendered_identity_clause(profile),
+        "instance_control": _single_instance_clause(),
         "role": (
-            "It keeps its original character form; "
+            "This same identity keeps its original character form; "
             f"role {signature.role.value}; {placement.action}"
         ),
         "placement": _placement_clause(placement),
@@ -252,9 +267,9 @@ def _signature_prompt_sections(
         MAX_MAIN_AND_SUBJECT_CHARS,
     )
     _assert_section_budget(
-        "canonical identity",
+        "rendered identity",
         sections["fixed_identity"],
-        MAX_CANONICAL_IDENTITY_CHARS,
+        MAX_RENDERED_IDENTITY_CHARS,
     )
     _assert_section_budget(
         "placement and scene fusion",
@@ -267,6 +282,11 @@ def _signature_prompt_sections(
         "role and action",
         sections["role"],
         MAX_ROLE_AND_ACTION_CHARS,
+    )
+    _assert_section_budget(
+        "single instance control",
+        sections["instance_control"],
+        MAX_INSTANCE_CONTROL_CHARS,
     )
     _assert_section_budget("style", sections["style"], MAX_STYLE_CHARS)
 
@@ -318,8 +338,14 @@ def _signature_prompt_sections(
         "positive_prompt_limit": MAX_Z_IMAGE_POSITIVE_PROMPT_CHARS,
         "main_and_subject_chars": main_group_chars,
         "main_and_subject_limit": MAX_MAIN_AND_SUBJECT_CHARS,
+        "rendered_identity_chars": len(sections["fixed_identity"]),
+        "rendered_identity_limit": MAX_RENDERED_IDENTITY_CHARS,
+        # Compatibility aliases for persisted trace readers.
         "canonical_identity_chars": len(sections["fixed_identity"]),
-        "canonical_identity_limit": MAX_CANONICAL_IDENTITY_CHARS,
+        "canonical_identity_limit": MAX_RENDERED_IDENTITY_CHARS,
+        "single_instance_control_chars": len(sections["instance_control"]),
+        "single_instance_control_limit": MAX_INSTANCE_CONTROL_CHARS,
+        "main_visual": main_visual_audit,
         "placement_and_fusion_chars": len(
             _join_sections((sections["placement"], sections["scene_fusion"]))
         ),
@@ -374,13 +400,61 @@ def _placement_clause(
     placement: VisualEntityPlacement,
 ) -> str:
     return (
-        f"One; {placement.horizontal_position.value}/"
+        f"Same identity: {placement.horizontal_position.value}/"
         f"{placement.depth_position.value}/{placement.relative_size.value.replace('_', '-')}; "
         f"{placement.spatial_relation} {placement.relation_target}; "
         f"{placement.support_relation}; {placement.orientation}; "
-        f"{placement.visible_extent.value.replace('_', '-')}; shows "
-        + " + ".join(placement.visible_core_traits)
+        f"{placement.visible_extent.value.replace('_', '-')}; "
+        "defining traits visible"
     )
+
+
+def _single_instance_clause() -> str:
+    return (
+        "Exactly one recurring identity exists in the whole frame: one body, "
+        "one head, one location; it stays visually subordinate to the main content"
+    )
+
+
+def _fit_main_visual(
+    *,
+    main_visual: str,
+    subject_protection: str,
+) -> tuple[str, dict[str, Any]]:
+    prefix = "Main scene: "
+    separator_chars = 2 if subject_protection else 0
+    available = (
+        MAX_MAIN_AND_SUBJECT_CHARS
+        - len(prefix)
+        - len(subject_protection)
+        - separator_chars
+    )
+    if available <= 0:
+        raise ValueError(
+            "protected main content and required subjects exceed product prompt budget"
+        )
+    source = " ".join(str(main_visual or "").split())
+    protected_suffix = ""
+    compactable_source = source
+    if NO_VISIBLE_TEXT_DRAWING_CLAUSE in source:
+        compactable_source = source.replace(NO_VISIBLE_TEXT_DRAWING_CLAUSE, "")
+        compactable_source = compactable_source.strip(" ;,.")
+        protected_suffix = f"; {NO_VISIBLE_TEXT_DRAWING_CLAUSE}"
+    compactable_limit = available - len(protected_suffix)
+    if compactable_limit <= 0:
+        raise ValueError(
+            "protected no-visible-text drawing clause cannot fit product prompt budget"
+        )
+    fitted = _shorten_optional(compactable_source, compactable_limit)
+    if protected_suffix:
+        fitted = f"{fitted}{protected_suffix}"
+    if not fitted:
+        raise ValueError("protected main visual cannot fit product prompt budget")
+    return fitted, {
+        "source_chars": len(source),
+        "included_chars": len(fitted),
+        "compacted": fitted != source,
+    }
 
 
 def _fusion_clause(fusion: VisualEntitySceneFusion) -> str:
@@ -640,8 +714,10 @@ def _shorten_optional(text: str, limit: int) -> str:
 __all__ = [
     "FinalVisualPromptCompiler",
     "MAX_CANONICAL_IDENTITY_CHARS",
+    "MAX_INSTANCE_CONTROL_CHARS",
     "MAX_MAIN_AND_SUBJECT_CHARS",
     "MAX_PLACEMENT_AND_FUSION_CHARS",
+    "MAX_RENDERED_IDENTITY_CHARS",
     "MAX_STYLE_CHARS",
     "MAX_Z_IMAGE_NEGATIVE_PROMPT_CHARS",
     "MAX_Z_IMAGE_POSITIVE_PROMPT_CHARS",

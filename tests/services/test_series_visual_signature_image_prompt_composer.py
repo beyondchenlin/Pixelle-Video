@@ -165,39 +165,24 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
         },
     )
 
-    # Canonical V4.5 keeps every legacy identity runtime input hard-disabled.
-    # Validated identity facts reach the LLM only through prompt_contexts.
+    # Canonical V4.5 keeps every identity runtime input out of base generation.
     assert captured_generation["series_visual_signature_enabled"] is False
     assert captured_generation["series_visual_signature_request"] is None
     assert captured_generation["series_visual_signature_profile"] is None
     assert captured_generation["ip_profile"] is None
     assert captured_generation["scene_casts_by_frame"] is None
     generation_context = captured_generation["prompt_contexts"].frame_contexts[0]
-    assert generation_context["canonical_visual_identity"] == {
-        "profile_id": "dog_1",
-        "display_name": "Dalmatian",
-        "identity_traits": [
-            "black spots",
-            "black sunglasses",
-            "red collar",
-            "small round ears",
-        ],
-        "core_identity_traits": [
-            "black spots",
-            "black sunglasses",
-            "red collar",
-            "small round ears",
-        ],
-        "supporting_identity_traits": [],
-        "canonical_identity_clause": (
-            "Canonical recurring identity Dalmatian: black spots, black sunglasses, "
-            "red collar, small round ears."
-        ),
-        "identity_content_sha256": (
-            "de240f30303bfe2b937505a750c32bad2273c5edf80ffb9ad86da32837f163bd"
-        ),
-        "requested_role": "auto",
-    }
+    assert "canonical_visual_identity" not in generation_context
+    for identity_fact in (
+        "dog_1",
+        "Dalmatian",
+        "black spots",
+        "black sunglasses",
+        "red collar",
+        "small round ears",
+        "de240f30303bfe2b937505a750c32bad2273c5edf80ffb9ad86da32837f163bd",
+    ):
+        assert identity_fact not in str(captured_generation["prompt_contexts"])
     assert "visual_story_ip_fusion_plan" not in generation_context
     context_text = str(generation_context)
     for forbidden in (
@@ -267,6 +252,8 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
     frame_audit = audit["frames"][0]
     assert frame_audit["identity_trait_count"] == 4
     assert frame_audit["final_gate_passed"] is True
+    assert frame_audit["prompt_contract_gate_passed"] is True
+    assert frame_audit["rendered_output_gate_passed"] is None
     assert "positive_prompt" not in frame_audit
     assert "negative_prompt" not in frame_audit
     assert len(frame_audit["positive_prompt_sha256"]) == 64
@@ -313,9 +300,10 @@ async def test_video_prompt_path_uses_same_canonical_visual_signature_projection
     assert captured_generation["series_visual_signature_enabled"] is False
     assert captured_generation["series_visual_signature_request"] is None
     assert captured_generation["ip_profile"] is None
-    assert captured_generation["prompt_contexts"].frame_contexts[0][
-        "canonical_visual_identity"
-    ]["display_name"] == "Dalmatian"
+    assert "canonical_visual_identity" not in (
+        captured_generation["prompt_contexts"].frame_contexts[0]
+    )
+    assert "Dalmatian" not in str(captured_generation["prompt_contexts"])
     assert "Dalmatian" in result.prompts[0]
     assert result.planning_snapshot[
         "series_visual_signature_projection_audit"

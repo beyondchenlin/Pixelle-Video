@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.series_visual_signature import (
     SeriesVisualSignatureRequest,
     VisualSignatureProfileSnapshot,
@@ -13,10 +12,8 @@ from pixelle_video.services.series_visual_signature_profile_snapshot_builder imp
     SeriesVisualSignatureProfileSnapshotBuilder,
 )
 from pixelle_video.services.series_visual_signature_projection_service import (
+    SeriesVisualSignatureProjectionError,
     SeriesVisualSignatureProjectionService,
-)
-from pixelle_video.services.visual_prompt_composer import (
-    _attach_canonical_visual_identity_context,
 )
 
 
@@ -74,25 +71,24 @@ def _identity_prompt(*, include_name: bool = True, include_worker: bool = False)
     return ", ".join(parts)
 
 
-def test_identity_complete_prompt_cannot_bypass_required_subjects() -> None:
+def test_identity_bearing_base_prompt_cannot_bypass_isolation_gate() -> None:
     request = _request()
-    result = SeriesVisualSignatureProjectionService().project_batch(
-        base_prompts=[_identity_prompt(include_worker=False)],
-        frame_ids=["frame-1"],
-        frame_contexts=[{"primary_subject": "worker"}],
-        request=request,
-        profile=_snapshot(request),
-    )
-
-    frame = result.frames[0]
-    assert frame.required_subjects == ("worker",)
-    assert "worker" in frame.bundle.positive_prompt
-    assert frame.contract.required_subjects == ("worker",)
+    with pytest.raises(
+        SeriesVisualSignatureProjectionError,
+        match="base_prompt_identity_leak",
+    ):
+        SeriesVisualSignatureProjectionService().project_batch(
+            base_prompts=[_identity_prompt(include_worker=False)],
+            frame_ids=["frame-1"],
+            frame_contexts=[{"primary_subject": "worker"}],
+            request=request,
+            profile=_snapshot(request),
+        )
 
 
 def test_preserved_prompt_uses_requested_guide_contract() -> None:
     request = _request(series_visual_signature_role="guide")
-    prompt = _identity_prompt(include_worker=True)
+    prompt = "worker operates an assembly machine"
 
     result = SeriesVisualSignatureProjectionService().project_batch(
         base_prompts=[prompt],
@@ -112,10 +108,10 @@ def test_preserved_prompt_uses_requested_guide_contract() -> None:
     assert "scene perspective" in frame.bundle.positive_prompt
 
 
-def test_missing_display_name_is_repaired_without_dropping_subject_contract() -> None:
+def test_signature_is_inserted_once_without_dropping_subject_contract() -> None:
     request = _request()
     result = SeriesVisualSignatureProjectionService().project_batch(
-        base_prompts=[_identity_prompt(include_name=False, include_worker=True)],
+        base_prompts=["worker operates an assembly machine"],
         frame_ids=["frame-1"],
         frame_contexts=[{"primary_subject": "worker"}],
         request=request,
@@ -168,55 +164,26 @@ def test_projection_revalidates_external_snapshot_before_prompt_use() -> None:
         )
 
 
-def test_canonical_identity_context_contains_only_validated_identity_facts() -> None:
+def test_identity_bearing_required_subject_is_rejected_at_projection_boundary() -> None:
     request = _request(series_visual_signature_role="guide")
-    profile = _snapshot(request)
-    envelope = PromptContextEnvelope(
-        plan_context={"plan_id": "plan-1"},
-        frame_contexts=[{"frame_source_text": "A worker operates a machine."}],
-    )
 
-    result = _attach_canonical_visual_identity_context(
-        envelope,
-        request=request,
-        profile=profile,
-    )
-
-    identity = result.frame_contexts[0]["canonical_visual_identity"]
-    assert identity == {
-        "profile_id": "dog_1",
-        "display_name": "Dalmatian",
-        "identity_traits": [
-            "black spots",
-            "black sunglasses",
-            "red collar",
-            "small round ears",
-        ],
-        "core_identity_traits": [
-            "black spots",
-            "black sunglasses",
-            "red collar",
-            "small round ears",
-        ],
-        "supporting_identity_traits": [],
-        "canonical_identity_clause": (
-            "Canonical recurring identity Dalmatian: black spots, black sunglasses, "
-            "red collar, small round ears."
-        ),
-        "identity_content_sha256": (
-            "de240f30303bfe2b937505a750c32bad2273c5edf80ffb9ad86da32837f163bd"
-        ),
-        "requested_role": "guide",
-    }
-    assert result.frame_contexts[0]["frame_source_text"] == "A worker operates a machine."
-    assert "ip_profile" not in result.frame_contexts[0]
-    assert "series_visual_signature_request" not in result.frame_contexts[0]
+    with pytest.raises(
+        SeriesVisualSignatureProjectionError,
+        match="base_prompt_identity_leak",
+    ):
+        SeriesVisualSignatureProjectionService().project_batch(
+            base_prompts=["worker operates an assembly machine"],
+            frame_ids=["frame-1"],
+            frame_contexts=[{"primary_subject": "Dalmatian"}],
+            request=request,
+            profile=_snapshot(request),
+        )
 
 
 def test_no_visible_text_preservation_adds_required_negative_protection() -> None:
     request = _request()
     result = SeriesVisualSignatureProjectionService().project_batch(
-        base_prompts=[_identity_prompt(include_worker=True)],
+        base_prompts=["worker operates an assembly machine"],
         frame_ids=["frame-1"],
         frame_contexts=[
             {

@@ -20,6 +20,7 @@ Key Feature:
   to ensure perfect sync between audio and video (no padding, no trimming needed)
 """
 
+import hashlib
 import inspect
 import os
 import shutil
@@ -59,6 +60,7 @@ def _media_call_trace_output_dir(
     trace_context: dict,
     *,
     frame_index: int,
+    generation_attempt: int = 0,
 ) -> Path:
     artifact_path = Path(str(trace_context.get("artifact_path") or ""))
     if artifact_path.name:
@@ -73,7 +75,10 @@ def _media_call_trace_output_dir(
         task_root = prompt_trace_root.parent if prompt_trace_root else artifact_path.parent
     else:
         task_root = Path(".")
-    return task_root / "media_prompt_calls" / f"frame_{frame_index + 1:03d}"
+    output_dir = task_root / "media_prompt_calls" / f"frame_{frame_index + 1:03d}"
+    if generation_attempt > 0:
+        output_dir = output_dir / f"retry_{generation_attempt:02d}"
+    return output_dir
 
 
 @asynccontextmanager
@@ -151,6 +156,21 @@ def _get_image_segment_fps(configured_fps: int) -> int:
     return max(configured_fps, IMAGE_SEGMENT_MIN_FPS)
 
 
+def _generation_retry_seed(
+    *,
+    task_id: str,
+    frame_index: int,
+    generation_attempt: int,
+) -> int | None:
+    if type(generation_attempt) is not int or generation_attempt < 0:
+        raise ValueError("generation_attempt must be a non-negative integer")
+    if generation_attempt == 0:
+        return None
+    material = f"{task_id}:{frame_index}:{generation_attempt}".encode("utf-8")
+    value = int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
+    return (value % 2_147_483_646) + 1
+
+
 class FrameProcessor:
     """Frame processor"""
 
@@ -174,6 +194,10 @@ class FrameProcessor:
         element_motion_materializer: Optional[
             Callable[[StoryboardFrame], Awaitable[None]]
         ] = None,
+        media_validator: Optional[
+            Callable[[StoryboardFrame, int], Awaitable[bool]]
+        ] = None,
+        media_generation_max_attempts: int = 1,
     ) -> StoryboardFrame:
         """
         Process single frame through complete pipeline
@@ -233,7 +257,12 @@ class FrameProcessor:
                         step=2,
                         action=ProgressFrameAction.MEDIA
                     ))
-                await self._step_generate_media(frame, config)
+                await self._step_generate_media_with_validation(
+                    frame,
+                    config,
+                    media_validator=media_validator,
+                    max_attempts=media_generation_max_attempts,
+                )
             elif has_existing_media:
                 # Log appropriate message based on media type
                 if frame.video_path:
@@ -578,10 +607,41 @@ class FrameProcessor:
     def _format_ffmpeg_time(value: float) -> str:
         return f"{max(float(value), 0.0):.3f}".rstrip("0").rstrip(".") or "0"
 
+    async def _step_generate_media_with_validation(
+        self,
+        frame: StoryboardFrame,
+        config: StoryboardConfig,
+        *,
+        media_validator: Optional[
+            Callable[[StoryboardFrame, int], Awaitable[bool]]
+        ] = None,
+        max_attempts: int = 1,
+    ) -> None:
+        if type(max_attempts) is not int or not 1 <= max_attempts <= 3:
+            raise ValueError("media generation max_attempts must be between 1 and 3")
+        for generation_attempt in range(max_attempts):
+            if generation_attempt == 0:
+                await self._step_generate_media(frame, config)
+            else:
+                await self._step_generate_media(
+                    frame,
+                    config,
+                    generation_attempt=generation_attempt,
+                )
+            if media_validator is None:
+                return
+            if await media_validator(frame, generation_attempt):
+                return
+        raise RuntimeError(
+            "generated media failed rendered-output validation after bounded attempts"
+        )
+
     async def _step_generate_media(
         self,
         frame: StoryboardFrame,
-        config: StoryboardConfig
+        config: StoryboardConfig,
+        *,
+        generation_attempt: int = 0,
     ):
         """Step 2: Generate media (image or video) using ComfyKit"""
         logger.debug(f"  2/4: Generating media for frame {frame.index}...")
@@ -603,6 +663,13 @@ class FrameProcessor:
             "height": config.media_height,
             "index": frame.index + 1,  # 1-based index for workflow
         }
+        retry_seed = _generation_retry_seed(
+            task_id=config.task_id,
+            frame_index=frame.index,
+            generation_attempt=generation_attempt,
+        )
+        if retry_seed is not None:
+            media_params["seed"] = retry_seed
         frame_negative_prompt = frame.negative_prompt or config.media_negative_prompt
         if frame_negative_prompt:
             media_params["negative_prompt"] = frame_negative_prompt
@@ -628,6 +695,8 @@ class FrameProcessor:
                 "height": config.media_height,
                 "index": media_params["index"],
             }
+            if retry_seed is not None:
+                workflow_params_for_trace["seed"] = retry_seed
             if frame_negative_prompt:
                 workflow_params_for_trace["negative_prompt"] = frame_negative_prompt
             if "duration" in media_params:
@@ -642,6 +711,7 @@ class FrameProcessor:
                         _media_call_trace_output_dir(
                             trace_context,
                             frame_index=frame.index,
+                            generation_attempt=generation_attempt,
                         ),
                         task_id=trace_context.get("task_id") or config.task_id or "",
                         prompt=frame.image_prompt or "",
@@ -666,6 +736,7 @@ class FrameProcessor:
                         generation_context={
                             "source_artifact_path": trace_context.get("artifact_path"),
                             "frame_index": frame.index,
+                            "generation_attempt": generation_attempt,
                         },
                         workflow_params=workflow_params_for_trace,
                         task_root=trace_context.get("task_root"),

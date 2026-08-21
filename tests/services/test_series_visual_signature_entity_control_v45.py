@@ -78,12 +78,13 @@ def _contract(
     frame_id: str = "frame-1",
     grammar: str = "plain_scene",
     base_prompt: str = "worker beside assembly line on a factory floor",
+    anchor_claim: str | None = None,
     required_subjects=("worker", "assembly line"),
     forbidden_traits=(),
 ) -> FinalVisualPromptContractV45:
     signature = _signature(forbidden_traits=forbidden_traits)
     article = {
-        "anchor": {"anchor_claim": base_prompt},
+        "anchor": {"anchor_claim": anchor_claim or base_prompt},
         "diagram": {"grammar": grammar, "visual_metaphor": base_prompt},
         "render": {"render_style": "editorial_diagram"},
     }
@@ -325,15 +326,86 @@ def test_physical_contract_compiles_every_placement_and_fusion_fact() -> None:
     assert len(bundle.positive_prompt) <= 1200
     assert len(bundle.negative_prompt) <= 800
     assert "%" not in bundle.positive_prompt
-    assert "One;" in bundle.positive_prompt
-    assert "It keeps its original character form" in bundle.positive_prompt
+    assert "Exactly one recurring identity exists in the whole frame" in bundle.positive_prompt
+    assert "This same identity keeps its original character form" in bundle.positive_prompt
+    assert "Same identity:" in bundle.positive_prompt
     assert bundle.positive_prompt.index("Required subjects stay visible") < (
-        bundle.positive_prompt.index("Canonical recurring identity")
+        bundle.positive_prompt.index("The single recurring identity is")
     )
     assert (
         "non-human recurring identity with human anatomy, human clothing, or mascot costume"
         in bundle.negative_prompt
     )
+
+
+def test_signature_compiler_prioritizes_concrete_base_scene_over_generic_anchor() -> None:
+    concrete_scene = "worker calibrates the assembly machine beside a conveyor"
+    bundle = FinalVisualPromptCompiler().compile(
+        final_contract=_contract(
+            base_prompt=concrete_scene,
+            anchor_claim="show the meaning of this storyboard segment",
+        )
+    )
+
+    assert bundle.positive_prompt.startswith(f"Main scene: {concrete_scene}")
+    assert bundle.positive_prompt.index(concrete_scene) < bundle.positive_prompt.index(
+        "The single recurring identity is"
+    )
+
+
+def test_provider_prompt_mentions_chinese_identity_name_and_traits_once() -> None:
+    profile = VisualSignatureProfileSnapshot(
+        profile_id="dog_zh",
+        display_name="斑点狗",
+        core_identity_traits=("斑点狗", "斑点狗戴黑色墨镜", "红色项圈"),
+    )
+    signature = SeriesVisualSignatureContract(
+        enabled=True,
+        role="guide",
+        profile=profile,
+        max_area_ratio=0.16,
+        participation_rule="Guide points to the source subject.",
+    )
+    base_prompt = "一名工程师检查桌上的原型机"
+    article = {
+        "anchor": {"anchor_claim": "解释原型机的工作方式"},
+        "diagram": {"grammar": "plain_scene", "visual_metaphor": base_prompt},
+        "render": {"render_style": "editorial_diagram"},
+    }
+    placement, fusion = VisualEntityPlacementPlanner().plan(
+        frame_id="frame-zh",
+        base_prompt=base_prompt,
+        frame_context={"primary_subject": "工程师"},
+        base_visual_brief=None,
+        article_concretization=article,
+        required_subjects=("工程师", "原型机"),
+        signature=signature,
+    )
+    contract = FinalVisualPromptContractV45(
+        contract_id="contract:frame-zh",
+        frame_id="frame-zh",
+        primary_visual_task="cognitive_explanation",
+        required_subjects=("工程师", "原型机"),
+        article_concretization=article,
+        series_visual_signature=signature,
+        diagram_render={"render_style": "editorial_diagram"},
+        visible_text_policy="preserve_base",
+        entity_placement=placement,
+        scene_fusion=fusion,
+    )
+
+    bundle = FinalVisualPromptCompiler().compile(final_contract=contract)
+
+    assert bundle.positive_prompt.count("斑点狗") == 1
+    assert bundle.positive_prompt.count("黑色墨镜") == 1
+    assert bundle.positive_prompt.count("红色项圈") == 1
+    assert "Exactly one recurring identity exists in the whole frame" in (
+        bundle.positive_prompt
+    )
+    assert profile.canonical_identity_clause not in bundle.positive_prompt
+    assert bundle.metadata["series_visual_signature"]["profile"][
+        "canonical_identity_clause"
+    ] == profile.canonical_identity_clause
 
 
 def test_physical_support_prefers_ground_plane_over_table_surface() -> None:
@@ -570,7 +642,7 @@ def test_batch_projection_fails_atomically_after_a_later_frame_error() -> None:
     profile = _profile()
     with pytest.raises(SeriesVisualSignatureProjectionError) as captured:
         SeriesVisualSignatureProjectionService().project_batch(
-            base_prompts=["worker on a factory floor", "oversized fact " * 40],
+            base_prompts=["worker on a factory floor", "Dalmatian beside a machine"],
             frame_ids=["frame-good", "frame-bad"],
             frame_contexts=[{}, {}],
             request=_request(),
@@ -579,6 +651,7 @@ def test_batch_projection_fails_atomically_after_a_later_frame_error() -> None:
 
     error = captured.value
     assert error.failed_frame_id == "frame-bad"
+    assert error.reason_code == "base_prompt_identity_leak"
     assert error.metrics.expected_frame_count == 2
     assert error.metrics.projected_frame_count == 1
     assert error.audit_dict()["status"] == "failed"

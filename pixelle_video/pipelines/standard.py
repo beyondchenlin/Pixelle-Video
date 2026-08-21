@@ -58,6 +58,10 @@ from pixelle_video.models.render_package import (
     TextTrack,
     VisualClip,
 )
+from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
+from pixelle_video.models.series_visual_signature_presentation import (
+    SeriesVisualSignaturePresentationPolicy,
+)
 from pixelle_video.models.series_visual_signature_request import SeriesVisualSignatureRequest
 from pixelle_video.models.size_contract import (
     GenerationSizeContract,
@@ -82,7 +86,11 @@ from pixelle_video.models.z_image_prompt_bundle import ZImagePromptBundle
 from pixelle_video.pipelines.comfyui_session import (
     maybe_local_comfyui_workflow_session,
 )
-from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
+from pixelle_video.pipelines.linear import (
+    LinearVideoPipeline,
+    PipelineContext,
+    resolve_vision_llm_config,
+)
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.platform_context import resolve_project_id, resolve_workspace_id
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE
@@ -130,6 +138,11 @@ from pixelle_video.services.render_capability_resolver import (
     load_hyperframes_template_capabilities,
 )
 from pixelle_video.services.script_generation import ScriptGenerationService
+from pixelle_video.services.series_visual_signature_rendered_output_gate import (
+    SeriesVisualSignatureRenderedOutputGate,
+    resolve_rendered_output_max_attempts,
+    resolve_rendered_output_validation_mode,
+)
 from pixelle_video.services.storyboard_generation import StoryboardGenerationService
 from pixelle_video.services.storyboard_workbench_artifact_bridge import (
     StoryboardWorkbenchArtifactBridge,
@@ -1183,6 +1196,10 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.storyboard.frames.append(frame)
 
         self._write_final_prompt_trace_artifact(ctx)
+        self._configure_series_visual_signature_output_gate(
+            ctx,
+            media_type=template_type,
+        )
         self._write_series_visual_signature_trace_artifacts(ctx)
 
         effective_max_sentences, effective_max_chars, normalize_block_text_for_tts, single_audio_block = (
@@ -1295,6 +1312,172 @@ class StandardPipeline(LinearVideoPipeline):
                 },
             }
 
+
+    def _configure_series_visual_signature_output_gate(
+        self,
+        ctx: PipelineContext,
+        *,
+        media_type: str,
+    ) -> None:
+        snapshot = dict(ctx.planning_snapshot or {})
+        traces = {
+            str(frame_id): dict(trace)
+            for frame_id, trace in dict(
+                snapshot.get("series_visual_signature_trace_by_frame") or {}
+            ).items()
+            if isinstance(trace, Mapping)
+        }
+        if not traces or media_type != "image" or not ctx.task_dir:
+            return
+
+        presentation_policy = SeriesVisualSignaturePresentationPolicy.from_mapping(
+            ctx.params
+        )
+        mode = resolve_rendered_output_validation_mode(
+            ctx.params,
+            strict_signature_enforcement=presentation_policy.strict,
+        )
+        max_attempts = resolve_rendered_output_max_attempts(ctx.params)
+        policy_audit = {
+            "schema_version": "series_visual_signature_rendered_output_policy.v1",
+            "mode": mode,
+            "max_generation_attempts": max_attempts,
+            "media_type": "image",
+            "checks": [
+                "identity_instance_count",
+                "largest_identity_area_ratio",
+                "identity_traits_visible",
+                "identity_is_primary_focus",
+            ],
+        }
+        snapshot["series_visual_signature_rendered_output_policy"] = policy_audit
+        ctx.planning_snapshot = snapshot
+        if ctx.storyboard is not None:
+            ctx.storyboard.planning_snapshot = dict(
+                ctx.storyboard.planning_snapshot or {}
+            )
+            ctx.storyboard.planning_snapshot[
+                "series_visual_signature_rendered_output_policy"
+            ] = policy_audit
+        if mode == "off":
+            return
+
+        gate = SeriesVisualSignatureRenderedOutputGate(
+            vision_config=resolve_vision_llm_config(getattr(self.core, "config", None)),
+            mode=mode,
+            task_dir=ctx.task_dir,
+            max_generation_attempts=max_attempts,
+        )
+        gate.assert_required_capability()
+        ctx.runtime_resources.append(gate)
+        ctx.media_generation_max_attempts = gate.max_generation_attempts
+        frame_ids_by_index = {
+            frame.index: frame.frame_id
+            for frame in (ctx.storyboard_plan.frames if ctx.storyboard_plan else ())
+        }
+        trace_recorder = (
+            self._llm_trace_recorder(ctx) if not gate.unavailable_reason else None
+        )
+
+        async def validate_generated_frame(
+            frame: StoryboardFrame,
+            generation_attempt: int,
+        ) -> bool:
+            frame_id = frame_ids_by_index.get(frame.index)
+            if frame_id is None:
+                raise ValueError(
+                    "rendered-output validation requires a storyboard frame id"
+                )
+            trace = traces.get(frame_id)
+            contract = trace.get("contract") if trace is not None else None
+            if not isinstance(contract, Mapping):
+                raise ValueError(
+                    "rendered-output validation requires a complete frame contract"
+                )
+            signature = contract.get("series_visual_signature")
+            signature = dict(signature) if isinstance(signature, Mapping) else {}
+            profile_payload = signature.get("profile")
+            if not isinstance(profile_payload, Mapping):
+                raise ValueError(
+                    "rendered-output validation requires a visual identity profile"
+                )
+            if not frame.image_path:
+                raise ValueError(
+                    "rendered-output validation requires a generated image path"
+                )
+            profile = VisualSignatureProfileSnapshot.from_mapping(profile_payload)
+            max_area_ratio = float(signature.get("max_area_ratio") or 0.0)
+            result = await gate.evaluate(
+                image_path=frame.image_path,
+                frame_id=frame_id,
+                generation_attempt=generation_attempt,
+                profile=profile,
+                max_area_ratio=max_area_ratio,
+                trace_context=(
+                    self._llm_trace_context(
+                        ctx,
+                        operation="series_visual_signature_rendered_output_validation",
+                        stage="rendered_output_gate",
+                        frame_id=frame_id,
+                        metadata={"generation_attempt": generation_attempt},
+                    )
+                    if trace_recorder is not None
+                    else None
+                ),
+                trace_recorder=trace_recorder,
+            )
+            self._record_series_visual_signature_output_audit(
+                ctx,
+                frame_id=frame_id,
+                result=result.to_dict(),
+            )
+            return result.accepted
+
+        ctx.generated_media_validator = validate_generated_frame
+
+    @staticmethod
+    def _record_series_visual_signature_output_audit(
+        ctx: PipelineContext,
+        *,
+        frame_id: str,
+        result: Mapping[str, Any],
+    ) -> None:
+        snapshot = dict(ctx.planning_snapshot or {})
+        audits = {
+            str(key): dict(value)
+            for key, value in dict(
+                snapshot.get(
+                    "series_visual_signature_rendered_output_audit_by_frame"
+                )
+                or {}
+            ).items()
+            if isinstance(value, Mapping)
+        }
+        frame_audit = dict(audits.get(frame_id) or {})
+        attempts = list(frame_audit.get("attempts") or [])
+        attempts.append(dict(result))
+        frame_audit.update(
+            {
+                "frame_id": frame_id,
+                "attempts": attempts,
+                "attempt_count": len(attempts),
+                "final_status": result.get("status"),
+                "accepted": result.get("status") in {"passed", "skipped"},
+            }
+        )
+        audits[frame_id] = frame_audit
+        snapshot["series_visual_signature_rendered_output_audit_by_frame"] = audits
+        ctx.planning_snapshot = snapshot
+        ctx.observability[
+            "series_visual_signature_rendered_output_audit_by_frame"
+        ] = audits
+        if ctx.storyboard is not None:
+            ctx.storyboard.planning_snapshot = dict(
+                ctx.storyboard.planning_snapshot or {}
+            )
+            ctx.storyboard.planning_snapshot[
+                "series_visual_signature_rendered_output_audit_by_frame"
+            ] = audits
 
     def _write_series_visual_signature_trace_artifacts(self, ctx: PipelineContext) -> None:
         if not ctx.task_dir or not ctx.planning_snapshot:
@@ -2399,7 +2582,24 @@ class StandardPipeline(LinearVideoPipeline):
                 step=2,
                 action=ProgressFrameAction.MEDIA,
             )
-            await self.core.frame_processor._step_generate_media(frame, config)
+            generate_with_validation = getattr(
+                self.core.frame_processor,
+                "_step_generate_media_with_validation",
+                None,
+            )
+            if callable(generate_with_validation):
+                await generate_with_validation(
+                    frame,
+                    config,
+                    media_validator=ctx.generated_media_validator,
+                    max_attempts=ctx.media_generation_max_attempts,
+                )
+            elif ctx.generated_media_validator is not None:
+                raise RuntimeError(
+                    "configured rendered-output validation requires a compatible frame processor"
+                )
+            else:
+                await self.core.frame_processor._step_generate_media(frame, config)
             await self._register_storyboard_workbench_frame_artifact(ctx, frame)
         elif not has_existing_media:
             frame.image_path = None
@@ -2830,6 +3030,15 @@ class StandardPipeline(LinearVideoPipeline):
                         "progress_callback": frame_progress_callback,
                         "template_body_text": template_body_text,
                     }
+                    if ctx.generated_media_validator is not None:
+                        frame_processor_kwargs.update(
+                            {
+                                "media_validator": ctx.generated_media_validator,
+                                "media_generation_max_attempts": (
+                                    ctx.media_generation_max_attempts
+                                ),
+                            }
+                        )
                     if getattr(config, "element_animation_enabled", False):
                         frame_processor_kwargs[
                             "element_motion_materializer"
@@ -2894,6 +3103,15 @@ class StandardPipeline(LinearVideoPipeline):
                     "progress_callback": frame_progress_callback,
                     "template_body_text": template_body_text,
                 }
+                if ctx.generated_media_validator is not None:
+                    frame_processor_kwargs.update(
+                        {
+                            "media_validator": ctx.generated_media_validator,
+                            "media_generation_max_attempts": (
+                                ctx.media_generation_max_attempts
+                            ),
+                        }
+                    )
                 if getattr(config, "element_animation_enabled", False):
                     frame_processor_kwargs[
                         "element_motion_materializer"

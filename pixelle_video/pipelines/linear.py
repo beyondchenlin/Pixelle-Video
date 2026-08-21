@@ -21,7 +21,7 @@ process orchestration.
 import inspect
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional
 
 from loguru import logger
 
@@ -103,12 +103,15 @@ def _resolve_reference_image_config(core_config: Any) -> Any:
     return config_manager.get("reference_image", {})
 
 
-def _resolve_vision_llm_config(core_config: Any) -> Mapping[str, Any]:
+def resolve_vision_llm_config(core_config: Any) -> Mapping[str, Any]:
     vision_config = config_section_to_dict(_config_mapping_get(core_config, "vision_llm"))
     if vision_config is not None:
         return vision_config
     configured = config_manager.get("vision_llm", {})
     return dict(configured) if isinstance(configured, Mapping) else {}
+
+
+_resolve_vision_llm_config = resolve_vision_llm_config
 
 
 def _reference_image_enabled(params: Mapping[str, Any], reference_image_config: Any) -> bool:
@@ -168,6 +171,7 @@ class PipelineContext:
     task_dir: Optional[str] = None
     task_log_session: Any = None
     observability: Dict[str, Any] = field(default_factory=dict)
+    runtime_resources: List[Any] = field(default_factory=list, repr=False)
 
     # === Content ===
     title: Optional[str] = None
@@ -189,6 +193,10 @@ class PipelineContext:
     reference_image_analysis: Optional[ReferenceImageAnalysis] = None
     reference_image_analysis_result: Optional[ReferenceImageAnalysisResult] = None
     reference_image_visual_context: Optional[ReferenceImageVisualContext] = None
+    generated_media_validator: Optional[
+        Callable[[Any, int], Awaitable[bool]]
+    ] = field(default=None, repr=False)
+    media_generation_max_attempts: int = 1
 
     # === Configuration & Storyboard ===
     config: Optional[StoryboardConfig] = None
@@ -294,6 +302,11 @@ class LinearVideoPipeline(BasePipeline):
                 await self.handle_exception(ctx, e)
                 raise
             finally:
+                for resource in reversed(ctx.runtime_resources):
+                    try:
+                        await _close_optional_async_resource(resource)
+                    except Exception:
+                        logger.exception("Failed to close a pipeline runtime resource")
                 if ctx.task_log_session is not None:
                     ctx.task_log_session.close()
                 reset_reference_image_visual_story_context_patch(reference_patch_token)

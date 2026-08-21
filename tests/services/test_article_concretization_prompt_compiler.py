@@ -187,18 +187,23 @@ def test_base_negative_prompt_is_preserved_without_global_logo_ban() -> None:
     assert not bundle.negative_prompt.startswith("logo")
 
 
-def test_long_main_visual_cannot_truncate_signature_or_required_subjects() -> None:
+def test_long_main_visual_is_compacted_without_truncating_protected_semantics() -> None:
     long_visual = "complex causal mechanism " * 120
-    with pytest.raises(ValueError, match="main content and required subjects"):
-        FinalVisualPromptCompiler().compile(
-            final_contract=_final_contract(
-                contract_id="contract_long",
-                frame_id="frame_long",
-                visual_metaphor=long_visual,
-                grammar="process_flow",
-                required_subjects=("worker", "machine"),
-            )
+    bundle = FinalVisualPromptCompiler().compile(
+        final_contract=_final_contract(
+            contract_id="contract_long",
+            frame_id="frame_long",
+            visual_metaphor=long_visual,
+            grammar="process_flow",
+            required_subjects=("worker", "machine"),
         )
+    )
+
+    assert bundle.positive_prompt.startswith("Main scene: complex causal mechanism")
+    assert "worker" in bundle.positive_prompt
+    assert "machine" in bundle.positive_prompt
+    assert "The single recurring identity is Dalmatian" in bundle.positive_prompt
+    assert bundle.metadata["prompt_budget"]["main_visual"]["compacted"] is True
 
 
 def test_protected_semantics_over_budget_fail_instead_of_truncating() -> None:

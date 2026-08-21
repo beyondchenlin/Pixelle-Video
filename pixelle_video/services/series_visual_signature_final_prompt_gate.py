@@ -14,6 +14,10 @@ from pixelle_video.models.visual_entity_placement import (
 from pixelle_video.services.series_visual_signature_prompt_presence import (
     normalize_prompt_text,
     prompt_contains_term,
+    prompt_term_count,
+)
+from pixelle_video.services.series_visual_signature_rendering import (
+    rendered_identity_terms,
 )
 
 
@@ -66,20 +70,33 @@ def assert_series_visual_signature_final_prompt(
             raise SeriesVisualSignatureFinalPromptGateError(
                 "final visual prompt gate failed: enabled signature has no profile"
             )
-        if not prompt_contains_term(positive, profile.display_name):
-            raise SeriesVisualSignatureFinalPromptGateError(
-                "final visual prompt gate failed: visual signature display name missing"
-            )
-        for trait_index, trait in enumerate(profile.identity_traits):
-            if not prompt_contains_term(positive, trait):
+        for term_index, term in enumerate(rendered_identity_terms(profile)):
+            count = prompt_term_count(positive, term)
+            if count == 0:
+                if term_index == 0:
+                    raise SeriesVisualSignatureFinalPromptGateError(
+                        "final visual prompt gate failed: visual signature display name missing"
+                    )
                 raise SeriesVisualSignatureFinalPromptGateError(
                     "final visual prompt gate failed: visual signature identity trait missing "
-                    f"at index {trait_index}"
+                    f"at index {term_index - 1}"
                 )
-        if not prompt_contains_term(positive, profile.canonical_identity_clause):
-            raise SeriesVisualSignatureFinalPromptGateError(
-                "final visual prompt gate failed: canonical visual identity clause missing"
-            )
+            if count != 1:
+                raise SeriesVisualSignatureFinalPromptGateError(
+                    "final visual prompt gate failed: rendered visual identity fact must "
+                    f"appear exactly once at index {term_index}"
+                )
+        for required_control in (
+            "Exactly one recurring identity exists in the whole frame",
+            "one body",
+            "one head",
+            "one location",
+            "visually subordinate to the main content",
+        ):
+            if not prompt_contains_term(positive, required_control):
+                raise SeriesVisualSignatureFinalPromptGateError(
+                    "final visual prompt gate failed: positive single-instance control missing"
+                )
         if not prompt_contains_term(positive, signature.role.value):
             raise SeriesVisualSignatureFinalPromptGateError(
                 f"frame {resolved_frame_id}: series_visual_signature.role missing from positive prompt"
@@ -93,7 +110,7 @@ def assert_series_visual_signature_final_prompt(
                 f"frame {resolved_frame_id}: scene_fusion is missing"
             )
         placement_terms = (
-            "One;",
+            "Same identity:",
             placement.horizontal_position.value,
             placement.depth_position.value,
             placement.relative_size.value.replace("_", "-"),
@@ -109,10 +126,9 @@ def assert_series_visual_signature_final_prompt(
                 raise SeriesVisualSignatureFinalPromptGateError(
                     f"frame {resolved_frame_id}: entity_placement prompt fact missing at index {field_index}"
                 )
-        visible_clause = "shows " + " + ".join(placement.visible_core_traits)
-        if not prompt_contains_term(positive, visible_clause):
+        if not prompt_contains_term(positive, "defining traits visible"):
             raise SeriesVisualSignatureFinalPromptGateError(
-                f"frame {resolved_frame_id}: entity_placement.visible_core_traits "
+                f"frame {resolved_frame_id}: entity_placement visible-trait control "
                 "missing from positive prompt"
             )
         if scene_fusion.scene_type is VisualSceneType.PHYSICAL_SCENE:

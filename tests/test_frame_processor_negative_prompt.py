@@ -5,7 +5,7 @@ import pytest
 from pixelle_video.models.layered_template import LayeredTemplateSpec
 from pixelle_video.models.media import MediaResult
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
-from pixelle_video.services.frame_processor import FrameProcessor
+from pixelle_video.services.frame_processor import FrameProcessor, _generation_retry_seed
 from pixelle_video.services.prompt_trace_artifacts import (
     build_workflow_params_trace,
     validate_media_prompt_trace_artifact,
@@ -515,6 +515,72 @@ async def test_frame_processor_call_forwards_template_body_text_to_shell_only_re
 
     assert result is frame
     assert captured["template_body_text"] == ""
+
+
+@pytest.mark.asyncio
+async def test_media_validation_retries_once_with_a_new_generation_attempt(
+    monkeypatch,
+) -> None:
+    processor = FrameProcessor(None)
+    generated_attempts = []
+    validated_attempts = []
+
+    async def fake_generate_media(frame, config, *, generation_attempt=0):
+        generated_attempts.append(generation_attempt)
+        frame.image_path = f"frame-attempt-{generation_attempt}.png"
+        frame.media_type = "image"
+
+    async def validator(frame, generation_attempt):
+        validated_attempts.append((generation_attempt, frame.image_path))
+        return generation_attempt == 1
+
+    monkeypatch.setattr(processor, "_step_generate_media", fake_generate_media)
+    frame = StoryboardFrame(index=0, narration="Narration", image_prompt="prompt")
+    config = StoryboardConfig(
+        task_id="task-retry",
+        media_width=1024,
+        media_height=1024,
+    )
+
+    await processor._step_generate_media_with_validation(
+        frame,
+        config,
+        media_validator=validator,
+        max_attempts=2,
+    )
+
+    assert generated_attempts == [0, 1]
+    assert validated_attempts == [
+        (0, "frame-attempt-0.png"),
+        (1, "frame-attempt-1.png"),
+    ]
+
+
+def test_generation_retry_seed_is_bounded_deterministic_and_attempt_specific() -> None:
+    first = _generation_retry_seed(
+        task_id="task-1",
+        frame_index=3,
+        generation_attempt=1,
+    )
+    repeated = _generation_retry_seed(
+        task_id="task-1",
+        frame_index=3,
+        generation_attempt=1,
+    )
+    second = _generation_retry_seed(
+        task_id="task-1",
+        frame_index=3,
+        generation_attempt=2,
+    )
+
+    assert _generation_retry_seed(
+        task_id="task-1",
+        frame_index=3,
+        generation_attempt=0,
+    ) is None
+    assert first == repeated
+    assert first != second
+    assert 1 <= first <= 2_147_483_646
 
 
 @pytest.mark.asyncio

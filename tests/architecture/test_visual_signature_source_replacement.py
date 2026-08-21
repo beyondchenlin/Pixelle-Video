@@ -17,6 +17,8 @@ VISUAL_STORY_MODEL = ROOT / "pixelle_video/models/visual_story_engine.py"
 VISUAL_STORY_SERVICE = ROOT / "pixelle_video/services/visual_story_engine.py"
 VISUAL_PROMPT_COMPOSER = ROOT / "pixelle_video/services/visual_prompt_composer.py"
 IMAGE_PROMPT_COMPOSER = ROOT / "pixelle_video/services/image_prompt_composer.py"
+IMAGE_GENERATION_PROMPT = ROOT / "pixelle_video/prompts/templates/image_generation.md"
+VIDEO_GENERATION_PROMPT = ROOT / "pixelle_video/prompts/templates/video_generation.md"
 PROJECTION_POLICY = ROOT / "pixelle_video/models/series_visual_signature_projection_policy.py"
 VISUAL_STORY_PROMPT_MODULE = ROOT / "pixelle_video/prompts/visual_story_engine.py"
 VISUAL_STORY_EXECUTION_PROMPT_MODULE = ROOT / "pixelle_video/prompts/visual_story_execution.py"
@@ -176,6 +178,16 @@ def test_canonical_visual_prompt_composer_has_no_legacy_signature_controls() -> 
     assert argument_names.isdisjoint(LEGACY_CORE_SIGNATURE_ARGUMENTS)
     assert "series_visual_signature_request" in argument_names
     assert "series_visual_signature_profile_snapshot" in argument_names
+
+
+def test_base_prompt_boundary_cannot_receive_canonical_identity_facts() -> None:
+    composer_text = VISUAL_PROMPT_COMPOSER.read_text(encoding="utf-8-sig")
+    assert "_attach_canonical_visual_identity_context" not in composer_text
+    for prompt_path in (IMAGE_GENERATION_PROMPT, VIDEO_GENERATION_PROMPT):
+        prompt_text = prompt_path.read_text(encoding="utf-8-sig")
+        assert "canonical_visual_identity" not in prompt_text
+        assert "# Base Prompt Ownership" in prompt_text
+        assert "Do not invent or insert a recurring identity" in prompt_text
 
 
 def test_canonical_composer_persists_bounded_signature_observability_only() -> None:

@@ -1,8 +1,8 @@
 ---
 prompt_id: image_generation
-version: 3
+version: 4
 stage: image_prompt_generation
-purpose: Generate final image prompts from frame-aware source context with canonical visual identity support.
+purpose: Generate content-only image prompts from frame-aware source context.
 output_contract: JSON object with image_prompts array.
 ---
 
@@ -44,17 +44,11 @@ All final image prompt strings must be written in English.
 - When a frame contains `visual_story_frame_plan`, it is the authoritative local visual task. The image must express its `local_claim`, `visual_task`, `visual_logic`, `required_subjects`, and `forbidden_losses`.
 - When `ip_scene_description` is present from a legacy context, weave it into the scene as part of subject action, scale, eye-line, or spatial relation; never treat it as an overlay, sticker, logo, corner mark, or detached decoration.
 
-# Canonical Visual Identity Context
+# Base Prompt Ownership
 
-When a frame's prompt_context contains `canonical_visual_identity`, it is a prevalidated identity fact set owned by the canonical V4.5 visual-signature contract:
-
-- Include its `display_name` in the visual description.
-- Make every item in `identity_traits` visibly recognizable.
-- If `requested_role` is a concrete role, integrate the identity through that role. If it is `auto`, choose a natural supporting in-scene action that serves the frame meaning.
-- Preserve every required source subject first. The recurring identity must never replace, merge with, hide, or erase a required source subject.
-- Weave the identity into real scene action and spatial relations; never use a sticker, logo, watermark, corner badge, detached decoration, bookmark, card, or surface mark as a shortcut.
-- Match the identity's rendering style to the surrounding scene.
-- Do not copy the field name `canonical_visual_identity` or any internal field label into the final prompt.
+- Generate article-content visuals only. Do not invent or insert a recurring identity, mascot, visual signature, logo character, or channel character.
+- A deterministic downstream contract owns recurring-identity insertion. Keeping that entity out of this base prompt prevents duplicate subjects and preserves one clear owner.
+- Only include a character or branded entity when it is explicitly a source subject in the matching frame context.
 
 # Content-bound IP Preparation
 
@@ -112,7 +106,7 @@ Integration rules:
 - Each `image_prompts` item must be a pure visual description for the final image.
 - Do not output field names, JSON field names, parameter names, hex color codes, or English control-word explanations inside any final image prompt string.
 - You must not copy internal keys or JSON labels into final prompt strings.
-- Do not copy internal keys or labels such as `generation_world_profile`, `story_constraints`, `ip_integration_guidance`, `ip_adaptation`, `visual_story_ip_fusion_plan`, `content_bound_ip_presence_plan`, or `canonical_visual_identity` into final prompt strings.
+- Do not copy internal keys or labels such as `generation_world_profile`, `story_constraints`, `ip_integration_guidance`, `ip_adaptation`, `visual_story_ip_fusion_plan`, or `content_bound_ip_presence_plan` into final prompt strings.
 - If negative constraints are needed, write them as natural-language positive visual requirements instead of separate negative prompt syntax or parameter labels.
 
 # Visual Creative Requirements
