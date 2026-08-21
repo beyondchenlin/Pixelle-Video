@@ -25,9 +25,11 @@ class _FakeVisionService:
     def __init__(self, responses):
         self.responses = list(responses)
         self.messages = []
+        self.calls = []
 
     async def chat(self, *, messages, **kwargs):
         self.messages.append(messages)
+        self.calls.append(kwargs)
         response = self.responses.pop(0)
         if isinstance(response, BaseException):
             raise response
@@ -651,3 +653,42 @@ async def test_strict_review_truncates_overlong_evidence_without_losing_verdict(
         (tmp_path / result.artifact_relative_path).read_text(encoding="utf-8")
     )
     assert len(artifact["evidence"]) == 500
+
+
+@pytest.mark.asyncio
+async def test_strict_review_retries_truncated_json_with_full_token_budget(
+    tmp_path,
+) -> None:
+    contract = _mandatory_contract("frame-truncated-review")
+    gate = SeriesVisualSignatureRenderedOutputGate(
+        vision_config={
+            "enabled": True,
+            "model": "vision-model",
+            "force_supports_vision": True,
+            "max_tokens": 1200,
+        },
+        mode="auto",
+        task_dir=tmp_path,
+    )
+    fake = _FakeVisionService(
+        [
+            '{"identity_instance_count":1,"evidence":"truncated',
+            json.dumps(_strict_review(contract)),
+        ]
+    )
+    gate._vision_service = fake
+
+    result = await gate.evaluate(
+        image_path=_image(tmp_path),
+        frame_id=contract.frame_id,
+        generation_attempt=0,
+        profile=_profile(),
+        max_area_ratio=contract.placement.area_ratio,
+        mandatory_contract=contract,
+        trace_context=SimpleNamespace(),
+        trace_recorder=SimpleNamespace(),
+    )
+
+    assert result.status == "passed"
+    assert len(fake.calls) == 2
+    assert [call["max_tokens"] for call in fake.calls] == [1200, 1200]

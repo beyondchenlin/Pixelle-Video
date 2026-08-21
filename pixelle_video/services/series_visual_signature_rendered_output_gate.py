@@ -43,6 +43,7 @@ _ALLOWED_IMAGE_MIME_BY_SUFFIX = {
 }
 _SAFE_FRAME_ID_RE = re.compile(r"[^A-Za-z0-9._-]+")
 _MAX_EVIDENCE_CHARS = 500
+_MAX_REVIEW_PARSE_ATTEMPTS = 2
 _SYSTEM_PROMPT = """You inspect a generated storyboard image against one recurring-identity contract.
 Return ONLY one valid JSON object. Count separate visual depictions, not words.
 Count reflections, portraits, posters, screens, toys, statues, silhouettes, cropped copies,
@@ -303,20 +304,32 @@ class SeriesVisualSignatureRenderedOutputGate:
             max_image_size_mb=int(self.vision_config.get("max_image_size_mb", 5) or 5),
         )
         try:
-            content = await self._vision().chat(
-                messages=messages,
-                trace_context=trace_context,
-                trace_recorder=trace_recorder,
-                api_key=self.vision_config.get("api_key"),
-                base_url=self.vision_config.get("base_url"),
-                model=vision_config_model(self.vision_config),
-                temperature=0.0,
-                max_tokens=min(int(self.vision_config.get("max_tokens", 1200) or 1200), 300),
-            )
-            review = _parse_review(
-                content,
-                mandatory_contract=mandatory,
-            )
+            review_error: Exception | None = None
+            for review_attempt in range(_MAX_REVIEW_PARSE_ATTEMPTS):
+                content = await self._vision().chat(
+                    messages=messages,
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                    api_key=self.vision_config.get("api_key"),
+                    base_url=self.vision_config.get("base_url"),
+                    model=vision_config_model(self.vision_config),
+                    temperature=0.0,
+                    max_tokens=int(
+                        self.vision_config.get("max_tokens", 1200) or 1200
+                    ),
+                )
+                try:
+                    review = _parse_review(
+                        content,
+                        mandatory_contract=mandatory,
+                    )
+                    break
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                    review_error = exc
+                    if review_attempt + 1 == _MAX_REVIEW_PARSE_ATTEMPTS:
+                        raise
+            else:  # pragma: no cover - loop either returns a review or raises
+                raise RuntimeError("rendered-output review parsing did not settle") from review_error
         except LLMTraceRecordingError:
             raise
         except Exception as exc:
