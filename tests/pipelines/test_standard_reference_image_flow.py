@@ -8,7 +8,11 @@ from PIL import Image
 from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.models.reference_image_visual_context import ReferenceImageVisualContext
 from pixelle_video.pipelines import linear as linear_module
-from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
+from pixelle_video.pipelines.linear import (
+    LinearVideoPipeline,
+    PipelineContext,
+    resolve_vision_llm_config,
+)
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services import reference_image_workflow_binding as binding_module
 from pixelle_video.services.media import MediaService
@@ -140,6 +144,48 @@ def _core(config):
 def _write_reference_image(path: Path):
     Image.new("RGB", (32, 32), (255, 255, 255)).save(path)
     return path
+
+
+def test_vision_llm_config_inherits_blank_provider_credentials_from_main_llm():
+    resolved = resolve_vision_llm_config(
+        PixelleVideoConfig(
+            llm={
+                "api_key": "main-provider-key",
+                "base_url": "https://provider.example/v1",
+                "model": "text-model",
+            },
+            vision_llm={
+                "enabled": True,
+                "api_key": "",
+                "base_url": "",
+                "model": "vision-model",
+            },
+        )
+    )
+
+    assert resolved["api_key"] == "main-provider-key"
+    assert resolved["base_url"] == "https://provider.example/v1"
+    assert resolved["model"] == "vision-model"
+
+
+def test_vision_llm_config_keeps_explicit_provider_credentials():
+    resolved = resolve_vision_llm_config(
+        {
+            "llm": {
+                "api_key": "main-provider-key",
+                "base_url": "https://main.example/v1",
+            },
+            "vision_llm": {
+                "enabled": True,
+                "api_key": "vision-provider-key",
+                "base_url": "https://vision.example/v1",
+                "model": "vision-model",
+            },
+        }
+    )
+
+    assert resolved["api_key"] == "vision-provider-key"
+    assert resolved["base_url"] == "https://vision.example/v1"
 
 
 @pytest.mark.asyncio

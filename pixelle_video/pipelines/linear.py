@@ -110,10 +110,23 @@ def _resolve_reference_image_config(core_config: Any) -> Any:
 
 def resolve_vision_llm_config(core_config: Any) -> Mapping[str, Any]:
     vision_config = config_section_to_dict(_config_mapping_get(core_config, "vision_llm"))
-    if vision_config is not None:
-        return vision_config
-    configured = config_manager.get("vision_llm", {})
-    return dict(configured) if isinstance(configured, Mapping) else {}
+    if vision_config is None:
+        configured = config_manager.get("vision_llm", {})
+        vision_config = dict(configured) if isinstance(configured, Mapping) else {}
+
+    llm_config = config_section_to_dict(_config_mapping_get(core_config, "llm"))
+    if llm_config is None:
+        configured = config_manager.get("llm", {})
+        llm_config = dict(configured) if isinstance(configured, Mapping) else {}
+
+    resolved = dict(vision_config)
+    for provider_key in ("api_key", "base_url"):
+        if str(resolved.get(provider_key) or "").strip():
+            continue
+        inherited = llm_config.get(provider_key)
+        if str(inherited or "").strip():
+            resolved[provider_key] = inherited
+    return resolved
 
 
 _resolve_vision_llm_config = resolve_vision_llm_config
