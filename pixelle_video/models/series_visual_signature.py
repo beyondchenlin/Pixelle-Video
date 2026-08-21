@@ -318,6 +318,16 @@ class SeriesVisualSignatureRequest:
             self.compatibility_options.get("series_visual_signature_participation_mode")
         )
 
+    @property
+    def llm_prompt_assembly_enabled(self) -> bool:
+        return _bool_value(
+            self.compatibility_options.get(
+                "series_visual_signature_llm_prompt_assembly_enabled",
+                True,
+            ),
+            "series_visual_signature_llm_prompt_assembly_enabled",
+        )
+
     def validate(self) -> None:
         if not self.enabled:
             return

@@ -29,8 +29,16 @@ from pixelle_video.services.article_concretization_pipeline import (
     article_concretization_plans_by_frame,
     article_concretization_snapshot,
 )
+from pixelle_video.services.final_visual_prompt_llm_assembler import (
+    FinalVisualPromptLLMAssembler,
+    deterministic_prompt_assembly_result,
+)
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
-from pixelle_video.services.llm_trace_refs import merge_llm_trace_refs
+from pixelle_video.services.llm_trace_refs import (
+    LLMTraceCollector,
+    llm_trace_refs_for_accepted_attempts,
+    merge_llm_trace_refs,
+)
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.services.reference_image_visual_context_adapter import (
     current_reference_image_visual_story_context_patch,
@@ -283,6 +291,7 @@ class VisualPromptComposer:
             )
 
         planning_snapshot = dict(batch.planning_snapshot or {})
+        final_assembly_trace_refs: list[dict[str, str]] = []
         if signature_enabled:
             if profile_snapshot is None:
                 raise RuntimeError(
@@ -304,6 +313,35 @@ class VisualPromptComposer:
                 article_concretization_plans=article_concretization_plans,
                 base_visual_briefs_by_frame=briefs,
                 base_negative_prompts=base_negative_prompts,
+            )
+            if resolved_signature_request.llm_prompt_assembly_enabled:
+                assembly_trace_collector = (
+                    LLMTraceCollector(trace_recorder)
+                    if trace_recorder is not None
+                    else None
+                )
+                assembly_result = await FinalVisualPromptLLMAssembler().assemble_batch(
+                    llm_service=llm_service,
+                    batch=projection,
+                    trace_context=trace_context,
+                    trace_recorder=assembly_trace_collector,
+                    max_concurrency=max_concurrency,
+                )
+                if assembly_trace_collector is not None:
+                    final_assembly_trace_refs = llm_trace_refs_for_accepted_attempts(
+                        assembly_trace_collector.records,
+                        stage="final_visual_prompt_assembly",
+                        accepted_attempts_by_frame={
+                            str(item["frame_id"]): int(item["attempt_count"])
+                            for item in assembly_result.audit["frames"]
+                            if item["source"] == "llm"
+                        },
+                    )
+            else:
+                assembly_result = deterministic_prompt_assembly_result(projection)
+            projection = assembly_result.batch
+            planning_snapshot["series_visual_signature_prompt_assembly"] = dict(
+                assembly_result.audit
             )
             bundle_metadata_by_frame = {
                 frame.frame_id: frame.bundle.to_dict()["metadata"]
@@ -353,6 +391,12 @@ class VisualPromptComposer:
                         bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
                         or {}
                     ),
+                    "prompt_assembly": dict(
+                        bundle_metadata_by_frame[frame.frame_id].get(
+                            "prompt_assembly"
+                        )
+                        or {}
+                    ),
                 }
                 for frame in projection.frames
             }
@@ -372,6 +416,12 @@ class VisualPromptComposer:
                         bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
                         or {}
                     ),
+                    "prompt_assembly": dict(
+                        bundle_metadata_by_frame[frame.frame_id].get(
+                            "prompt_assembly"
+                        )
+                        or {}
+                    ),
                 }
                 for frame in projection.frames
             }
@@ -389,6 +439,7 @@ class VisualPromptComposer:
         llm_trace_refs = merge_llm_trace_refs(
             upstream_llm_trace_refs,
             planning_snapshot.get("llm_trace_refs"),
+            final_assembly_trace_refs,
         )
         if llm_trace_refs:
             planning_snapshot["llm_trace_refs"] = llm_trace_refs

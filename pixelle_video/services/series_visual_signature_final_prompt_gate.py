@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from pixelle_video.models.series_visual_signature import (
@@ -23,6 +24,17 @@ from pixelle_video.services.series_visual_signature_rendering import (
 
 class SeriesVisualSignatureFinalPromptGateError(ValueError):
     """Raised when a compiled provider prompt loses protected visual semantics."""
+
+
+_DUPLICATE_IDENTITY_POSITIVE_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\b(?:copy|clone|reflection|reflected copy|mirror image|poster|statue|toy)\s+of\s+(?:the\s+)?(?:same|recurring)\s+identity\b",
+        r"\b(?:second|another|duplicate|duplicated|cloned|reflected|mirrored)\s+(?:copy\s+of\s+)?(?:the\s+)?(?:same|recurring)\s+identity\b",
+        r"\b(?:two|multiple|several|a pair of)\s+(?:the\s+)?(?:same|recurring)\s+identit(?:y|ies)\b",
+        r"\b(?:same|recurring)\s+identity\b.{0,64}\b(?:appears|is shown|is visible|is depicted)\s+(?:again|twice)\b",
+    )
+)
 
 
 def assert_series_visual_signature_final_prompt(
@@ -70,6 +82,7 @@ def assert_series_visual_signature_final_prompt(
             raise SeriesVisualSignatureFinalPromptGateError(
                 "final visual prompt gate failed: enabled signature has no profile"
             )
+        _assert_no_duplicate_identity_semantics(positive, profile.display_name)
         for term_index, term in enumerate(rendered_identity_terms(profile)):
             count = prompt_term_count(positive, term)
             if count == 0:
@@ -202,6 +215,30 @@ def assert_series_visual_signature_final_prompt(
             raise SeriesVisualSignatureFinalPromptGateError(
                 "final visual prompt gate failed: no-visible-text negative protection missing"
             )
+
+
+def _assert_no_duplicate_identity_semantics(
+    positive_prompt: str,
+    display_name: str,
+) -> None:
+    for pattern in _DUPLICATE_IDENTITY_POSITIVE_PATTERNS:
+        if pattern.search(positive_prompt):
+            raise SeriesVisualSignatureFinalPromptGateError(
+                "final visual prompt gate failed: positive prompt introduces duplicate identity semantics"
+            )
+
+    normalized_name = normalize_prompt_text(display_name)
+    if not normalized_name:
+        return
+    escaped_name = re.escape(normalized_name)
+    quantified_name = re.compile(
+        rf"\b(?:two|multiple|several|a pair of|second|another|duplicate|duplicated|cloned|reflected|mirrored)\s+(?:identical\s+)?{escaped_name}(?:s)?\b",
+        re.IGNORECASE,
+    )
+    if quantified_name.search(positive_prompt):
+        raise SeriesVisualSignatureFinalPromptGateError(
+            "final visual prompt gate failed: positive prompt quantifies the recurring identity as multiple instances"
+        )
 
 
 __all__ = [

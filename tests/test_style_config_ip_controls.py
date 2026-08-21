@@ -39,6 +39,7 @@ class _FakeStyleConfigUI:
 
 def _default_presentation_payload():
     return {
+        "series_visual_signature_llm_prompt_assembly_enabled": True,
         "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
         "series_visual_signature_enforcement": "soft",
         "series_visual_signature_fallback_enabled": True,
@@ -88,6 +89,16 @@ def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
         "style_ip_series_visual_signature_presentation_mode",
         "style_ip_series_visual_signature_fallback_mode",
     ]
+    assembly_toggle = next(
+        call
+        for call in fake_ui.toggle_calls
+        if call["key"]
+        == "style_ip_series_visual_signature_llm_prompt_assembly_enabled"
+    )
+    assert assembly_toggle["value"] is True
+    assert assembly_toggle["help"] == (
+        "series_visual_signature.prompt_assembly.llm_enabled_help"
+    )
 
 
 def test_series_visual_signature_presentation_i18n_keys_are_translated():
@@ -349,3 +360,29 @@ def test_style_config_treats_string_false_fallback_state_as_disabled():
 
     assert payload["series_visual_signature_fallback_enabled"] is False
     assert payload["series_visual_signature_fallback_mode"] == "disabled"
+
+
+def test_style_config_allows_disabling_llm_prompt_assembly():
+    fake_ui = _FakeStyleConfigUI()
+    fake_ui.session_state["style_series_visual_signature_enabled"] = True
+    fake_ui.session_state[
+        "style_ip_series_visual_signature_llm_prompt_assembly_enabled"
+    ] = False
+
+    payload = series_visual_signature_controls.render_series_visual_signature_controls(
+        ui=fake_ui,
+        asset_bibles=[
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {
+                        "series_visual_signature_profile_id": "ip_main",
+                        "name": "正定向导兔",
+                    }
+                ],
+            }
+        ],
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert payload["series_visual_signature_llm_prompt_assembly_enabled"] is False

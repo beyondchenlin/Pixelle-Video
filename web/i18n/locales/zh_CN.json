@@ -1448,6 +1448,8 @@
     "series_visual_signature.presentation.help": "推荐使用内容角色型：IP 必须出现在画面里，但必须执行、承受、连接、衡量、搭建或解释与文章相关的动作。",
     "series_visual_signature.fallback.enabled": "规划失败时自动兜底，不中断生成",
     "series_visual_signature.fallback.enabled_help": "推荐开启：只修失败帧，保留成功帧，并在日志里记录回退原因。",
+    "series_visual_signature.prompt_assembly.llm_enabled": "大模型智能拼接提示词",
+    "series_visual_signature.prompt_assembly.llm_enabled_help": "默认开启。由大模型综合场景、主体、视觉签名身份、位置和融合约束，输出最终提示词；每帧会增加一次提示词生成调用与相应耗时。本地校验不通过时自动重写一次，再回退到确定性拼接。",
     "series_visual_signature.fallback.mode": "失败处理",
     "series_visual_signature.fallback.auto_repair": "自动修复并继续生成（推荐）",
     "series_visual_signature.fallback.default_signature": "回退到默认内容角色继续生成",

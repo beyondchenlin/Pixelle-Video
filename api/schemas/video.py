@@ -298,6 +298,13 @@ class VideoGenerateRequest(BaseModel):
     series_visual_signature_fallback_enabled: Optional[bool] = Field(None, description="Allow deterministic content-bound repair when LLM planning fails.")
     series_visual_signature_fallback_mode: Optional[Literal["auto_repair", "default_signature", "disabled"]] = Field(None, description="Fallback strategy for recurring IP planning.")
     series_visual_signature_min_visibility: Optional[Literal["subtle", "clear", "prominent"]] = Field(None, description="Minimum readable presence for recurring IP.")
+    series_visual_signature_llm_prompt_assembly_enabled: bool = Field(
+        True,
+        description=(
+            "Use the configured LLM to assemble the final visual-signature prompt; "
+            "deterministic validation and fallback remain mandatory."
+        ),
+    )
     article_understanding_mode: ArticleUnderstandingModeRequest = Field("auto", description="V4.4 article understanding mode.")
     visual_planning_mode: VisualPlanningModeRequest = Field("auto", description="V4.4 visual planning mode.")
     series_visual_signature_strategy: SeriesVisualSignatureStrategyRequest = Field("auto", description="V4.4 series visual signature strategy.")

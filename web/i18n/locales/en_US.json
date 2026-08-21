@@ -1448,6 +1448,8 @@
     "series_visual_signature.presentation.help": "Recommended: the IP must appear, but it must perform, carry, connect, weigh, build, or explain an article-related action.",
     "series_visual_signature.fallback.enabled": "Auto-repair failed signature plans and continue",
     "series_visual_signature.fallback.enabled_help": "Recommended: repair only failed frames, preserve successful frames, and record fallback reasons.",
+    "series_visual_signature.prompt_assembly.llm_enabled": "Smart LLM Prompt Assembly",
+    "series_visual_signature.prompt_assembly.llm_enabled_help": "Enabled by default. The LLM combines scene, subject, identity, placement, and fusion constraints into the final prompt. This adds one prompt-generation call per frame and its latency. Local validation repairs once, then falls back to deterministic assembly.",
     "series_visual_signature.fallback.mode": "Failure handling",
     "series_visual_signature.fallback.auto_repair": "Auto-repair and continue (recommended)",
     "series_visual_signature.fallback.default_signature": "Fall back to default content-bound IP",

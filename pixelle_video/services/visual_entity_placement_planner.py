@@ -305,7 +305,7 @@ def _scene_fusion(
     return VisualEntitySceneFusion(
         frame_id=frame_id,
         scene_type=scene_type,
-        occlusion_relation="body-only foreground occlusion",
+        occlusion_relation="unobscured single identity",
         perspective_relation="scene perspective",
         contact_relation=placement.support_relation,
         lighting_relation=_lighting_relation(base_prompt, frame_context),

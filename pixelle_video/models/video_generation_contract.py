@@ -118,6 +118,7 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "series_visual_signature_fallback_enabled",
     "series_visual_signature_fallback_mode",
     "series_visual_signature_min_visibility",
+    "series_visual_signature_llm_prompt_assembly_enabled",
 )
 ARTICLE_VISUAL_PLANNING_OPTION_KEYS = (
     *ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,
@@ -144,6 +145,7 @@ class IPControlsContract:
     series_visual_signature_mode: str = "auto"
     series_visual_signature_consistency_mode: str = "off"
     effective_series_visual_signature_mode: str = "auto"
+    series_visual_signature_llm_prompt_assembly_enabled: bool = True
 
     @classmethod
     def from_mapping(cls, params: Mapping[str, Any] | None) -> "IPControlsContract":
@@ -162,6 +164,7 @@ class IPControlsContract:
             series_visual_signature_mode=visual_controls.strategy.signature_mode.value,
             series_visual_signature_consistency_mode=visual_controls.strategy.consistency_mode.value,
             effective_series_visual_signature_mode=visual_controls.strategy.effective_signature_mode.value,
+            series_visual_signature_llm_prompt_assembly_enabled=visual_controls.llm_prompt_assembly_enabled,
         )
 
     def validate(self) -> None:
@@ -186,6 +189,9 @@ class IPControlsContract:
         payload["series_visual_signature_mode"] = self.series_visual_signature_mode
         payload["series_visual_signature_consistency_mode"] = self.series_visual_signature_consistency_mode
         payload["effective_series_visual_signature_mode"] = self.effective_series_visual_signature_mode
+        payload["series_visual_signature_llm_prompt_assembly_enabled"] = (
+            self.series_visual_signature_llm_prompt_assembly_enabled
+        )
         return payload
 
 
