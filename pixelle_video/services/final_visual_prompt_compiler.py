@@ -755,7 +755,14 @@ def _v46_main_content(
 ) -> str:
     parts = ["文案主画面：" + " ".join(str(main_scene).split())]
     if content_claim and not prompt_contains_term(parts[0], content_claim):
-        parts.append("画面主张是" + content_claim)
+        parts.append(
+            (
+                "画面通过上述人物、环境和动作表达原文观点，"
+                "不绘制句子、引语、标题或说明文字"
+                if _claim_is_quote_like(content_claim)
+                else "画面主张是" + content_claim
+            )
+        )
     missing = [
         subject
         for subject in required_subjects
@@ -764,6 +771,26 @@ def _v46_main_content(
     if missing:
         parts.append("必须完整保留并清晰显示" + "、".join(missing))
     return "；".join(parts)
+
+
+def _claim_is_quote_like(content_claim: str) -> bool:
+    claim = " ".join(str(content_claim or "").split()).casefold()
+    return any(
+        token in claim
+        for token in (
+            "他说",
+            "她说",
+            "他们说",
+            "有人说",
+            "：“",
+            ':"',
+            "“",
+            "”",
+            " said ",
+            " says ",
+            " quote ",
+        )
+    )
 
 
 def _v46_identity_clause(

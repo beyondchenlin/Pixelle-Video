@@ -13,6 +13,11 @@ from pixelle_video.models.content_bound_ip import (
     contains_weak_ip_action_language,
     is_serious_content_text,
 )
+from pixelle_video.services.protected_protagonist_composition import (
+    protected_protagonist_action,
+    protected_protagonist_binding,
+    protected_protagonist_subject,
+)
 from pixelle_video.services.structured_group_composition import (
     SINGLE_FACILITATOR_GROUP_ACTION,
     SINGLE_FACILITATOR_GROUP_BINDING,
@@ -105,6 +110,11 @@ class ContentBoundIPPlanner:
         style = dict(style_harmonization or {})
         text = _joined_text(visual_plan, route, article_summary or {})
         serious = is_serious_content_text(text)
+        normalized_subjects = tuple(
+            subject
+            for subject in (_first_text(value) for value in required_subjects)
+            if subject
+        )
         mechanism = choose_ip_participation_mechanism(
             selected_visual_route=route,
             frame_visual_plan=visual_plan,
@@ -114,15 +124,6 @@ class ContentBoundIPPlanner:
         physical_metaphor = str(visual_plan.get("physical_metaphor") or _physical_metaphor(mechanism, cognitive_anchor, text))
         scene_arena = str(visual_plan.get("scene_arena") or _scene_arena(mechanism, text, serious_content=serious))
         override_values, override_source = _mandatory_anchor_overrides(visual_plan)
-        action_verb = str(
-            override_values.get("mandatory_anchor_action_verb")
-            or _action_verb(mechanism, cognitive_anchor)
-        )
-        normalized_subjects = tuple(
-            subject
-            for subject in (_first_text(value) for value in required_subjects)
-            if subject
-        )
         target = str(
             override_values.get("mandatory_anchor_interaction_target")
             or (
@@ -130,6 +131,19 @@ class ContentBoundIPPlanner:
                 if normalized_subjects
                 else _interaction_target(mechanism, cognitive_anchor, physical_metaphor)
             )
+        )
+        protected_protagonist = protected_protagonist_subject(
+            normalized_subjects,
+            text,
+            physical_metaphor,
+            target,
+        )
+        protected_protagonist_scene = bool(protected_protagonist)
+        if protected_protagonist_scene:
+            mechanism = IPParticipationMechanism.OBSERVATION_GATEWAY
+        action_verb = str(
+            override_values.get("mandatory_anchor_action_verb")
+            or _action_verb(mechanism, cognitive_anchor)
         )
         structured_timeline = is_structured_timeline_scene(
             text,
@@ -141,21 +155,33 @@ class ContentBoundIPPlanner:
             physical_metaphor,
             target,
         )
-        if (
-            (structured_timeline or structured_group)
-            and "mandatory_anchor_action_verb" not in override_values
-        ):
-            action_verb = (
-                SINGLE_FACILITATOR_GROUP_ACTION
-                if structured_group
-                else SINGLE_ACTOR_TIMELINE_ACTION
-            )
+        if "mandatory_anchor_action_verb" not in override_values:
+            if protected_protagonist_scene:
+                action_verb = protected_protagonist_action(
+                    protected_protagonist,
+                    physical_metaphor,
+                    target,
+                )
+            elif structured_group:
+                action_verb = SINGLE_FACILITATOR_GROUP_ACTION
+            elif structured_timeline:
+                action_verb = SINGLE_ACTOR_TIMELINE_ACTION
         semantic_action = _semantic_action_with_verb(
             action_verb,
             cognitive_anchor,
             target,
         )
-        if structured_group:
+        if protected_protagonist_scene:
+            action_result = (
+                f"{protected_protagonist}在转折场景中央保持清晰可见，"
+                "指定角色只从侧后方提供一次指引"
+            )
+            scene_binding = protected_protagonist_binding(protected_protagonist)
+            semantic_necessity = (
+                f"指定角色必须从{protected_protagonist}侧后方指向同一处转折，"
+                f"使{cognitive_anchor}成为可见过程且不替代人物主体"
+            )
+        elif structured_group:
             action_result = (
                 "设计团队围绕桌面中央同一份方案讨论并完成定稿，"
                 f"指定角色只负责一次指示，直接表达{cognitive_anchor}"
@@ -193,7 +219,14 @@ class ContentBoundIPPlanner:
             text=text,
             serious_content=serious,
         )
-        if structured_timeline or structured_group:
+        if protected_protagonist_scene:
+            area_ratio, horizontal, depth, visible_extent = (
+                0.18,
+                "right",
+                "midground",
+                "full_body",
+            )
+        elif structured_timeline or structured_group:
             area_ratio, horizontal, depth, visible_extent = (
                 0.24,
                 "left",
@@ -229,7 +262,11 @@ class ContentBoundIPPlanner:
             interaction_target=target,
             action_result=action_result,
             scene_binding=scene_binding,
-            composition_role=_composition_role(mechanism, serious_content=serious),
+            composition_role=(
+                "侧后方从属见证者，人物主体保持为画面中心"
+                if protected_protagonist_scene
+                else _composition_role(mechanism, serious_content=serious)
+            ),
             semantic_necessity=semantic_necessity,
             adjacent_frame_difference=_adjacent_frame_difference(
                 mechanism=mechanism,

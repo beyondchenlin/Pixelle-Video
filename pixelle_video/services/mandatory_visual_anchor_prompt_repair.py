@@ -10,6 +10,9 @@ from pixelle_video.models.final_visual_prompt_contract_v46 import (
     FinalVisualPromptContractV46,
 )
 from pixelle_video.services.final_visual_prompt_compiler import FinalVisualPromptCompiler
+from pixelle_video.services.protected_protagonist_composition import (
+    protected_protagonist_subject,
+)
 from pixelle_video.services.structured_group_composition import (
     is_structured_group_scene,
 )
@@ -110,6 +113,11 @@ def _repair_clause(
     mandatory = contract.mandatory_anchor_contract
     plan = mandatory.participation_plan
     code_set = set(failure_codes)
+    protagonist = protected_protagonist_subject(
+        (plan.interaction_target,),
+        plan.physical_metaphor,
+        plan.interaction_target,
+    )
     supported_codes = {
         "review_confidence_below_threshold",
         "identity_instance_count_not_one",
@@ -146,7 +154,11 @@ def _repair_clause(
         "anchor_replaced_required_subject",
         "occlusion_invalid",
     }:
-        clarity = "必要主体与身份特征清晰无遮挡，原文主张不变"
+        clarity = (
+            f"{protagonist}保持为画面中央清晰可见的唯一人类主角，原文主张不变"
+            if protagonist
+            else "必要主体与身份特征清晰无遮挡，原文主张不变"
+        )
         if "anchor_replaced_required_subject" in code_set:
             clarity += "，指定角色不替代主体"
         fragments.append(clarity)
@@ -156,7 +168,12 @@ def _repair_clause(
         "identity_area_ratio_exceeded",
         "duplicate_body_detected",
     }:
-        if is_structured_group_scene(
+        if protagonist:
+            fragments.append(
+                "只画一个指定角色实体，固定在人物侧后方，只用一只前爪指向同一处转折，"
+                "不出现第二个指定角色"
+            )
+        elif is_structured_group_scene(
             plan.interaction_target,
             plan.physical_metaphor,
         ):
@@ -187,7 +204,13 @@ def _repair_clause(
         "contact_invalid",
         "anatomy_invalid",
     }:
-        fragments.append("指定角色接触上述动作目标并完成约定动作，支撑与肢体自然")
+        fragments.append(
+            (
+                f"指定角色从{protagonist}侧后方指向同一处转折，支撑与肢体自然"
+                if protagonist
+                else "指定角色接触上述动作目标并完成约定动作，支撑与肢体自然"
+            )
+        )
 
     if code_set & {
         "lighting_invalid",
@@ -197,7 +220,11 @@ def _repair_clause(
         fragments.append("角色透视、光照与材质服从场景，无贴纸边缘")
 
     if "unrelated_text_detected" in code_set:
-        fragments.append("删除无关文字、字母和伪文字纹理")
+        fragments.append(
+            "删除全部句子、引语、标题、字母和伪文字纹理"
+            if protagonist
+            else "删除无关文字、字母和伪文字纹理"
+        )
 
     prefix = "第二次修复" if repair_pass == 2 else "第一次修复"
     return f"{prefix}：{'；'.join(fragments)}"

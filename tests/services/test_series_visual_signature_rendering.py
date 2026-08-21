@@ -69,6 +69,27 @@ def test_provider_action_verb_collapses_legacy_timeline_action_to_one_position()
     )
 
 
+def test_provider_action_verb_keeps_named_protagonist_primary() -> None:
+    rendered = rendered_provider_action_verb(
+        "承受并整理",
+        participation_mechanism=IPParticipationMechanism.READER_PROXY,
+        interaction_target="乔布斯, 破晓, 转折点",
+        physical_metaphor="乔布斯站在破晓时分，背后是即将升起的太阳",
+    )
+
+    assert rendered == (
+        "固定站在乔布斯侧后方的地面上，"
+        "用一只前爪指向乔布斯身后的同一处破晓日出"
+    )
+    assert rendered_provider_action_verb(
+        "承受并整理",
+        participation_mechanism=IPParticipationMechanism.READER_PROXY,
+        interaction_target="乔布斯, 破晓, 转折点",
+        physical_metaphor="乔布斯站在破晓时分",
+        user_overrode_action=True,
+    ) == "承受并整理"
+
+
 def test_provider_action_verb_separates_one_facilitator_from_group_members() -> None:
     rendered = rendered_provider_action_verb(
         "连接",

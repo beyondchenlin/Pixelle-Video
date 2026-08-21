@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pixelle_video.models.content_bound_ip import IPParticipationMechanism
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
+from pixelle_video.services.protected_protagonist_composition import (
+    protected_protagonist_action,
+    protected_protagonist_subject,
+)
 from pixelle_video.services.series_visual_signature_prompt_presence import (
     normalize_prompt_text,
     prompt_contains_term,
@@ -99,6 +103,21 @@ def rendered_provider_action_verb(
     user_overrode_action: bool = False,
 ) -> str:
     rendered = normalize_prompt_text(action_verb)
+    protagonist = protected_protagonist_subject(
+        (interaction_target,),
+        physical_metaphor,
+        interaction_target,
+    )
+    if (
+        not user_overrode_action
+        and rendered == "承受并整理"
+        and protagonist
+    ):
+        return protected_protagonist_action(
+            protagonist,
+            physical_metaphor,
+            interaction_target,
+        )
     if (
         not user_overrode_action
         and rendered == "连接"

@@ -132,6 +132,33 @@ def _group_v46_contract() -> FinalVisualPromptContractV46:
     return projection.contract
 
 
+def _protagonist_v46_contract() -> FinalVisualPromptContractV46:
+    request = SeriesVisualSignatureRequest.from_mapping(
+        {
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_profile_id": "dog_1",
+            "series_visual_signature_role": "auto",
+        }
+    )
+    projection = SeriesVisualSignatureProjectionService().project_frame(
+        frame_id="frame-protagonist",
+        base_prompt=(
+            "乔布斯站在破晓时分，背后是即将升起的太阳，"
+            "象征着他在逆境中的态度转变"
+        ),
+        frame_context={
+            "frame_source_text": (
+                "但他没有放弃，反而从中学到了很多。"
+                "他说，有时候生活给你当头一棒，但这正是你重新开始的机会。"
+            ),
+            "required_subjects": ["乔布斯, 破晓, 转折点"],
+        },
+        request=request,
+        profile=_profile(),
+    )
+    return projection.contract
+
+
 def _v45_contract() -> FinalVisualPromptContractV45:
     return FinalVisualPromptContractV45(
         contract_id="legacy:frame-1",
@@ -266,6 +293,57 @@ def test_group_prompt_keeps_one_facilitator_distinct_from_human_team() -> None:
     assert "固定站在讨论桌旁" in repaired.bundle.positive_prompt
     assert "其余团队成员保持为人类" in repaired.bundle.positive_prompt
     assert "不采用角色外观" in repaired.bundle.positive_prompt
+    assert len(repaired.bundle.positive_prompt) <= 800
+
+
+def test_named_protagonist_stays_primary_while_one_witness_points_to_turning_point() -> None:
+    contract = _protagonist_v46_contract()
+    mandatory = contract.mandatory_anchor_contract
+    plan = mandatory.participation_plan
+    placement = mandatory.placement
+    bundle = FinalVisualPromptCompiler().compile(final_contract=contract)
+
+    assert plan.participation_mechanism.value == "observation_gateway"
+    assert contract.series_visual_signature.role.value == "guide"
+    assert plan.action_verb == (
+        "固定站在乔布斯侧后方的地面上，"
+        "用一只前爪指向乔布斯身后的同一处破晓日出"
+    )
+    assert plan.scene_binding == (
+        "乔布斯保持为画面中央唯一人类主角；"
+        "一个指定角色固定站在侧后方地面，只在一个位置提供指引，"
+        "不替代或复制乔布斯"
+    )
+    assert placement.horizontal_position.value == "right"
+    assert placement.depth_position.value == "midground"
+    assert placement.visible_extent.value == "full_body"
+    assert placement.relative_size.value == "medium_small"
+    assert placement.area_ratio == pytest.approx(0.18)
+    assert placement.support_relation == "feet on existing 地面"
+    assert "乔布斯保持为画面中央唯一人类主角" in bundle.positive_prompt
+    assert "不绘制句子、引语、标题或说明文字" in bundle.positive_prompt
+    assert "他说" not in bundle.positive_prompt
+    assert "覆盖画面主体区域" not in bundle.positive_prompt
+    assert "%" not in bundle.positive_prompt
+    assert len(bundle.positive_prompt) <= 800
+
+    repaired = MandatoryVisualAnchorPromptRepairService().repair(
+        contract=contract,
+        failure_codes=(
+            "identity_instance_count_not_one",
+            "required_subject_missing",
+            "anchor_action_mismatch",
+            "anchor_replaced_required_subject",
+            "unrelated_text_detected",
+        ),
+        repair_pass=1,
+        base_negative_prompt=None,
+    )
+    assert "乔布斯保持为画面中央清晰可见的唯一人类主角" in (
+        repaired.bundle.positive_prompt
+    )
+    assert "不出现第二个指定角色" in repaired.bundle.positive_prompt
+    assert "删除全部句子、引语、标题" in repaired.bundle.positive_prompt
     assert len(repaired.bundle.positive_prompt) <= 800
 
 
