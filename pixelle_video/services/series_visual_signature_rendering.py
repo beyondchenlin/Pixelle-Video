@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pixelle_video.models.content_bound_ip import IPParticipationMechanism
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.services.series_visual_signature_prompt_presence import (
     normalize_prompt_text,
@@ -81,12 +82,33 @@ def rendered_identity_clause(profile: VisualSignatureProfileSnapshot) -> str:
     return clause
 
 
-def rendered_provider_participation_text(value: str) -> str:
+def rendered_provider_action_verb(
+    action_verb: str,
+    *,
+    participation_mechanism: IPParticipationMechanism,
+) -> str:
+    rendered = normalize_prompt_text(action_verb)
+    if (
+        participation_mechanism is IPParticipationMechanism.CONFLICT_PARTICIPANT
+        and rendered == "拉住并权衡"
+    ):
+        return "用同一个身体的一只前爪指向对比图中央的分界线并权衡"
+    return rendered
+
+
+def rendered_provider_participation_text(
+    value: str,
+    *,
+    action_verb: str = "",
+    provider_action_verb: str = "",
+) -> str:
     """Render contract participation facts without leaking internal anchor jargon."""
 
     rendered = normalize_prompt_text(value)
     for source, replacement in _INTERNAL_PARTICIPATION_REFERENCE_REWRITES:
         rendered = rendered.replace(source, replacement)
+    if action_verb and provider_action_verb:
+        rendered = rendered.replace(action_verb, provider_action_verb)
     return rendered
 
 
@@ -101,5 +123,6 @@ __all__ = [
     "rendered_identity_clause",
     "rendered_identity_terms",
     "rendered_identity_traits",
+    "rendered_provider_action_verb",
     "rendered_provider_participation_text",
 ]

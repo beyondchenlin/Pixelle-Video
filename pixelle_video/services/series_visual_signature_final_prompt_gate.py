@@ -22,6 +22,7 @@ from pixelle_video.services.series_visual_signature_prompt_presence import (
 )
 from pixelle_video.services.series_visual_signature_rendering import (
     rendered_identity_terms,
+    rendered_provider_action_verb,
     rendered_provider_participation_text,
 )
 
@@ -270,12 +271,20 @@ def assert_mandatory_content_bound_final_prompt(
                 f"at index {index}"
             )
     plan = contract.participation_plan
+    provider_action_verb = rendered_provider_action_verb(
+        plan.action_verb,
+        participation_mechanism=plan.participation_mechanism,
+    )
     for field_name, value in (
-        ("action_verb", plan.action_verb),
+        ("action_verb", provider_action_verb),
         ("interaction_target", plan.interaction_target),
         (
             "action_result",
-            rendered_provider_participation_text(plan.action_result),
+            rendered_provider_participation_text(
+                plan.action_result,
+                action_verb=plan.action_verb,
+                provider_action_verb=provider_action_verb,
+            ),
         ),
     ):
         if not prompt_contains_term(positive, value):

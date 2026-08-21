@@ -1,7 +1,9 @@
+from pixelle_video.models.content_bound_ip import IPParticipationMechanism
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.services.series_visual_signature_rendering import (
     rendered_identity_clause,
     rendered_identity_terms,
+    rendered_provider_action_verb,
     rendered_provider_participation_text,
 )
 
@@ -40,3 +42,14 @@ def test_provider_participation_text_rewrites_only_internal_anchor_reference() -
         "导航锚点经过指定角色参与后变得清楚；"
         "指定角色必须通过连接导航锚点完成说明"
     )
+
+
+def test_provider_action_verb_makes_default_conflict_action_single_actor() -> None:
+    assert rendered_provider_action_verb(
+        "拉住并权衡",
+        participation_mechanism=IPParticipationMechanism.CONFLICT_PARTICIPANT,
+    ) == "用同一个身体的一只前爪指向对比图中央的分界线并权衡"
+    assert rendered_provider_action_verb(
+        "指向",
+        participation_mechanism=IPParticipationMechanism.CONFLICT_PARTICIPANT,
+    ) == "指向"

@@ -57,6 +57,28 @@ def _v46_contract(frame_id: str = "frame-v46") -> FinalVisualPromptContractV46:
     return projection.contract
 
 
+def _conflict_v46_contract() -> FinalVisualPromptContractV46:
+    request = SeriesVisualSignatureRequest.from_mapping(
+        {
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_profile_id": "dog_1",
+            "series_visual_signature_role": "auto",
+        }
+    )
+    projection = SeriesVisualSignatureProjectionService().project_frame(
+        frame_id="frame-conflict",
+        base_prompt="思维导图对比复杂问题与简单解决方案",
+        frame_context={
+            "frame_source_text": "在复杂问题中权衡并找到简单解决方案。",
+            "primary_subject": "思维导图",
+            "secondary_subjects": ["复杂问题与简单解决方案的对比"],
+        },
+        request=request,
+        profile=_profile(),
+    )
+    return projection.contract
+
+
 def _v45_contract() -> FinalVisualPromptContractV45:
     return FinalVisualPromptContractV45(
         contract_id="legacy:frame-1",
@@ -93,6 +115,29 @@ def test_provider_prompt_leads_with_explicit_role_without_internal_anchor_jargon
         "文案主画面"
     )
     assert "锚点" not in bundle.positive_prompt
+
+
+def test_conflict_prompt_uses_one_actor_to_point_at_comparison_boundary() -> None:
+    contract = _conflict_v46_contract()
+    bundle = FinalVisualPromptCompiler().compile(final_contract=contract)
+
+    assert (
+        contract.mandatory_anchor_contract.participation_plan.participation_mechanism.value
+        == "conflict_participant"
+    )
+    assert "用一只前爪指向对比图中央的分界线并权衡" in bundle.positive_prompt
+    assert "拉住并权衡" not in bundle.positive_prompt
+    assert contract.mandatory_anchor_contract.placement.horizontal_position.value == "left"
+    assert contract.mandatory_anchor_contract.placement.area_ratio == pytest.approx(0.24)
+
+    repaired = MandatoryVisualAnchorPromptRepairService().repair(
+        contract=contract,
+        failure_codes=("identity_instance_count_not_one",),
+        repair_pass=1,
+        base_negative_prompt=None,
+    )
+    assert "用一只前爪指向中央分界线" in repaired.bundle.positive_prompt
+    assert "所有动作由这一个身体完成" in repaired.bundle.positive_prompt
 
 
 def test_v46_contract_rejects_empty_subjects_and_tampered_hash() -> None:

@@ -426,7 +426,7 @@ def _scene_arena(mechanism: IPParticipationMechanism, text: str, *, serious_cont
         IPParticipationMechanism.READER_PROXY: "抽象但温和的读者心理场景",
         IPParticipationMechanism.OBSERVATION_GATEWAY: "大型系统模型或迷宫入口前",
         IPParticipationMechanism.SYSTEM_COMPONENT: "可剖开的机制装置内部",
-        IPParticipationMechanism.CONFLICT_PARTICIPANT: "两端力量拉扯的简洁舞台",
+        IPParticipationMechanism.CONFLICT_PARTICIPANT: "单个参与者面对一张对比图的简洁展示台",
         IPParticipationMechanism.SCALE_REFERENCE: "比例夸张的尺度空间",
         IPParticipationMechanism.TRANSFORMATION_MEDIUM: "输入输出清楚的转化通道",
         IPParticipationMechanism.EXPLANATION_DIRECTOR: "中性解释空间里的模型桌",
@@ -450,7 +450,7 @@ def _action_verb(mechanism: IPParticipationMechanism, cognitive_anchor: str) -> 
     if mechanism is IPParticipationMechanism.SYSTEM_COMPONENT:
         return "连接"
     if mechanism is IPParticipationMechanism.CONFLICT_PARTICIPANT:
-        return "拉住并权衡"
+        return "用一只前爪指向对比图中央的分界线并权衡"
     if mechanism is IPParticipationMechanism.SCALE_REFERENCE:
         return "衡量"
     if mechanism is IPParticipationMechanism.TRANSFORMATION_MEDIUM:
@@ -509,7 +509,7 @@ def _semantic_placement(
         IPParticipationMechanism.READER_PROXY: (0.52, "center", "foreground", "half_body"),
         IPParticipationMechanism.OBSERVATION_GATEWAY: (0.24, "left", "foreground", "full_body"),
         IPParticipationMechanism.SYSTEM_COMPONENT: (0.42, "center", "midground", "partial"),
-        IPParticipationMechanism.CONFLICT_PARTICIPANT: (0.40, "center", "midground", "full_body"),
+        IPParticipationMechanism.CONFLICT_PARTICIPANT: (0.24, "left", "midground", "full_body"),
         IPParticipationMechanism.SCALE_REFERENCE: (0.16, "left", "foreground", "full_body"),
         IPParticipationMechanism.EXPLANATION_DIRECTOR: (0.30, "right", "midground", "full_body"),
         IPParticipationMechanism.TRANSFORMATION_MEDIUM: (0.38, "center", "midground", "partial"),

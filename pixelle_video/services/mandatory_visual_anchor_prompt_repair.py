@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
+from pixelle_video.models.content_bound_ip import IPParticipationMechanism
 from pixelle_video.models.final_visual_prompt_bundle import FinalVisualPromptBundle
 from pixelle_video.models.final_visual_prompt_contract_v46 import (
     FinalVisualPromptContractV46,
@@ -106,9 +107,15 @@ def _repair_fragment(
     mandatory = contract.mandatory_anchor_contract
     plan = mandatory.participation_plan
     subjects = "、".join(mandatory.required_subject_labels)
+    instance_repair = "只画一个指定角色实体，画面、反射、海报和屏幕中都不出现副本"
+    if plan.participation_mechanism is IPParticipationMechanism.CONFLICT_PARTICIPANT:
+        instance_repair = (
+            "只画一个指定角色实体，这一个身体位于对比图一侧，"
+            "用一只前爪指向中央分界线，所有动作由这一个身体完成"
+        )
     fragments = {
         "review_confidence_below_threshold": "构图关系必须清楚、无遮挡、可直接核验",
-        "identity_instance_count_not_one": "只画一个指定角色实体，画面、反射、海报和屏幕中都不出现副本",
+        "identity_instance_count_not_one": instance_repair,
         "identity_traits_not_visible": "完整露出身份核心特征且不遮挡内容主体",
         "identity_area_ratio_exceeded": f"指定角色严格保持约{mandatory.placement.area_ratio:.0%}的计划画面占比",
         "required_subject_missing": f"清晰完整呈现全部必要主体：{subjects}",

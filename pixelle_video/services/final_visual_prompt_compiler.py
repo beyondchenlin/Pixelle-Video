@@ -7,6 +7,10 @@ from typing import Any
 from pixelle_video.architecture.legacy_signature_field_guard import (
     reject_deprecated_signature_fields,
 )
+from pixelle_video.models.content_bound_ip import (
+    ContentBoundIPPresencePlan,
+    IPParticipationMechanism,
+)
 from pixelle_video.models.final_visual_prompt_bundle import FinalVisualPromptBundle
 from pixelle_video.models.final_visual_prompt_contract_v45 import (
     FinalVisualPromptContractV45,
@@ -33,6 +37,7 @@ from pixelle_video.services.series_visual_signature_prompt_presence import (
 from pixelle_video.services.series_visual_signature_rendering import (
     rendered_identity_clause,
     rendered_identity_traits,
+    rendered_provider_action_verb,
     rendered_provider_participation_text,
 )
 from pixelle_video.services.visible_text_prompt_rewriter import (
@@ -241,16 +246,11 @@ class FinalVisualPromptCompiler:
             traits=rendered_identity_traits(profile),
             anchor_subject_overlap=mandatory.anchor_subject_overlap,
         )
-        participation = (
-            f"指定角色执行{plan.action_verb}，动作目标是{plan.interaction_target}；"
-            f"{rendered_provider_participation_text(plan.action_result)}；"
-            f"{rendered_provider_participation_text(plan.semantic_necessity)}；"
-            f"{rendered_provider_participation_text(plan.scene_binding)}"
-        )
+        participation = _v46_participation_clause(plan)
         spatial = _v46_spatial_clause(mandatory.placement)
         fusion = _v46_fusion_clause(mandatory.scene_fusion)
         instance_control = (
-            "全画面仅有一个指定角色实例、身体、头部和位置；"
+            "全画面所有动作均由同一个指定角色的一副身体、一个头部和一个位置完成；"
             "无副本、倒影或主体替代"
         )
         style = _bounded_style_clause(contract.diagram_render)
@@ -779,6 +779,37 @@ def _v46_identity_clause(
     if traits:
         clause += "，可见特征为" + "、".join(traits)
     return clause
+
+
+def _v46_participation_clause(plan: ContentBoundIPPresencePlan) -> str:
+    provider_action_verb = rendered_provider_action_verb(
+        plan.action_verb,
+        participation_mechanism=plan.participation_mechanism,
+    )
+
+    def render_plan_text(value: str) -> str:
+        return rendered_provider_participation_text(
+            value,
+            action_verb=plan.action_verb,
+            provider_action_verb=provider_action_verb,
+        )
+
+    singular_conflict_pose = ""
+    if (
+        plan.participation_mechanism
+        is IPParticipationMechanism.CONFLICT_PARTICIPANT
+        and provider_action_verb != plan.action_verb
+    ):
+        singular_conflict_pose = (
+            "一个指定角色面向对比图，以同一个身体和一只前爪完成指示动作；"
+        )
+    return (
+        singular_conflict_pose
+        + f"指定角色执行{provider_action_verb}，动作目标是{plan.interaction_target}；"
+        + f"{render_plan_text(plan.action_result)}；"
+        + f"{render_plan_text(plan.semantic_necessity)}；"
+        + render_plan_text(plan.scene_binding)
+    )
 
 
 def _v46_spatial_clause(placement: VisualEntityPlacement) -> str:
