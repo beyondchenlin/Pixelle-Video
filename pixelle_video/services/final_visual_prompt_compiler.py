@@ -785,6 +785,8 @@ def _v46_participation_clause(plan: ContentBoundIPPresencePlan) -> str:
     provider_action_verb = rendered_provider_action_verb(
         plan.action_verb,
         participation_mechanism=plan.participation_mechanism,
+        interaction_target=plan.interaction_target,
+        physical_metaphor=plan.physical_metaphor,
     )
 
     def render_plan_text(value: str) -> str:

@@ -79,6 +79,34 @@ def _conflict_v46_contract() -> FinalVisualPromptContractV46:
     return projection.contract
 
 
+def _timeline_v46_contract() -> FinalVisualPromptContractV46:
+    request = SeriesVisualSignatureRequest.from_mapping(
+        {
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_profile_id": "dog_1",
+            "series_visual_signature_role": "auto",
+        }
+    )
+    projection = SeriesVisualSignatureProjectionService().project_frame(
+        frame_id="frame-timeline",
+        base_prompt=(
+            "不同年代的苹果产品以时间轴排列，从Mac到iPhone；"
+            "时间轴下方展示乔布斯职业生涯的不同阶段"
+        ),
+        frame_context={
+            "frame_source_text": (
+                "苹果产品影响生活，乔布斯也经历过失败和低谷。"
+            ),
+            "required_subjects": [
+                "不同年代的苹果产品, 乔布斯职业生涯的不同阶段插图"
+            ],
+        },
+        request=request,
+        profile=_profile(),
+    )
+    return projection.contract
+
+
 def _v45_contract() -> FinalVisualPromptContractV45:
     return FinalVisualPromptContractV45(
         contract_id="legacy:frame-1",
@@ -138,6 +166,42 @@ def test_conflict_prompt_uses_one_actor_to_point_at_comparison_boundary() -> Non
     )
     assert "用一只前爪指向中央分界线" in repaired.bundle.positive_prompt
     assert "所有动作由这一个身体完成" in repaired.bundle.positive_prompt
+
+
+def test_timeline_prompt_uses_one_actor_at_one_shared_control_position() -> None:
+    contract = _timeline_v46_contract()
+    mandatory = contract.mandatory_anchor_contract
+    plan = mandatory.participation_plan
+    placement = mandatory.placement
+    bundle = FinalVisualPromptCompiler().compile(final_contract=contract)
+
+    assert plan.participation_mechanism.value == "reader_proxy"
+    assert plan.action_verb == (
+        "在整条时间线左下方的单一位置，"
+        "用一只前爪指向贯穿全部阶段的同一条总线"
+    )
+    assert plan.scene_binding == (
+        "角色固定在整条时间线左下方的一个位置，只指向同一条总线，"
+        "不在各年代或阶段重复出现"
+    )
+    assert "承受并整理" not in bundle.positive_prompt
+    assert "不在各年代或阶段重复出现" in bundle.positive_prompt
+    assert placement.horizontal_position.value == "left"
+    assert placement.depth_position.value == "midground"
+    assert placement.visible_extent.value == "full_body"
+    assert placement.area_ratio == pytest.approx(0.24)
+    assert len(bundle.positive_prompt) <= 800
+
+    repaired = MandatoryVisualAnchorPromptRepairService().repair(
+        contract=contract,
+        failure_codes=("identity_instance_count_not_one",),
+        repair_pass=1,
+        base_negative_prompt=None,
+    )
+    assert "固定在整条时间线左下方" in repaired.bundle.positive_prompt
+    assert "只指向同一条总线" in repaired.bundle.positive_prompt
+    assert "不在各阶段重复" in repaired.bundle.positive_prompt
+    assert len(repaired.bundle.positive_prompt) <= 800
 
 
 def test_v46_contract_rejects_empty_subjects_and_tampered_hash() -> None:

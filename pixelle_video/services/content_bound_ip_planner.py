@@ -13,6 +13,11 @@ from pixelle_video.models.content_bound_ip import (
     contains_weak_ip_action_language,
     is_serious_content_text,
 )
+from pixelle_video.services.structured_timeline_composition import (
+    SINGLE_ACTOR_TIMELINE_ACTION,
+    SINGLE_ACTOR_TIMELINE_BINDING,
+    is_structured_timeline_scene,
+)
 
 
 @dataclass(frozen=True)
@@ -121,18 +126,56 @@ class ContentBoundIPPlanner:
                 else _interaction_target(mechanism, cognitive_anchor, physical_metaphor)
             )
         )
+        structured_timeline = is_structured_timeline_scene(
+            text,
+            physical_metaphor,
+            target,
+        )
+        if (
+            structured_timeline
+            and "mandatory_anchor_action_verb" not in override_values
+        ):
+            action_verb = SINGLE_ACTOR_TIMELINE_ACTION
         semantic_action = _semantic_action_with_verb(
             action_verb,
             cognitive_anchor,
             target,
         )
-        action_result = _action_result(mechanism, target, cognitive_anchor)
-        scene_binding = _scene_binding(mechanism, scene_arena, action_verb, target, serious_content=serious)
+        if structured_timeline:
+            action_result = (
+                "整条时间线由同一条总线串联，观众从单一角色反应读出压力与选择，"
+                f"直接表达{cognitive_anchor}"
+            )
+            scene_binding = SINGLE_ACTOR_TIMELINE_BINDING
+            semantic_necessity = (
+                "指定角色必须在时间线左下方单一位置指向同一条总线，"
+                f"使{cognitive_anchor}成为可见过程"
+            )
+        else:
+            action_result = _action_result(mechanism, target, cognitive_anchor)
+            scene_binding = _scene_binding(
+                mechanism,
+                scene_arena,
+                action_verb,
+                target,
+                serious_content=serious,
+            )
+            semantic_necessity = (
+                f"锚点必须通过{action_verb}{target}使{cognitive_anchor}成为可见过程，"
+                "而不是作为无关装饰出现"
+            )
         area_ratio, horizontal, depth, visible_extent = _semantic_placement(
             mechanism=mechanism,
             text=text,
             serious_content=serious,
         )
+        if structured_timeline:
+            area_ratio, horizontal, depth, visible_extent = (
+                0.24,
+                "left",
+                "midground",
+                "full_body",
+            )
         area_ratio = float(
             override_values.get("mandatory_anchor_area_ratio", area_ratio)
         )
@@ -163,10 +206,7 @@ class ContentBoundIPPlanner:
             action_result=action_result,
             scene_binding=scene_binding,
             composition_role=_composition_role(mechanism, serious_content=serious),
-            semantic_necessity=(
-                f"锚点必须通过{action_verb}{target}使{cognitive_anchor}成为可见过程，"
-                "而不是作为无关装饰出现"
-            ),
+            semantic_necessity=semantic_necessity,
             adjacent_frame_difference=_adjacent_frame_difference(
                 mechanism=mechanism,
                 action_verb=action_verb,

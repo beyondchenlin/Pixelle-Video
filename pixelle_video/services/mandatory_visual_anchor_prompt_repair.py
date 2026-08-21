@@ -10,6 +10,9 @@ from pixelle_video.models.final_visual_prompt_contract_v46 import (
     FinalVisualPromptContractV46,
 )
 from pixelle_video.services.final_visual_prompt_compiler import FinalVisualPromptCompiler
+from pixelle_video.services.structured_timeline_composition import (
+    is_structured_timeline_scene,
+)
 
 _REPAIR_MARKERS = ("；第一次修复：", "；第二次修复：")
 
@@ -150,7 +153,15 @@ def _repair_clause(
         "identity_area_ratio_exceeded",
         "duplicate_body_detected",
     }:
-        if plan.participation_mechanism is IPParticipationMechanism.CONFLICT_PARTICIPANT:
+        if is_structured_timeline_scene(
+            plan.interaction_target,
+            plan.physical_metaphor,
+        ):
+            fragments.append(
+                "只画一个指定角色实体，固定在整条时间线左下方，只指向同一条总线，"
+                "不在各阶段重复"
+            )
+        elif plan.participation_mechanism is IPParticipationMechanism.CONFLICT_PARTICIPANT:
             fragments.append(
                 "只画一个指定角色实体，位于对比图一侧，用一只前爪指向中央分界线，"
                 "所有动作由这一个身体完成"

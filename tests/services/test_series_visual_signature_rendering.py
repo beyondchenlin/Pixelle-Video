@@ -53,3 +53,17 @@ def test_provider_action_verb_makes_default_conflict_action_single_actor() -> No
         "指向",
         participation_mechanism=IPParticipationMechanism.CONFLICT_PARTICIPANT,
     ) == "指向"
+
+
+def test_provider_action_verb_collapses_legacy_timeline_action_to_one_position() -> None:
+    rendered = rendered_provider_action_verb(
+        "承受并整理",
+        participation_mechanism=IPParticipationMechanism.READER_PROXY,
+        interaction_target="不同年代的苹果产品和乔布斯职业生涯的不同阶段插图",
+        physical_metaphor="从Mac到iPhone的横向时间轴",
+    )
+
+    assert rendered == (
+        "在整条时间线左下方的单一位置，"
+        "用一只前爪指向贯穿全部阶段的同一条总线"
+    )

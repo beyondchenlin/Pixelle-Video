@@ -7,6 +7,10 @@ from pixelle_video.services.series_visual_signature_prompt_presence import (
     prompt_contains_term,
     remove_prompt_term,
 )
+from pixelle_video.services.structured_timeline_composition import (
+    SINGLE_ACTOR_TIMELINE_ACTION,
+    is_structured_timeline_scene,
+)
 
 _NON_DESCRIPTIVE_REMAINDERS = frozenset(
     {
@@ -86,8 +90,15 @@ def rendered_provider_action_verb(
     action_verb: str,
     *,
     participation_mechanism: IPParticipationMechanism,
+    interaction_target: str = "",
+    physical_metaphor: str = "",
 ) -> str:
     rendered = normalize_prompt_text(action_verb)
+    if (
+        rendered == "承受并整理"
+        and is_structured_timeline_scene(interaction_target, physical_metaphor)
+    ):
+        return SINGLE_ACTOR_TIMELINE_ACTION
     if (
         participation_mechanism is IPParticipationMechanism.CONFLICT_PARTICIPANT
         and rendered == "拉住并权衡"
