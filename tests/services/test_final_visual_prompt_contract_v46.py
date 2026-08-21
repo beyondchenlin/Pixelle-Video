@@ -217,6 +217,46 @@ def test_prompt_repair_changes_only_scene_description_and_recompiles_contract() 
     ]
 
 
+def test_prompt_repair_compacts_many_failures_and_replaces_previous_pass() -> None:
+    contract = _v46_contract("frame-many-repairs")
+    failure_codes = (
+        "review_confidence_below_threshold",
+        "identity_instance_count_not_one",
+        "required_subject_missing",
+        "anchor_action_mismatch",
+        "interaction_target_missing",
+        "content_claim_not_preserved",
+        "support_invalid",
+        "contact_invalid",
+        "anchor_replaced_required_subject",
+    )
+    service = MandatoryVisualAnchorPromptRepairService()
+
+    first = service.repair(
+        contract=contract,
+        failure_codes=failure_codes,
+        repair_pass=1,
+        base_negative_prompt=None,
+    )
+    second = service.repair(
+        contract=first.contract,
+        failure_codes=failure_codes,
+        repair_pass=2,
+        base_negative_prompt=None,
+    )
+
+    assert first.failure_codes == failure_codes
+    assert len(first.repair_fragments) == 1
+    assert len(first.bundle.positive_prompt) <= 800
+    assert "第一次修复" in first.bundle.positive_prompt
+    assert len(second.bundle.positive_prompt) <= 800
+    assert "第一次修复" not in second.bundle.positive_prompt
+    assert second.bundle.positive_prompt.count("第二次修复") == 1
+    assert "必要主体与身份特征清晰无遮挡" in second.bundle.positive_prompt
+    assert "只画一个指定角色实体" in second.bundle.positive_prompt
+    assert "接触上述动作目标并完成约定动作" in second.bundle.positive_prompt
+
+
 def test_prompt_repair_rejects_unavailable_inspection_and_fourth_attempt() -> None:
     contract = _v46_contract("frame-no-repair")
     service = MandatoryVisualAnchorPromptRepairService()

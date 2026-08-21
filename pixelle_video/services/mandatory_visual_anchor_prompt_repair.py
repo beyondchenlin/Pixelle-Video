@@ -10,9 +10,8 @@ from pixelle_video.models.final_visual_prompt_contract_v46 import (
     FinalVisualPromptContractV46,
 )
 from pixelle_video.services.final_visual_prompt_compiler import FinalVisualPromptCompiler
-from pixelle_video.services.series_visual_signature_rendering import (
-    rendered_provider_participation_text,
-)
+
+_REPAIR_MARKERS = ("；第一次修复：", "；第二次修复：")
 
 
 @dataclass(frozen=True)
@@ -61,18 +60,16 @@ class MandatoryVisualAnchorPromptRepairService:
                 "inspection unavailability cannot be repaired by rewriting the prompt"
             )
         mandatory = contract.mandatory_anchor_contract
-        fragments = tuple(
-            _repair_fragment(
-                code,
-                contract=contract,
-                repair_pass=repair_pass,
-            )
-            for code in normalized_codes
+        repair_clause = _repair_clause(
+            normalized_codes,
+            contract=contract,
+            repair_pass=repair_pass,
         )
-        scene = mandatory.final_scene_description.rstrip(" .。；;")
-        additions = tuple(fragment for fragment in fragments if fragment not in scene)
-        if additions:
-            scene = "；".join((scene, *additions))
+        fragments = (repair_clause,)
+        scene = _scene_without_previous_repair(
+            mandatory.final_scene_description
+        ).rstrip(" .。；;")
+        scene = "；".join((scene, repair_clause))
         repaired_mandatory = replace(
             mandatory,
             final_scene_description=scene,
@@ -98,50 +95,101 @@ class MandatoryVisualAnchorPromptRepairService:
         )
 
 
-def _repair_fragment(
-    failure_code: str,
+def _repair_clause(
+    failure_codes: Sequence[str],
     *,
     contract: FinalVisualPromptContractV46,
     repair_pass: int,
 ) -> str:
     mandatory = contract.mandatory_anchor_contract
     plan = mandatory.participation_plan
-    subjects = "、".join(mandatory.required_subject_labels)
-    instance_repair = "只画一个指定角色实体，画面、反射、海报和屏幕中都不出现副本"
-    if plan.participation_mechanism is IPParticipationMechanism.CONFLICT_PARTICIPANT:
-        instance_repair = (
-            "只画一个指定角色实体，这一个身体位于对比图一侧，"
-            "用一只前爪指向中央分界线，所有动作由这一个身体完成"
-        )
-    fragments = {
-        "review_confidence_below_threshold": "构图关系必须清楚、无遮挡、可直接核验",
-        "identity_instance_count_not_one": instance_repair,
-        "identity_traits_not_visible": "完整露出身份核心特征且不遮挡内容主体",
-        "identity_area_ratio_exceeded": f"指定角色严格保持约{mandatory.placement.area_ratio:.0%}的计划画面占比",
-        "required_subject_missing": f"清晰完整呈现全部必要主体：{subjects}",
-        "anchor_action_mismatch": (
-            f"定格在指定角色{plan.action_verb}{plan.interaction_target}并产生"
-            f"{rendered_provider_participation_text(plan.action_result)}的瞬间"
-        ),
-        "interaction_target_missing": f"完整露出动作目标{plan.interaction_target}",
-        "content_claim_not_preserved": f"画面必须继续表达原文主张：{mandatory.content_claim}",
-        "anchor_replaced_required_subject": f"指定角色不得冒充或替代必要主体：{subjects}",
-        "support_invalid": f"指定角色通过{mandatory.placement.support_relation}获得明确支撑",
-        "contact_invalid": f"指定角色与{plan.interaction_target}形成清楚可见的物理接触",
-        "occlusion_invalid": "调整前后层级，身份特征和必要主体均不被遮挡",
-        "lighting_invalid": "指定角色受光方向、色温和强度与场景主光一致",
-        "perspective_invalid": "指定角色尺寸、落点和地平线严格服从场景透视",
-        "anatomy_invalid": "指定角色肢体、关节和身体结构完整自然",
-        "duplicate_body_detected": "删除多余身体、头部、肢体、倒影和相似副本",
-        "sticker_edge_detected": "消除贴纸边缘，让指定角色共享场景材质、光影和接触阴影",
-        "unrelated_text_detected": "删除无关文字、字母和伪文字纹理",
+    code_set = set(failure_codes)
+    supported_codes = {
+        "review_confidence_below_threshold",
+        "identity_instance_count_not_one",
+        "identity_traits_not_visible",
+        "identity_area_ratio_exceeded",
+        "required_subject_missing",
+        "anchor_action_mismatch",
+        "interaction_target_missing",
+        "content_claim_not_preserved",
+        "anchor_replaced_required_subject",
+        "support_invalid",
+        "contact_invalid",
+        "occlusion_invalid",
+        "lighting_invalid",
+        "perspective_invalid",
+        "anatomy_invalid",
+        "duplicate_body_detected",
+        "sticker_edge_detected",
+        "unrelated_text_detected",
     }
-    if failure_code not in fragments:
-        raise ValueError(f"unsupported mandatory visual anchor failure code: {failure_code}")
-    fragment = fragments[failure_code]
-    if repair_pass == 2:
-        return "第二次修复：" + fragment
-    return "第一次修复：" + fragment
+    unsupported_codes = code_set - supported_codes
+    if unsupported_codes:
+        unsupported = sorted(unsupported_codes)[0]
+        raise ValueError(
+            f"unsupported mandatory visual anchor failure code: {unsupported}"
+        )
+
+    fragments: list[str] = []
+    if code_set & {
+        "review_confidence_below_threshold",
+        "identity_traits_not_visible",
+        "required_subject_missing",
+        "content_claim_not_preserved",
+        "anchor_replaced_required_subject",
+        "occlusion_invalid",
+    }:
+        clarity = "必要主体与身份特征清晰无遮挡，原文主张不变"
+        if "anchor_replaced_required_subject" in code_set:
+            clarity += "，指定角色不替代主体"
+        fragments.append(clarity)
+
+    if code_set & {
+        "identity_instance_count_not_one",
+        "identity_area_ratio_exceeded",
+        "duplicate_body_detected",
+    }:
+        if plan.participation_mechanism is IPParticipationMechanism.CONFLICT_PARTICIPANT:
+            fragments.append(
+                "只画一个指定角色实体，位于对比图一侧，用一只前爪指向中央分界线，"
+                "所有动作由这一个身体完成"
+            )
+        else:
+            fragments.append("只画一个指定角色实体，无副本或倒影，并保持计划画面占比")
+
+    if code_set & {
+        "anchor_action_mismatch",
+        "interaction_target_missing",
+        "support_invalid",
+        "contact_invalid",
+        "anatomy_invalid",
+    }:
+        fragments.append("指定角色接触上述动作目标并完成约定动作，支撑与肢体自然")
+
+    if code_set & {
+        "lighting_invalid",
+        "perspective_invalid",
+        "sticker_edge_detected",
+    }:
+        fragments.append("角色透视、光照与材质服从场景，无贴纸边缘")
+
+    if "unrelated_text_detected" in code_set:
+        fragments.append("删除无关文字、字母和伪文字纹理")
+
+    prefix = "第二次修复" if repair_pass == 2 else "第一次修复"
+    return f"{prefix}：{'；'.join(fragments)}"
+
+
+def _scene_without_previous_repair(scene: str) -> str:
+    repair_starts = tuple(
+        position
+        for marker in _REPAIR_MARKERS
+        if (position := scene.find(marker)) >= 0
+    )
+    if repair_starts:
+        return scene[: min(repair_starts)]
+    return scene
 
 
 __all__ = [
