@@ -42,6 +42,7 @@ _ALLOWED_IMAGE_MIME_BY_SUFFIX = {
     ".webp": "image/webp",
 }
 _SAFE_FRAME_ID_RE = re.compile(r"[^A-Za-z0-9._-]+")
+_MAX_EVIDENCE_CHARS = 500
 _SYSTEM_PROMPT = """You inspect a generated storyboard image against one recurring-identity contract.
 Return ONLY one valid JSON object. Count separate visual depictions, not words.
 Count reflections, portraits, posters, screens, toys, statues, silhouettes, cropped copies,
@@ -619,8 +620,9 @@ def _parse_review(
         if any(not value or value not in valid_ids for value in normalized_missing):
             raise ValueError("rendered-output missing_subject_ids contains unknown ids")
         evidence = str(payload["evidence"] or "").strip()
-        if not evidence or len(evidence) > 500:
+        if not evidence:
             raise ValueError("rendered-output evidence is invalid")
+        evidence = evidence[:_MAX_EVIDENCE_CHARS]
         review.update(
             {
                 key: payload[key]

@@ -616,3 +616,38 @@ async def test_strict_mandatory_contract_reports_missing_subject_for_repair(
     assert result.missing_subject_ids == (missing_id,)
     assert "required_subject_missing" in result.failure_codes
     assert result.repair_instructions
+
+
+@pytest.mark.asyncio
+async def test_strict_review_truncates_overlong_evidence_without_losing_verdict(
+    tmp_path,
+) -> None:
+    contract = _mandatory_contract("frame-long-evidence")
+    gate, _ = _gate(
+        tmp_path,
+        _strict_review(
+            contract,
+            identity_traits_visible=False,
+            evidence="e" * 503,
+        ),
+    )
+
+    result = await gate.evaluate(
+        image_path=_image(tmp_path),
+        frame_id=contract.frame_id,
+        generation_attempt=1,
+        profile=_profile(),
+        max_area_ratio=contract.placement.area_ratio,
+        mandatory_contract=contract,
+        trace_context=SimpleNamespace(),
+        trace_recorder=SimpleNamespace(),
+    )
+
+    assert result.status == "failed"
+    assert result.reason == "identity_traits_not_visible"
+    assert result.failure_codes == ("identity_traits_not_visible",)
+    assert len(result.evidence) == 500
+    artifact = json.loads(
+        (tmp_path / result.artifact_relative_path).read_text(encoding="utf-8")
+    )
+    assert len(artifact["evidence"]) == 500
