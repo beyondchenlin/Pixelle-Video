@@ -33,6 +33,7 @@ from pixelle_video.services.series_visual_signature_prompt_presence import (
 from pixelle_video.services.series_visual_signature_rendering import (
     rendered_identity_clause,
     rendered_identity_traits,
+    rendered_provider_participation_text,
 )
 from pixelle_video.services.visible_text_prompt_rewriter import (
     NO_VISIBLE_TEXT_DRAWING_CLAUSE,
@@ -241,13 +242,15 @@ class FinalVisualPromptCompiler:
             anchor_subject_overlap=mandatory.anchor_subject_overlap,
         )
         participation = (
-            f"锚点执行{plan.action_verb}，动作目标是{plan.interaction_target}；"
-            f"{plan.action_result}；{plan.semantic_necessity}；{plan.scene_binding}"
+            f"指定角色执行{plan.action_verb}，动作目标是{plan.interaction_target}；"
+            f"{rendered_provider_participation_text(plan.action_result)}；"
+            f"{rendered_provider_participation_text(plan.semantic_necessity)}；"
+            f"{rendered_provider_participation_text(plan.scene_binding)}"
         )
         spatial = _v46_spatial_clause(mandatory.placement)
         fusion = _v46_fusion_clause(mandatory.scene_fusion)
         instance_control = (
-            "全画面仅有一个锚点实例、身体、头部和位置；"
+            "全画面仅有一个指定角色实例、身体、头部和位置；"
             "无副本、倒影或主体替代"
         )
         style = _bounded_style_clause(contract.diagram_render)
@@ -260,26 +263,38 @@ class FinalVisualPromptCompiler:
             "scene_fusion": fusion,
             "style": style,
         }
-        paragraphs = _v46_prompt_paragraphs(sections)
+        paragraphs = _v46_prompt_paragraphs(
+            sections,
+            anchor_subject_overlap=mandatory.anchor_subject_overlap,
+        )
         positive_prompt = "\n".join(paragraphs)
         if len(positive_prompt) > 800:
             sections.pop("style")
-            paragraphs = _v46_prompt_paragraphs(sections)
+            paragraphs = _v46_prompt_paragraphs(
+                sections,
+                anchor_subject_overlap=mandatory.anchor_subject_overlap,
+            )
             positive_prompt = "\n".join(paragraphs)
-        content_chars = len(paragraphs[0])
+        main_chars = len(
+            "；".join((sections["participation"], sections["main_content"]))
+        )
+        identity_chars = len(
+            "；".join((sections["identity"], sections["instance_control"]))
+        )
+        content_chars = main_chars
         if content_chars / len(positive_prompt) < 0.35 and "style" in sections:
             sections.pop("style")
-            paragraphs = _v46_prompt_paragraphs(sections)
+            paragraphs = _v46_prompt_paragraphs(
+                sections,
+                anchor_subject_overlap=mandatory.anchor_subject_overlap,
+            )
             positive_prompt = "\n".join(paragraphs)
-            content_chars = len(paragraphs[0])
         if len(positive_prompt) > 800:
             raise ValueError(
                 "protected visual prompt semantics exceed V4.6 800 character prompt budget"
             )
 
         main_section_chars = len(sections["main_content"])
-        main_chars = len(paragraphs[0])
-        identity_chars = len(paragraphs[1])
         negative_parts = _split_negative_prompt(base_negative_prompt)
         negative_parts.extend(mandatory.forbidden_compositions)
         if contract.visible_text_policy == "no_visible_text":
@@ -758,9 +773,9 @@ def _v46_identity_clause(
     anchor_subject_overlap: bool,
 ) -> str:
     if anchor_subject_overlap:
-        clause = "该原文主体同时保持视觉锚点身份"
+        clause = "该原文主体同时保持指定角色身份"
     else:
-        clause = f"唯一视觉锚点为{display_name}"
+        clause = f"画面必须清晰出现且仅出现一个{display_name}"
     if traits:
         clause += "，可见特征为" + "、".join(traits)
     return clause
@@ -788,7 +803,7 @@ def _v46_spatial_clause(placement: VisualEntityPlacement) -> str:
         "recognizable_detail": "身份特征细节清晰可见",
     }[placement.visible_extent.value]
     return (
-        f"锚点位于{horizontal}的{depth}，约占画面{placement.area_ratio:.0%}；"
+        f"该指定角色位于{horizontal}的{depth}，约占画面{placement.area_ratio:.0%}；"
         f"{_natural_spatial_fact(placement.support_relation)}；"
         f"身体和视线朝向{placement.relation_target}；{extent}"
     )
@@ -808,11 +823,25 @@ def _v46_fusion_clause(fusion: VisualEntitySceneFusion) -> str:
     return "场景融合：" + "；".join(_natural_fusion_fact(value) for value in facts)
 
 
-def _v46_prompt_paragraphs(sections: Mapping[str, str]) -> tuple[str, ...]:
+def _v46_prompt_paragraphs(
+    sections: Mapping[str, str],
+    *,
+    anchor_subject_overlap: bool,
+) -> tuple[str, ...]:
+    identity_first = (
+        "；".join(
+            (
+                sections["identity"],
+                sections["instance_control"],
+                sections["placement"],
+            )
+        ),
+        "；".join((sections["participation"], sections["main_content"])),
+    )
+    content_first = tuple(reversed(identity_first))
     paragraphs = (
-        "；".join((sections["main_content"], sections["participation"])),
-        "；".join((sections["identity"], sections["instance_control"])),
-        "；".join((sections["placement"], sections["scene_fusion"])),
+        *(content_first if anchor_subject_overlap else identity_first),
+        sections["scene_fusion"],
         sections.get("style", ""),
     )
     return tuple(paragraph for paragraph in paragraphs if paragraph)

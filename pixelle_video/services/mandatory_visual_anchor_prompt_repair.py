@@ -9,6 +9,9 @@ from pixelle_video.models.final_visual_prompt_contract_v46 import (
     FinalVisualPromptContractV46,
 )
 from pixelle_video.services.final_visual_prompt_compiler import FinalVisualPromptCompiler
+from pixelle_video.services.series_visual_signature_rendering import (
+    rendered_provider_participation_text,
+)
 
 
 @dataclass(frozen=True)
@@ -105,22 +108,25 @@ def _repair_fragment(
     subjects = "、".join(mandatory.required_subject_labels)
     fragments = {
         "review_confidence_below_threshold": "构图关系必须清楚、无遮挡、可直接核验",
-        "identity_instance_count_not_one": "只画一个视觉锚点实体，画面、反射、海报和屏幕中都不出现副本",
+        "identity_instance_count_not_one": "只画一个指定角色实体，画面、反射、海报和屏幕中都不出现副本",
         "identity_traits_not_visible": "完整露出身份核心特征且不遮挡内容主体",
-        "identity_area_ratio_exceeded": f"视觉锚点严格保持约{mandatory.placement.area_ratio:.0%}的计划画面占比",
+        "identity_area_ratio_exceeded": f"指定角色严格保持约{mandatory.placement.area_ratio:.0%}的计划画面占比",
         "required_subject_missing": f"清晰完整呈现全部必要主体：{subjects}",
-        "anchor_action_mismatch": f"定格在锚点{plan.action_verb}{plan.interaction_target}并产生{plan.action_result}的瞬间",
+        "anchor_action_mismatch": (
+            f"定格在指定角色{plan.action_verb}{plan.interaction_target}并产生"
+            f"{rendered_provider_participation_text(plan.action_result)}的瞬间"
+        ),
         "interaction_target_missing": f"完整露出动作目标{plan.interaction_target}",
         "content_claim_not_preserved": f"画面必须继续表达原文主张：{mandatory.content_claim}",
-        "anchor_replaced_required_subject": f"锚点不得冒充或替代必要主体：{subjects}",
-        "support_invalid": f"锚点通过{mandatory.placement.support_relation}获得明确支撑",
-        "contact_invalid": f"锚点与{plan.interaction_target}形成清楚可见的物理接触",
+        "anchor_replaced_required_subject": f"指定角色不得冒充或替代必要主体：{subjects}",
+        "support_invalid": f"指定角色通过{mandatory.placement.support_relation}获得明确支撑",
+        "contact_invalid": f"指定角色与{plan.interaction_target}形成清楚可见的物理接触",
         "occlusion_invalid": "调整前后层级，身份特征和必要主体均不被遮挡",
-        "lighting_invalid": "锚点受光方向、色温和强度与场景主光一致",
-        "perspective_invalid": "锚点尺寸、落点和地平线严格服从场景透视",
-        "anatomy_invalid": "锚点肢体、关节和身体结构完整自然",
+        "lighting_invalid": "指定角色受光方向、色温和强度与场景主光一致",
+        "perspective_invalid": "指定角色尺寸、落点和地平线严格服从场景透视",
+        "anatomy_invalid": "指定角色肢体、关节和身体结构完整自然",
         "duplicate_body_detected": "删除多余身体、头部、肢体、倒影和相似副本",
-        "sticker_edge_detected": "消除贴纸边缘，让锚点共享场景材质、光影和接触阴影",
+        "sticker_edge_detected": "消除贴纸边缘，让指定角色共享场景材质、光影和接触阴影",
         "unrelated_text_detected": "删除无关文字、字母和伪文字纹理",
     }
     if failure_code not in fragments:

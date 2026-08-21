@@ -23,6 +23,13 @@ _NON_DESCRIPTIVE_REMAINDERS = frozenset(
     }
 )
 
+_INTERNAL_PARTICIPATION_REFERENCE_REWRITES = (
+    ("经过视觉锚点参与后", "经过指定角色参与后"),
+    ("经过锚点参与后", "经过指定角色参与后"),
+    ("视觉锚点必须通过", "指定角色必须通过"),
+    ("锚点必须通过", "指定角色必须通过"),
+)
+
 
 def rendered_identity_traits(
     profile: VisualSignatureProfileSnapshot,
@@ -74,6 +81,15 @@ def rendered_identity_clause(profile: VisualSignatureProfileSnapshot) -> str:
     return clause
 
 
+def rendered_provider_participation_text(value: str) -> str:
+    """Render contract participation facts without leaking internal anchor jargon."""
+
+    rendered = normalize_prompt_text(value)
+    for source, replacement in _INTERNAL_PARTICIPATION_REFERENCE_REWRITES:
+        rendered = rendered.replace(source, replacement)
+    return rendered
+
+
 def _remove_display_name(trait: str, display_name: str) -> str:
     if trait.casefold() == display_name.casefold():
         return ""
@@ -85,4 +101,5 @@ __all__ = [
     "rendered_identity_clause",
     "rendered_identity_terms",
     "rendered_identity_traits",
+    "rendered_provider_participation_text",
 ]

@@ -2,6 +2,7 @@ from pixelle_video.models.series_visual_signature import VisualSignatureProfileS
 from pixelle_video.services.series_visual_signature_rendering import (
     rendered_identity_clause,
     rendered_identity_terms,
+    rendered_provider_participation_text,
 )
 
 
@@ -28,3 +29,14 @@ def test_rendered_identity_drops_traits_subsumed_by_more_specific_traits() -> No
     )
 
     assert rendered_identity_terms(profile) == ("斑点狗", "黑色墨镜", "红色项圈")
+
+
+def test_provider_participation_text_rewrites_only_internal_anchor_reference() -> None:
+    rendered = rendered_provider_participation_text(
+        "导航锚点经过锚点参与后变得清楚；锚点必须通过连接导航锚点完成说明"
+    )
+
+    assert rendered == (
+        "导航锚点经过指定角色参与后变得清楚；"
+        "指定角色必须通过连接导航锚点完成说明"
+    )

@@ -22,6 +22,7 @@ from pixelle_video.services.series_visual_signature_prompt_presence import (
 )
 from pixelle_video.services.series_visual_signature_rendering import (
     rendered_identity_terms,
+    rendered_provider_participation_text,
 )
 
 
@@ -272,7 +273,10 @@ def assert_mandatory_content_bound_final_prompt(
     for field_name, value in (
         ("action_verb", plan.action_verb),
         ("interaction_target", plan.interaction_target),
-        ("action_result", plan.action_result),
+        (
+            "action_result",
+            rendered_provider_participation_text(plan.action_result),
+        ),
     ):
         if not prompt_contains_term(positive, value):
             raise SeriesVisualSignatureFinalPromptGateError(

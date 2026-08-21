@@ -63,7 +63,7 @@ def _profile(request: SeriesVisualSignatureRequest):
         request=request,
         ip_profile=SimpleNamespace(
             series_visual_signature_profile_id="anchor_dog_1",
-            name="斑点犬锚点",
+            name="斑点犬",
             identity_lock=("黑白斑点", "黑色圆框护目镜", "红色窄项圈"),
             minimal_traits=(),
             identity_anchors=(),
@@ -198,6 +198,7 @@ def test_seventy_two_frame_contract_acceptance_is_complete_and_deterministic() -
         assert budget["hard_truncated"] is False
         assert "…" not in prompt
         assert "..." not in prompt
+        assert "锚点" not in prompt
         assert all(token not in prompt for token in _INTERNAL_ENUM_TOKENS)
         assert all(subject in prompt for subject in category["structured_subject_truth"])
         assert variant["action"] in prompt
