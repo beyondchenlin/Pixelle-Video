@@ -155,6 +155,48 @@ async def test_llm_assembler_repairs_business_gate_failure_once():
     assert "business_gate_validation_failed" in llm.calls[1]["prompt"]
 
 
+@pytest.mark.parametrize(
+    "duplicate_clause",
+    (
+        "A reflected copy of the same identity appears behind it",
+        "A second recurring identity appears in the background",
+        "Two identical Dalmatians stand beside the worker",
+    ),
+)
+@pytest.mark.asyncio
+async def test_llm_assembler_repairs_explicit_duplicate_identity_semantics(
+    duplicate_clause,
+):
+    projection = _projection()
+    draft = projection.frames[0].bundle
+    llm = _FakeLLM(
+        [
+            FinalVisualPromptAssemblyResponse(
+                positive_prompt=f"{draft.positive_prompt}. {duplicate_clause}",
+                negative_prompt=draft.negative_prompt,
+            ),
+            FinalVisualPromptAssemblyResponse(
+                positive_prompt=draft.positive_prompt,
+                negative_prompt=draft.negative_prompt,
+            ),
+        ]
+    )
+
+    result = await FinalVisualPromptLLMAssembler().assemble_batch(
+        llm_service=llm,
+        batch=projection,
+        trace_context=_trace_context(),
+        trace_recorder=object(),
+    )
+
+    assert len(llm.calls) == 2
+    assert result.audit["frames"][0]["source"] == "llm"
+    assert result.audit["frames"][0]["repaired"] is True
+    assert "duplicate identity semantics" in llm.calls[1]["prompt"] or (
+        "multiple instances" in llm.calls[1]["prompt"]
+    )
+
+
 @pytest.mark.asyncio
 async def test_llm_assembler_falls_back_without_publishing_invalid_prompt():
     projection = _projection()
