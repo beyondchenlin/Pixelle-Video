@@ -117,6 +117,37 @@ def test_storyboard_plan_builds_stable_generated_identity_for_preview_replay():
     )
 
 
+def test_storyboard_plan_canonicalizes_explicit_frame_identity_at_the_source():
+    plan = StoryboardPlan.build(
+        mode="smart",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="abc",
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                frame_id="  frame   café  ",
+                source_text="abc",
+                visual_goal="show abc",
+                prompt_intent="show abc",
+            )
+        ],
+    )
+
+    assert plan.frames[0].frame_id == "frame café"
+
+
+def test_storyboard_plan_rejects_frame_identity_beyond_shared_contract_limit():
+    with pytest.raises(ValueError, match="at most 256 characters"):
+        StoryboardPlanFrame(
+            index=1,
+            frame_id="f" * 257,
+            source_text="abc",
+            visual_goal="show abc",
+            prompt_intent="show abc",
+        )
+
+
 def test_source_spans_index_plan_source_text():
     span = SourceSpan(start=0, end=3, text="abc", reason="primary")
     frame = StoryboardPlanFrame(

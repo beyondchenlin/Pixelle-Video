@@ -42,7 +42,12 @@ from pixelle_video.models.reference_image_analysis import (
     ReferenceImageAnalysisResult,
 )
 from pixelle_video.models.reference_image_visual_context import ReferenceImageVisualContext
-from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoGenerationResult
+from pixelle_video.models.storyboard import (
+    Storyboard,
+    StoryboardConfig,
+    StoryboardFrame,
+    VideoGenerationResult,
+)
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
 from pixelle_video.pipelines.base import BasePipeline
@@ -194,7 +199,7 @@ class PipelineContext:
     reference_image_analysis_result: Optional[ReferenceImageAnalysisResult] = None
     reference_image_visual_context: Optional[ReferenceImageVisualContext] = None
     generated_media_validator: Optional[
-        Callable[[Any, int], Awaitable[bool]]
+        Callable[[StoryboardFrame, int], Awaitable[bool]]
     ] = field(default=None, repr=False)
     media_generation_max_attempts: int = 1
 

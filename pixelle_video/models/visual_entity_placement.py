@@ -6,8 +6,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from pixelle_video.models.frame_identity import MAX_STORYBOARD_FRAME_ID_CHARS
+
 NOT_APPLICABLE = "not_applicable"
-MAX_VISUAL_ENTITY_FRAME_ID_CHARS = 256
+MAX_VISUAL_ENTITY_FRAME_ID_CHARS = MAX_STORYBOARD_FRAME_ID_CHARS
 MAX_VISUAL_ENTITY_FACT_CHARS = 256
 MAX_VISUAL_ENTITY_CORE_TRAITS = 32
 MAX_VISUAL_ENTITY_PROTECTED_SUBJECTS = 64

@@ -37,6 +37,9 @@ from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.models.asset_bible import AssetBible, IPProfile
 from pixelle_video.models.caption_speech_plan import build_caption_speech_plan
 from pixelle_video.models.creation_package import CreationPackage
+from pixelle_video.models.final_visual_prompt_contract_v45 import (
+    FinalVisualPromptContractV45,
+)
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.media_placement import MediaBox
 from pixelle_video.models.progress import (
@@ -58,7 +61,6 @@ from pixelle_video.models.render_package import (
     TextTrack,
     VisualClip,
 )
-from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.models.series_visual_signature_presentation import (
     SeriesVisualSignaturePresentationPolicy,
 )
@@ -138,8 +140,12 @@ from pixelle_video.services.render_capability_resolver import (
     load_hyperframes_template_capabilities,
 )
 from pixelle_video.services.script_generation import ScriptGenerationService
+from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
+    validate_series_visual_signature_profile_snapshot,
+)
 from pixelle_video.services.series_visual_signature_rendered_output_gate import (
     SeriesVisualSignatureRenderedOutputGate,
+    SeriesVisualSignatureRenderedOutputGateError,
     resolve_rendered_output_max_attempts,
     resolve_rendered_output_validation_mode,
 )
@@ -1187,6 +1193,7 @@ class StandardPipeline(LinearVideoPipeline):
                 frame_negative_prompt = ctx.rendered_media_prompts[i].negative_prompt
             frame = StoryboardFrame(
                 index=i,
+                frame_id=plan_frame.frame_id,
                 narration=plan_frame.source_text,
                 image_prompt=image_prompt,
                 negative_prompt=frame_negative_prompt,
@@ -1265,9 +1272,12 @@ class StandardPipeline(LinearVideoPipeline):
                 {
                     "index": frame.index,
                     "frame_id": (
-                        storyboard_plan_frames[index].frame_id
-                        if index < len(storyboard_plan_frames)
-                        else None
+                        frame.frame_id
+                        or (
+                            storyboard_plan_frames[index].frame_id
+                            if index < len(storyboard_plan_frames)
+                            else None
+                        )
                     ),
                     "prompt": frame.image_prompt or "",
                     "negative_prompt": (
@@ -1307,8 +1317,13 @@ class StandardPipeline(LinearVideoPipeline):
                 "media_type": media_type,
                 **extract_workflow_file_trace(workflow_trace_context),
                 "frame_ids_by_index": {
-                    str(index): storyboard_plan_frames[index].frame_id
-                    for index in range(min(len(storyboard_plan_frames), len(ctx.storyboard.frames)))
+                    str(frame.index): frame.frame_id
+                    or (
+                        storyboard_plan_frames[index].frame_id
+                        if index < len(storyboard_plan_frames)
+                        else str(frame.index + 1)
+                    )
+                    for index, frame in enumerate(ctx.storyboard.frames)
                 },
             }
 
@@ -1368,13 +1383,92 @@ class StandardPipeline(LinearVideoPipeline):
             task_dir=ctx.task_dir,
             max_generation_attempts=max_attempts,
         )
-        gate.assert_required_capability()
+        gate.assert_availability_policy()
+        if ctx.storyboard is None:
+            raise ValueError(
+                "rendered-output validation requires an initialized storyboard"
+            )
+        runtime_frame_ids = tuple(
+            str(frame.frame_id or "").strip() for frame in ctx.storyboard.frames
+        )
+        if any(not frame_id for frame_id in runtime_frame_ids):
+            raise ValueError(
+                "rendered-output validation requires a stable frame_id on every runtime frame"
+            )
+        if len(set(runtime_frame_ids)) != len(runtime_frame_ids):
+            raise ValueError(
+                "rendered-output validation requires unique runtime frame ids"
+            )
+        if set(traces) != set(runtime_frame_ids):
+            raise ValueError(
+                "rendered-output validation trace coverage must exactly match runtime frame ids"
+            )
+
+        runtime_frames_by_id = {
+            str(frame.frame_id): frame for frame in ctx.storyboard.frames
+        }
+        frame_contracts: dict[str, FinalVisualPromptContractV45] = {}
+        for frame_id in runtime_frame_ids:
+            trace = traces[frame_id]
+            runtime_frame = runtime_frames_by_id[frame_id]
+            if str(trace.get("final_positive_prompt") or "") != str(
+                runtime_frame.image_prompt or ""
+            ):
+                raise ValueError(
+                    "rendered-output validation trace prompt must match the runtime frame prompt"
+                )
+            effective_negative_prompt = (
+                runtime_frame.negative_prompt
+                if runtime_frame.negative_prompt is not None
+                else ctx.media_negative_prompt or ""
+            )
+            if str(trace.get("final_negative_prompt") or "") != effective_negative_prompt:
+                raise ValueError(
+                    "rendered-output validation trace negative prompt must match the runtime frame prompt"
+                )
+
+            contract_payload = trace.get("contract")
+            if not isinstance(contract_payload, Mapping):
+                raise ValueError(
+                    "rendered-output validation requires a complete frame contract"
+                )
+            contract = FinalVisualPromptContractV45.from_mapping(contract_payload)
+            if contract.frame_id != frame_id:
+                raise ValueError(
+                    "rendered-output validation trace key must match contract frame_id"
+                )
+            signature = contract.series_visual_signature
+            if not signature.enabled or signature.profile is None:
+                raise ValueError(
+                    "rendered-output validation requires an enabled visual identity contract"
+                )
+            validated_profile = validate_series_visual_signature_profile_snapshot(
+                signature.profile
+            )
+            if trace.get("identity_content_sha256") != (
+                validated_profile.identity_content_sha256
+            ):
+                raise ValueError(
+                    "rendered-output validation identity hash must match the frame contract"
+                )
+            if trace.get("contract_content_sha256") != contract.contract_content_sha256:
+                raise ValueError(
+                    "rendered-output validation contract hash must match the frame contract"
+                )
+            if trace.get("contract_version") != contract.contract_version:
+                raise ValueError(
+                    "rendered-output validation contract version must match the frame contract"
+                )
+            frame_contracts[frame_id] = replace(
+                contract,
+                series_visual_signature=replace(
+                    signature,
+                    profile=validated_profile,
+                ),
+            )
+
         ctx.runtime_resources.append(gate)
         ctx.media_generation_max_attempts = gate.max_generation_attempts
-        frame_ids_by_index = {
-            frame.index: frame.frame_id
-            for frame in (ctx.storyboard_plan.frames if ctx.storyboard_plan else ())
-        }
         trace_recorder = (
             self._llm_trace_recorder(ctx) if not gate.unavailable_reason else None
         )
@@ -1383,49 +1477,49 @@ class StandardPipeline(LinearVideoPipeline):
             frame: StoryboardFrame,
             generation_attempt: int,
         ) -> bool:
-            frame_id = frame_ids_by_index.get(frame.index)
-            if frame_id is None:
+            frame_id = str(frame.frame_id or "").strip()
+            contract = frame_contracts.get(frame_id)
+            if contract is None:
                 raise ValueError(
-                    "rendered-output validation requires a storyboard frame id"
-                )
-            trace = traces.get(frame_id)
-            contract = trace.get("contract") if trace is not None else None
-            if not isinstance(contract, Mapping):
-                raise ValueError(
-                    "rendered-output validation requires a complete frame contract"
-                )
-            signature = contract.get("series_visual_signature")
-            signature = dict(signature) if isinstance(signature, Mapping) else {}
-            profile_payload = signature.get("profile")
-            if not isinstance(profile_payload, Mapping):
-                raise ValueError(
-                    "rendered-output validation requires a visual identity profile"
+                    "rendered-output validation received an unknown runtime frame_id"
                 )
             if not frame.image_path:
                 raise ValueError(
                     "rendered-output validation requires a generated image path"
                 )
-            profile = VisualSignatureProfileSnapshot.from_mapping(profile_payload)
-            max_area_ratio = float(signature.get("max_area_ratio") or 0.0)
-            result = await gate.evaluate(
-                image_path=frame.image_path,
-                frame_id=frame_id,
-                generation_attempt=generation_attempt,
-                profile=profile,
-                max_area_ratio=max_area_ratio,
-                trace_context=(
-                    self._llm_trace_context(
+            signature = contract.series_visual_signature
+            if signature.profile is None:
+                raise ValueError(
+                    "rendered-output validation requires a visual identity profile"
+                )
+            try:
+                result = await gate.evaluate(
+                    image_path=frame.image_path,
+                    frame_id=frame_id,
+                    generation_attempt=generation_attempt,
+                    profile=signature.profile,
+                    max_area_ratio=signature.max_area_ratio,
+                    trace_context=(
+                        self._llm_trace_context(
+                            ctx,
+                            operation="series_visual_signature_rendered_output_validation",
+                            stage="rendered_output_gate",
+                            frame_id=frame_id,
+                            metadata={"generation_attempt": generation_attempt},
+                        )
+                        if trace_recorder is not None
+                        else None
+                    ),
+                    trace_recorder=trace_recorder,
+                )
+            except SeriesVisualSignatureRenderedOutputGateError as exc:
+                if exc.result is not None:
+                    self._record_series_visual_signature_output_audit(
                         ctx,
-                        operation="series_visual_signature_rendered_output_validation",
-                        stage="rendered_output_gate",
                         frame_id=frame_id,
-                        metadata={"generation_attempt": generation_attempt},
+                        result=exc.result.to_dict(),
                     )
-                    if trace_recorder is not None
-                    else None
-                ),
-                trace_recorder=trace_recorder,
-            )
+                raise
             self._record_series_visual_signature_output_audit(
                 ctx,
                 frame_id=frame_id,
@@ -2718,7 +2812,9 @@ class StandardPipeline(LinearVideoPipeline):
         if not isinstance(generation, Mapping):
             return "", "", None
         storyboard_id = str(generation.get("plan_id") or "").strip()
-        frame_id = self._resolve_snapshot_frame_id(snapshot, frame.index)
+        frame_id = str(frame.frame_id or "").strip()
+        if not frame_id:
+            frame_id = self._resolve_legacy_snapshot_frame_id(snapshot, frame.index)
         if not storyboard_id or not frame_id:
             return "", "", None
         runtime_bundle = self._resolve_runtime_prompt_plan_bundle(ctx)
@@ -2746,7 +2842,11 @@ class StandardPipeline(LinearVideoPipeline):
         return None
 
     @staticmethod
-    def _resolve_snapshot_frame_id(snapshot: Mapping[str, Any], frame_index: int) -> str:
+    def _resolve_legacy_snapshot_frame_id(
+        snapshot: Mapping[str, Any],
+        frame_index: int,
+    ) -> str:
+        """Resolve old persisted frames that predate StoryboardFrame.frame_id."""
         generation = snapshot.get("storyboard_generation")
         if not isinstance(generation, Mapping):
             return ""
