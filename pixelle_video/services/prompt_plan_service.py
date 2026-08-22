@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
 
 from pixelle_video.models.final_visual_prompt_contract import (
@@ -13,6 +14,9 @@ from pixelle_video.models.prompt_plan import (
     PromptPlanBundle,
 )
 from pixelle_video.models.storyboard_plan import StoryboardPlan
+from pixelle_video.models.visual_anchor_two_stage import (
+    VisualAnchorTwoStageFrameResult,
+)
 
 
 def build_prompt_plan_bundle(
@@ -47,6 +51,14 @@ def build_prompt_plan_bundle(
     for frame, rendered_prompt in zip(storyboard_plan.frames, rendered_items):
         prompt = _normalize_prompt(rendered_prompt.prompt)
         v46_fields = _series_visual_signature_v46_prompt_plan_fields(rendered_prompt)
+        visual_anchor_fields = _visual_anchor_two_stage_prompt_plan_fields(
+            rendered_prompt
+        )
+        if v46_fields and visual_anchor_fields:
+            raise ValueError(
+                "a prompt plan cannot contain both legacy and two-stage visual-anchor contracts"
+            )
+        projected_fields = visual_anchor_fields or v46_fields
         frame_source_trace_id = trace_ids_by_frame.get(frame.frame_id) or source_trace_id
         draft_id = _stable_id(
             "image_prompt_draft",
@@ -60,8 +72,8 @@ def build_prompt_plan_bundle(
             frame.frame_id,
             draft_id,
             prompt,
-            str(v46_fields.get("final_negative_prompt") or ""),
-            str(v46_fields.get("contract_content_sha256") or ""),
+            str(projected_fields.get("final_negative_prompt") or ""),
+            str(projected_fields.get("contract_content_sha256") or ""),
         )
         draft = ImagePromptDraft(
             image_prompt_draft_id=draft_id,
@@ -80,15 +92,15 @@ def build_prompt_plan_bundle(
             frame_id=frame.frame_id,
             image_prompt_draft_id=draft.image_prompt_draft_id,
             prompt_sections=(
-                v46_fields["prompt_sections"]
-                if v46_fields
+                projected_fields["prompt_sections"]
+                if projected_fields.get("prompt_sections")
                 else rendered_prompt.prompt_contract.prompt_sections()
             ),
             final_prompt=prompt,
-            final_negative_prompt=v46_fields.get("final_negative_prompt"),
-            identity_content_sha256=v46_fields.get("identity_content_sha256"),
-            contract_content_sha256=v46_fields.get("contract_content_sha256"),
-            contract_version=v46_fields.get("contract_version"),
+            final_negative_prompt=projected_fields.get("final_negative_prompt"),
+            identity_content_sha256=projected_fields.get("identity_content_sha256"),
+            contract_content_sha256=projected_fields.get("contract_content_sha256"),
+            contract_version=projected_fields.get("contract_version"),
             source_trace_id=frame_source_trace_id,
             metadata=_build_prompt_plan_metadata(
                 frame_index=frame.index,
@@ -97,6 +109,9 @@ def build_prompt_plan_bundle(
                 final_prompt_template=final_prompt_template,
                 renderer_id=rendered_prompt.renderer_id,
                 renderer_version=rendered_prompt.renderer_version,
+                visual_anchor_two_stage=visual_anchor_fields.get(
+                    "visual_anchor_two_stage"
+                ),
             ),
         )
         drafts.append(draft)
@@ -173,6 +188,44 @@ def _series_visual_signature_v46_prompt_plan_fields(
             raise ValueError(f"series_visual_signature_v46.{key} must be non-empty")
         fields[key] = value.strip()
     return fields
+
+
+def _visual_anchor_two_stage_prompt_plan_fields(
+    rendered_prompt: RenderedMediaPrompt,
+) -> dict[str, object]:
+    metadata = rendered_prompt.metadata_to_dict()
+    raw = metadata.get("visual_anchor_two_stage")
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        raise ValueError("visual_anchor_two_stage prompt metadata must be a mapping")
+    frame_result = VisualAnchorTwoStageFrameResult.model_validate(raw)
+    request = frame_result.generation_request
+    if request.final_positive_prompt != rendered_prompt.prompt:
+        raise ValueError(
+            "visual_anchor_two_stage final prompt differs from rendered prompt"
+        )
+    if request.final_negative_prompt != (rendered_prompt.negative_prompt or ""):
+        raise ValueError(
+            "visual_anchor_two_stage negative prompt differs from rendered prompt"
+        )
+    payload = frame_result.model_dump(mode="json")
+    contract_sha256 = hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return {
+        "prompt_sections": {"scene": request.final_positive_prompt},
+        "final_negative_prompt": request.final_negative_prompt,
+        "identity_content_sha256": request.identity_content_sha256,
+        "contract_content_sha256": contract_sha256,
+        "contract_version": request.request_version,
+        "visual_anchor_two_stage": payload,
+    }
 
 
 def _series_visual_signature_v45_prompt_plan_fields(
@@ -365,6 +418,7 @@ def _build_prompt_plan_metadata(
     final_prompt_template: dict[str, str] | None,
     renderer_id: str | None = None,
     renderer_version: str | None = None,
+    visual_anchor_two_stage: object | None = None,
 ) -> dict[str, object]:
     metadata: dict[str, object] = {"frame_index": frame_index}
     if llm_trace_refs:
@@ -375,6 +429,10 @@ def _build_prompt_plan_metadata(
         metadata["prompt_renderer_id"] = renderer_id
     if renderer_version:
         metadata["prompt_renderer_version"] = renderer_version
+    if visual_anchor_two_stage is not None:
+        if not isinstance(visual_anchor_two_stage, Mapping):
+            raise ValueError("visual_anchor_two_stage prompt-plan metadata must be a mapping")
+        metadata["visual_anchor_two_stage"] = dict(visual_anchor_two_stage)
     if not isinstance(ip_adaptation, dict):
         return metadata
 

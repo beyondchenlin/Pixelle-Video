@@ -168,9 +168,29 @@ def build_video_generation_params(
         video_params["project_id"] = request_body.project_id
 
     if request_body.series_visual_signature_enabled:
-        video_params["series_visual_signature_llm_prompt_assembly_enabled"] = (
-            request_body.series_visual_signature_llm_prompt_assembly_enabled
+        video_params.update(
+            {
+                "series_visual_signature_expression_mode": "auto",
+                "series_visual_signature_structure_mode": "auto",
+                "series_visual_signature_participation_mode": "auto",
+                "series_visual_signature_mode": "auto",
+                "series_visual_signature_consistency_mode": "off",
+                "series_visual_signature_presentation_mode": "auto",
+                "series_visual_signature_enforcement": "strict",
+                "series_visual_signature_fallback_enabled": False,
+                "series_visual_signature_fallback_mode": "disabled",
+                "series_visual_signature_min_visibility": "clear",
+                "series_visual_signature_llm_prompt_assembly_enabled": False,
+                "mandatory_content_bound_anchor": True,
+                "series_visual_signature_contract_version": (
+                    "final_visual_prompt_contract.v4_6"
+                ),
+                "series_visual_signature_output_validation_mode": "required",
+                "series_visual_signature_output_max_attempts": 1,
+            }
         )
+        if request_body.media_seed is not None:
+            video_params["media_seed"] = request_body.media_seed
 
     for key in (
         "series_visual_signature_expression_mode",

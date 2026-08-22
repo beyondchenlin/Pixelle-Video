@@ -19,6 +19,7 @@ Refactored to use LinearVideoPipeline (Template Method Pattern).
 """
 
 import asyncio
+import hashlib
 import inspect
 import json
 import os
@@ -169,6 +170,16 @@ from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
 from pixelle_video.services.video_cover import ensure_video_cover
+from pixelle_video.services.visual_anchor_reference_workflow import (
+    resolve_visual_anchor_reference_workflow_key,
+)
+from pixelle_video.services.visual_anchor_rendered_output_audit import (
+    VisualAnchorRenderedOutputAudit,
+    VisualAnchorRenderedOutputAuditError,
+)
+from pixelle_video.services.visual_anchor_two_stage_service import (
+    resolve_registered_random_seeds,
+)
 from pixelle_video.services.visual_story_batch_orchestrator import VisualStoryBatchOrchestrator
 from pixelle_video.services.visual_story_engine import VisualStoryEngineService
 from pixelle_video.services.visual_story_prompt_context import visual_story_context_from_plan
@@ -223,167 +234,62 @@ LocalMediaSessionPolicy = Literal["none", "batch", "per_frame"]
 
 def _targets_z_image_workflow(workflow: Any) -> bool:
     text = str(workflow or "").strip().casefold()
-    return (
-        not text
-        or "z_image" in text
-        or "z-image" in text
-        or "image_z" in text
-    )
+    return not text or "z_image" in text or "z-image" in text or "image_z" in text
 
 
-def _project_standard_z_image_signature_batch(
+def _project_legacy_standard_z_image_signature_batch(
     batch: StyledImagePromptBatch,
 ) -> StyledImagePromptBatch:
-    """Make the actual standard-pipeline prompt pair pass the Z-Image boundary."""
+    """Keep the retired three-attempt signature route compatible and isolated."""
 
-    rendered_prompts = tuple(batch.rendered_prompts or ())
+    rendered = tuple(batch.rendered_prompts or ())
     prompt_plan_bundle = batch.prompt_plan_bundle
-    if not rendered_prompts:
+    if not rendered or prompt_plan_bundle is None:
         raise ValueError(
-            "enabled V4.6 Z-Image generation requires per-frame rendered prompts"
+            "legacy Z-Image visual signature requires rendered prompts and a prompt plan"
         )
-    if prompt_plan_bundle is None:
-        raise ValueError(
-            "enabled V4.6 Z-Image generation requires a prompt plan bundle"
-        )
-    prompt_plans = tuple(prompt_plan_bundle.prompt_plans)
-    if len(rendered_prompts) != len(prompt_plans):
-        raise ValueError(
-            "Z-Image rendered prompt count must match prompt plan count"
-        )
-    if len(batch.prompts) != len(rendered_prompts):
-        raise ValueError("Z-Image prompt count must match rendered prompt count")
-
-    planning_snapshot = dict(batch.planning_snapshot or {})
+    if len(rendered) != len(prompt_plan_bundle.prompt_plans):
+        raise ValueError("legacy Z-Image prompt-plan coverage mismatch")
+    snapshot = dict(batch.planning_snapshot or {})
     traces = {
         str(frame_id): dict(trace)
         for frame_id, trace in dict(
-            planning_snapshot.get("series_visual_signature_trace_by_frame") or {}
+            snapshot.get("series_visual_signature_trace_by_frame") or {}
         ).items()
         if isinstance(trace, Mapping)
     }
-    projected_prompts: list[str] = []
-    for index, (rendered, prompt_plan) in enumerate(
-        zip(rendered_prompts, prompt_plans)
+    for rendered_prompt, prompt_plan in zip(
+        rendered,
+        prompt_plan_bundle.prompt_plans,
     ):
-        metadata = rendered.metadata_to_dict().get("series_visual_signature_v46")
-        if not isinstance(metadata, Mapping):
-            raise ValueError(
-                f"Z-Image frame {prompt_plan.frame_id} is missing V4.6 adapter metadata"
+        payload = project_z_image_prompt_bundle(
+            bundle=ZImagePromptBundle(
+                positive_prompt=rendered_prompt.prompt,
+                negative_prompt=rendered_prompt.negative_prompt or "",
+                locked_constraints=("canonical_v46_contract",),
+                metadata={"frame_id": prompt_plan.frame_id},
             )
-        provider_bundle = ZImagePromptBundle(
-            positive_prompt=rendered.prompt,
-            negative_prompt=rendered.negative_prompt or "",
-            locked_constraints=("canonical_v46_contract",),
-            metadata={
-                "schema_version": "v4.6-content-bound-anchor",
-                "frame_id": prompt_plan.frame_id,
-                "contract_version": metadata.get("contract_version"),
-                "contract_content_sha256": metadata.get(
-                    "contract_content_sha256"
-                ),
-            },
         )
-        provider_payload = project_z_image_prompt_bundle(bundle=provider_bundle)
-        prompt = str(provider_payload["prompt"])
-        negative_prompt = str(provider_payload["negative_prompt"])
-        if prompt != rendered.prompt or prompt != prompt_plan.final_prompt:
-            raise ValueError(
-                f"Z-Image frame {prompt_plan.frame_id} positive prompt differs across adapter, rendered prompt, and PromptPlan"
-            )
-        if (
-            negative_prompt != (rendered.negative_prompt or "")
-            or negative_prompt != (prompt_plan.final_negative_prompt or "")
-        ):
-            raise ValueError(
-                f"Z-Image frame {prompt_plan.frame_id} negative prompt differs across adapter, rendered prompt, and PromptPlan"
-            )
-        if prompt != batch.prompts[index]:
-            raise ValueError(
-                f"Z-Image frame {prompt_plan.frame_id} batch prompt differs from adapter prompt"
-            )
+        if payload["prompt"] != prompt_plan.final_prompt or payload[
+            "negative_prompt"
+        ] != (prompt_plan.final_negative_prompt or ""):
+            raise ValueError("legacy Z-Image prompt lineage is inconsistent")
         trace = traces.get(prompt_plan.frame_id)
         if trace is None:
-            raise ValueError(
-                f"Z-Image frame {prompt_plan.frame_id} is missing a V4.6 trace record"
-            )
-        contract = trace.get("contract")
-        if not isinstance(contract, Mapping):
-            raise ValueError(
-                f"Z-Image frame {prompt_plan.frame_id} trace is missing the complete V4.6 contract"
-            )
-        identity_hash = str(metadata.get("identity_content_sha256") or "")
-        contract_hash = str(metadata.get("contract_content_sha256") or "")
-        contract_version = str(metadata.get("contract_version") or "")
-        signature_payload = contract.get("series_visual_signature")
-        signature_payload = (
-            dict(signature_payload) if isinstance(signature_payload, Mapping) else {}
-        )
-        profile_payload = signature_payload.get("profile")
-        profile_payload = (
-            dict(profile_payload) if isinstance(profile_payload, Mapping) else {}
-        )
-        consistency_pairs = (
-            ("trace final positive prompt", trace.get("final_positive_prompt"), prompt),
-            (
-                "trace final negative prompt",
-                trace.get("final_negative_prompt"),
-                negative_prompt,
-            ),
-            (
-                "PromptPlan identity hash",
-                prompt_plan.identity_content_sha256,
-                identity_hash,
-            ),
-            (
-                "PromptPlan contract hash",
-                prompt_plan.contract_content_sha256,
-                contract_hash,
-            ),
-            (
-                "PromptPlan contract version",
-                prompt_plan.contract_version,
-                contract_version,
-            ),
-            ("trace identity hash", trace.get("identity_content_sha256"), identity_hash),
-            ("trace contract hash", trace.get("contract_content_sha256"), contract_hash),
-            ("trace contract version", trace.get("contract_version"), contract_version),
-            (
-                "contract identity hash",
-                profile_payload.get("identity_content_sha256"),
-                identity_hash,
-            ),
-            (
-                "contract content hash",
-                contract.get("contract_content_sha256"),
-                contract_hash,
-            ),
-            (
-                "contract version",
-                contract.get("contract_version"),
-                contract_version,
-            ),
-        )
-        for label, actual, expected in consistency_pairs:
-            if actual != expected:
-                raise ValueError(
-                    f"Z-Image frame {prompt_plan.frame_id} {label} is inconsistent"
-                )
-        projected_prompts.append(prompt)
+            raise ValueError("legacy Z-Image trace coverage mismatch")
         trace["adapter"] = {
             "provider": "z_image",
             "validated": True,
             "capabilities": ["positive_prompt", "negative_prompt"],
         }
-    if traces:
-        planning_snapshot["series_visual_signature_trace_by_frame"] = traces
+    snapshot["series_visual_signature_trace_by_frame"] = traces
     return StyledImagePromptBatch(
-        prompts=projected_prompts,
+        prompts=list(batch.prompts),
         negative_prompt=batch.negative_prompt,
         resolved_style=batch.resolved_style,
-        planning_snapshot=planning_snapshot,
+        planning_snapshot=snapshot,
         prompt_plan_bundle=prompt_plan_bundle,
-        rendered_prompts=list(rendered_prompts),
+        rendered_prompts=list(rendered),
     )
 
 
@@ -882,11 +788,42 @@ class StandardPipeline(LinearVideoPipeline):
             if needs_ip_prompt_inputs
             else (None, None)
         )
+        series_visual_signature_request = SeriesVisualSignatureRequest.from_mapping(
+            ctx.params,
+            profile_id=getattr(
+                ip_profile,
+                "series_visual_signature_profile_id",
+                None,
+            )
+            or ip_controls.series_visual_signature_profile_id,
+            generation_world_hint=storyboard_contract.generation_world_hint,
+        )
+        visual_anchor_two_stage_enabled = series_visual_signature_request.enabled
+        if visual_anchor_two_stage_enabled:
+            if template_type != "image":
+                raise ValueError(
+                    "visual-anchor two-stage fusion requires an image template"
+                )
+            if ip_controls.series_visual_signature_output_max_attempts != 1:
+                raise ValueError(
+                    "visual-anchor two-stage fusion permits exactly one first image request"
+                )
+        content_planning_ip_profile = (
+            None if visual_anchor_two_stage_enabled else ip_profile
+        )
         article_concretization_plans = build_article_concretization_plans(
             storyboard_plan=ctx.storyboard_plan,
             params=ctx.params,
-            series_visual_signature_profile_id=getattr(ip_profile, "series_visual_signature_profile_id", None)
-            or ip_controls.series_visual_signature_profile_id,
+            series_visual_signature_profile_id=(
+                None
+                if visual_anchor_two_stage_enabled
+                else getattr(
+                    ip_profile,
+                    "series_visual_signature_profile_id",
+                    None,
+                )
+                or ip_controls.series_visual_signature_profile_id
+            ),
             template_aspect_ratio=diagram_aspect_ratio_from_canvas(
                 size_contract.canvas_width,
                 size_contract.canvas_height,
@@ -901,7 +838,7 @@ class StandardPipeline(LinearVideoPipeline):
                 source_text=ctx.source_text or ctx.input_text,
                 storyboard_plan=ctx.storyboard_plan,
                 title=ctx.title,
-                ip_profile=ip_profile,
+                ip_profile=content_planning_ip_profile,
                 image_config=self.core.config.get("comfyui", {}).get(
                     "video" if template_type == "video" else "image",
                     {},
@@ -934,7 +871,7 @@ class StandardPipeline(LinearVideoPipeline):
                     source_text=ctx.source_text or ctx.input_text,
                     storyboard_plan=ctx.storyboard_plan,
                     visual_story_plan=visual_story_plan,
-                    ip_profile=ip_profile,
+                    ip_profile=content_planning_ip_profile,
                     batch_size=ctx.params.get("visual_story_batch_size", 4),
                     max_context_chars=ctx.params.get("visual_story_context_budget", 9000),
                     target_language=storyboard_contract.storyboard_prompt_language,
@@ -985,11 +922,24 @@ class StandardPipeline(LinearVideoPipeline):
                 plan=text_rendering_result.overlay_plan,
                 policy=text_rendering_result.overlay_policy,
             )
-            series_visual_signature_request = SeriesVisualSignatureRequest.from_mapping(
-                ctx.params,
-                profile_id=getattr(ip_profile, "series_visual_signature_profile_id", None) or ip_controls.series_visual_signature_profile_id,
-                generation_world_hint=storyboard_contract.generation_world_hint,
-            )
+            registered_random_seeds: dict[str, int] = {}
+            if visual_anchor_two_stage_enabled:
+                ctx.params["reference_image_workflow_injection_mode"] = "required"
+                ctx.params["media_workflow"] = (
+                    resolve_visual_anchor_reference_workflow_key(
+                        media_service=self.core.media,
+                        workflow=ctx.params.get("media_workflow"),
+                    )
+                )
+                registered_random_seeds = resolve_registered_random_seeds(
+                    storyboard_plan=ctx.storyboard_plan,
+                    task_id=ctx.task_id or "",
+                    media_seed=ctx.params.get("media_seed"),
+                    media_seed_by_frame=ctx.params.get("media_seed_by_frame"),
+                )
+                ctx.params["registered_media_seed_by_frame"] = dict(
+                    registered_random_seeds
+                )
 
             styled_batch = await ImagePromptComposer().compose(
                 llm_service=self.llm,
@@ -1035,16 +985,20 @@ class StandardPipeline(LinearVideoPipeline):
                 upstream_llm_trace_refs=ctx.llm_trace_refs,
                 trace_context=self._llm_trace_context(ctx, operation="visual_prompt_planning"),
                 trace_recorder=trace_recorder,
+                task_id=ctx.task_id,
+                random_seeds_by_frame=registered_random_seeds,
+                media_width=size_contract.media_width,
+                media_height=size_contract.media_height,
             )
             if (
                 series_visual_signature_request.enabled
+                and not visual_anchor_two_stage_enabled
                 and media_type == "image"
                 and _targets_z_image_workflow(ctx.params.get("media_workflow"))
             ):
-                styled_batch = _project_standard_z_image_signature_batch(
+                styled_batch = _project_legacy_standard_z_image_signature_batch(
                     styled_batch
                 )
-
             ctx.image_prompts = styled_batch.prompts
             ctx.rendered_media_prompts = list(getattr(styled_batch, "rendered_prompts", ()) or ())
             ctx.resolved_style = styled_batch.resolved_style
@@ -1197,12 +1151,29 @@ class StandardPipeline(LinearVideoPipeline):
             frame_negative_prompt = None
             if i < len(ctx.rendered_media_prompts):
                 frame_negative_prompt = ctx.rendered_media_prompts[i].negative_prompt
+            generation_requests = dict(
+                (ctx.planning_snapshot or {}).get(
+                    "visual_anchor_generation_request_by_frame"
+                )
+                or {}
+            )
+            generation_request = generation_requests.get(plan_frame.frame_id)
             frame = StoryboardFrame(
                 index=i,
                 frame_id=plan_frame.frame_id,
                 narration=plan_frame.source_text,
                 image_prompt=image_prompt,
                 negative_prompt=frame_negative_prompt,
+                generation_seed=(
+                    generation_request.get("random_seed")
+                    if isinstance(generation_request, Mapping)
+                    else None
+                ),
+                visual_anchor_generation_request=(
+                    dict(generation_request)
+                    if isinstance(generation_request, Mapping)
+                    else None
+                ),
                 created_at=datetime.now(),
                 **build_storyboard_frame_planning_kwargs(ctx.planning_snapshot, i),
             )
@@ -1287,9 +1258,21 @@ class StandardPipeline(LinearVideoPipeline):
                     ),
                     "prompt": frame.image_prompt or "",
                     "negative_prompt": (
-                        frame.negative_prompt
-                        if frame.negative_prompt is not None
-                        else ctx.media_negative_prompt or ""
+                        str(
+                            frame.visual_anchor_generation_request.get(
+                                "final_negative_prompt"
+                            )
+                            or ""
+                        )
+                        if isinstance(
+                            frame.visual_anchor_generation_request,
+                            Mapping,
+                        )
+                        else (
+                            frame.negative_prompt
+                            if frame.negative_prompt is not None
+                            else ctx.media_negative_prompt or ""
+                        )
                     ),
                 }
                 for index, frame in enumerate(ctx.storyboard.frames)
@@ -1341,6 +1324,22 @@ class StandardPipeline(LinearVideoPipeline):
         media_type: str,
     ) -> None:
         snapshot = dict(ctx.planning_snapshot or {})
+        two_stage_payload = snapshot.get("visual_anchor_two_stage")
+        if isinstance(two_stage_payload, Mapping) and two_stage_payload.get("frames"):
+            self._configure_visual_anchor_two_stage_output_audit(
+                ctx,
+                media_type=media_type,
+                payload=two_stage_payload,
+            )
+            return
+        ip_controls = IPControlsContract.from_mapping(ctx.params)
+        if (
+            ip_controls.series_visual_signature_enabled
+            and ip_controls.series_visual_signature_output_max_attempts == 1
+        ):
+            raise ValueError(
+                "enabled visual-anchor generation requires a complete two-stage contract"
+            )
         traces = {
             str(frame_id): dict(trace)
             for frame_id, trace in dict(
@@ -1564,6 +1563,143 @@ class StandardPipeline(LinearVideoPipeline):
 
         ctx.generated_media_validator = validate_generated_frame
 
+    def _configure_visual_anchor_two_stage_output_audit(
+        self,
+        ctx: PipelineContext,
+        *,
+        media_type: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        if media_type != "image" or not ctx.task_dir or ctx.storyboard is None:
+            raise ValueError(
+                "visual-anchor two-stage output audit requires an initialized image storyboard"
+            )
+        raw_frames = payload.get("frames")
+        if not isinstance(raw_frames, list) or not raw_frames:
+            raise ValueError("visual-anchor output audit requires frame contracts")
+        frame_contracts = {
+            str(item.get("frame_id") or ""): dict(item)
+            for item in raw_frames
+            if isinstance(item, Mapping) and str(item.get("frame_id") or "")
+        }
+        runtime_frame_ids = {
+            str(frame.frame_id or "").strip() for frame in ctx.storyboard.frames
+        }
+        if "" in runtime_frame_ids or set(frame_contracts) != runtime_frame_ids:
+            raise ValueError(
+                "visual-anchor output audit contract coverage must match runtime frames"
+            )
+
+        audit = VisualAnchorRenderedOutputAudit(task_dir=ctx.task_dir)
+        ctx.media_generation_max_attempts = 1
+        policy = {
+            "schema_version": "visual_anchor_rendered_output_policy.v1",
+            "mode": "required",
+            "max_generation_attempts": 1,
+            "post_generation_role": "integrity_audit_and_manual_visual_acceptance",
+            "prompt_repair_enabled": False,
+            "seed_replacement_enabled": False,
+            "fixed_size_or_position_rule": False,
+            "deterministic_checks": [
+                "generated_image_hash",
+                "registered_reference_hash",
+                "task_frame_seed_binding",
+                "prompt_hashes",
+                "prompt_versions",
+                "identity_profile_and_reference_versions",
+                "workflow_key_and_version",
+                "first_request_reference_binding_provenance",
+                "single_generation_attempt",
+                "passed_preflight_review",
+            ],
+            "manual_visual_acceptance_status": "required",
+            "manual_visual_acceptance_checks": [
+                "protected_facts",
+                "identity_present",
+                "identity_instance_count_one",
+                "identity_traits_recognizable",
+                "perspective_lighting_material",
+                "support_contact_occlusion",
+                "no_sticker_floating_or_penetration",
+                "size_and_position_fit_current_composition",
+                "continuous_scene_consistency",
+            ],
+        }
+        snapshot = dict(ctx.planning_snapshot or {})
+        snapshot["visual_anchor_rendered_output_policy"] = policy
+        ctx.planning_snapshot = snapshot
+        ctx.storyboard.planning_snapshot = dict(
+            ctx.storyboard.planning_snapshot or {}
+        )
+        ctx.storyboard.planning_snapshot["visual_anchor_rendered_output_policy"] = policy
+
+        async def validate_generated_frame(
+            frame: StoryboardFrame,
+            generation_attempt: int,
+        ) -> bool:
+            if generation_attempt != 0:
+                raise ValueError(
+                    "visual-anchor rendered output audit cannot run on a retry image"
+                )
+            frame_id = str(frame.frame_id or "").strip()
+            contract = frame_contracts.get(frame_id)
+            if contract is None:
+                raise ValueError(
+                    "visual-anchor rendered output audit received an unknown frame"
+                )
+            if not frame.image_path:
+                raise ValueError(
+                    "visual-anchor rendered output audit requires a generated image"
+                )
+            try:
+                result = await audit.evaluate(
+                    image_path=frame.image_path,
+                    frame_result=contract,
+                )
+            except VisualAnchorRenderedOutputAuditError as exc:
+                if exc.result is not None:
+                    self._record_visual_anchor_two_stage_output_audit(
+                        ctx,
+                        frame_id=frame_id,
+                        result=exc.result.to_dict(),
+                    )
+                raise
+            self._record_visual_anchor_two_stage_output_audit(
+                ctx,
+                frame_id=frame_id,
+                result=result.to_dict(),
+            )
+            return True
+
+        ctx.generated_media_validator = validate_generated_frame
+
+    @staticmethod
+    def _record_visual_anchor_two_stage_output_audit(
+        ctx: PipelineContext,
+        *,
+        frame_id: str,
+        result: Mapping[str, Any],
+    ) -> None:
+        snapshot = dict(ctx.planning_snapshot or {})
+        audits = {
+            str(key): dict(value)
+            for key, value in dict(
+                snapshot.get("visual_anchor_rendered_output_audit_by_frame") or {}
+            ).items()
+            if isinstance(value, Mapping)
+        }
+        audits[frame_id] = dict(result)
+        snapshot["visual_anchor_rendered_output_audit_by_frame"] = audits
+        ctx.planning_snapshot = snapshot
+        ctx.observability["visual_anchor_rendered_output_audit_by_frame"] = audits
+        if ctx.storyboard is not None:
+            ctx.storyboard.planning_snapshot = dict(
+                ctx.storyboard.planning_snapshot or {}
+            )
+            ctx.storyboard.planning_snapshot[
+                "visual_anchor_rendered_output_audit_by_frame"
+            ] = audits
+
     @staticmethod
     def _record_series_visual_signature_output_audit(
         ctx: PipelineContext,
@@ -1653,6 +1789,13 @@ class StandardPipeline(LinearVideoPipeline):
         if not ctx.task_dir or not ctx.planning_snapshot:
             return
         snapshot = dict(ctx.planning_snapshot or {})
+        two_stage = snapshot.get("visual_anchor_two_stage")
+        if isinstance(two_stage, Mapping) and two_stage.get("frames"):
+            self._write_visual_anchor_two_stage_trace_artifacts(
+                ctx,
+                payload=two_stage,
+            )
+            return
         request = snapshot.get("series_visual_signature_request")
         profile = snapshot.get("series_visual_signature_profile")
         identity_contract = snapshot.get("series_visual_signature_identity_contract") or (
@@ -1713,10 +1856,118 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.storyboard.planning_snapshot = dict(ctx.storyboard.planning_snapshot or {})
             ctx.storyboard.planning_snapshot["series_visual_signature_artifacts"] = record
 
+    def _write_visual_anchor_two_stage_trace_artifacts(
+        self,
+        ctx: PipelineContext,
+        *,
+        payload: Mapping[str, Any],
+    ) -> None:
+        if not ctx.task_dir:
+            raise ValueError("visual-anchor trace artifacts require a task directory")
+        root = Path(ctx.task_dir)
+        artifact_dir = root / "prompt_traces" / "visual_anchor_two_stage"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        raw_frames = payload.get("frames")
+        if not isinstance(raw_frames, list) or not raw_frames:
+            raise ValueError("visual-anchor trace artifacts require frame records")
+
+        artifacts = {
+            "batch": self._write_json_artifact(
+                artifact_dir / "batch.json",
+                dict(payload),
+                root=root,
+            ),
+            "workflow_inspection": self._write_json_artifact(
+                artifact_dir / "workflow_inspection.json",
+                dict(
+                    (ctx.planning_snapshot or {}).get(
+                        "identity_reference_workflow_inspection"
+                    )
+                    or {}
+                ),
+                root=root,
+            ),
+            "generation_requests": self._write_json_artifact(
+                artifact_dir / "generation_requests.json",
+                dict(
+                    (ctx.planning_snapshot or {}).get(
+                        "visual_anchor_generation_request_by_frame"
+                    )
+                    or {}
+                ),
+                root=root,
+            ),
+        }
+        frame_artifacts: dict[str, dict[str, str]] = {}
+        for index, raw_frame in enumerate(raw_frames, start=1):
+            if not isinstance(raw_frame, Mapping):
+                raise ValueError("visual-anchor frame trace must be a mapping")
+            frame_id = str(raw_frame.get("frame_id") or "").strip()
+            if not frame_id:
+                raise ValueError("visual-anchor frame trace requires a frame id")
+            prefix = f"frame_{index:03d}"
+            frame_artifacts[frame_id] = {
+                key: self._write_json_artifact(
+                    artifact_dir / f"{prefix}_{key}.json",
+                    dict(raw_frame.get(key) or {}),
+                    root=root,
+                )
+                for key in (
+                    "content_stage_input",
+                    "content_stage_output",
+                    "fusion_stage_input",
+                    "fusion_stage_output",
+                    "preflight_review_input",
+                    "preflight_review_output",
+                    "generation_request",
+                )
+            }
+        artifact_sha256 = {
+            key: self._task_artifact_sha256(root, relative_path)
+            for key, relative_path in artifacts.items()
+        }
+        frame_artifact_sha256 = {
+            frame_id: {
+                key: self._task_artifact_sha256(root, relative_path)
+                for key, relative_path in paths.items()
+            }
+            for frame_id, paths in frame_artifacts.items()
+        }
+        record = {
+            "schema_version": "visual_anchor_two_stage_artifacts.v2",
+            "directory": str(artifact_dir.relative_to(root)),
+            "artifacts": artifacts,
+            "artifact_sha256": artifact_sha256,
+            "frames": frame_artifacts,
+            "frame_artifact_sha256": frame_artifact_sha256,
+        }
+        ctx.observability.setdefault("prompt_traces", {})[
+            "visual_anchor_two_stage"
+        ] = record
+        ctx.planning_snapshot = dict(ctx.planning_snapshot or {})
+        ctx.planning_snapshot["visual_anchor_two_stage_artifacts"] = record
+        if ctx.storyboard is not None:
+            ctx.storyboard.planning_snapshot = dict(
+                ctx.storyboard.planning_snapshot or {}
+            )
+            ctx.storyboard.planning_snapshot[
+                "visual_anchor_two_stage_artifacts"
+            ] = record
+
     @staticmethod
     def _write_json_artifact(path: Path, payload: Mapping[str, Any] | dict[str, Any], *, root: Path) -> str:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
         return str(path.relative_to(root))
+
+    @staticmethod
+    def _task_artifact_sha256(root: Path, relative_path: str) -> str:
+        path = (root / relative_path).resolve()
+        path.relative_to(root.resolve())
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     @staticmethod
     def _series_visual_signature_structure_decision_payload(frame_id: str, plan: Mapping[str, Any]) -> dict[str, Any]:
@@ -5459,15 +5710,37 @@ class StandardPipeline(LinearVideoPipeline):
 
         except Exception as e:
             logger.error(f"Failed to persist task data: {e}")
-            # Don't raise - persistence failure shouldn't break video generation
+            if IPControlsContract.from_mapping(
+                ctx.params
+            ).series_visual_signature_enabled:
+                raise
+            # Legacy generation remains best-effort for backward compatibility.
 
     async def _persist_failed_task_data(self, ctx: PipelineContext, error: Exception) -> None:
         if not ctx.task_id:
             return
 
+        visual_anchor_enabled = IPControlsContract.from_mapping(
+            ctx.params
+        ).series_visual_signature_enabled
+        if visual_anchor_enabled and ctx.planning_snapshot:
+            ctx.observability["visual_anchor_failed_planning_snapshot"] = dict(
+                ctx.planning_snapshot
+            )
+        if visual_anchor_enabled and ctx.storyboard is not None:
+            ctx.storyboard.planning_snapshot = dict(
+                ctx.planning_snapshot
+                or ctx.storyboard.planning_snapshot
+                or {}
+            )
+
         metadata = {
             "task_id": ctx.task_id,
-            "created_at": datetime.now().isoformat(),
+            "created_at": (
+                ctx.storyboard.created_at.isoformat()
+                if ctx.storyboard is not None and ctx.storyboard.created_at
+                else datetime.now().isoformat()
+            ),
             "completed_at": datetime.now().isoformat(),
             "status": "failed",
             "error": str(error),
@@ -5476,7 +5749,25 @@ class StandardPipeline(LinearVideoPipeline):
                 for key, value in {"text": ctx.input_text, **ctx.params}.items()
                 if key != "forbid_embedded_text_in_image"
             },
-            "config": {},
+            "config": {
+                "llm_model": self.core.config.get("llm", {}).get(
+                    "model",
+                    "unknown",
+                ),
+                "llm_base_url": self.core.config.get("llm", {}).get(
+                    "base_url",
+                    "unknown",
+                ),
+                "comfyui_url": self.core.config.get("comfyui", {}).get(
+                    "comfyui_url",
+                    "unknown",
+                ),
+            },
             "observability": ctx.observability,
         }
         await self.core.persistence.save_task_metadata(ctx.task_id, metadata)
+        if visual_anchor_enabled and ctx.storyboard is not None:
+            await self.core.persistence.save_storyboard(
+                ctx.task_id,
+                ctx.storyboard,
+            )

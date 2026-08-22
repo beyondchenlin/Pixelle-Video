@@ -46,6 +46,24 @@ REMOVED_CONTENT_IP_WORLD_FIELDS = frozenset(
     }
 )
 
+_VISUAL_ANCHOR_TWO_STAGE_CONTROLS = {
+    "series_visual_signature_expression_mode": "auto",
+    "series_visual_signature_structure_mode": "auto",
+    "series_visual_signature_participation_mode": "auto",
+    "series_visual_signature_mode": "auto",
+    "series_visual_signature_consistency_mode": "off",
+    "series_visual_signature_presentation_mode": "auto",
+    "series_visual_signature_enforcement": "strict",
+    "series_visual_signature_fallback_enabled": False,
+    "series_visual_signature_fallback_mode": "disabled",
+    "series_visual_signature_min_visibility": "clear",
+    "series_visual_signature_llm_prompt_assembly_enabled": False,
+    "mandatory_content_bound_anchor": True,
+    "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
+    "series_visual_signature_output_validation_mode": "required",
+    "series_visual_signature_output_max_attempts": 1,
+}
+
 
 def build_formal_content_ip_world_payload(source: Mapping[str, Any] | None) -> dict[str, Any]:
     values = dict(source or {})
@@ -62,7 +80,11 @@ def build_formal_content_ip_world_payload(source: Mapping[str, Any] | None) -> d
             payload["series_visual_signature_asset_bible_id"] = asset_bible_id
         if profile_id:
             payload["series_visual_signature_profile_id"] = profile_id
-        payload.update(SeriesVisualSignatureControlsContract.from_mapping(values).to_generation_dict())
+        payload.update(
+            SeriesVisualSignatureControlsContract.from_mapping(
+                {**values, **_VISUAL_ANCHOR_TWO_STAGE_CONTROLS}
+            ).to_generation_dict()
+        )
     world_hint = _first_text(values.get("generation_world_hint"))
     if world_hint:
         payload["generation_world_hint"] = world_hint

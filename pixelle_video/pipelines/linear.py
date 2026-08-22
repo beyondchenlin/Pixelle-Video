@@ -338,12 +338,23 @@ class LinearVideoPipeline(BasePipeline):
     async def prepare_reference_image(self, ctx: PipelineContext):
         """Prepare an optional reference image as a task-local asset."""
 
+        signature_enabled = _coerce_bool(
+            ctx.params.get("series_visual_signature_enabled")
+            or ctx.params.get("mandatory_content_bound_anchor")
+        )
         raw_reference_image = resolve_reference_image_input(ctx.params)
         if raw_reference_image is None:
+            if signature_enabled:
+                raise ValueError(
+                    "visual-anchor generation requires a real reference image before content generation"
+                )
             return
 
         reference_image_config = _resolve_reference_image_config(getattr(self.core, "config", None))
-        if not _reference_image_enabled(ctx.params, reference_image_config):
+        if (
+            not signature_enabled
+            and not _reference_image_enabled(ctx.params, reference_image_config)
+        ):
             ctx.observability.setdefault("reference_image", {})["status"] = "disabled"
             ctx.params.pop("ref_image_asset", None)
             ctx.params.pop("ref_image", None)
@@ -353,7 +364,10 @@ class LinearVideoPipeline(BasePipeline):
         if not ctx.task_dir:
             raise ValueError("task_dir is required before reference image assetization")
 
-        asset = ReferenceImageAssetService(reference_image_config).prepare(
+        asset = ReferenceImageAssetService(
+            reference_image_config,
+            enabled=True,
+        ).prepare(
             raw_reference_image,
             task_dir=ctx.task_dir,
         )
@@ -373,10 +387,20 @@ class LinearVideoPipeline(BasePipeline):
             return
 
         reference_image_config = _resolve_reference_image_config(getattr(self.core, "config", None))
-        analysis_mode = resolve_reference_image_analysis_mode(
-            ctx.params,
-            reference_image_config,
+        signature_enabled = _coerce_bool(
+            ctx.params.get("series_visual_signature_enabled")
+            or ctx.params.get("mandatory_content_bound_anchor")
         )
+        analysis_mode = (
+            "off"
+            if signature_enabled
+            else resolve_reference_image_analysis_mode(
+                ctx.params,
+                reference_image_config,
+            )
+        )
+        if signature_enabled:
+            ctx.params["reference_image_analysis_mode"] = "off"
         vision_config = _resolve_vision_llm_config(getattr(self.core, "config", None))
         prompt_language = str(ctx.params.get("storyboard_prompt_language") or "zh_CN")
 
@@ -392,7 +416,9 @@ class LinearVideoPipeline(BasePipeline):
         if callable(trace_recorder_factory):
             trace_recorder = trace_recorder_factory(ctx)
 
-        vision_llm_service = VisionLLMService(vision_config)
+        vision_llm_service = (
+            VisionLLMService(vision_config) if analysis_mode != "off" else None
+        )
         try:
             result = await ReferenceImageAnalysisService().analyze(
                 vision_llm_service=vision_llm_service,
@@ -413,7 +439,7 @@ class LinearVideoPipeline(BasePipeline):
         ctx.observability["reference_image_analysis"] = trace_payload
 
     async def prepare_reference_image_visual_context(self, ctx: PipelineContext):
-        """Build prompt-only visual context and inject it into visual planning params."""
+        """Expose the immutable task asset and optional analysis to visual planning."""
         if (
             ctx.reference_image_asset is None
             or ctx.reference_image_analysis_result is None
@@ -424,11 +450,16 @@ class LinearVideoPipeline(BasePipeline):
 
         reference_image_config = _resolve_reference_image_config(getattr(self.core, "config", None))
         merge_mode = _resolve_reference_image_merge_mode(ctx.params, reference_image_config)
+        signature_enabled = _coerce_bool(
+            ctx.params.get("series_visual_signature_enabled")
+            or ctx.params.get("mandatory_content_bound_anchor")
+        )
         build_result = ReferenceImageVisualContextAdapter().build(
             asset=ctx.reference_image_asset,
             analysis_result=ctx.reference_image_analysis_result,
             ip_profile=None,
             merge_mode=merge_mode,
+            preserve_real_asset_without_analysis=signature_enabled,
         )
         set_reference_image_visual_story_context_patch(build_result.visual_story_context_patch)
         visual_context = ReferenceImageVisualContextAdapter.write_artifact(
@@ -441,7 +472,11 @@ class LinearVideoPipeline(BasePipeline):
         ctx.params["reference_image_visual_story_context_patch"] = build_result.visual_story_context_patch
         ctx.observability["reference_image_visual_context"] = visual_context_payload
 
-        if visual_context.enabled and visual_context.prompt_fallback_hint:
+        if (
+            visual_context.enabled
+            and visual_context.prompt_fallback_hint
+            and not signature_enabled
+        ):
             ctx.params["reference_image_prompt_fallback_hint"] = visual_context.prompt_fallback_hint
             ctx.params["generation_world_hint"] = _append_reference_image_hint(
                 ctx.params.get("generation_world_hint"),

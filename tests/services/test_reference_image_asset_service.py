@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -46,6 +47,25 @@ def test_prepare_reference_image_writes_task_asset_without_source_path(tmp_path)
 
     assert str(source_path) not in serialized
     assert asset.sha256 in serialized
+    assert asset.workflow_sha256 == hashlib.sha256(
+        Path(asset.workflow_asset_path).read_bytes()
+    ).hexdigest()
+    assert asset.workflow_sha256 in serialized
+
+
+def test_request_level_enablement_overrides_disabled_global_config(tmp_path):
+    source_path = tmp_path / "local_reference.png"
+    Image.new("RGB", (48, 32), (255, 255, 255)).save(source_path)
+
+    asset = ReferenceImageAssetService(
+        _enabled_config(enabled=False),
+        enabled=True,
+    ).prepare(
+        str(source_path),
+        task_dir=tmp_path / "task",
+    )
+
+    assert Path(asset.workflow_asset_path).is_file()
 
 
 def test_prepare_reference_image_rejects_unsupported_extension(tmp_path):

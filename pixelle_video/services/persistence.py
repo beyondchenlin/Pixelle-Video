@@ -599,6 +599,12 @@ class PersistenceService:
             "narration": frame.narration,
             "image_prompt": frame.image_prompt,
             "negative_prompt": frame.negative_prompt,
+            "generation_seed": frame.generation_seed,
+            "visual_anchor_generation_request": (
+                dict(frame.visual_anchor_generation_request)
+                if frame.visual_anchor_generation_request is not None
+                else None
+            ),
             "audio_path": frame.audio_path,
             "media_type": frame.media_type,
             "image_path": frame.image_path,
@@ -624,6 +630,10 @@ class PersistenceService:
             narration=data["narration"],
             image_prompt=data["image_prompt"],
             negative_prompt=data.get("negative_prompt"),
+            generation_seed=data.get("generation_seed"),
+            visual_anchor_generation_request=data.get(
+                "visual_anchor_generation_request"
+            ),
             audio_path=data.get("audio_path"),
             media_type=data.get("media_type"),
             image_path=data.get("image_path"),

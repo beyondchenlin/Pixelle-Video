@@ -21,6 +21,7 @@ _LEGACY_SIGNATURE_ARGUMENTS = (
     "series_visual_signature_fallback_mode",
     "series_visual_signature_min_visibility",
     "series_visual_signature_llm_prompt_assembly_enabled",
+    "series_visual_signature_output_max_attempts",
 )
 
 
