@@ -386,7 +386,9 @@ def test_standard_pipeline_fails_closed_when_output_inspection_is_unavailable(
         }
     }
 
-    pipeline = StandardPipeline(_DummyCore())
+    pipeline = StandardPipeline(
+        _DummyCore(config={"vision_llm": {"enabled": False}})
+    )
     with pytest.raises(
         SeriesVisualSignatureRenderedOutputGateError,
         match="vision_llm_disabled",
@@ -560,7 +562,9 @@ def test_strict_signature_output_validation_fails_before_media_without_vision(
         SeriesVisualSignatureRenderedOutputGateError,
         match="vision_llm_disabled",
     ):
-        StandardPipeline(_DummyCore())._configure_series_visual_signature_output_gate(
+        StandardPipeline(
+            _DummyCore(config={"vision_llm": {"enabled": False}})
+        )._configure_series_visual_signature_output_gate(
             ctx,
             media_type="image",
         )
