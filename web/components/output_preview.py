@@ -27,6 +27,9 @@ from loguru import logger
 from api.tasks.models import ACTIVE_TASK_STATUSES, TaskStatus
 from pixelle_video.config import config_manager
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
+from pixelle_video.contracts.ip_generation_request import (
+    build_formal_content_ip_world_payload,
+)
 from pixelle_video.models.layered_template import LayeredTemplateSpec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.progress import ProgressEvent
@@ -41,7 +44,6 @@ from pixelle_video.models.text_style import (
 )
 from pixelle_video.models.video_generation_contract import (
     ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
-    IPControlsContract,
     StoryboardControlsContract,
     is_plan_frame_override_payload,
 )
@@ -1207,8 +1209,7 @@ def copy_ip_prompt_chain_options(source, target):
     """Copy IP prompt-chain controls into a generation request dict."""
     if "series_visual_signature_enabled" not in source:
         return
-    contract = IPControlsContract.from_mapping(source)
-    target.update(contract.to_dict())
+    target.update(build_formal_content_ip_world_payload(source))
 
 
 def copy_reference_image_options(source, target):
