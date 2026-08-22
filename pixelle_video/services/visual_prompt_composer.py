@@ -39,6 +39,9 @@ from pixelle_video.services.article_concretization_pipeline import (
     article_concretization_plans_by_frame,
     article_concretization_snapshot,
 )
+from pixelle_video.services.final_visual_prompt_llm_assembler import (
+    deterministic_prompt_assembly_result,
+)
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import merge_llm_trace_refs
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
@@ -50,6 +53,9 @@ from pixelle_video.services.reference_image_visual_context_adapter import (
 from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
     SeriesVisualSignatureProfileSnapshotBuilder,
     validate_series_visual_signature_profile_snapshot,
+)
+from pixelle_video.services.series_visual_signature_projection_service import (
+    SeriesVisualSignatureProjectionService,
 )
 from pixelle_video.services.visual_anchor_reference_condition import (
     inspect_identity_reference_workflow,
@@ -161,6 +167,7 @@ class VisualPromptComposer:
         random_seeds_by_frame: Mapping[str, int] | None = None,
         media_width: int | None = None,
         media_height: int | None = None,
+        visual_anchor_reference_conditioning_enabled: bool | None = None,
     ) -> StyledImagePromptBatch:
         reference_patch = current_reference_image_visual_story_context_patch()
         ip_profile = merge_ip_profile_from_reference_patch(ip_profile, reference_patch)
@@ -174,6 +181,23 @@ class VisualPromptComposer:
                 "series_visual_signature_request must be the canonical SeriesVisualSignatureRequest"
             )
         signature_enabled = resolved_signature_request.enabled
+        if visual_anchor_reference_conditioning_enabled is None:
+            visual_anchor_reference_conditioning_enabled = (
+                signature_enabled
+                and media_type == "image"
+                and _workflow_supports_reference_image(
+                    media_service=media_service,
+                    workflow=workflow,
+                )
+            )
+        if not isinstance(visual_anchor_reference_conditioning_enabled, bool):
+            raise TypeError(
+                "visual_anchor_reference_conditioning_enabled must be a boolean"
+            )
+        if visual_anchor_reference_conditioning_enabled and not signature_enabled:
+            raise ValueError(
+                "reference conditioning requires an enabled visual signature"
+            )
         if not signature_enabled and series_visual_signature_profile_snapshot is not None:
             raise ValueError(
                 "series_visual_signature_profile_snapshot requires an enabled canonical request"
@@ -215,7 +239,7 @@ class VisualPromptComposer:
             prompt_contexts,
             visual_story_context,
         )
-        if signature_enabled:
+        if visual_anchor_reference_conditioning_enabled:
             batch = await _resolve_visual_anchor_style_batch(
                 llm_service=llm_service,
                 image_config=image_config,
@@ -284,7 +308,7 @@ class VisualPromptComposer:
         )
         visual_profile_snapshot = None
         if resolved_visual_profile is not None and media_type == "image":
-            if signature_enabled:
+            if visual_anchor_reference_conditioning_enabled:
                 visual_profile_snapshot = {
                     "profile": resolved_visual_profile.to_dict()
                 }
@@ -301,7 +325,7 @@ class VisualPromptComposer:
 
         planning_snapshot = dict(batch.planning_snapshot or {})
         final_assembly_trace_refs: list[dict[str, str]] = []
-        if signature_enabled:
+        if signature_enabled and visual_anchor_reference_conditioning_enabled:
             if profile_snapshot is None:
                 raise RuntimeError(
                     "enabled visual signature must have a prevalidated canonical profile snapshot"
@@ -436,6 +460,130 @@ class VisualPromptComposer:
             planning_snapshot["series_visual_signature_profile_ref"] = (
                 identity_profile.model_dump(mode="json")
             )
+        elif signature_enabled:
+            if profile_snapshot is None:
+                raise RuntimeError(
+                    "enabled visual signature must have a prevalidated canonical profile snapshot"
+                )
+            briefs = dict(
+                planning_snapshot.get("base_visual_briefs_by_frame") or {}
+            )
+            projection_base_prompts = _projection_base_prompts(
+                batch=batch,
+                frame_ids=tuple(frame.frame_id for frame in storyboard_plan.frames),
+                briefs=briefs,
+            )
+            base_negative_prompts = _base_negative_prompts(
+                batch=batch,
+                frame_count=storyboard_plan.resolved_scene_count,
+            )
+            projection = SeriesVisualSignatureProjectionService().project_batch(
+                base_prompts=projection_base_prompts,
+                frame_ids=[frame.frame_id for frame in storyboard_plan.frames],
+                frame_contexts=prompt_contexts.frame_contexts,
+                request=resolved_signature_request,
+                profile=profile_snapshot,
+                article_concretization_plans=article_concretization_plans,
+                base_visual_briefs_by_frame=briefs,
+                base_negative_prompts=base_negative_prompts,
+            )
+            assembly_result = deterministic_prompt_assembly_result(projection)
+            projection = assembly_result.batch
+            planning_snapshot["series_visual_signature_prompt_assembly"] = {
+                **dict(assembly_result.audit),
+                "production_mode": "deterministic_v46_only",
+                "llm_requested_but_not_executed": bool(
+                    resolved_signature_request.llm_prompt_assembly_enabled
+                ),
+            }
+            bundle_metadata_by_frame = {
+                frame.frame_id: frame.bundle.to_dict()["metadata"]
+                for frame in projection.frames
+            }
+            rendered_prompts = _project_rendered_prompts(
+                batch.rendered_prompts,
+                projection.frames,
+                bundle_metadata_by_frame=bundle_metadata_by_frame,
+            )
+            batch = StyledImagePromptBatch(
+                prompts=projection.prompts,
+                negative_prompt=_projection_negative_prompt(
+                    projection.frames,
+                    rendered_prompts,
+                ),
+                resolved_style=batch.resolved_style,
+                planning_snapshot=planning_snapshot,
+                rendered_prompts=rendered_prompts,
+            )
+            planning_snapshot["series_visual_signature_request_audit"] = (
+                projection.audit_policy.request_audit_dict(
+                    resolved_signature_request
+                )
+            )
+            planning_snapshot["series_visual_signature_profile_ref"] = (
+                projection.audit_policy.profile_reference_dict(profile_snapshot)
+            )
+            planning_snapshot["series_visual_signature_projection_audit"] = (
+                projection.audit_dict()
+            )
+            planning_snapshot["series_visual_signature_contract_by_frame"] = {
+                frame.frame_id: {
+                    "contract_id": frame.contract.contract_id,
+                    "role": frame.signature.role.value,
+                    "max_area_ratio": frame.signature.max_area_ratio,
+                    "relative_size": frame.signature.relative_size.value,
+                    "required_subject_count": len(frame.required_subjects),
+                    "identity_content_sha256": (
+                        frame.signature.profile.identity_content_sha256
+                        if frame.signature.profile is not None
+                        else ""
+                    ),
+                    "contract_content_sha256": frame.contract.contract_content_sha256,
+                    "contract_version": frame.contract.contract_version,
+                    "user_status": "image_generating",
+                    "generation_attempt": 0,
+                    "remaining_repair_attempts": 2,
+                    "prompt_budget": dict(
+                        bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
+                        or {}
+                    ),
+                    "prompt_assembly": dict(
+                        bundle_metadata_by_frame[frame.frame_id].get(
+                            "prompt_assembly"
+                        )
+                        or {}
+                    ),
+                }
+                for frame in projection.frames
+            }
+            planning_snapshot["series_visual_signature_trace_by_frame"] = {
+                frame.frame_id: {
+                    "contract": frame.contract.to_dict(),
+                    "final_positive_prompt": frame.bundle.positive_prompt,
+                    "final_negative_prompt": frame.bundle.negative_prompt,
+                    "identity_content_sha256": (
+                        frame.signature.profile.identity_content_sha256
+                        if frame.signature.profile is not None
+                        else ""
+                    ),
+                    "contract_content_sha256": frame.contract.contract_content_sha256,
+                    "contract_version": frame.contract.contract_version,
+                    "user_status": "image_generating",
+                    "generation_attempt": 0,
+                    "remaining_repair_attempts": 2,
+                    "prompt_budget": dict(
+                        bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
+                        or {}
+                    ),
+                    "prompt_assembly": dict(
+                        bundle_metadata_by_frame[frame.frame_id].get(
+                            "prompt_assembly"
+                        )
+                        or {}
+                    ),
+                }
+                for frame in projection.frames
+            }
 
         reference_snapshot = reference_image_prompt_planning_snapshot(
             reference_patch,
@@ -528,6 +676,23 @@ async def _resolve_visual_anchor_style_batch(
         resolved_style=resolved_style,
         planning_snapshot={},
     )
+
+
+def _workflow_supports_reference_image(
+    *,
+    media_service: Any,
+    workflow: str | None,
+) -> bool:
+    resolver = getattr(media_service, "_resolve_workflow", None)
+    if not callable(resolver):
+        return False
+    workflow_info = resolver(
+        workflow=workflow,
+        workflow_domain="image",
+    )
+    return get_workflow_capabilities(
+        dict(workflow_info)
+    ).supports_reference_image
 
 
 def _target_visual_style(
@@ -686,6 +851,51 @@ def _mapping_projection(
     }
 
 
+def _base_negative_prompts(
+    *,
+    batch: StyledImagePromptBatch,
+    frame_count: int,
+) -> tuple[str | None, ...]:
+    rendered = tuple(batch.rendered_prompts or ())
+    if rendered:
+        if len(rendered) != frame_count:
+            raise ValueError(
+                "rendered prompt count must match frame count before visual signature projection"
+            )
+        return tuple(item.negative_prompt for item in rendered)
+    return tuple(batch.negative_prompt for _ in range(frame_count))
+
+
+def _projection_base_prompts(
+    *,
+    batch: StyledImagePromptBatch,
+    frame_ids: Sequence[str],
+    briefs: Mapping[str, Mapping[str, Any]],
+) -> tuple[str, ...]:
+    rendered_prompts = tuple(str(prompt or "").strip() for prompt in batch.prompts)
+    if len(rendered_prompts) != len(frame_ids):
+        raise ValueError(
+            "rendered prompt count must match frame count before visual signature projection"
+        )
+    if not briefs:
+        return rendered_prompts
+
+    result: list[str] = []
+    for frame_id in frame_ids:
+        brief = briefs.get(frame_id)
+        if brief is None:
+            raise ValueError(
+                f"base visual brief is missing for projection frame {frame_id}"
+            )
+        base_prompt = str(brief.get("base_image_prompt") or "").strip()
+        if not base_prompt:
+            raise ValueError(
+                f"base visual brief for frame {frame_id} must include base_image_prompt"
+            )
+        result.append(base_prompt)
+    return tuple(result)
+
+
 def _project_rendered_prompts(
     rendered_prompts: Sequence[RenderedMediaPrompt],
     projection_frames: Sequence[Any],
@@ -751,6 +961,37 @@ def _project_rendered_prompts(
             )
         )
     return result
+
+
+def _projection_negative_prompt(
+    projection_frames: Sequence[Any],
+    rendered_prompts: Sequence[RenderedMediaPrompt],
+) -> str | None:
+    if rendered_prompts:
+        values = [
+            item.negative_prompt
+            for item in rendered_prompts
+            if item.negative_prompt
+        ]
+    else:
+        values = [
+            frame.bundle.negative_prompt
+            for frame in projection_frames
+            if frame.bundle.negative_prompt
+        ]
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for part in str(value).split(","):
+            text = " ".join(part.strip().split())
+            if not text:
+                continue
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(text)
+    return ", ".join(result) or None
 
 
 def _merge_visual_story_context_patch(

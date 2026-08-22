@@ -494,7 +494,7 @@ def test_generation_button_submits_background_task_and_persists_task_id(monkeypa
     assert output_preview.SINGLE_VIDEO_HANDLED_TASK_KEY not in output_preview.st.session_state
 
 
-def test_generation_button_is_disabled_when_visual_anchor_reference_is_missing(monkeypatch):
+def test_generation_button_stays_enabled_for_text_visual_anchor_without_reference(monkeypatch):
     errors = []
 
     class Context:
@@ -522,7 +522,7 @@ def test_generation_button_is_disabled_when_visual_anchor_reference_is_missing(m
             errors.append(value)
 
         def button(self, *_args, **kwargs):
-            assert kwargs["disabled"] is True
+            assert kwargs["disabled"] is False
             return False
 
     class Client:
@@ -530,7 +530,7 @@ def test_generation_button_is_disabled_when_visual_anchor_reference_is_missing(m
             return None
 
         def submit(self, _request):
-            pytest.fail("missing visual-anchor reference must not submit a task")
+            pytest.fail("button was not clicked")
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
@@ -551,4 +551,4 @@ def test_generation_button_is_disabled_when_visual_anchor_reference_is_missing(m
         },
     )
 
-    assert errors == ["reference_image.web_ui.visual_anchor_required"]
+    assert errors == []

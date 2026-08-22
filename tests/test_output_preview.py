@@ -301,10 +301,6 @@ def test_build_single_generation_request_includes_series_visual_signature_contro
             "series_visual_signature_participation_mode": "guide_explainer",
             "series_visual_signature_mode": "supporting_integration",
             "series_visual_signature_consistency_mode": "supporting_character",
-            "ref_image": "D:/runtime/reference.png",
-            "reference_image_analysis_mode": "off",
-            "reference_image_workflow_injection_mode": "required",
-            "reference_image_profile_merge_mode": "supplement",
         },
         progress_callback=_progress,
         session_state={},
@@ -330,9 +326,6 @@ def test_build_single_generation_request_includes_series_visual_signature_contro
     )
     assert request["series_visual_signature_output_validation_mode"] == "required"
     assert request["series_visual_signature_output_max_attempts"] == 1
-    assert request["ref_image"] == "D:/runtime/reference.png"
-    assert request["reference_image_analysis_mode"] == "off"
-    assert request["reference_image_workflow_injection_mode"] == "required"
 
     normalized = normalize_standard_video_generation_params(request)
     visual_signature_request = SeriesVisualSignatureRequest.from_mapping(normalized)
@@ -341,18 +334,20 @@ def test_build_single_generation_request_includes_series_visual_signature_contro
     assert visual_signature_request.presentation_policy.presentation_mode.value == "auto"
 
 
-def test_build_single_generation_request_rejects_visual_anchor_without_reference_image():
-    with pytest.raises(ValueError, match="参考图|reference image"):
-        output_preview.build_single_generation_request(
-            {
-                "text": "demo",
-                "series_visual_signature_enabled": True,
-                "series_visual_signature_asset_bible_id": "bible_demo",
-                "series_visual_signature_profile_id": "ip_main",
-            },
-            progress_callback=None,
-            session_state={},
-        )
+def test_build_single_generation_request_accepts_text_visual_anchor_without_reference_image():
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
+        },
+        progress_callback=None,
+        session_state={},
+    )
+
+    assert request["series_visual_signature_enabled"] is True
+    assert "ref_image" not in request
 
 
 def test_build_single_generation_request_includes_generation_world_hint():
@@ -427,7 +422,6 @@ def test_build_single_generation_request_drops_content_ip_non_formal_fields():
             "series_visual_signature_enabled": True,
             "series_visual_signature_asset_bible_id": "bible_demo",
             "series_visual_signature_profile_id": "ip_main",
-            "ref_image": "D:/runtime/reference.png",
             "generation_world_hint": "market morning, IP blends in as a guide",
             "generation_notes": "old UI field",
             "slot_preference_override": "prefer_main",
@@ -1106,14 +1100,12 @@ def test_build_batch_shared_config_includes_series_visual_signature_controls():
             "series_visual_signature_enabled": True,
             "series_visual_signature_asset_bible_id": "bible_demo",
             "series_visual_signature_profile_id": "ip_main",
-            "ref_image": "D:/runtime/reference.png",
         }
     )
 
     assert shared_config["series_visual_signature_enabled"] is True
     assert shared_config["series_visual_signature_asset_bible_id"] == "bible_demo"
     assert shared_config["series_visual_signature_profile_id"] == "ip_main"
-    assert shared_config["ref_image"] == "D:/runtime/reference.png"
 
 
 def test_build_batch_shared_config_includes_generation_world_hint():

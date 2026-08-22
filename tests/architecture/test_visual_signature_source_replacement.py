@@ -190,7 +190,7 @@ def test_base_prompt_boundary_cannot_receive_canonical_identity_facts() -> None:
         assert "Do not invent or insert a recurring identity" in prompt_text
 
 
-def test_canonical_composer_persists_bounded_signature_observability_only() -> None:
+def test_canonical_composer_persists_capability_specific_signature_observability() -> None:
     tree = _parse(VISUAL_PROMPT_COMPOSER)
     assigned_snapshot_keys: set[str] = set()
     for node in ast.walk(tree):
@@ -213,7 +213,7 @@ def test_canonical_composer_persists_bounded_signature_observability_only() -> N
     assert "series_visual_signature_profile_v45" not in assigned_snapshot_keys
     assert "series_visual_signature_request_audit" in assigned_snapshot_keys
     assert "series_visual_signature_profile_ref" in assigned_snapshot_keys
-    assert "series_visual_signature_projection_audit" not in assigned_snapshot_keys
+    assert "series_visual_signature_projection_audit" in assigned_snapshot_keys
     assert "visual_anchor_two_stage" in assigned_snapshot_keys
     assert "visual_anchor_generation_request_by_frame" in assigned_snapshot_keys
     assert "identity_reference_workflow_inspection" in assigned_snapshot_keys

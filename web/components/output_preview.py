@@ -66,7 +66,6 @@ from pixelle_video.services.text_style_css_contract import (
 )
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 from pixelle_video.tts_workflow_contract import tts_workflow_missing_required_ref_audio
-from pixelle_video.utils.bool_parsing import coerce_bool
 from pixelle_video.utils.configured_path import resolve_configured_path
 from pixelle_video.utils.logging_util import (
     build_content_observability,
@@ -1216,8 +1215,6 @@ def copy_ip_prompt_chain_options(source, target):
 def copy_reference_image_options(source, target):
     """Copy Web UI reference-image controls into a generation request dict."""
     ref_image = source.get("ref_image")
-    if _visual_anchor_reference_image_missing(source):
-        raise ValueError(tr("reference_image.web_ui.visual_anchor_required"))
     if not ref_image:
         return
     target["ref_image"] = str(ref_image)
@@ -1225,17 +1222,6 @@ def copy_reference_image_options(source, target):
     for key in REFERENCE_IMAGE_OPTION_KEYS:
         if source.get(key) is not None:
             target[key] = source[key]
-
-
-def _visual_anchor_reference_image_missing(source) -> bool:
-    return bool(
-        coerce_bool(
-            source.get("series_visual_signature_enabled"),
-            default=False,
-        )
-        and not source.get("ref_image")
-    )
-
 
 def render_output_preview(pixelle_video, video_params):
     """Render output preview section (right column)"""
@@ -1544,24 +1530,17 @@ def _render_generation_section(pixelle_video, video_params):
     snapshot = client.get(task_id) if task_id else None
     task_is_active = bool(snapshot and snapshot.status in ACTIVE_TASK_STATUSES)
     st.session_state[SINGLE_VIDEO_GENERATING_KEY] = task_is_active
-    visual_anchor_reference_missing = _visual_anchor_reference_image_missing(
-        video_params
-    )
-
     with st.container(border=True):
         st.markdown(f"**{tr('section.video_generation')}**")
         configured = config_manager.validate()
         if not configured:
             st.warning(tr("settings.not_configured"))
-        if visual_anchor_reference_missing:
-            st.error(tr("reference_image.web_ui.visual_anchor_required"))
-
         button_clicked = st.button(
             tr("btn.generate"),
             key=SINGLE_VIDEO_BUTTON_KEY,
             type="primary",
             width="stretch",
-            disabled=task_is_active or visual_anchor_reference_missing,
+            disabled=task_is_active,
         )
         if button_clicked:
             if not configured:
@@ -1627,19 +1606,12 @@ def render_batch_output(pixelle_video, video_params):
         estimated_minutes = batch_count * 3  # Assume 3 minutes per video
         st.caption(tr("batch.estimated_time", minutes=estimated_minutes))
 
-        visual_anchor_reference_missing = _visual_anchor_reference_image_missing(
-            video_params
-        )
-        if visual_anchor_reference_missing:
-            st.error(tr("reference_image.web_ui.visual_anchor_required"))
-
         # Generate button with batch semantics
         if st.button(
             tr("batch.generate_button", count=batch_count),
             type="primary",
             width="stretch",
             help=tr("batch.generate_help"),
-            disabled=visual_anchor_reference_missing,
         ):
             session_id = _get_or_create_log_session_id(st.session_state)
             video_params = {**video_params, "session_id": session_id}

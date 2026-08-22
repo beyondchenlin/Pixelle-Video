@@ -344,10 +344,6 @@ class LinearVideoPipeline(BasePipeline):
         )
         raw_reference_image = resolve_reference_image_input(ctx.params)
         if raw_reference_image is None:
-            if signature_enabled:
-                raise ValueError(
-                    "visual-anchor generation requires a real reference image before content generation"
-                )
             return
 
         reference_image_config = _resolve_reference_image_config(getattr(self.core, "config", None))

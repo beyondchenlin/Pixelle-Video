@@ -73,7 +73,7 @@ async def test_visual_anchor_forces_real_reference_image_assetization(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_visual_anchor_rejects_missing_reference_before_content_generation(tmp_path):
+async def test_visual_anchor_without_reference_continues_for_text_to_image(tmp_path):
     task_dir = tmp_path / "task"
     task_dir.mkdir()
     pipeline = LinearVideoPipeline(
@@ -91,5 +91,7 @@ async def test_visual_anchor_rejects_missing_reference_before_content_generation
         task_dir=str(task_dir),
     )
 
-    with pytest.raises(ValueError, match="real reference image"):
-        await pipeline.prepare_reference_image(ctx)
+    await pipeline.prepare_reference_image(ctx)
+
+    assert ctx.reference_image_asset is None
+    assert "ref_image" not in ctx.params
