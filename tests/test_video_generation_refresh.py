@@ -492,3 +492,63 @@ def test_generation_button_submits_background_task_and_persists_task_id(monkeypa
         "generation_task": task_id,
     }
     assert output_preview.SINGLE_VIDEO_HANDLED_TASK_KEY not in output_preview.st.session_state
+
+
+def test_generation_button_is_disabled_when_visual_anchor_reference_is_missing(monkeypatch):
+    errors = []
+
+    class Context:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {}
+            self.query_params = {}
+
+        def container(self, **_kwargs):
+            return Context()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def error(self, value):
+            errors.append(value)
+
+        def button(self, *_args, **kwargs):
+            assert kwargs["disabled"] is True
+            return False
+
+    class Client:
+        def get(self, _task_id):
+            return None
+
+        def submit(self, _request):
+            pytest.fail("missing visual-anchor reference must not submit a task")
+
+    monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(output_preview, "tr", lambda key, **_kwargs: key)
+    monkeypatch.setattr(
+        output_preview,
+        "resolve_video_generation_client",
+        lambda _core: Client(),
+    )
+
+    output_preview._render_generation_section(
+        object(),
+        {
+            "text": "demo",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
+        },
+    )
+
+    assert errors == ["reference_image.web_ui.visual_anchor_required"]
