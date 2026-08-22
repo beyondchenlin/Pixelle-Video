@@ -668,6 +668,9 @@ def render_visual_anchor_two_stage_evidence(
         reference_condition = _mapping(
             generation_request.get("identity_reference_condition")
         )
+        expected_execution = _mapping(
+            generation_request.get("expected_execution")
+        )
         audit = _mapping(audits.get(frame_id))
         binding_artifact = (
             audit.get("first_request_binding_artifact")
@@ -731,6 +734,8 @@ def render_visual_anchor_two_stage_evidence(
                     f"**分镜编号：** {frame_id}  \n"
                     f"**随机种子：** {generation_request.get('random_seed', 'N/A')}  \n"
                     f"**生成次数：** {generation_request.get('generation_attempt', 'N/A')}  \n"
+                    f"**首次生成记录时间：** "
+                    f"{binding_audit.get('recorded_at_utc') or audit.get('recorded_at_utc') or 'N/A'}  \n"
                     f"**目标锚点实例数：** "
                     f"{generation_request.get('target_visual_anchor_instance_count', 'N/A')}"
                 )
@@ -766,14 +771,37 @@ def render_visual_anchor_two_stage_evidence(
                     "第二阶段选中的唯一融合方式",
                     fusion_output.get("selected_fusion_method"),
                 )
+                _render_prompt_evidence(
+                    "第二阶段目标画面风格",
+                    fusion_input.get("target_visual_style"),
+                )
+                st.markdown("**未进入图片模型的候选摘要**")
+                st.json(
+                    fusion_output.get("unselected_candidate_summaries") or [],
+                    expanded=False,
+                )
                 st.markdown("**第二阶段非核心重构摘要**")
                 st.json(
                     fusion_output.get("non_core_reconstruction_summary") or [],
                     expanded=True,
                 )
+                st.markdown("**第一阶段偏差及纠正记录**")
+                st.json(
+                    fusion_output.get("content_stage_deviations") or [],
+                    expanded=True,
+                )
                 _render_prompt_evidence(
                     "视觉锚点最终表现形态",
                     fusion_output.get("final_manifestation"),
+                )
+                st.markdown("**核心身份特征与最终提示词证据**")
+                st.json(
+                    generation_request.get("identity_trait_checks") or [],
+                    expanded=True,
+                )
+                _render_prompt_evidence(
+                    "单实例提示词证据",
+                    generation_request.get("single_instance_prompt_evidence"),
                 )
                 _render_prompt_evidence(
                     "最终生图正向提示词",
@@ -792,6 +820,14 @@ def render_visual_anchor_two_stage_evidence(
                     f"**档案编号：** {identity_profile.get('profile_id', 'N/A')}  \n"
                     f"**身份资源版本：** "
                     f"{generation_request.get('identity_resource_version', 'N/A')}  \n"
+                    f"**生成请求版本：** "
+                    f"{generation_request.get('request_version', 'N/A')}  \n"
+                    f"**第一阶段提示词版本：** "
+                    f"{generation_request.get('content_stage_prompt_version', 'N/A')}  \n"
+                    f"**第二阶段提示词版本：** "
+                    f"{generation_request.get('fusion_stage_prompt_version', 'N/A')}  \n"
+                    f"**生成前审查提示词版本：** "
+                    f"{generation_request.get('preflight_review_prompt_version', 'N/A')}  \n"
                     f"**参考资源标识：** "
                     f"{', '.join(identity_profile.get('source_asset_ids') or []) or 'N/A'}  \n"
                     f"**参考图校验值：** "
@@ -805,11 +841,24 @@ def render_visual_anchor_two_stage_evidence(
                     f"{workflow.get('workflow_relative_path', 'N/A')}  \n"
                     f"**工作流版本：** "
                     f"{generation_request.get('workflow_version_sha256', 'N/A')}  \n"
+                    f"**请求分辨率：** "
+                    f"{expected_execution.get('width', 'N/A')}×"
+                    f"{expected_execution.get('height', 'N/A')}  \n"
+                    f"**请求模型文件：** "
+                    f"{expected_execution.get('model_files', 'N/A')}  \n"
+                    f"**请求采样配置：** "
+                    f"{{'steps': {expected_execution.get('steps', 'N/A')}, "
+                    f"'cfg': {expected_execution.get('cfg', 'N/A')}, "
+                    f"'sampler_name': {expected_execution.get('sampler_name', 'N/A')}, "
+                    f"'scheduler': {expected_execution.get('scheduler', 'N/A')}, "
+                    f"'denoise': {expected_execution.get('denoise', 'N/A')}}}  \n"
                     f"**实际分辨率：** "
                     f"{actual_execution.get('width', 'N/A')}×"
                     f"{actual_execution.get('height', 'N/A')}  \n"
                     f"**实际配置版本：** "
                     f"{actual_execution.get('execution_config_sha256', 'N/A')}  \n"
+                    f"**实际采样配置：** "
+                    f"{actual_execution.get('sampler_config', 'N/A')}  \n"
                     f"**本地生成任务编号：** "
                     f"{actual_execution.get('comfyui_prompt_id', 'N/A')}"
                 )
@@ -822,6 +871,19 @@ def render_visual_anchor_two_stage_evidence(
                     f"({reference_condition.get('workflow_node_class_type', 'N/A')})  \n"
                     f"**条件节点：** {reference_condition.get('conditioning_node_id', 'N/A')} "
                     f"({reference_condition.get('conditioning_node_class_type', 'N/A')})  \n"
+                    f"**实际参考条件方式：** "
+                    f"{actual_execution.get('reference_conditioning_mode', 'N/A')}  \n"
+                    f"**实际参考图数量：** "
+                    f"{actual_execution.get('reference_conditioning_input_count', 'N/A')}  \n"
+                    f"**实际参考条件尺寸：** "
+                    f"{actual_execution.get('reference_conditioning_width', 'N/A')}×"
+                    f"{actual_execution.get('reference_conditioning_height', 'N/A')}  \n"
+                    f"**实际参考缩放方式：** "
+                    f"{actual_execution.get('reference_conditioning_upscale_method', 'N/A')}  \n"
+                    f"**实际参考裁剪方式：** "
+                    f"{actual_execution.get('reference_conditioning_crop', 'N/A')}  \n"
+                    f"**参考图自动放大：** "
+                    f"{actual_execution.get('reference_conditioning_auto_resize', 'N/A')}  \n"
                     f"**采样节点：** {reference_condition.get('sampler_node_id', 'N/A')} "
                     f"({reference_condition.get('sampler_node_class_type', 'N/A')})  \n"
                     f"**绑定路径：** "

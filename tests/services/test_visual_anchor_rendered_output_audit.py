@@ -14,6 +14,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FusionStageInput,
     FusionStageOutput,
     IdentityReferenceCondition,
+    ImageWorkflowExecutionContract,
     PreflightReviewInput,
     PreflightReviewOutput,
     VisualAnchorIdentityProfile,
@@ -64,7 +65,7 @@ def _frame_result(tmp_path):
         workflow_node_class_type="LoadImage",
         workflow_node_input_field="image",
         conditioning_node_id="94",
-        conditioning_node_class_type="ReferenceLatent",
+        conditioning_node_class_type="TextEncodeZImageOmni",
         sampler_node_id="3",
         sampler_node_class_type="KSampler",
         binding_path_node_ids=["92", "93", "94", "3"],
@@ -86,6 +87,7 @@ def _frame_result(tmp_path):
                 "category": "event",
                 "statement": "两位创作者在车库组装电脑",
                 "source_evidence": "两位创作者在车库组装电脑",
+                "pure_content_prompt_evidence": "两位创作者在车库工作台组装电脑",
             }
         ],
         adjustable_non_core_content=["工作台工具"],
@@ -111,21 +113,44 @@ def _frame_result(tmp_path):
     )
     fusion_output = FusionStageOutput(
         selected_fusion_method="小皮作为工作台旁的唯一实体参与现场",
+        unselected_candidate_summaries=[
+            {
+                "manifestation": "墙面图形",
+                "audit_summary": "实体形态更符合车库空间关系",
+            }
+        ],
+        content_stage_deviations=[],
         non_core_reconstruction_summary=["重新组织工具间距"],
         protected_fact_checks=[
             {
                 "fact_id": "fact-1",
                 "preserved": True,
-                "final_image_evidence": "两位创作者和电脑组装动作可见",
+                "final_image_evidence": "两位创作者在车库组装电脑",
             }
+        ],
+        identity_trait_checks=[
+            {
+                "trait": "圆形白色脸",
+                "preserved": True,
+                "final_prompt_evidence": "圆形白色脸",
+            },
+            {
+                "trait": "蓝色短耳",
+                "preserved": True,
+                "final_prompt_evidence": "蓝色短耳",
+            },
         ],
         final_manifestation="小皮的单一实体形态",
         target_visual_anchor_instance_count=1,
         other_scene_elements_inherit_identity_features=False,
+        single_instance_prompt_evidence="画面中只有一只小皮",
         spatial_contact_and_lighting_relation="接触地面并共享车库光照",
         inherited_existing_fusion_decision=False,
         continuity_change_reason="独立镜头没有既有决定",
-        final_positive_prompt="两位创作者在车库组装电脑，小皮以圆形白色脸和蓝色短耳的单一实体自然参与现场。",
+        final_positive_prompt=(
+            "两位创作者在车库组装电脑。画面中只有一只小皮，"
+            "它以圆形白色脸和蓝色短耳的单一实体自然参与现场。"
+        ),
         final_negative_prompt="重复的小皮，镜像，倒影，悬浮，穿模",
         self_check="pass",
     )
@@ -149,9 +174,18 @@ def _frame_result(tmp_path):
         task_id="task-two-stage",
         frame_id="frame-a",
         random_seed=101,
+        selected_fusion_method=fusion_output.selected_fusion_method,
+        final_manifestation=fusion_output.final_manifestation,
+        protected_fact_checks=fusion_output.protected_fact_checks,
+        identity_trait_checks=fusion_output.identity_trait_checks,
+        single_instance_prompt_evidence=(
+            fusion_output.single_instance_prompt_evidence
+        ),
         final_positive_prompt=fusion_output.final_positive_prompt,
         final_negative_prompt="",
         identity_profile_id=identity.profile_id,
+        identity_display_name=identity.display_name,
+        identity_core_traits=identity.core_identity_traits,
         identity_resource_version=identity.identity_resource_version,
         identity_content_sha256=identity.identity_content_sha256,
         identity_reference_condition=reference,
@@ -161,6 +195,20 @@ def _frame_result(tmp_path):
         preflight_review_decision="pass",
         workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
         workflow_version_sha256="c" * 64,
+        expected_execution=ImageWorkflowExecutionContract(
+            width=32,
+            height=24,
+            model_files=[
+                "Qwen3-4B-Q8_0.gguf",
+                "ae.safetensors",
+                "z-image-turbo-Q8_0.gguf",
+            ],
+            steps=5,
+            cfg=1.0,
+            sampler_name="euler",
+            scheduler="simple",
+            denoise=1.0,
+        ),
     )
     return VisualAnchorTwoStageFrameResult(
         frame_id="frame-a",
@@ -211,7 +259,14 @@ def _write_passed_binding(
         "ae.safetensors",
         "z-image-turbo-Q8_0.gguf",
     ]
-    sampler_config = {"seed": seed, "steps": 5, "cfg": 1.0}
+    sampler_config = {
+        "seed": seed,
+        "steps": 5,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1.0,
+    }
     execution_config = {
         "workflow_key": request.workflow_key,
         "workflow_version_sha256": request.workflow_version_sha256,
@@ -219,17 +274,40 @@ def _write_passed_binding(
         "height": 24,
         "model_files": model_files,
         "sampler": sampler_config,
+        "reference_conditioning": {
+            "mode": "TextEncodeZImageOmni",
+            "input_count": 1,
+            "width": 32,
+            "height": 32,
+            "crop": "disabled",
+            "upscale_method": "lanczos",
+            "auto_resize_images": False,
+        },
     }
     binding_path.write_text(
         json.dumps(
             {
-                "schema_version": "visual_anchor_first_generation_binding_audit.v1",
+                "schema_version": "visual_anchor_first_generation_binding_audit.v2",
+                "request_version": request.request_version,
                 "status": "passed",
                 "task_id": request.task_id,
                 "frame_id": request.frame_id,
                 "generation_attempt": 1,
                 "random_seed": seed,
                 "target_visual_anchor_instance_count": 1,
+                "selected_fusion_method": request.selected_fusion_method,
+                "final_manifestation": request.final_manifestation,
+                "protected_fact_checks": [
+                    check.model_dump(mode="json")
+                    for check in request.protected_fact_checks
+                ],
+                "identity_trait_checks": [
+                    check.model_dump(mode="json")
+                    for check in request.identity_trait_checks
+                ],
+                "single_instance_prompt_evidence": (
+                    request.single_instance_prompt_evidence
+                ),
                 "positive_prompt_sha256": _sha256_text(
                     request.final_positive_prompt
                 ),
@@ -242,6 +320,8 @@ def _write_passed_binding(
                     "preflight_review": request.preflight_review_prompt_version,
                 },
                 "identity_profile_id": request.identity_profile_id,
+                "identity_display_name": request.identity_display_name,
+                "identity_core_traits": list(request.identity_core_traits),
                 "identity_resource_version": request.identity_resource_version,
                 "identity_content_sha256": request.identity_content_sha256,
                 "reference_condition": (
@@ -249,6 +329,9 @@ def _write_passed_binding(
                 ),
                 "workflow_key": request.workflow_key,
                 "workflow_version_sha256": request.workflow_version_sha256,
+                "expected_execution": request.expected_execution.model_dump(
+                    mode="json"
+                ),
                 "preflight_review_decision": "pass",
                 "actual_execution": {
                     "comfyui_prompt_id": "prompt-101",
@@ -266,6 +349,16 @@ def _write_passed_binding(
                     "conditioning_node_id": (
                         request.identity_reference_condition.conditioning_node_id
                     ),
+                    "conditioning_node_class_type": "TextEncodeZImageOmni",
+                    "reference_conditioning_mode": "TextEncodeZImageOmni",
+                    "reference_conditioning_input_count": 1,
+                    "reference_scale_node_id": "93",
+                    "reference_scale_node_class_type": "ImageScale",
+                    "reference_conditioning_width": 32,
+                    "reference_conditioning_height": 32,
+                    "reference_conditioning_crop": "disabled",
+                    "reference_conditioning_upscale_method": "lanczos",
+                    "reference_conditioning_auto_resize": False,
                     "sampler_node_id": (
                         request.identity_reference_condition.sampler_node_id
                     ),

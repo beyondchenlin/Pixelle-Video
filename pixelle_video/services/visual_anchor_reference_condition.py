@@ -23,6 +23,11 @@ _SAMPLER_NODE_CLASSES = frozenset(
     {"KSampler", "KSamplerAdvanced", "SamplerCustom", "SamplerCustomAdvanced"}
 )
 _SEED_MARKER_RE = re.compile(r"\$seed\.seed!", re.IGNORECASE)
+_PROMPT_MARKER_RE = re.compile(r"\$prompt\.value!", re.IGNORECASE)
+IDENTITY_REFERENCE_CONDITION_WIDTH = 32
+IDENTITY_REFERENCE_CONDITION_HEIGHT = 32
+IDENTITY_REFERENCE_CONDITION_UPSCALE_METHOD = "lanczos"
+IDENTITY_REFERENCE_CONDITION_CROP = "disabled"
 _MODEL_LOADER_CLASSES = frozenset(
     {
         "CheckpointLoaderSimple",
@@ -44,14 +49,16 @@ class IdentityReferenceWorkflowInspection:
     workflow_version_sha256: str
     workflow_relative_path: str
     model_files: tuple[str, ...]
+    sampler_defaults: Mapping[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "identity_reference_workflow_inspection.v1",
+            "schema_version": "identity_reference_workflow_inspection.v2",
             "workflow_key": self.workflow_key,
             "workflow_version_sha256": self.workflow_version_sha256,
             "workflow_relative_path": self.workflow_relative_path,
             "model_files": list(self.model_files),
+            "sampler_defaults": dict(self.sampler_defaults),
             "condition": self.condition.model_dump(mode="json"),
         }
 
@@ -114,16 +121,16 @@ def inspect_identity_reference_workflow(
         1
         for raw_node in workflow.values()
         if isinstance(raw_node, Mapping)
-        and str(raw_node.get("class_type") or "") == "ReferenceLatent"
+        and str(raw_node.get("class_type") or "") == "TextEncodeZImageOmni"
     ) != 1:
         raise ValueError(
-            "visual-anchor workflow must contain exactly one ReferenceLatent node"
+            "visual-anchor workflow must contain exactly one TextEncodeZImageOmni node"
         )
     conditioning_node_id, conditioning_node = conditioning_nodes[0]
     conditioning_class_type = str(conditioning_node.get("class_type") or "").strip()
-    if conditioning_class_type != "ReferenceLatent":
+    if conditioning_class_type != "TextEncodeZImageOmni":
         raise ValueError(
-            "identity-reference conditioning must use the core ReferenceLatent node"
+            "identity-reference conditioning must use the core TextEncodeZImageOmni node"
         )
 
     source_to_condition = _path_between(
@@ -137,35 +144,79 @@ def inspect_identity_reference_workflow(
         )
     if len(source_to_condition) != 3:
         raise ValueError(
-            "reference_image must reach ReferenceLatent through exactly one VAE encoder"
+            "reference_image must reach TextEncodeZImageOmni through exactly one ImageScale node"
         )
-    encoder_node = workflow.get(source_to_condition[1])
-    encoder_class_type = (
-        str(encoder_node.get("class_type") or "")
-        if isinstance(encoder_node, Mapping)
+    scale_node_id = source_to_condition[1]
+    scale_node = workflow.get(scale_node_id)
+    scale_class_type = (
+        str(scale_node.get("class_type") or "")
+        if isinstance(scale_node, Mapping)
         else ""
     )
-    if encoder_class_type not in {"VAEEncode", "VAEEncodeTiled"}:
+    if scale_class_type != "ImageScale":
         raise ValueError(
-            "reference_image must be encoded by a VAE node before ReferenceLatent"
+            "reference_image must be limited by ImageScale before identity conditioning"
         )
-    encoder_inputs = encoder_node.get("inputs") if isinstance(encoder_node, Mapping) else None
+    scale_inputs = (
+        scale_node.get("inputs") if isinstance(scale_node, Mapping) else None
+    )
     if (
-        not isinstance(encoder_inputs, Mapping)
-        or _linked_node_id(encoder_inputs.get("pixels")) != source_node_id
+        not isinstance(scale_inputs, Mapping)
+        or _linked_node_id(scale_inputs.get("image")) != source_node_id
     ):
         raise ValueError(
-            "reference_image LoadImage must enter the VAE encoder pixels input"
+            "reference_image LoadImage must enter ImageScale directly"
+        )
+    if (
+        scale_inputs.get("width") != IDENTITY_REFERENCE_CONDITION_WIDTH
+        or scale_inputs.get("height") != IDENTITY_REFERENCE_CONDITION_HEIGHT
+        or scale_inputs.get("crop") != IDENTITY_REFERENCE_CONDITION_CROP
+        or scale_inputs.get("upscale_method")
+        != IDENTITY_REFERENCE_CONDITION_UPSCALE_METHOD
+    ):
+        raise ValueError(
+            "identity reference conditioning must use the registered 32x32 uncropped Lanczos input"
         )
     conditioning_inputs = conditioning_node.get("inputs")
     if (
         not isinstance(conditioning_inputs, Mapping)
-        or _linked_node_id(conditioning_inputs.get("latent"))
-        != source_to_condition[1]
-        or _linked_node_id(conditioning_inputs.get("conditioning")) is None
+        or _linked_node_id(conditioning_inputs.get("image1")) != scale_node_id
     ):
         raise ValueError(
-            "ReferenceLatent must receive the encoded reference and positive conditioning"
+            "TextEncodeZImageOmni image1 must receive the scaled registered reference"
+        )
+    if (
+        conditioning_inputs.get("image2") is not None
+        or conditioning_inputs.get("image3") is not None
+        or conditioning_inputs.get("image_encoder") is not None
+    ):
+        raise ValueError(
+            "visual-anchor workflow must condition on exactly one reference image"
+        )
+    if conditioning_inputs.get("auto_resize_images") is not False:
+        raise ValueError(
+            "TextEncodeZImageOmni automatic reference resizing must be disabled"
+        )
+    clip_node_id = _linked_node_id(conditioning_inputs.get("clip"))
+    prompt_node_id = _linked_node_id(conditioning_inputs.get("prompt"))
+    vae_node_id = _linked_node_id(conditioning_inputs.get("vae"))
+    if (
+        _node_class_type(workflow, clip_node_id) != "CLIPLoaderGGUF"
+        or _node_class_type(workflow, prompt_node_id) != "PrimitiveStringMultiline"
+        or _node_class_type(workflow, vae_node_id) != "VAELoader"
+    ):
+        raise ValueError(
+            "identity conditioning must receive the selected GGUF text encoder, final prompt, and VAE"
+        )
+    prompt_node = workflow.get(prompt_node_id or "")
+    prompt_title = (
+        str((prompt_node.get("_meta") or {}).get("title") or "")
+        if isinstance(prompt_node, Mapping)
+        else ""
+    )
+    if not _PROMPT_MARKER_RE.search(prompt_title):
+        raise ValueError(
+            "identity conditioning must receive the declared final positive prompt parameter"
         )
     condition_to_sampler = _path_to_sampler(
         workflow,
@@ -177,7 +228,7 @@ def inspect_identity_reference_workflow(
         )
     if len(condition_to_sampler) != 2:
         raise ValueError(
-            "ReferenceLatent must connect directly to the first image sampler"
+            "TextEncodeZImageOmni must connect directly to the first image sampler"
         )
     sampler_node_id = condition_to_sampler[-1]
     sampler_node = workflow[sampler_node_id]
@@ -189,12 +240,13 @@ def inspect_identity_reference_workflow(
         or _linked_node_id(sampler_inputs.get("positive")) != conditioning_node_id
     ):
         raise ValueError(
-            "ReferenceLatent must enter the sampler's positive conditioning input"
+            "TextEncodeZImageOmni must enter the sampler's positive conditioning input"
         )
     if "seed" not in sampler_inputs or not _SEED_MARKER_RE.search(sampler_title):
         raise ValueError(
             "visual-anchor sampler must expose the required fixed seed parameter"
         )
+    sampler_defaults = _sampler_defaults(sampler_inputs)
     path = [*source_to_condition, *condition_to_sampler[1:]]
 
     condition = IdentityReferenceCondition(
@@ -251,6 +303,7 @@ def inspect_identity_reference_workflow(
         workflow_version_sha256=workflow_sha256,
         workflow_relative_path=workflow_relative_path,
         model_files=_workflow_model_files(workflow),
+        sampler_defaults=sampler_defaults,
     )
 
 
@@ -270,6 +323,37 @@ def _workflow_model_files(workflow: Mapping[str, Any]) -> tuple[str, ...]:
     result = tuple(sorted(set(files)))
     if not result:
         raise ValueError("visual-anchor workflow does not declare image model files")
+    return result
+
+
+def _sampler_defaults(inputs: Mapping[str, Any]) -> dict[str, Any]:
+    required = (
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "denoise",
+    )
+    result = {key: inputs.get(key) for key in required}
+    if (
+        type(result["steps"]) is not int
+        or result["steps"] <= 0
+        or isinstance(result["cfg"], bool)
+        or not isinstance(result["cfg"], (int, float))
+        or result["cfg"] < 0
+        or not isinstance(result["sampler_name"], str)
+        or not result["sampler_name"].strip()
+        or not isinstance(result["scheduler"], str)
+        or not result["scheduler"].strip()
+        or isinstance(result["denoise"], bool)
+        or not isinstance(result["denoise"], (int, float))
+        or not 0 < result["denoise"] <= 1
+    ):
+        raise ValueError(
+            "visual-anchor workflow sampler defaults are incomplete or invalid"
+        )
+    result["sampler_name"] = result["sampler_name"].strip()
+    result["scheduler"] = result["scheduler"].strip()
     return result
 
 
@@ -345,6 +429,18 @@ def _linked_node_id(value: Any) -> str | None:
     return None
 
 
+def _node_class_type(
+    workflow: Mapping[str, Any],
+    node_id: str | None,
+) -> str:
+    if node_id is None:
+        return ""
+    node = workflow.get(node_id)
+    if not isinstance(node, Mapping):
+        return ""
+    return str(node.get("class_type") or "").strip()
+
+
 def _required_text(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} is required")
@@ -371,6 +467,10 @@ def _positive_int(value: object, field_name: str) -> int:
 
 
 __all__ = [
+    "IDENTITY_REFERENCE_CONDITION_CROP",
+    "IDENTITY_REFERENCE_CONDITION_HEIGHT",
+    "IDENTITY_REFERENCE_CONDITION_UPSCALE_METHOD",
+    "IDENTITY_REFERENCE_CONDITION_WIDTH",
     "IdentityReferenceWorkflowInspection",
     "inspect_identity_reference_workflow",
 ]

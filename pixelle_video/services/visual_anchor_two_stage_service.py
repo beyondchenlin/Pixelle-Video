@@ -23,6 +23,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FusionStageInput,
     FusionStageOutput,
     IdentityReferenceCondition,
+    ImageWorkflowExecutionContract,
     PreflightReviewInput,
     PreflightReviewOutput,
     VisualAnchorIdentityProfile,
@@ -63,6 +64,23 @@ _INTERNAL_PLANNING_TERMS = (
     "visual anchor",
     "protected fact",
     "fusion option",
+    "final manifestation",
+    "identity trait checks",
+    "single instance prompt evidence",
+)
+_SINGLE_INSTANCE_TERMS = (
+    "只有一个",
+    "仅有一个",
+    "唯一一个",
+    "只有一只",
+    "仅有一只",
+    "唯一一只",
+    "只有一名",
+    "仅有一名",
+    "唯一一名",
+    "exactly one",
+    "only one",
+    "a single",
 )
 _CONTENT_STAGE_FORBIDDEN_TERMS = (
     "视觉锚点",
@@ -143,7 +161,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v1",
+            "schema_version": "visual_anchor_two_stage_batch.v2",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -208,6 +226,7 @@ class VisualAnchorTwoStageService:
         task_id: str,
         workflow_key: str,
         workflow_version_sha256: str,
+        expected_execution: ImageWorkflowExecutionContract,
         random_seeds_by_frame: Mapping[str, int],
         negative_prompt_supported: bool,
         trace_context: LLMTraceContext | None = None,
@@ -216,6 +235,15 @@ class VisualAnchorTwoStageService:
     ) -> VisualAnchorTwoStageBatchResult:
         if not storyboard_plan.frames:
             raise VisualAnchorTwoStageError("storyboard plan has no frames")
+        if not isinstance(expected_execution, ImageWorkflowExecutionContract):
+            raise TypeError(
+                "expected_execution must be an ImageWorkflowExecutionContract"
+            )
+        _validate_content_stage_identity_isolation(
+            storyboard_plan=storyboard_plan,
+            identity_profile=identity_profile,
+            target_visual_style=target_visual_style,
+        )
         if set(random_seeds_by_frame) != {
             frame.frame_id for frame in storyboard_plan.frames
         }:
@@ -241,6 +269,7 @@ class VisualAnchorTwoStageService:
                 task_id=task_id,
                 workflow_key=workflow_key,
                 workflow_version_sha256=workflow_version_sha256,
+                expected_execution=expected_execution,
                 random_seed=random_seeds_by_frame[frame.frame_id],
                 negative_prompt_supported=negative_prompt_supported,
                 trace_context=trace_context,
@@ -267,6 +296,7 @@ class VisualAnchorTwoStageService:
         task_id: str,
         workflow_key: str,
         workflow_version_sha256: str,
+        expected_execution: ImageWorkflowExecutionContract,
         random_seed: int,
         negative_prompt_supported: bool,
         trace_context: LLMTraceContext | None,
@@ -489,9 +519,18 @@ class VisualAnchorTwoStageService:
                     task_id=task_id,
                     frame_id=frame.frame_id,
                     random_seed=random_seed,
+                    selected_fusion_method=fusion_output.selected_fusion_method,
+                    final_manifestation=fusion_output.final_manifestation,
+                    protected_fact_checks=fusion_output.protected_fact_checks,
+                    identity_trait_checks=fusion_output.identity_trait_checks,
+                    single_instance_prompt_evidence=(
+                        fusion_output.single_instance_prompt_evidence
+                    ),
                     final_positive_prompt=last_review.allowed_final_positive_prompt,
                     final_negative_prompt=last_review.allowed_final_negative_prompt,
                     identity_profile_id=identity_profile.profile_id,
+                    identity_display_name=identity_profile.display_name,
+                    identity_core_traits=identity_profile.core_identity_traits,
                     identity_resource_version=identity_profile.identity_resource_version,
                     identity_content_sha256=identity_profile.identity_content_sha256,
                     identity_reference_condition=identity_reference_condition,
@@ -501,6 +540,7 @@ class VisualAnchorTwoStageService:
                     preflight_review_decision="pass",
                     workflow_key=workflow_key,
                     workflow_version_sha256=workflow_version_sha256,
+                    expected_execution=expected_execution,
                 )
                 return VisualAnchorTwoStageFrameResult(
                     frame_id=frame.frame_id,
@@ -646,10 +686,20 @@ def _validate_content_stage_output(
         f"{stage_input.original_storyboard_text}\n{stage_input.article_context}"
     )
     normalized_source = source.casefold()
+    normalized_pure_prompt = _normalized_text(
+        output.pure_content_prompt
+    ).casefold()
     for fact in output.protected_facts:
-        if _normalized_text(fact.source_evidence) not in source:
+        if _normalized_text(fact.source_evidence).casefold() not in normalized_source:
             raise VisualAnchorTwoStageError(
                 f"protected fact {fact.fact_id} has no exact source evidence"
+            )
+        prompt_evidence = _normalized_text(
+            fact.pure_content_prompt_evidence
+        ).casefold()
+        if not prompt_evidence or prompt_evidence not in normalized_pure_prompt:
+            raise VisualAnchorTwoStageError(
+                f"protected fact {fact.fact_id} is missing from the pure content prompt"
             )
 
     content_payload = _normalized_text(
@@ -680,6 +730,50 @@ def _validate_content_stage_output(
             )
 
 
+def _validate_content_stage_identity_isolation(
+    *,
+    storyboard_plan: StoryboardPlan,
+    identity_profile: VisualAnchorIdentityProfile,
+    target_visual_style: str,
+) -> None:
+    """Reject identity-bearing style data before the content-only model call."""
+
+    content_source = _normalized_text(
+        "\n".join(
+            [
+                storyboard_plan.source_text,
+                *(frame.source_text for frame in storyboard_plan.frames),
+            ]
+        )
+    ).casefold()
+    normalized_style = _normalized_text(target_visual_style).casefold()
+    for forbidden_term in _CONTENT_STAGE_FORBIDDEN_TERMS:
+        if _contains_term(normalized_style, forbidden_term):
+            raise VisualAnchorTwoStageError(
+                "content-stage visual style contains visual-anchor planning information"
+            )
+    identity_values = [
+        identity_profile.profile_id,
+        identity_profile.display_name,
+        identity_profile.identity_resource_version,
+        *identity_profile.core_identity_traits,
+        *identity_profile.supporting_identity_traits,
+        *identity_profile.forbidden_traits,
+        *identity_profile.source_asset_ids,
+    ]
+    for value in identity_values:
+        normalized_identity_value = _normalized_text(value).casefold()
+        if not normalized_identity_value:
+            continue
+        if (
+            _contains_term(normalized_style, normalized_identity_value)
+            and not _contains_term(content_source, normalized_identity_value)
+        ):
+            raise VisualAnchorTwoStageError(
+                "content-stage visual style contains identity-profile information"
+            )
+
+
 def _validate_fusion_stage_output(
     stage_input: FusionStageInput,
     output: FusionStageOutput,
@@ -700,6 +794,72 @@ def _validate_fusion_stage_output(
         )
     if any(not check.preserved for check in output.protected_fact_checks):
         raise VisualAnchorTwoStageError("fusion changed a protected fact")
+    normalized_positive = _normalized_text(output.final_positive_prompt).casefold()
+    for check in output.protected_fact_checks:
+        evidence = _normalized_text(check.final_image_evidence).casefold()
+        if not evidence or evidence not in normalized_positive:
+            raise VisualAnchorTwoStageError(
+                f"protected fact {check.fact_id} evidence is not present in the final positive prompt"
+            )
+    expected_traits = [
+        _normalized_text(trait).casefold()
+        for trait in stage_input.identity_profile.core_identity_traits
+    ]
+    actual_traits = [
+        _normalized_text(check.trait).casefold()
+        for check in output.identity_trait_checks
+    ]
+    if (
+        set(actual_traits) != set(expected_traits)
+        or len(actual_traits) != len(expected_traits)
+    ):
+        raise VisualAnchorTwoStageError(
+            "fusion identity-trait checks do not exactly cover the identity profile"
+        )
+    normalized_identity_name = _normalized_text(
+        stage_input.identity_profile.display_name
+    ).casefold()
+    identity_evidence_values: list[str] = []
+    for check in output.identity_trait_checks:
+        if not check.preserved:
+            raise VisualAnchorTwoStageError(
+                f"fusion dropped core identity trait: {check.trait}"
+            )
+        evidence = _normalized_text(check.final_prompt_evidence).casefold()
+        if (
+            not evidence
+            or evidence == normalized_identity_name
+            or evidence not in normalized_positive
+        ):
+            raise VisualAnchorTwoStageError(
+                f"identity trait evidence is not present in the final positive prompt: {check.trait}"
+            )
+        identity_evidence_values.append(evidence)
+    if len(set(identity_evidence_values)) != len(identity_evidence_values):
+        raise VisualAnchorTwoStageError(
+            "each core identity trait must have distinct visible evidence in the final positive prompt"
+        )
+    single_instance_evidence = _normalized_text(
+        output.single_instance_prompt_evidence
+    ).casefold()
+    if single_instance_evidence not in normalized_positive:
+        raise VisualAnchorTwoStageError(
+            "single-instance evidence is not present in the final positive prompt"
+        )
+    if not any(
+        _contains_term(single_instance_evidence, term)
+        for term in _SINGLE_INSTANCE_TERMS
+    ):
+        raise VisualAnchorTwoStageError(
+            "single-instance evidence does not explicitly describe exactly one identity instance"
+        )
+    if not _contains_term(
+        single_instance_evidence,
+        normalized_identity_name,
+    ):
+        raise VisualAnchorTwoStageError(
+            "single-instance evidence does not identify the selected identity"
+        )
     existing_method = (
         stage_input.continuous_scene_context.existing_selected_fusion_method
     )
@@ -752,7 +912,25 @@ def _validate_fusion_stage_output(
             raise VisualAnchorTwoStageError(
                 "fusion decision contains more than one candidate method"
             )
-    positive = output.final_positive_prompt.casefold()
+    for candidate in output.unselected_candidate_summaries:
+        normalized_image_prompt_boundary = _normalized_text(
+            f"{output.final_positive_prompt}\n{output.final_negative_prompt}"
+        ).casefold()
+        for candidate_text in (
+            candidate.manifestation,
+            candidate.audit_summary,
+        ):
+            normalized_candidate_text = _normalized_text(
+                candidate_text
+            ).casefold()
+            if (
+                normalized_candidate_text
+                and normalized_candidate_text in normalized_image_prompt_boundary
+            ):
+                raise VisualAnchorTwoStageError(
+                    "an unselected candidate leaked into the image-model prompts"
+                )
+    positive = normalized_positive
     for term in (*_CANDIDATE_TERMS, *_INTERNAL_PLANNING_TERMS):
         if _contains_term(positive, term):
             raise VisualAnchorTwoStageError(

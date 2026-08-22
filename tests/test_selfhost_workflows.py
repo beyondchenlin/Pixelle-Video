@@ -482,9 +482,22 @@ def test_image_z_image_turbo_gguf_reference_workflow_is_parseable():
         )
     )
     assert workflow["92"]["class_type"] == "LoadImage"
-    assert workflow["93"]["inputs"]["pixels"] == ["92", 0]
-    assert workflow["94"]["class_type"] == "ReferenceLatent"
-    assert workflow["94"]["inputs"]["latent"] == ["93", 0]
+    assert workflow["93"]["class_type"] == "ImageScale"
+    assert workflow["93"]["inputs"] == {
+        "image": ["92", 0],
+        "upscale_method": "lanczos",
+        "width": 32,
+        "height": 32,
+        "crop": "disabled",
+    }
+    assert workflow["94"]["class_type"] == "TextEncodeZImageOmni"
+    assert workflow["94"]["inputs"]["image1"] == ["93", 0]
+    assert workflow["94"]["inputs"]["prompt"] == ["46", 0]
+    assert workflow["94"]["inputs"]["clip"] == ["38", 0]
+    assert workflow["94"]["inputs"]["vae"] == ["39", 0]
+    assert workflow["94"]["inputs"]["auto_resize_images"] is False
+    assert "image2" not in workflow["94"]["inputs"]
+    assert "image3" not in workflow["94"]["inputs"]
     assert workflow["3"]["inputs"]["positive"] == ["94", 0]
 
 

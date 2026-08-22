@@ -690,6 +690,18 @@ class FrameProcessor:
                 raise ValueError("visual-anchor request prompt differs from storyboard")
             if frame.generation_seed != visual_anchor_request.random_seed:
                 raise ValueError("visual-anchor request seed differs from storyboard")
+            if visual_anchor_request.workflow_key != config.media_workflow:
+                raise ValueError(
+                    "visual-anchor request workflow differs from storyboard"
+                )
+            if (
+                visual_anchor_request.expected_execution.width != config.media_width
+                or visual_anchor_request.expected_execution.height
+                != config.media_height
+            ):
+                raise ValueError(
+                    "visual-anchor request dimensions differ from storyboard"
+                )
             media_params["seed"] = visual_anchor_request.random_seed
             media_params["reference_image_workflow_injection_mode"] = "required"
             media_params[VISUAL_ANCHOR_GENERATION_REQUEST_PARAM] = (

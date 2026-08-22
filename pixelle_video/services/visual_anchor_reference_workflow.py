@@ -57,6 +57,14 @@ def resolve_visual_anchor_reference_workflow_key(
         raise ValueError(
             "visual-anchor reference workflow must preserve the selected image model files"
         )
+    base_signature, variant_signature = _reference_neutral_workflow_signature(
+        base_path,
+        variant_path,
+    )
+    if base_signature != variant_signature:
+        raise ValueError(
+            "visual-anchor reference workflow must preserve the selected sampler, dimensions, model wiring, and output configuration"
+        )
     return _required_text(variant_info.get("key"), "reference workflow key")
 
 
@@ -81,6 +89,114 @@ def _model_loader_signature(path: Path) -> tuple[tuple[str, str, str], ...]:
     if not signature:
         raise ValueError("image workflow does not declare model loader files")
     return tuple(sorted(signature))
+
+
+def _reference_neutral_workflow_signature(
+    base_path: Path,
+    variant_path: Path,
+) -> tuple[str, str]:
+    base = _workflow_mapping(base_path)
+    variant = _workflow_mapping(variant_path)
+    base_sampler_id, base_positive_id = _single_sampler_and_positive(base)
+    variant_sampler_id, variant_positive_id = _single_sampler_and_positive(variant)
+    if base_sampler_id != variant_sampler_id:
+        raise ValueError(
+            "visual-anchor reference workflow must preserve the selected sampler node"
+        )
+    base_positive = base.get(base_positive_id)
+    if (
+        not isinstance(base_positive, Mapping)
+        or str(base_positive.get("class_type") or "") != "CLIPTextEncode"
+    ):
+        raise ValueError(
+            "selected image workflow must use a single direct positive text encoder"
+        )
+    variant_positive = variant.get(variant_positive_id)
+    if (
+        not isinstance(variant_positive, Mapping)
+        or str(variant_positive.get("class_type") or "")
+        != "TextEncodeZImageOmni"
+    ):
+        raise ValueError(
+            "visual-anchor reference workflow must replace only the positive text encoder with identity conditioning"
+        )
+
+    base_only_ids = set(base) - set(variant)
+    variant_only_ids = set(variant) - set(base)
+    if base_only_ids != {base_positive_id}:
+        raise ValueError(
+            "visual-anchor reference workflow changed unrelated base nodes"
+        )
+    if variant_positive_id not in variant_only_ids:
+        raise ValueError(
+            "visual-anchor reference conditioning must be isolated from base node ids"
+        )
+    variant_only_classes = sorted(
+        str(variant[node_id].get("class_type") or "")
+        for node_id in variant_only_ids
+        if isinstance(variant.get(node_id), Mapping)
+    )
+    if variant_only_classes != [
+        "ImageScale",
+        "LoadImage",
+        "TextEncodeZImageOmni",
+    ]:
+        raise ValueError(
+            "visual-anchor reference workflow may add only one reference input, one scale node, and one identity conditioner"
+        )
+
+    normalized_base = {
+        node_id: json.loads(json.dumps(node))
+        for node_id, node in base.items()
+        if node_id != base_positive_id
+    }
+    normalized_variant = {
+        node_id: json.loads(json.dumps(node))
+        for node_id, node in variant.items()
+        if node_id not in variant_only_ids
+    }
+    for normalized in (normalized_base, normalized_variant):
+        sampler = normalized[base_sampler_id]
+        sampler["inputs"]["positive"] = ["__positive_condition__", 0]
+        sampler.setdefault("_meta", {})["title"] = "__sampler__"
+    return (
+        json.dumps(normalized_base, ensure_ascii=False, sort_keys=True),
+        json.dumps(normalized_variant, ensure_ascii=False, sort_keys=True),
+    )
+
+
+def _workflow_mapping(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError("image workflow must be an API-format node mapping")
+    return {
+        str(node_id): dict(node)
+        for node_id, node in payload.items()
+        if isinstance(node, Mapping)
+    }
+
+
+def _single_sampler_and_positive(
+    workflow: Mapping[str, Any],
+) -> tuple[str, str]:
+    samplers = [
+        (str(node_id), node)
+        for node_id, node in workflow.items()
+        if isinstance(node, Mapping)
+        and str(node.get("class_type") or "") == "KSampler"
+    ]
+    if len(samplers) != 1:
+        raise ValueError("image workflow must contain exactly one KSampler")
+    sampler_id, sampler = samplers[0]
+    inputs = sampler.get("inputs")
+    positive = inputs.get("positive") if isinstance(inputs, Mapping) else None
+    if (
+        not isinstance(positive, list)
+        or len(positive) != 2
+        or not isinstance(positive[0], (str, int))
+    ):
+        raise ValueError("image workflow sampler must have one positive input")
+    return sampler_id, str(positive[0])
 
 
 def _required_text(value: object, field_name: str) -> str:

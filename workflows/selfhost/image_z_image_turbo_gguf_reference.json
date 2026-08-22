@@ -29,22 +29,6 @@
       "title": "KSampler, $seed.seed!"
     }
   },
-  "6": {
-    "inputs": {
-      "text": [
-        "46",
-        0
-      ],
-      "clip": [
-        "38",
-        0
-      ]
-    },
-    "class_type": "CLIPTextEncode",
-    "_meta": {
-      "title": "CLIP Text Encode (Prompt)"
-    }
-  },
   "8": {
     "inputs": {
       "samples": [
@@ -143,7 +127,7 @@
   },
   "60": {
     "inputs": {
-      "filename_prefix": "Pixelle/ZImageTurboGGUFReference",
+      "filename_prefix": "Pixelle/ZImageTurboGGUF",
       "images": [
         "8",
         0
@@ -196,32 +180,41 @@
   },
   "93": {
     "inputs": {
-      "pixels": [
+      "image": [
         "92",
         0
       ],
-      "vae": [
-        "39",
-        0
-      ]
+      "upscale_method": "lanczos",
+      "width": 32,
+      "height": 32,
+      "crop": "disabled"
     },
-    "class_type": "VAEEncode",
+    "class_type": "ImageScale",
     "_meta": {
-      "title": "Encode Identity Reference"
+      "title": "Limit Identity Reference Conditioning"
     }
   },
   "94": {
     "inputs": {
-      "conditioning": [
-        "6",
+      "clip": [
+        "38",
         0
       ],
-      "latent": [
+      "prompt": [
+        "46",
+        0
+      ],
+      "auto_resize_images": false,
+      "vae": [
+        "39",
+        0
+      ],
+      "image1": [
         "93",
         0
       ]
     },
-    "class_type": "ReferenceLatent",
+    "class_type": "TextEncodeZImageOmni",
     "_meta": {
       "title": "Identity Reference Conditioning [visual-anchor-reference-condition]"
     }

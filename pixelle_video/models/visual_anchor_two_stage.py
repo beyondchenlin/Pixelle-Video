@@ -5,10 +5,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v1"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v1"
-PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v1"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v1"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v2"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v2"
+PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v2"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v2"
 
 ReviewDecision = Literal["pass", "fail"]
 
@@ -39,6 +39,9 @@ _FORBIDDEN_IMAGE_PROMPT_TERMS = (
     "visual anchor",
     "protected fact",
     "fusion option",
+    "final manifestation",
+    "identity trait checks",
+    "single instance prompt evidence",
     "candidate option",
     "unselected option",
     "analysis process",
@@ -49,8 +52,14 @@ _FORBIDDEN_IMAGE_PROMPT_TERMS = (
     "protected_facts",
     "adjustable_non_core_content",
     "selected_fusion_method",
+    "final_manifestation",
     "non_core_reconstruction_summary",
+    "unselected_candidate_summaries",
     "protected_fact_checks",
+    "identity_trait_checks",
+    "final_prompt_evidence",
+    "single_instance_prompt_evidence",
+    "identity_core_traits",
     "target_visual_anchor_instance_count",
     "other_scene_elements_inherit_identity_features",
     "inherited_existing_fusion_decision",
@@ -61,6 +70,20 @@ _FORBIDDEN_IMAGE_PROMPT_TERMS = (
     "another option",
     "could also",
     "or it could",
+)
+_SINGLE_INSTANCE_PROMPT_TERMS = (
+    "只有一个",
+    "仅有一个",
+    "唯一一个",
+    "只有一只",
+    "仅有一只",
+    "唯一一只",
+    "只有一名",
+    "仅有一名",
+    "唯一一名",
+    "exactly one",
+    "only one",
+    "a single",
 )
 
 
@@ -116,8 +139,15 @@ class ProtectedFact(BaseModel):
     ]
     statement: str
     source_evidence: str
+    pure_content_prompt_evidence: str
 
-    @field_validator("fact_id", "statement", "source_evidence", mode="before")
+    @field_validator(
+        "fact_id",
+        "statement",
+        "source_evidence",
+        "pure_content_prompt_evidence",
+        mode="before",
+    )
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
@@ -226,15 +256,15 @@ class IdentityReferenceCondition(BaseModel):
     height: int = Field(gt=0)
     byte_size: int = Field(gt=0)
     resource_version: str
-    workflow_parameter: str
+    workflow_parameter: Literal["reference_image"]
     workflow_node_id: str
-    workflow_node_class_type: str
-    workflow_node_input_field: str
+    workflow_node_class_type: Literal["LoadImage"]
+    workflow_node_input_field: Literal["image"]
     conditioning_node_id: str
-    conditioning_node_class_type: str
+    conditioning_node_class_type: Literal["TextEncodeZImageOmni"]
     sampler_node_id: str
-    sampler_node_class_type: str
-    binding_path_node_ids: list[str] = Field(min_length=3)
+    sampler_node_class_type: Literal["KSampler"]
+    binding_path_node_ids: list[str] = Field(min_length=4, max_length=4)
 
     @field_validator(
         "workflow_asset_relative_path",
@@ -276,8 +306,10 @@ class IdentityReferenceCondition(BaseModel):
             )
         if self.binding_path_node_ids[0] != self.workflow_node_id:
             raise ValueError("binding path must start at the workflow input node")
-        if self.conditioning_node_id not in self.binding_path_node_ids[1:-1]:
-            raise ValueError("binding path must pass through the conditioning node")
+        if self.binding_path_node_ids[2] != self.conditioning_node_id:
+            raise ValueError(
+                "binding path must pass through one scale node before the conditioning node"
+            )
         if self.binding_path_node_ids[-1] != self.sampler_node_id:
             raise ValueError("binding path must end at the sampler node")
         return self
@@ -396,15 +428,46 @@ class ProtectedFactCheck(BaseModel):
         return _text(value, info.field_name)
 
 
+class IdentityTraitCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    trait: str
+    preserved: bool
+    final_prompt_evidence: str
+
+    @field_validator("trait", "final_prompt_evidence", mode="before")
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _text(value, info.field_name)
+
+
+class UnselectedCandidateSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    manifestation: str
+    audit_summary: str
+
+    @field_validator("manifestation", "audit_summary", mode="before")
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _text(value, info.field_name)
+
+
 class FusionStageOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     selected_fusion_method: str
+    unselected_candidate_summaries: list[UnselectedCandidateSummary] = Field(
+        min_length=1
+    )
+    content_stage_deviations: list[str] = Field(default_factory=list)
     non_core_reconstruction_summary: list[str] = Field(min_length=1)
     protected_fact_checks: list[ProtectedFactCheck] = Field(min_length=1)
+    identity_trait_checks: list[IdentityTraitCheck] = Field(min_length=1)
     final_manifestation: str
     target_visual_anchor_instance_count: Literal[1]
     other_scene_elements_inherit_identity_features: Literal[False]
+    single_instance_prompt_evidence: str
     spatial_contact_and_lighting_relation: str
     inherited_existing_fusion_decision: bool
     continuity_change_reason: str
@@ -416,6 +479,7 @@ class FusionStageOutput(BaseModel):
     @field_validator(
         "selected_fusion_method",
         "final_manifestation",
+        "single_instance_prompt_evidence",
         "spatial_contact_and_lighting_relation",
         "continuity_change_reason",
         "final_positive_prompt",
@@ -428,6 +492,7 @@ class FusionStageOutput(BaseModel):
 
     @field_validator(
         "non_core_reconstruction_summary",
+        "content_stage_deviations",
         "self_check_failures",
     )
     @classmethod
@@ -436,6 +501,25 @@ class FusionStageOutput(BaseModel):
 
     @model_validator(mode="after")
     def _validate_result(self) -> "FusionStageOutput":
+        candidate_manifestations = [
+            candidate.manifestation.casefold()
+            for candidate in self.unselected_candidate_summaries
+        ]
+        if len(set(candidate_manifestations)) != len(candidate_manifestations):
+            raise ValueError(
+                "unselected candidate manifestations must be unique"
+            )
+        selected_values = {
+            self.selected_fusion_method.casefold(),
+            self.final_manifestation.casefold(),
+        }
+        if any(
+            manifestation in selected_values
+            for manifestation in candidate_manifestations
+        ):
+            raise ValueError(
+                "an unselected candidate cannot equal the selected fusion result"
+            )
         if self.self_check == "pass" and self.self_check_failures:
             raise ValueError("a passed fusion result cannot contain failures")
         if self.self_check == "fail" and not self.self_check_failures:
@@ -509,6 +593,32 @@ class PreflightReviewOutput(BaseModel):
         return self
 
 
+class ImageWorkflowExecutionContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    model_files: list[str] = Field(min_length=1)
+    steps: int = Field(gt=0)
+    cfg: float = Field(ge=0)
+    sampler_name: str
+    scheduler: str
+    denoise: float = Field(gt=0, le=1)
+
+    @field_validator("model_files")
+    @classmethod
+    def _validate_model_files(cls, value: list[str]) -> list[str]:
+        result = _text_list(value, "model_files")
+        if not result:
+            raise ValueError("model_files must not be empty")
+        return sorted(result)
+
+    @field_validator("sampler_name", "scheduler", mode="before")
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _text(value, info.field_name)
+
+
 class VisualAnchorImageGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -518,9 +628,16 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     generation_attempt: Literal[1] = 1
     random_seed: int = Field(ge=1, le=2**64 - 1)
     target_visual_anchor_instance_count: Literal[1] = 1
+    selected_fusion_method: str
+    final_manifestation: str
+    protected_fact_checks: list[ProtectedFactCheck] = Field(min_length=1)
+    identity_trait_checks: list[IdentityTraitCheck] = Field(min_length=1)
+    single_instance_prompt_evidence: str
     final_positive_prompt: str
     final_negative_prompt: str
     identity_profile_id: str
+    identity_display_name: str
+    identity_core_traits: list[str] = Field(min_length=1)
     identity_resource_version: str
     identity_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     identity_reference_condition: IdentityReferenceCondition
@@ -530,12 +647,17 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     preflight_review_decision: Literal["pass"]
     workflow_key: str
     workflow_version_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_execution: ImageWorkflowExecutionContract
 
     @field_validator(
         "task_id",
         "frame_id",
+        "selected_fusion_method",
+        "final_manifestation",
+        "single_instance_prompt_evidence",
         "final_positive_prompt",
         "identity_profile_id",
+        "identity_display_name",
         "identity_resource_version",
         "workflow_key",
         mode="before",
@@ -551,6 +673,14 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             raise ValueError("final_negative_prompt must be a string")
         return " ".join(value.split())
 
+    @field_validator("identity_core_traits")
+    @classmethod
+    def _validate_identity_core_traits(cls, value: list[str]) -> list[str]:
+        result = _text_list(value, "identity_core_traits")
+        if not result:
+            raise ValueError("identity_core_traits must not be empty")
+        return result
+
     @model_validator(mode="after")
     def _validate_image_model_boundary(self) -> "VisualAnchorImageGenerationRequest":
         prompt_boundary = (
@@ -562,6 +692,64 @@ class VisualAnchorImageGenerationRequest(BaseModel):
         ):
             raise ValueError(
                 "image generation prompts cannot contain candidate or planning language"
+            )
+        normalized_positive = " ".join(self.final_positive_prompt.split()).casefold()
+        if any(not check.preserved for check in self.protected_fact_checks):
+            raise ValueError(
+                "image generation request cannot contain an unpreserved protected fact"
+            )
+        for check in self.protected_fact_checks:
+            evidence = " ".join(check.final_image_evidence.split()).casefold()
+            if evidence not in normalized_positive:
+                raise ValueError(
+                    "protected-fact evidence must be present in the image prompt"
+                )
+        trait_names = [check.trait.casefold() for check in self.identity_trait_checks]
+        expected_trait_names = [trait.casefold() for trait in self.identity_core_traits]
+        if (
+            len(set(trait_names)) != len(trait_names)
+            or set(trait_names) != set(expected_trait_names)
+            or len(trait_names) != len(expected_trait_names)
+        ):
+            raise ValueError(
+                "image generation request identity-trait checks must exactly cover the identity profile"
+            )
+        identity_evidence_values: list[str] = []
+        normalized_identity_name = self.identity_display_name.casefold()
+        for check in self.identity_trait_checks:
+            if not check.preserved:
+                raise ValueError(
+                    "image generation request cannot drop a core identity trait"
+                )
+            evidence = " ".join(check.final_prompt_evidence.split()).casefold()
+            if (
+                evidence == normalized_identity_name
+                or evidence not in normalized_positive
+            ):
+                raise ValueError(
+                    "identity-trait evidence must be present in the image prompt"
+                )
+            identity_evidence_values.append(evidence)
+        if len(set(identity_evidence_values)) != len(identity_evidence_values):
+            raise ValueError(
+                "each identity trait must have distinct visible prompt evidence"
+            )
+        instance_evidence = " ".join(
+            self.single_instance_prompt_evidence.split()
+        ).casefold()
+        if instance_evidence not in normalized_positive or not any(
+            _contains_forbidden_term(instance_evidence, term)
+            for term in _SINGLE_INSTANCE_PROMPT_TERMS
+        ):
+            raise ValueError(
+                "image generation request must explicitly describe exactly one identity instance"
+            )
+        if not _contains_forbidden_term(
+            instance_evidence,
+            normalized_identity_name,
+        ):
+            raise ValueError(
+                "image generation request single-instance evidence must identify the selected identity"
             )
         expected_reference_version = (
             f"reference-image:{self.identity_reference_condition.asset_sha256}"
@@ -661,9 +849,27 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             != self.generation_request.target_visual_anchor_instance_count
         ):
             raise ValueError("fusion and generation instance counts must match")
+        if (
+            self.generation_request.selected_fusion_method
+            != self.fusion_stage_output.selected_fusion_method
+            or self.generation_request.final_manifestation
+            != self.fusion_stage_output.final_manifestation
+            or self.generation_request.protected_fact_checks
+            != self.fusion_stage_output.protected_fact_checks
+            or self.generation_request.identity_trait_checks
+            != self.fusion_stage_output.identity_trait_checks
+            or self.generation_request.single_instance_prompt_evidence
+            != self.fusion_stage_output.single_instance_prompt_evidence
+        ):
+            raise ValueError(
+                "generation request must preserve the selected fusion, fact, identity, and single-instance evidence"
+            )
         identity = self.fusion_stage_input.identity_profile
         if (
             self.generation_request.identity_profile_id != identity.profile_id
+            or self.generation_request.identity_display_name != identity.display_name
+            or self.generation_request.identity_core_traits
+            != identity.core_identity_traits
             or self.generation_request.identity_resource_version
             != identity.identity_resource_version
             or self.generation_request.identity_content_sha256

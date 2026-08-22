@@ -16,6 +16,12 @@ from pixelle_video.models.visual_anchor_two_stage import (
 from pixelle_video.services.visual_anchor_generation_binding import (
     visual_anchor_first_request_binding_artifact_relative_path,
 )
+from pixelle_video.services.visual_anchor_reference_condition import (
+    IDENTITY_REFERENCE_CONDITION_CROP,
+    IDENTITY_REFERENCE_CONDITION_HEIGHT,
+    IDENTITY_REFERENCE_CONDITION_UPSCALE_METHOD,
+    IDENTITY_REFERENCE_CONDITION_WIDTH,
+)
 
 _SAFE_FRAME_ID_RE = re.compile(r"[^A-Za-z0-9._-]+")
 _MANUAL_VISUAL_ACCEPTANCE_CHECKS = (
@@ -74,7 +80,7 @@ class VisualAnchorRenderedOutputAuditResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_rendered_output_audit.v1",
+            "schema_version": "visual_anchor_rendered_output_audit.v2",
             "status": self.status,
             "reason": self.reason,
             "audit_scope": self.audit_scope,
@@ -185,6 +191,15 @@ class VisualAnchorRenderedOutputAudit:
         expected_reference = request.identity_reference_condition.model_dump(
             mode="json"
         )
+        expected_execution = request.expected_execution.model_dump(mode="json")
+        expected_sampler_config = {
+            "seed": request.random_seed,
+            "steps": request.expected_execution.steps,
+            "cfg": request.expected_execution.cfg,
+            "sampler_name": request.expected_execution.sampler_name,
+            "scheduler": request.expected_execution.scheduler,
+            "denoise": request.expected_execution.denoise,
+        }
         actual_execution = binding.get("actual_execution")
         actual_execution = (
             actual_execution if isinstance(actual_execution, Mapping) else {}
@@ -206,9 +221,28 @@ class VisualAnchorRenderedOutputAudit:
             "height": actual_execution.get("height"),
             "model_files": actual_model_files,
             "sampler": actual_sampler_config,
+            "reference_conditioning": {
+                "mode": actual_execution.get("reference_conditioning_mode"),
+                "input_count": actual_execution.get(
+                    "reference_conditioning_input_count"
+                ),
+                "width": actual_execution.get("reference_conditioning_width"),
+                "height": actual_execution.get("reference_conditioning_height"),
+                "crop": actual_execution.get("reference_conditioning_crop"),
+                "upscale_method": actual_execution.get(
+                    "reference_conditioning_upscale_method"
+                ),
+                "auto_resize_images": actual_execution.get(
+                    "reference_conditioning_auto_resize"
+                ),
+            },
         }
         comparisons = (
             ("binding_passed", binding.get("status") == "passed"),
+            (
+                "generation_request_version_preserved",
+                binding.get("request_version") == request.request_version,
+            ),
             ("task_id_preserved", binding.get("task_id") == request.task_id),
             ("frame_id_preserved", binding.get("frame_id") == request.frame_id),
             ("single_generation_attempt", binding.get("generation_attempt") == 1),
@@ -216,6 +250,36 @@ class VisualAnchorRenderedOutputAudit:
             (
                 "target_instance_count_one",
                 binding.get("target_visual_anchor_instance_count") == 1,
+            ),
+            (
+                "selected_fusion_method_preserved",
+                binding.get("selected_fusion_method")
+                == request.selected_fusion_method,
+            ),
+            (
+                "final_manifestation_preserved",
+                binding.get("final_manifestation") == request.final_manifestation,
+            ),
+            (
+                "protected_fact_checks_preserved",
+                binding.get("protected_fact_checks")
+                == [
+                    check.model_dump(mode="json")
+                    for check in request.protected_fact_checks
+                ],
+            ),
+            (
+                "identity_trait_checks_preserved",
+                binding.get("identity_trait_checks")
+                == [
+                    check.model_dump(mode="json")
+                    for check in request.identity_trait_checks
+                ],
+            ),
+            (
+                "single_instance_evidence_preserved",
+                binding.get("single_instance_prompt_evidence")
+                == request.single_instance_prompt_evidence,
             ),
             (
                 "prompt_versions_preserved",
@@ -236,6 +300,16 @@ class VisualAnchorRenderedOutputAudit:
                 binding.get("identity_profile_id") == request.identity_profile_id,
             ),
             (
+                "identity_display_name_preserved",
+                binding.get("identity_display_name")
+                == request.identity_display_name,
+            ),
+            (
+                "identity_core_traits_preserved",
+                binding.get("identity_core_traits")
+                == request.identity_core_traits,
+            ),
+            (
                 "identity_resource_version_preserved",
                 binding.get("identity_resource_version")
                 == request.identity_resource_version,
@@ -254,6 +328,10 @@ class VisualAnchorRenderedOutputAudit:
                 "workflow_version_preserved",
                 binding.get("workflow_version_sha256")
                 == request.workflow_version_sha256,
+            ),
+            (
+                "expected_execution_preserved",
+                binding.get("expected_execution") == expected_execution,
             ),
             (
                 "preflight_review_passed",
@@ -291,6 +369,32 @@ class VisualAnchorRenderedOutputAudit:
                 == request.identity_reference_condition.conditioning_node_id,
             ),
             (
+                "actual_conditioning_node_class_preserved",
+                actual_execution.get("conditioning_node_class_type")
+                == "TextEncodeZImageOmni",
+            ),
+            (
+                "actual_single_reference_condition_preserved",
+                actual_execution.get("reference_conditioning_input_count") == 1,
+            ),
+            (
+                "actual_reference_scale_preserved",
+                actual_execution.get("reference_scale_node_class_type")
+                == "ImageScale"
+                and actual_execution.get("reference_conditioning_width")
+                == IDENTITY_REFERENCE_CONDITION_WIDTH
+                and actual_execution.get("reference_conditioning_height")
+                == IDENTITY_REFERENCE_CONDITION_HEIGHT
+                and actual_execution.get("reference_conditioning_crop")
+                == IDENTITY_REFERENCE_CONDITION_CROP
+                and actual_execution.get(
+                    "reference_conditioning_upscale_method"
+                )
+                == IDENTITY_REFERENCE_CONDITION_UPSCALE_METHOD
+                and actual_execution.get("reference_conditioning_auto_resize")
+                is False,
+            ),
+            (
                 "actual_sampler_node_preserved",
                 actual_execution.get("sampler_node_id")
                 == request.identity_reference_condition.sampler_node_id,
@@ -302,24 +406,17 @@ class VisualAnchorRenderedOutputAudit:
             ),
             (
                 "actual_resolution_recorded",
-                isinstance(actual_execution.get("width"), int)
-                and actual_execution.get("width", 0) > 0
-                and isinstance(actual_execution.get("height"), int)
-                and actual_execution.get("height", 0) > 0,
+                actual_execution.get("width") == request.expected_execution.width
+                and actual_execution.get("height")
+                == request.expected_execution.height,
             ),
             (
                 "actual_model_files_recorded",
-                isinstance(actual_model_files, list)
-                and bool(actual_model_files)
-                and all(
-                    isinstance(item, str) and bool(item.strip())
-                    for item in actual_model_files
-                ),
+                actual_model_files == request.expected_execution.model_files,
             ),
             (
                 "actual_sampler_config_preserved",
-                isinstance(actual_sampler_config, Mapping)
-                and actual_sampler_config.get("seed") == request.random_seed,
+                actual_sampler_config == expected_sampler_config,
             ),
             (
                 "actual_execution_config_version_preserved",

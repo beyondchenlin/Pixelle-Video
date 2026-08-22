@@ -27,6 +27,9 @@ from pixelle_video.models.video_generation_contract import (
     PLAN_FRAME_OVERRIDE_VALUE_FIELDS,
     normalize_plan_frame_overrides,
 )
+from pixelle_video.models.visual_anchor_two_stage import (
+    ImageWorkflowExecutionContract,
+)
 from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
     DEFAULT_PROMPT_LANGUAGE,
@@ -156,6 +159,8 @@ class VisualPromptComposer:
         trace_recorder: LLMInteractionRecorder | None = None,
         task_id: str | None = None,
         random_seeds_by_frame: Mapping[str, int] | None = None,
+        media_width: int | None = None,
+        media_height: int | None = None,
     ) -> StyledImagePromptBatch:
         reference_patch = current_reference_image_visual_story_context_patch()
         ip_profile = merge_ip_profile_from_reference_patch(ip_profile, reference_patch)
@@ -357,6 +362,25 @@ class VisualPromptComposer:
                     reference_inspection.condition.resource_version
                 ),
             )
+            if (
+                type(media_width) is not int
+                or media_width <= 0
+                or type(media_height) is not int
+                or media_height <= 0
+            ):
+                raise ValueError(
+                    "visual-anchor two-stage fusion requires positive media dimensions"
+                )
+            expected_execution = ImageWorkflowExecutionContract(
+                width=media_width,
+                height=media_height,
+                model_files=list(reference_inspection.model_files),
+                steps=reference_inspection.sampler_defaults["steps"],
+                cfg=reference_inspection.sampler_defaults["cfg"],
+                sampler_name=reference_inspection.sampler_defaults["sampler_name"],
+                scheduler=reference_inspection.sampler_defaults["scheduler"],
+                denoise=reference_inspection.sampler_defaults["denoise"],
+            )
             two_stage_result = await VisualAnchorTwoStageService().run_batch(
                 llm_service=llm_service,
                 storyboard_plan=storyboard_plan,
@@ -376,6 +400,7 @@ class VisualPromptComposer:
                 workflow_version_sha256=(
                     reference_inspection.workflow_version_sha256
                 ),
+                expected_execution=expected_execution,
                 random_seeds_by_frame=registered_seeds,
                 negative_prompt_supported=(
                     workflow_capabilities.supports_negative_prompt
@@ -568,14 +593,14 @@ def _render_two_stage_prompt(frame_result) -> RenderedMediaPrompt:
         metadata={
             "visual_anchor_two_stage": frame_result.model_dump(mode="json"),
         },
-        version="visual_anchor_two_stage_contract.v1",
+        version="visual_anchor_two_stage_contract.v2",
     )
     return RenderedMediaPrompt(
         prompt=request.final_positive_prompt,
         negative_prompt=negative_prompt,
         prompt_contract=contract,
         renderer_id="visual_anchor_two_stage_renderer",
-        renderer_version="v1",
+        renderer_version="v2",
         metadata={
             "visual_anchor_two_stage": frame_result.model_dump(mode="json"),
             "generation_request": request.model_dump(mode="json"),

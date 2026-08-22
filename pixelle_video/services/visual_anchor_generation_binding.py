@@ -16,6 +16,12 @@ import aiohttp
 from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorImageGenerationRequest,
 )
+from pixelle_video.services.visual_anchor_reference_condition import (
+    IDENTITY_REFERENCE_CONDITION_CROP,
+    IDENTITY_REFERENCE_CONDITION_HEIGHT,
+    IDENTITY_REFERENCE_CONDITION_UPSCALE_METHOD,
+    IDENTITY_REFERENCE_CONDITION_WIDTH,
+)
 
 VISUAL_ANCHOR_GENERATION_REQUEST_PARAM = "_visual_anchor_generation_request"
 _SAFE_FRAME_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
@@ -58,6 +64,15 @@ def validate_visual_anchor_first_generation_binding(
         "negative prompt differs from request",
     )
     require(seed == request.random_seed, "random seed differs from request")
+    expected_execution = request.expected_execution
+    require(
+        workflow_params.get("width") == expected_execution.width,
+        "image width differs from the registered execution contract",
+    )
+    require(
+        workflow_params.get("height") == expected_execution.height,
+        "image height differs from the registered execution contract",
+    )
     require(
         str(trace_context.get("task_id") or "") == request.task_id,
         "task id differs from request",
@@ -142,7 +157,8 @@ def validate_visual_anchor_first_generation_binding(
 
     if failures:
         failed_audit = {
-            "schema_version": "visual_anchor_first_generation_binding_audit.v1",
+            "schema_version": "visual_anchor_first_generation_binding_audit.v2",
+            "request_version": request.request_version,
             "recorded_at_utc": datetime.now(UTC).isoformat(),
             "status": "failed",
             "task_id": request.task_id,
@@ -150,6 +166,19 @@ def validate_visual_anchor_first_generation_binding(
             "generation_attempt": 1,
             "random_seed": request.random_seed,
             "target_visual_anchor_instance_count": 1,
+            "selected_fusion_method": request.selected_fusion_method,
+            "final_manifestation": request.final_manifestation,
+            "protected_fact_checks": [
+                check.model_dump(mode="json")
+                for check in request.protected_fact_checks
+            ],
+            "identity_trait_checks": [
+                check.model_dump(mode="json")
+                for check in request.identity_trait_checks
+            ],
+            "single_instance_prompt_evidence": (
+                request.single_instance_prompt_evidence
+            ),
             "failure_reason": "; ".join(failures),
             "failure_codes": list(failures),
             "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
@@ -160,11 +189,14 @@ def validate_visual_anchor_first_generation_binding(
                 "preflight_review": request.preflight_review_prompt_version,
             },
             "identity_profile_id": request.identity_profile_id,
+            "identity_display_name": request.identity_display_name,
+            "identity_core_traits": list(request.identity_core_traits),
             "identity_resource_version": request.identity_resource_version,
             "identity_content_sha256": request.identity_content_sha256,
             "reference_condition": condition.model_dump(mode="json"),
             "workflow_key": request.workflow_key,
             "workflow_version_sha256": request.workflow_version_sha256,
+            "expected_execution": expected_execution.model_dump(mode="json"),
             "preflight_review_decision": request.preflight_review_decision,
             "actual_binding": {
                 "injection_mode": binding.get("injection_mode"),
@@ -187,7 +219,8 @@ def validate_visual_anchor_first_generation_binding(
         )
 
     audit = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v1",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v2",
+        "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": "ready_to_submit",
         "task_id": request.task_id,
@@ -195,6 +228,15 @@ def validate_visual_anchor_first_generation_binding(
         "generation_attempt": 1,
         "random_seed": request.random_seed,
         "target_visual_anchor_instance_count": 1,
+        "selected_fusion_method": request.selected_fusion_method,
+        "final_manifestation": request.final_manifestation,
+        "protected_fact_checks": [
+            check.model_dump(mode="json") for check in request.protected_fact_checks
+        ],
+        "identity_trait_checks": [
+            check.model_dump(mode="json") for check in request.identity_trait_checks
+        ],
+        "single_instance_prompt_evidence": request.single_instance_prompt_evidence,
         "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
         "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
         "prompt_versions": {
@@ -203,11 +245,14 @@ def validate_visual_anchor_first_generation_binding(
             "preflight_review": request.preflight_review_prompt_version,
         },
         "identity_profile_id": request.identity_profile_id,
+        "identity_display_name": request.identity_display_name,
+        "identity_core_traits": list(request.identity_core_traits),
         "identity_resource_version": request.identity_resource_version,
         "identity_content_sha256": request.identity_content_sha256,
         "reference_condition": condition.model_dump(mode="json"),
         "workflow_key": request.workflow_key,
         "workflow_version_sha256": request.workflow_version_sha256,
+        "expected_execution": expected_execution.model_dump(mode="json"),
         "preflight_review_decision": request.preflight_review_decision,
         "actual_binding": {
             "injection_mode": binding.get("injection_mode"),
@@ -324,8 +369,8 @@ async def _verify_visual_anchor_executed_workflow_binding(
         source_node = _workflow_node(workflow, condition.workflow_node_id)
         conditioner_node = _workflow_node(workflow, condition.conditioning_node_id)
         sampler_node = _workflow_node(workflow, condition.sampler_node_id)
-        encoder_node_id = condition.binding_path_node_ids[1]
-        encoder_node = _workflow_node(workflow, encoder_node_id)
+        scale_node_id = condition.binding_path_node_ids[1]
+        scale_node = _workflow_node(workflow, scale_node_id)
 
         source_input = str(
             _node_inputs(source_node).get(condition.workflow_node_input_field) or ""
@@ -344,18 +389,67 @@ async def _verify_visual_anchor_executed_workflow_binding(
             condition.conditioning_node_class_type,
             "reference conditioning",
         )
+        _require_node_class(scale_node, "ImageScale", "reference scale")
         _require_node_class(
             sampler_node,
             condition.sampler_node_class_type,
             "sampler",
         )
-        encoder_inputs = _node_inputs(encoder_node)
+        scale_inputs = _node_inputs(scale_node)
         conditioner_inputs = _node_inputs(conditioner_node)
         sampler_inputs = _node_inputs(sampler_node)
-        if _linked_node_id(encoder_inputs.get("pixels")) != condition.workflow_node_id:
-            raise ValueError("executed ComfyUI reference input did not enter the encoder")
-        if _linked_node_id(conditioner_inputs.get("latent")) != encoder_node_id:
-            raise ValueError("executed ComfyUI encoded reference did not enter conditioning")
+        if _linked_node_id(scale_inputs.get("image")) != condition.workflow_node_id:
+            raise ValueError("executed ComfyUI reference input did not enter ImageScale")
+        if (
+            scale_inputs.get("width") != IDENTITY_REFERENCE_CONDITION_WIDTH
+            or scale_inputs.get("height") != IDENTITY_REFERENCE_CONDITION_HEIGHT
+            or scale_inputs.get("crop") != IDENTITY_REFERENCE_CONDITION_CROP
+            or scale_inputs.get("upscale_method")
+            != IDENTITY_REFERENCE_CONDITION_UPSCALE_METHOD
+        ):
+            raise ValueError(
+                "executed ComfyUI reference conditioning did not preserve the registered 32x32 scale"
+            )
+        if _linked_node_id(conditioner_inputs.get("image1")) != scale_node_id:
+            raise ValueError("executed ComfyUI scaled reference did not enter conditioning")
+        if (
+            conditioner_inputs.get("image2") is not None
+            or conditioner_inputs.get("image3") is not None
+            or conditioner_inputs.get("image_encoder") is not None
+        ):
+            raise ValueError(
+                "executed ComfyUI workflow conditioned on more than one reference image"
+            )
+        if conditioner_inputs.get("auto_resize_images") is not False:
+            raise ValueError(
+                "executed ComfyUI reference conditioner enabled automatic resizing"
+            )
+        clip_node_id = _linked_node_id(conditioner_inputs.get("clip"))
+        prompt_node_id = _linked_node_id(conditioner_inputs.get("prompt"))
+        vae_node_id = _linked_node_id(conditioner_inputs.get("vae"))
+        if clip_node_id is None or prompt_node_id is None or vae_node_id is None:
+            raise ValueError(
+                "executed ComfyUI reference conditioner is missing the text encoder, final prompt, or VAE"
+            )
+        _require_node_class(
+            _workflow_node(workflow, clip_node_id),
+            "CLIPLoaderGGUF",
+            "reference text encoder",
+        )
+        _require_node_class(
+            _workflow_node(workflow, prompt_node_id),
+            "PrimitiveStringMultiline",
+            "reference final prompt",
+        )
+        _require_node_class(
+            _workflow_node(workflow, vae_node_id),
+            "VAELoader",
+            "reference VAE",
+        )
+        if prompt_node_id != _actual_parameter_node_id(workflow, "prompt"):
+            raise ValueError(
+                "executed ComfyUI reference conditioner did not receive the declared final prompt"
+            )
         if (
             _linked_node_id(sampler_inputs.get("positive"))
             != condition.conditioning_node_id
@@ -390,6 +484,31 @@ async def _verify_visual_anchor_executed_workflow_binding(
             }
         }
         model_files = _actual_model_files(workflow)
+        expected_execution = request.expected_execution
+        expected_sampler_config = {
+            "seed": request.random_seed,
+            "steps": expected_execution.steps,
+            "cfg": expected_execution.cfg,
+            "sampler_name": expected_execution.sampler_name,
+            "scheduler": expected_execution.scheduler,
+            "denoise": expected_execution.denoise,
+        }
+        if actual_width != expected_execution.width:
+            raise ValueError(
+                "executed ComfyUI width differs from the registered execution contract"
+            )
+        if actual_height != expected_execution.height:
+            raise ValueError(
+                "executed ComfyUI height differs from the registered execution contract"
+            )
+        if model_files != expected_execution.model_files:
+            raise ValueError(
+                "executed ComfyUI model files differ from the registered execution contract"
+            )
+        if sampler_config != expected_sampler_config:
+            raise ValueError(
+                "executed ComfyUI sampler configuration differs from the registered execution contract"
+            )
         execution_config = {
             "workflow_key": request.workflow_key,
             "workflow_version_sha256": request.workflow_version_sha256,
@@ -397,6 +516,17 @@ async def _verify_visual_anchor_executed_workflow_binding(
             "height": actual_height,
             "model_files": model_files,
             "sampler": sampler_config,
+            "reference_conditioning": {
+                "mode": "TextEncodeZImageOmni",
+                "input_count": 1,
+                "width": scale_inputs.get("width"),
+                "height": scale_inputs.get("height"),
+                "crop": scale_inputs.get("crop"),
+                "upscale_method": scale_inputs.get("upscale_method"),
+                "auto_resize_images": conditioner_inputs.get(
+                    "auto_resize_images"
+                ),
+            },
         }
 
         reference_query = urlencode(
@@ -429,6 +559,19 @@ async def _verify_visual_anchor_executed_workflow_binding(
                 "uploaded_reference_sha256": uploaded_sha256,
                 "conditioning_node_id": condition.conditioning_node_id,
                 "conditioning_node_class_type": condition.conditioning_node_class_type,
+                "reference_conditioning_mode": condition.conditioning_node_class_type,
+                "reference_conditioning_input_count": 1,
+                "reference_scale_node_id": scale_node_id,
+                "reference_scale_node_class_type": "ImageScale",
+                "reference_conditioning_width": scale_inputs.get("width"),
+                "reference_conditioning_height": scale_inputs.get("height"),
+                "reference_conditioning_crop": scale_inputs.get("crop"),
+                "reference_conditioning_upscale_method": scale_inputs.get(
+                    "upscale_method"
+                ),
+                "reference_conditioning_auto_resize": conditioner_inputs.get(
+                    "auto_resize_images"
+                ),
                 "sampler_node_id": condition.sampler_node_id,
                 "sampler_node_class_type": condition.sampler_node_class_type,
                 "binding_path_node_ids": list(condition.binding_path_node_ids),
@@ -591,6 +734,30 @@ def _actual_parameter_value(workflow: Mapping[str, Any], name: str) -> Any:
     return values[0]
 
 
+def _actual_parameter_node_id(
+    workflow: Mapping[str, Any],
+    name: str,
+) -> str:
+    marker = f"${name}."
+    node_ids: list[str] = []
+    for node_id, raw_node in workflow.items():
+        if not isinstance(raw_node, Mapping):
+            continue
+        meta = raw_node.get("_meta")
+        title = str(meta.get("title") or "") if isinstance(meta, Mapping) else ""
+        if marker not in title:
+            continue
+        inputs = _node_inputs(raw_node)
+        field = title.split(marker, 1)[1].split("!", 1)[0].strip()
+        if field in inputs:
+            node_ids.append(str(node_id))
+    if len(node_ids) != 1:
+        raise ValueError(
+            f"executed ComfyUI workflow must expose exactly one {name} parameter node"
+        )
+    return node_ids[0]
+
+
 def _positive_actual_parameter(workflow: Mapping[str, Any], name: str) -> int:
     value = _actual_parameter_value(workflow, name)
     if isinstance(value, bool):
@@ -637,7 +804,7 @@ def _reference_conditioner_count(workflow: Mapping[str, Any]) -> int:
         1
         for node in workflow.values()
         if isinstance(node, Mapping)
-        and str(node.get("class_type") or "") == "ReferenceLatent"
+        and str(node.get("class_type") or "") == "TextEncodeZImageOmni"
     )
 
 

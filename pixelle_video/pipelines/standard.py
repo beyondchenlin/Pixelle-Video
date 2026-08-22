@@ -788,11 +788,42 @@ class StandardPipeline(LinearVideoPipeline):
             if needs_ip_prompt_inputs
             else (None, None)
         )
+        series_visual_signature_request = SeriesVisualSignatureRequest.from_mapping(
+            ctx.params,
+            profile_id=getattr(
+                ip_profile,
+                "series_visual_signature_profile_id",
+                None,
+            )
+            or ip_controls.series_visual_signature_profile_id,
+            generation_world_hint=storyboard_contract.generation_world_hint,
+        )
+        visual_anchor_two_stage_enabled = series_visual_signature_request.enabled
+        if visual_anchor_two_stage_enabled:
+            if template_type != "image":
+                raise ValueError(
+                    "visual-anchor two-stage fusion requires an image template"
+                )
+            if ip_controls.series_visual_signature_output_max_attempts != 1:
+                raise ValueError(
+                    "visual-anchor two-stage fusion permits exactly one first image request"
+                )
+        content_planning_ip_profile = (
+            None if visual_anchor_two_stage_enabled else ip_profile
+        )
         article_concretization_plans = build_article_concretization_plans(
             storyboard_plan=ctx.storyboard_plan,
             params=ctx.params,
-            series_visual_signature_profile_id=getattr(ip_profile, "series_visual_signature_profile_id", None)
-            or ip_controls.series_visual_signature_profile_id,
+            series_visual_signature_profile_id=(
+                None
+                if visual_anchor_two_stage_enabled
+                else getattr(
+                    ip_profile,
+                    "series_visual_signature_profile_id",
+                    None,
+                )
+                or ip_controls.series_visual_signature_profile_id
+            ),
             template_aspect_ratio=diagram_aspect_ratio_from_canvas(
                 size_contract.canvas_width,
                 size_contract.canvas_height,
@@ -807,7 +838,7 @@ class StandardPipeline(LinearVideoPipeline):
                 source_text=ctx.source_text or ctx.input_text,
                 storyboard_plan=ctx.storyboard_plan,
                 title=ctx.title,
-                ip_profile=ip_profile,
+                ip_profile=content_planning_ip_profile,
                 image_config=self.core.config.get("comfyui", {}).get(
                     "video" if template_type == "video" else "image",
                     {},
@@ -840,7 +871,7 @@ class StandardPipeline(LinearVideoPipeline):
                     source_text=ctx.source_text or ctx.input_text,
                     storyboard_plan=ctx.storyboard_plan,
                     visual_story_plan=visual_story_plan,
-                    ip_profile=ip_profile,
+                    ip_profile=content_planning_ip_profile,
                     batch_size=ctx.params.get("visual_story_batch_size", 4),
                     max_context_chars=ctx.params.get("visual_story_context_budget", 9000),
                     target_language=storyboard_contract.storyboard_prompt_language,
@@ -891,21 +922,8 @@ class StandardPipeline(LinearVideoPipeline):
                 plan=text_rendering_result.overlay_plan,
                 policy=text_rendering_result.overlay_policy,
             )
-            series_visual_signature_request = SeriesVisualSignatureRequest.from_mapping(
-                ctx.params,
-                profile_id=getattr(ip_profile, "series_visual_signature_profile_id", None) or ip_controls.series_visual_signature_profile_id,
-                generation_world_hint=storyboard_contract.generation_world_hint,
-            )
             registered_random_seeds: dict[str, int] = {}
-            visual_anchor_two_stage_enabled = (
-                series_visual_signature_request.enabled
-                and ip_controls.series_visual_signature_output_max_attempts == 1
-            )
             if visual_anchor_two_stage_enabled:
-                if media_type != "image":
-                    raise ValueError(
-                        "visual-anchor two-stage fusion requires an image template"
-                    )
                 ctx.params["reference_image_workflow_injection_mode"] = "required"
                 ctx.params["media_workflow"] = (
                     resolve_visual_anchor_reference_workflow_key(
@@ -969,6 +987,8 @@ class StandardPipeline(LinearVideoPipeline):
                 trace_recorder=trace_recorder,
                 task_id=ctx.task_id,
                 random_seeds_by_frame=registered_random_seeds,
+                media_width=size_contract.media_width,
+                media_height=size_contract.media_height,
             )
             if (
                 series_visual_signature_request.enabled
@@ -1914,7 +1934,7 @@ class StandardPipeline(LinearVideoPipeline):
             for frame_id, paths in frame_artifacts.items()
         }
         record = {
-            "schema_version": "visual_anchor_two_stage_artifacts.v1",
+            "schema_version": "visual_anchor_two_stage_artifacts.v2",
             "directory": str(artifact_dir.relative_to(root)),
             "artifacts": artifacts,
             "artifact_sha256": artifact_sha256,

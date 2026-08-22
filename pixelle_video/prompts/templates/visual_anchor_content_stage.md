@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_content_stage
-version: visual_anchor_content_stage.v1
+version: visual_anchor_content_stage.v2
 stage: visual_anchor_content_stage
 purpose: 仅依据分镜事实生成纯内容画面并提取受保护事实
 output_contract: ContentStageOutput
@@ -14,9 +14,9 @@ output_contract: ContentStageOutput
 
 完成以下工作：
 1. 用一句话确定本镜核心主张，不扩写原文没有表达的观点。
-2. 提取必须出现在画面中的适用事实，包括人物、动物、物品、产品、地点、时代、数量、关键动作、因果关系、空间关系、事件和核心主题。每项事实的 source_evidence 必须逐字引用当前分镜原文或文章级背景中的连续片段，不得用抽象套话补齐。
+2. 提取必须出现在画面中的适用事实，包括人物、动物、物品、产品、地点、时代、数量、关键动作、因果关系、空间关系、事件和核心主题。每项事实的 source_evidence 必须逐字引用当前分镜原文或文章级背景中的连续片段，不得用抽象套话补齐；pure_content_prompt_evidence 必须逐字摘录纯内容画面提示词中真实呈现该事实的连续片段。
 3. 列出可增加、删除、替换或移动的非核心背景、道具、非核心人物、光照、镜头和环境细节，且不得与受保护事实重叠。
 4. 生成独立成立的纯内容画面提示词，明确主体、构图、景深、光照、材质和空间关系；抽象内容转换成可见对象、变化或空间结构。
-5. 核对命名人物、数量、时代、地点、动作和事件关系。缺失或冲突时 self_check 输出 fail 并列明 self_check_failures；全部成立时输出 pass 且失败项为空。
+5. 核对命名人物、数量、时代、地点、动作和事件关系。任何受保护事实没有真实进入纯内容画面提示词时，self_check 必须输出 fail 并列明 self_check_failures；全部成立时输出 pass 且失败项为空。
 
 只输出 ContentStageOutput 结构，不输出分析过程或其他顶级字段。

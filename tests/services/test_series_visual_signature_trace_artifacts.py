@@ -52,11 +52,11 @@ def test_visual_anchor_two_stage_writes_every_stage_and_generation_request(tmp_p
     ctx.task_dir = str(tmp_path)
     ctx.planning_snapshot = {
         "visual_anchor_two_stage": {
-            "schema_version": "visual_anchor_two_stage_batch.v1",
+            "schema_version": "visual_anchor_two_stage_batch.v2",
             "prompt_versions": {
-                "content_stage": "visual_anchor_content_stage.v1",
-                "fusion_stage": "visual_anchor_fusion_stage.v1",
-                "preflight_review": "visual_anchor_preflight_review.v1",
+                "content_stage": "visual_anchor_content_stage.v2",
+                "fusion_stage": "visual_anchor_fusion_stage.v2",
+                "preflight_review": "visual_anchor_preflight_review.v2",
             },
             "frames": [frame],
         },
