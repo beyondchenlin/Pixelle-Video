@@ -170,9 +170,6 @@ from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
 from pixelle_video.services.video_cover import ensure_video_cover
-from pixelle_video.services.visual_anchor_reference_workflow import (
-    resolve_visual_anchor_reference_workflow_key,
-)
 from pixelle_video.services.visual_anchor_rendered_output_audit import (
     VisualAnchorRenderedOutputAudit,
     VisualAnchorRenderedOutputAuditError,
@@ -235,6 +232,22 @@ LocalMediaSessionPolicy = Literal["none", "batch", "per_frame"]
 def _targets_z_image_workflow(workflow: Any) -> bool:
     text = str(workflow or "").strip().casefold()
     return not text or "z_image" in text or "z-image" in text or "image_z" in text
+
+
+def _workflow_supports_reference_image(
+    media_service: Any,
+    workflow: str | None,
+) -> bool:
+    resolver = getattr(media_service, "_resolve_workflow", None)
+    if not callable(resolver):
+        return False
+    workflow_info = resolver(
+        workflow=workflow,
+        workflow_domain="image",
+    )
+    return get_workflow_capabilities(
+        dict(workflow_info)
+    ).supports_reference_image
 
 
 def _project_legacy_standard_z_image_signature_batch(
@@ -798,25 +811,41 @@ class StandardPipeline(LinearVideoPipeline):
             or ip_controls.series_visual_signature_profile_id,
             generation_world_hint=storyboard_contract.generation_world_hint,
         )
-        visual_anchor_two_stage_enabled = series_visual_signature_request.enabled
-        if visual_anchor_two_stage_enabled:
+        visual_anchor_reference_conditioning_enabled = False
+        if series_visual_signature_request.enabled:
             if template_type != "image":
                 raise ValueError(
                     "visual-anchor two-stage fusion requires an image template"
                 )
-            if ip_controls.series_visual_signature_output_max_attempts != 1:
+            visual_anchor_reference_conditioning_enabled = (
+                _workflow_supports_reference_image(
+                    self.core.media,
+                    ctx.params.get("media_workflow"),
+                )
+            )
+            if (
+                visual_anchor_reference_conditioning_enabled
+                and ctx.reference_image_asset is None
+            ):
                 raise ValueError(
-                    "visual-anchor two-stage fusion permits exactly one first image request"
+                    "the selected reference-image workflow requires a real reference image"
+                )
+            if (
+                visual_anchor_reference_conditioning_enabled
+                and ip_controls.series_visual_signature_output_max_attempts != 1
+            ):
+                raise ValueError(
+                    "reference-conditioned visual-anchor fusion permits exactly one first image request"
                 )
         content_planning_ip_profile = (
-            None if visual_anchor_two_stage_enabled else ip_profile
+            None if visual_anchor_reference_conditioning_enabled else ip_profile
         )
         article_concretization_plans = build_article_concretization_plans(
             storyboard_plan=ctx.storyboard_plan,
             params=ctx.params,
             series_visual_signature_profile_id=(
                 None
-                if visual_anchor_two_stage_enabled
+                if visual_anchor_reference_conditioning_enabled
                 else getattr(
                     ip_profile,
                     "series_visual_signature_profile_id",
@@ -923,14 +952,8 @@ class StandardPipeline(LinearVideoPipeline):
                 policy=text_rendering_result.overlay_policy,
             )
             registered_random_seeds: dict[str, int] = {}
-            if visual_anchor_two_stage_enabled:
+            if visual_anchor_reference_conditioning_enabled:
                 ctx.params["reference_image_workflow_injection_mode"] = "required"
-                ctx.params["media_workflow"] = (
-                    resolve_visual_anchor_reference_workflow_key(
-                        media_service=self.core.media,
-                        workflow=ctx.params.get("media_workflow"),
-                    )
-                )
                 registered_random_seeds = resolve_registered_random_seeds(
                     storyboard_plan=ctx.storyboard_plan,
                     task_id=ctx.task_id or "",
@@ -989,10 +1012,13 @@ class StandardPipeline(LinearVideoPipeline):
                 random_seeds_by_frame=registered_random_seeds,
                 media_width=size_contract.media_width,
                 media_height=size_contract.media_height,
+                visual_anchor_reference_conditioning_enabled=(
+                    visual_anchor_reference_conditioning_enabled
+                ),
             )
             if (
                 series_visual_signature_request.enabled
-                and not visual_anchor_two_stage_enabled
+                and not visual_anchor_reference_conditioning_enabled
                 and media_type == "image"
                 and _targets_z_image_workflow(ctx.params.get("media_workflow"))
             ):
@@ -1332,14 +1358,6 @@ class StandardPipeline(LinearVideoPipeline):
                 payload=two_stage_payload,
             )
             return
-        ip_controls = IPControlsContract.from_mapping(ctx.params)
-        if (
-            ip_controls.series_visual_signature_enabled
-            and ip_controls.series_visual_signature_output_max_attempts == 1
-        ):
-            raise ValueError(
-                "enabled visual-anchor generation requires a complete two-stage contract"
-            )
         traces = {
             str(frame_id): dict(trace)
             for frame_id, trace in dict(

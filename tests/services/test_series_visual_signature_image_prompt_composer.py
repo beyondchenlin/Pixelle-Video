@@ -125,6 +125,7 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
             image_config={},
             ip_profile=_ip_profile(),
             series_visual_signature_request=_enabled_request(),
+            visual_anchor_reference_conditioning_enabled=True,
             visual_story_context={
             "selected_visual_route": {
                 "route_id": "content-route",
@@ -211,6 +212,7 @@ async def test_visual_story_required_subjects_reach_signature_projection(
             image_config={},
             ip_profile=_ip_profile(),
             series_visual_signature_request=_enabled_request(),
+            visual_anchor_reference_conditioning_enabled=True,
             visual_story_context={
             "frame_visual_plans": [
                 {
@@ -267,6 +269,7 @@ async def test_signature_projection_uses_identity_isolated_base_brief_not_provid
             image_config={},
             ip_profile=_ip_profile(),
             series_visual_signature_request=_enabled_request(),
+            visual_anchor_reference_conditioning_enabled=True,
         )
 
 
@@ -291,6 +294,7 @@ async def test_canonical_prompt_composer_skips_llm_assembly_when_user_disables_i
             series_visual_signature_request=_enabled_request(
                 series_visual_signature_llm_prompt_assembly_enabled=False
             ),
+            visual_anchor_reference_conditioning_enabled=True,
         )
 
 
@@ -318,6 +322,7 @@ async def test_video_prompt_path_uses_same_canonical_visual_signature_projection
             media_type="video",
             ip_profile=_ip_profile(),
             series_visual_signature_request=_enabled_request(),
+            visual_anchor_reference_conditioning_enabled=True,
         )
     assert captured_generation == {}
 
@@ -509,7 +514,39 @@ async def test_request_audit_never_persists_user_or_world_hint_text(monkeypatch)
                 series_visual_signature_user_hint=secret_hint,
                 generation_world_hint=world_hint,
             ),
+            visual_anchor_reference_conditioning_enabled=True,
         )
+
+
+@pytest.mark.asyncio
+async def test_default_text_to_image_visual_anchor_uses_text_projection_without_reference(
+    monkeypatch,
+) -> None:
+    captured_generation = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured_generation.update(kwargs)
+        return await _base_batch(**kwargs)
+
+    monkeypatch.setattr(
+        composer_module,
+        "generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await VisualPromptComposer().compose(
+        llm_service=None,
+        storyboard_plan=_storyboard_plan(),
+        image_config={},
+        ip_profile=_ip_profile(),
+        series_visual_signature_request=_enabled_request(),
+    )
+
+    assert captured_generation["series_visual_signature_enabled"] is False
+    assert "Dalmatian" in result.prompts[0]
+    assert "black spots" in result.prompts[0]
+    assert "series_visual_signature_projection_audit" in result.planning_snapshot
+    assert "visual_anchor_two_stage" not in result.planning_snapshot
 
 
 @pytest.mark.asyncio

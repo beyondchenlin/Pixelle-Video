@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -802,6 +803,130 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
     scene_casts_by_frame = captured["scene_casts_by_frame"]
     assert list(scene_casts_by_frame) == [plan.frames[0].frame_id]
     assert scene_casts_by_frame[plan.frames[0].frame_id]["metadata"]["ip_presence_type"] == "scene_integrated"
+
+
+@pytest.mark.asyncio
+async def test_default_z_image_visual_anchor_keeps_text_workflow_without_reference(
+    monkeypatch,
+):
+    captured = {}
+
+    async def fake_compose(self, **kwargs):
+        captured.update(kwargs)
+        return StyledImagePromptBatch(
+            prompts=["prompt one", "prompt two"],
+            negative_prompt=None,
+            resolved_style=None,
+            planning_snapshot={
+                "storyboard_generation": kwargs["storyboard_plan"].to_dict()
+            },
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ImagePromptComposer.compose",
+        fake_compose,
+    )
+    monkeypatch.setattr(
+        standard_module,
+        "_project_legacy_standard_z_image_signature_batch",
+        lambda batch: batch,
+    )
+
+    workflow_key = "selfhost/image_z_image_turbo_gguf.json"
+
+    class WorkflowMedia:
+        def _resolve_workflow(self, *, workflow, workflow_domain):
+            assert workflow_domain == "image"
+            assert workflow == workflow_key
+            return {
+                "key": workflow_key,
+                "source": "selfhost",
+                "path": str(
+                    Path("workflows/selfhost/image_z_image_turbo_gguf.json").resolve()
+                ),
+            }
+
+    plan = _plan()
+    repository = _RecordingAssetBibleRepository()
+    repository.current_storyboard_plan_id = plan.plan_id
+    repository.current_frame_id = plan.frames[0].frame_id
+    core = _DummyCore()
+    core.media = WorkflowMedia()
+    core.asset_bible_repository = repository
+    ctx = PipelineContext(
+        input_text="第一句。第二句。",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "media_workflow": workflow_key,
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
+        },
+    )
+    ctx.task_id = "task-z-image-text-anchor"
+    ctx.storyboard_plan = plan
+
+    await StandardPipeline(core).plan_visuals(ctx)
+
+    assert captured["visual_anchor_reference_conditioning_enabled"] is False
+    assert captured["ip_profile"].series_visual_signature_profile_id == "ip_main"
+    assert ctx.params["media_workflow"] == workflow_key
+    assert "reference_image_workflow_injection_mode" not in ctx.params
+
+
+@pytest.mark.asyncio
+async def test_explicit_reference_workflow_requires_reference_asset_before_compose(
+    monkeypatch,
+):
+    async def fake_compose(self, **_kwargs):
+        raise AssertionError("reference asset validation must run before prompt compose")
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ImagePromptComposer.compose",
+        fake_compose,
+    )
+    workflow_key = "selfhost/image_z_image_turbo_gguf_reference.json"
+
+    class WorkflowMedia:
+        def _resolve_workflow(self, *, workflow, workflow_domain):
+            assert workflow_domain == "image"
+            assert workflow == workflow_key
+            return {
+                "key": workflow_key,
+                "source": "selfhost",
+                "path": str(
+                    Path(
+                        "workflows/selfhost/image_z_image_turbo_gguf_reference.json"
+                    ).resolve()
+                ),
+            }
+
+    plan = _plan()
+    repository = _RecordingAssetBibleRepository()
+    repository.current_storyboard_plan_id = plan.plan_id
+    repository.current_frame_id = plan.frames[0].frame_id
+    core = _DummyCore()
+    core.media = WorkflowMedia()
+    core.asset_bible_repository = repository
+    ctx = PipelineContext(
+        input_text="第一句。第二句。",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "media_workflow": workflow_key,
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
+        },
+    )
+    ctx.task_id = "task-z-image-reference-anchor"
+    ctx.storyboard_plan = plan
+
+    with pytest.raises(ValueError, match="selected reference-image workflow"):
+        await StandardPipeline(core).plan_visuals(ctx)
 
 
 @pytest.mark.asyncio
