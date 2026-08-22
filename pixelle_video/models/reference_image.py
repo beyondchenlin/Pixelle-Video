@@ -40,15 +40,52 @@ class ReferenceImageAsset:
     width: int
     height: int
     byte_size: int
+    workflow_sha256: str | None = None
+    workflow_mime_type: str | None = None
+    workflow_width: int | None = None
+    workflow_height: int | None = None
+    workflow_byte_size: int | None = None
     normalized_width: int | None = None
     normalized_height: int | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "workflow_sha256",
+            str(self.workflow_sha256 or self.sha256).strip().lower(),
+        )
+        object.__setattr__(
+            self,
+            "workflow_mime_type",
+            str(self.workflow_mime_type or self.mime_type).strip(),
+        )
+        object.__setattr__(
+            self,
+            "workflow_width",
+            int(self.workflow_width or self.normalized_width or self.width),
+        )
+        object.__setattr__(
+            self,
+            "workflow_height",
+            int(self.workflow_height or self.normalized_height or self.height),
+        )
+        object.__setattr__(
+            self,
+            "workflow_byte_size",
+            int(self.workflow_byte_size or self.byte_size),
+        )
 
     def to_trace_dict(self) -> dict[str, Any]:
         """Return a trace-safe representation without user-local absolute paths."""
 
         return {
             "sha256": self.sha256,
+            "workflow_sha256": self.workflow_sha256,
+            "workflow_mime_type": self.workflow_mime_type,
+            "workflow_width": self.workflow_width,
+            "workflow_height": self.workflow_height,
+            "workflow_byte_size": self.workflow_byte_size,
             "mime_type": self.mime_type,
             "width": self.width,
             "height": self.height,

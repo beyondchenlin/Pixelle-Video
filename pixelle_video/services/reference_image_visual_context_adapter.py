@@ -76,28 +76,69 @@ class ReferenceImageVisualContextAdapter:
         analysis_result: ReferenceImageAnalysisResult,
         ip_profile: IPProfile | None = None,
         merge_mode: ReferenceImageProfileMergeMode = "supplement",
+        preserve_real_asset_without_analysis: bool = False,
     ) -> ReferenceImageContextBuildResult:
         warnings: list[str] = []
         analysis = analysis_result.analysis
+        asset_trace = asset.to_trace_dict()
+        reference_payload = {
+            "enabled": True,
+            "asset_sha256": asset.workflow_sha256,
+            "workflow_asset_relative_path": asset.workflow_asset_relative_path,
+            "mime_type": asset.workflow_mime_type,
+            "width": asset.workflow_width,
+            "height": asset.workflow_height,
+            "byte_size": asset.workflow_byte_size,
+            "resource_version": f"reference-image:{asset.workflow_sha256}",
+            "asset": asset_trace,
+            "merge_mode": merge_mode,
+        }
         if analysis is None or analysis_result.status != "success":
+            if not preserve_real_asset_without_analysis:
+                warnings.append("reference image analysis is not available")
+                return ReferenceImageContextBuildResult(
+                    visual_context=ReferenceImageVisualContext(
+                        enabled=False,
+                        asset=asset_trace,
+                        analysis=analysis_result.to_trace_dict(),
+                        merge_mode=merge_mode,
+                        merge_warnings=warnings,
+                    ),
+                    ip_profile=ip_profile,
+                    visual_story_context_patch={},
+                )
+            warnings.append(
+                (
+                    "reference image analysis is intentionally disabled for visual-anchor "
+                    "generation; the immutable real asset remains enabled"
+                )
+                if analysis_result.analysis_mode == "off"
+                else (
+                    "reference image analysis is unavailable; the immutable real asset "
+                    "remains enabled"
+                )
+            )
+            visual_story_context_patch = {
+                "reference_image": reference_payload,
+            }
             visual_context = ReferenceImageVisualContext(
-                enabled=False,
-                asset=asset.to_trace_dict(),
+                enabled=True,
+                asset=asset_trace,
                 analysis=analysis_result.to_trace_dict(),
+                supplemental_visual_story_context=visual_story_context_patch,
                 merge_mode=merge_mode,
-                merge_warnings=["reference image analysis is not available"],
+                merge_warnings=warnings,
             )
             return ReferenceImageContextBuildResult(
                 visual_context=visual_context,
                 ip_profile=ip_profile,
-                visual_story_context_patch={},
+                visual_story_context_patch=visual_story_context_patch,
             )
 
         prompt_hint = _build_prompt_hint(analysis_result)
         visual_story_context_patch = {
             "reference_image": {
-                "enabled": True,
-                "asset_sha256": asset.sha256,
+                **reference_payload,
                 "subject_summary": analysis.subject_summary,
                 "style_summary": analysis.style_summary,
                 "color_atmosphere": analysis.color_atmosphere,
@@ -108,7 +149,6 @@ class ReferenceImageVisualContextAdapter:
                 "prompt_fallback_hint": prompt_hint,
                 "confidence": analysis.confidence,
                 "limitations": list(analysis.limitations),
-                "merge_mode": merge_mode,
             }
         }
 

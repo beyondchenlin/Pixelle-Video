@@ -63,6 +63,12 @@ from pixelle_video.services.reference_image_workflow_binding import (
     resolve_reference_image_workflow_injection_mode,
     workflow_param_overrides_from_config,
 )
+from pixelle_video.services.visual_anchor_generation_binding import (
+    VISUAL_ANCHOR_GENERATION_REQUEST_PARAM,
+    record_visual_anchor_first_generation_failure,
+    validate_visual_anchor_first_generation_binding,
+    verify_visual_anchor_executed_workflow_binding,
+)
 from pixelle_video.utils.os_util import (
     get_resource_path,
     list_resource_dirs,
@@ -561,6 +567,10 @@ class MediaService(ComfyBaseService):
         media_prompt_trace_context: Mapping[str, Any] | None = None,
         **params
     ) -> MediaResult:
+        visual_anchor_generation_request = params.pop(
+            VISUAL_ANCHOR_GENERATION_REQUEST_PARAM,
+            None,
+        )
         reference_binding_trace = params.pop(REFERENCE_IMAGE_WORKFLOW_BINDING_PARAM, None)
         reference_mode_params = _extract_reference_image_mode_params(params)
         trace_context = require_media_prompt_trace_context(
@@ -675,20 +685,45 @@ class MediaService(ComfyBaseService):
             workflow_param_trace=workflow_param_trace,
             workflow_file_trace=workflow_file_trace,
         )
-        backend_role = "default"
-        registry = self._get_backend_registry()
-        if workflow_info["source"] == "selfhost" and registry is not None:
-            backend_role = registry.resolve_role_for_media(
-                workflow_info["key"],
-                media_type,
+        visual_anchor_binding_audit = None
+        if visual_anchor_generation_request is not None:
+            if not isinstance(visual_anchor_generation_request, Mapping):
+                raise ValueError(
+                    "visual-anchor generation request must be a mapping"
+                )
+            visual_anchor_binding_audit = (
+                validate_visual_anchor_first_generation_binding(
+                    request_payload=visual_anchor_generation_request,
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    seed=seed,
+                    media_type=media_type,
+                    trace_context=trace_context,
+                    workflow_info=workflow_info,
+                    workflow_file_trace=workflow_file_trace,
+                    reference_binding_trace=(
+                        reference_binding_trace
+                        if isinstance(reference_binding_trace, Mapping)
+                        else None
+                    ),
+                    workflow_params=workflow_params,
+                )
             )
-        logger.debug(
-            "Workflow parameter keys: {}",
-            sorted(str(key) for key in trace_safe_workflow_params),
-        )
+        backend_role = "default"
         result_artifact_written = False
+        workflow_result_for_failure = None
 
         try:
+            registry = self._get_backend_registry()
+            if workflow_info["source"] == "selfhost" and registry is not None:
+                backend_role = registry.resolve_role_for_media(
+                    workflow_info["key"],
+                    media_type,
+                )
+            logger.debug(
+                "Workflow parameter keys: {}",
+                sorted(str(key) for key in trace_safe_workflow_params),
+            )
             if workflow_info["source"] == DIRECT_MEDIA_SOURCE:
                 descriptor = load_direct_media_descriptor(workflow_info["path"])
                 output_dir = self._direct_media_output_dir(trace_context)
@@ -757,15 +792,58 @@ class MediaService(ComfyBaseService):
                 workflow_info,
                 backend_role=backend_role,
                 media_prompt_trace_context=trace_context,
+                media_workflow_params_for_trace=(
+                    trace_safe_workflow_params
+                    if visual_anchor_generation_request is not None
+                    else None
+                ),
                 media_type=media_type,
+                allow_local_workflow_retry=(
+                    visual_anchor_generation_request is None
+                ),
             )
+            workflow_result_for_failure = result
+            if visual_anchor_binding_audit is not None and result.status == "completed":
+                visual_anchor_binding_audit = (
+                    await verify_visual_anchor_executed_workflow_binding(
+                        request_payload=visual_anchor_generation_request,
+                        pre_submit_audit=visual_anchor_binding_audit,
+                        workflow_result=result,
+                        comfyui_url=_resolved_local_comfyui_url(
+                            core=self.core,
+                            backend_role=backend_role,
+                            fallback=(
+                                comfyui_url
+                                or self.global_config.get("comfyui_url")
+                            ),
+                        ),
+                        task_root=trace_context.get("task_root") or "",
+                    )
+                )
             result_summary = _result_with_reference_binding(
                 summarize_media_workflow_result(result),
                 reference_binding_trace if isinstance(reference_binding_trace, Mapping) else None,
             )
+            if visual_anchor_binding_audit is not None:
+                result_summary["visual_anchor_first_generation_binding"] = dict(
+                    visual_anchor_binding_audit
+                )
 
             if result.status != "completed":
                 error_msg = result.msg or "Unknown error"
+                if visual_anchor_binding_audit is not None:
+                    visual_anchor_binding_audit = (
+                        record_visual_anchor_first_generation_failure(
+                            request_payload=visual_anchor_generation_request,
+                            pre_submit_audit=visual_anchor_binding_audit,
+                            task_root=trace_context.get("task_root") or "",
+                            reason=error_msg,
+                            workflow_result=result,
+                        )
+                    )
+                    result_summary[
+                        "visual_anchor_first_generation_binding"
+                    ] = dict(visual_anchor_binding_audit)
                 write_media_result_artifact(
                     trace_context,
                     status="failed",
@@ -841,6 +919,19 @@ class MediaService(ComfyBaseService):
                 return media_result
 
         except Exception as e:
+            if (
+                visual_anchor_binding_audit is not None
+                and visual_anchor_binding_audit.get("status") != "failed"
+            ):
+                visual_anchor_binding_audit = (
+                    record_visual_anchor_first_generation_failure(
+                        request_payload=visual_anchor_generation_request,
+                        pre_submit_audit=visual_anchor_binding_audit,
+                        task_root=trace_context.get("task_root") or "",
+                        reason=e,
+                        workflow_result=workflow_result_for_failure,
+                    )
+                )
             message = str(e)
             formatted_error = (
                 message
@@ -860,9 +951,32 @@ class MediaService(ComfyBaseService):
                 }
                 if isinstance(reference_binding_trace, Mapping):
                     error_result["reference_image_workflow_binding"] = dict(reference_binding_trace)
+                if visual_anchor_binding_audit is not None:
+                    error_result["visual_anchor_first_generation_binding"] = dict(
+                        visual_anchor_binding_audit
+                    )
                 write_media_result_artifact(
                     trace_context,
                     status="error",
                     result=error_result,
                 )
             raise RuntimeError(formatted_error) from e
+
+
+def _resolved_local_comfyui_url(
+    *,
+    core: Any,
+    backend_role: str,
+    fallback: Any,
+) -> str:
+    registry_factory = getattr(core, "_get_comfyui_backend_registry", None)
+    if callable(registry_factory):
+        registry = registry_factory()
+        profile = registry.profile(backend_role)
+        url = str(getattr(profile, "url", "") or "").strip()
+        if url:
+            return url
+    url = str(fallback or "").strip()
+    if not url:
+        raise ValueError("visual-anchor generation requires a local ComfyUI URL")
+    return url

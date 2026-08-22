@@ -23,6 +23,7 @@ from pixelle_video.services.prompt_trace_artifacts import (
     write_single_media_prompt_trace_context,
 )
 from pixelle_video.services.tts_trace_artifacts import write_tts_workflow_trace_context
+from pixelle_video.workflow_content_contracts import build_workflow_file_trace
 
 
 def _install_noop_extension_preflight(core):
@@ -1605,6 +1606,87 @@ async def test_core_execute_runninghub_workflow_bypasses_local_comfy_cleanup(tmp
 
 
 @pytest.mark.asyncio
+async def test_core_media_boundary_accepts_redacted_reference_parameter_trace(
+    monkeypatch,
+    tmp_path,
+):
+    calls = []
+    monkeypatch.setenv("PIXELLE_VIDEO_ROOT", str(tmp_path))
+    workflow_path = tmp_path / "workflows" / "runninghub" / "image_reference.json"
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_text(
+        json.dumps(
+            {
+                "source": "runninghub",
+                "workflow_id": "runninghub-workflow-id",
+                "media_type": "image",
+            }
+        ),
+        encoding="utf-8",
+    )
+    workflow_file_trace = build_workflow_file_trace(workflow_path)
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(b"reference-image")
+    workflow_params = {
+        "prompt": "final visual prompt",
+        "reference_image": str(reference_path),
+        "seed": 123,
+    }
+    safe_trace_params = {
+        "prompt": "final visual prompt",
+        "reference_image": {
+            "asset_sha256": "a" * 64,
+            "workflow_asset_relative_path": "reference_image/workflow_a.png",
+            "mime_type": "image/png",
+            "width": 768,
+            "height": 768,
+            "source": "reference_image_asset",
+        },
+        "seed": 123,
+    }
+    trace_context = write_single_media_prompt_trace_context(
+        tmp_path / "media_trace",
+        task_id="task-runninghub-reference-trace",
+        prompt="final visual prompt",
+        workflow="runninghub/image_reference.json",
+        workflow_input="runninghub-workflow-id",
+        media_type="image",
+        source="test",
+        workflow_params=safe_trace_params,
+    )
+
+    class _Kit:
+        async def execute(self, workflow_input, executed_params):
+            calls.append((workflow_input, executed_params))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _get_kit(backend_role="default"):
+        return _Kit()
+
+    core._get_or_create_comfykit = _get_kit
+
+    result = await core._execute_media_comfykit_workflow(
+        "runninghub-workflow-id",
+        workflow_params,
+        workflow_source="runninghub",
+        media_service_domain="image",
+        media_prompt_trace_context=trace_context,
+        media_workflow_params_for_trace=safe_trace_params,
+        media_type="image",
+        resolved_workflow="runninghub/image_reference.json",
+        workflow_file_trace=workflow_file_trace,
+    )
+
+    assert result.status == "completed"
+    assert calls == [("runninghub-workflow-id", workflow_params)]
+    artifact_text = Path(trace_context["artifact_path"]).read_text(encoding="utf-8")
+    assert str(reference_path) not in artifact_text
+    assert "workflow_a.png" in artifact_text
+
+
+@pytest.mark.asyncio
 async def test_core_execute_comfykit_workflow_rejects_runninghub_without_contract_even_empty_params():
     core = PixelleVideoCore()
 
@@ -1951,6 +2033,7 @@ async def test_core_execute_analysis_workflow_requires_and_writes_analysis_trace
         *,
         workflow_source,
         backend_role="default",
+        allow_local_workflow_retry=True,
     ):
         calls.append((workflow_input, workflow_params, workflow_source, backend_role))
         return SimpleNamespace(status="completed")
@@ -3153,6 +3236,7 @@ async def test_core_execute_workflow_file_uses_runninghub_analysis_service_contr
         *,
         workflow_source,
         backend_role="default",
+        allow_local_workflow_retry=True,
     ):
         calls.append((workflow_input, workflow_params, workflow_source, backend_role))
         return SimpleNamespace(status="completed")
@@ -3212,6 +3296,7 @@ async def test_core_execute_workflow_file_allows_runninghub_tts_descriptor_with_
         *,
         workflow_source,
         backend_role="default",
+        allow_local_workflow_retry=True,
     ):
         calls.append((workflow_input, workflow_params, workflow_source, backend_role))
         return SimpleNamespace(status="completed")
@@ -3336,6 +3421,7 @@ async def test_core_execute_workflow_file_writes_media_result_artifact(
         *,
         workflow_source,
         backend_role="default",
+        allow_local_workflow_retry=True,
     ):
         assert workflow_input == "rh-video-123"
         assert workflow_source == "runninghub"
@@ -5559,6 +5645,7 @@ async def test_core_execute_workflow_file_resolves_runninghub_and_selfhost_input
         *,
         workflow_source,
         backend_role="default",
+        allow_local_workflow_retry=True,
     ):
         calls.append((workflow_input, workflow_params, workflow_source, backend_role))
         return SimpleNamespace(status="completed")
@@ -5776,6 +5863,7 @@ async def test_core_execute_workflow_file_allows_runninghub_image_descriptor_pro
         *,
         workflow_source,
         backend_role="default",
+        allow_local_workflow_retry=True,
     ):
         calls.append((workflow_input, workflow_params, workflow_source, backend_role))
         return SimpleNamespace(status="completed", images=["cloud.png"])

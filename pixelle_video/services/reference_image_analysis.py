@@ -162,7 +162,7 @@ class ReferenceImageAnalysisService:
     async def analyze(
         self,
         *,
-        vision_llm_service: VisionLLMService,
+        vision_llm_service: VisionLLMService | None,
         asset: ReferenceImageAsset,
         prompt_language: str,
         task_dir: str | Path,
@@ -203,6 +203,11 @@ class ReferenceImageAnalysisService:
             if should_fail:
                 raise ValueError(f"reference image analysis unavailable: {unavailable_reason}")
             return result
+
+        if vision_llm_service is None:
+            raise ValueError(
+                "reference image analysis service is required when analysis is enabled"
+            )
 
         messages = self._build_messages(
             asset=asset,

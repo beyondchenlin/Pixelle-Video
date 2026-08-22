@@ -496,10 +496,12 @@ class ComfyBaseService:
         *,
         backend_role: str = "default",
         media_prompt_trace_context: Optional[Dict[str, Any]] = None,
+        media_workflow_params_for_trace: Optional[Dict[str, Any]] = None,
         tts_workflow_trace_context: Optional[Dict[str, Any]] = None,
         analysis_workflow_trace_context: Optional[Dict[str, Any]] = None,
         media_type: Optional[str] = None,
         workflow_domain: Optional[str] = None,
+        allow_local_workflow_retry: bool = True,
     ):
         """Execute a workflow through the core so local ComfyUI lifecycle is centralized."""
         execute_workflow = getattr(self.core, "execute_comfykit_workflow", None)
@@ -582,6 +584,7 @@ class ComfyBaseService:
                     effective_media_type = requested_media_domain
         optional_kwargs = {
             "media_prompt_trace_context": media_prompt_trace_context,
+            "media_workflow_params_for_trace": media_workflow_params_for_trace,
             "tts_workflow_trace_context": tts_workflow_trace_context,
             "analysis_workflow_trace_context": analysis_workflow_trace_context,
             "media_type": effective_media_type,
@@ -590,6 +593,9 @@ class ComfyBaseService:
             "media_service_domain": media_service_domain,
             "tts_service_domain": tts_service_domain,
             "resolved_workflow": workflow_info.get("key"),
+            "allow_local_workflow_retry": (
+                False if not allow_local_workflow_retry else None
+            ),
         }
         workflow_file_trace = self._build_resolved_workflow_file_trace(
             workflow_info,

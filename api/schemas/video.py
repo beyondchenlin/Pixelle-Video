@@ -280,29 +280,42 @@ class VideoGenerateRequest(BaseModel):
     series_visual_signature_enabled: bool = Field(False, description="Enable IP prompt chain for image prompt generation.")
     series_visual_signature_asset_bible_id: Optional[str] = Field(None, description="Public asset bible resource ID resolved server-side for IP prompt chain.")
     series_visual_signature_profile_id: Optional[str] = Field(None, description="IP profile ID inside the selected asset bible.")
-    series_visual_signature_expression_mode: Optional[str] = Field(None, description="V4 series-visual-signature expression mode.")
-    series_visual_signature_structure_mode: Optional[str] = Field(None, description="V4 series-visual-signature structure mode.")
-    series_visual_signature_participation_mode: Optional[str] = Field(None, description="V4 series-visual-signature participation mode.")
-    series_visual_signature_mode: Optional[str] = Field(None, description="V4 series-visual-signature strategy mode.")
-    series_visual_signature_consistency_mode: Optional[str] = Field(None, description="V4 series-visual-signature consistency mode.")
-    series_visual_signature_presentation_mode: Optional[Literal[
-        "content_bound_mandatory_ip",
-        "function_bound_ip_actor",
-        "visible_supporting_character",
-        "embedded_scene_mark",
-        "primary_character",
-        "legacy_visual_mark",
-        "auto",
-    ]] = Field(None, description="Product-level IP presentation mode. Omit to use content-bound mandatory IP when visual signature is enabled.")
-    series_visual_signature_enforcement: Optional[Literal["soft", "strict"]] = Field(None, description="Validation enforcement for recurring IP planning.")
-    series_visual_signature_fallback_enabled: Optional[bool] = Field(None, description="Allow deterministic content-bound repair when LLM planning fails.")
-    series_visual_signature_fallback_mode: Optional[Literal["auto_repair", "default_signature", "disabled"]] = Field(None, description="Fallback strategy for recurring IP planning.")
-    series_visual_signature_min_visibility: Optional[Literal["subtle", "clear", "prominent"]] = Field(None, description="Minimum readable presence for recurring IP.")
-    series_visual_signature_llm_prompt_assembly_enabled: bool = Field(
-        True,
+    series_visual_signature_expression_mode: Optional[Literal["auto"]] = Field(
+        None,
+        description="Enabled two-stage fusion decides the visual expression automatically.",
+    )
+    series_visual_signature_structure_mode: Optional[Literal["auto"]] = Field(
+        None,
+        description="Enabled two-stage fusion decides the scene structure automatically.",
+    )
+    series_visual_signature_participation_mode: Optional[Literal["auto"]] = Field(
+        None,
+        description="Enabled two-stage fusion decides the scene participation automatically.",
+    )
+    series_visual_signature_mode: Optional[Literal["auto"]] = Field(
+        None,
+        description="Enabled two-stage fusion chooses one scene-specific fusion mode.",
+    )
+    series_visual_signature_consistency_mode: Optional[Literal["off"]] = Field(
+        None,
+        description="Legacy fixed consistency modes are disabled for two-stage fusion.",
+    )
+    series_visual_signature_presentation_mode: Optional[Literal["auto"]] = Field(
+        None,
         description=(
-            "Use the configured LLM to assemble the final visual-signature prompt; "
-            "deterministic validation and fallback remain mandatory."
+            "Enabled visual-anchor two-stage fusion accepts only 'auto' so the "
+            "fusion model chooses one scene-specific presentation."
+        ),
+    )
+    series_visual_signature_enforcement: Optional[Literal["strict"]] = Field(None, description="Two-stage fusion always fails closed before image generation.")
+    series_visual_signature_fallback_enabled: Optional[Literal[False]] = Field(None, description="Two-stage fusion never silently falls back to a legacy prompt path.")
+    series_visual_signature_fallback_mode: Optional[Literal["disabled"]] = Field(None, description="Legacy prompt fallback is disabled for two-stage fusion.")
+    series_visual_signature_min_visibility: Optional[Literal["clear"]] = Field(None, description="The single identity instance must remain recognizable without a fixed size or position.")
+    series_visual_signature_llm_prompt_assembly_enabled: bool = Field(
+        False,
+        description=(
+            "Legacy one-stage prompt assembly must remain disabled when two-stage "
+            "visual-anchor fusion is enabled."
         ),
     )
     article_understanding_mode: ArticleUnderstandingModeRequest = Field("auto", description="V4.4 article understanding mode.")
@@ -338,6 +351,15 @@ class VideoGenerateRequest(BaseModel):
     max_image_prompt_words: int = Field(60, ge=10, le=200, description="Max image prompt words")
     llm_prompt_batch_size: Optional[int] = Field(None, ge=PROMPT_BATCH_SIZE_MIN, le=PROMPT_BATCH_SIZE_MAX, description="Request-scoped LLM prompt batch size override")
     llm_prompt_batch_concurrent_limit: Optional[int] = Field(None, ge=PROMPT_BATCH_CONCURRENT_LIMIT_MIN, le=PROMPT_BATCH_CONCURRENT_LIMIT_MAX, description="Request-scoped LLM prompt batch concurrency override")
+    media_seed: Optional[int] = Field(
+        None,
+        ge=1,
+        le=2**64 - 1,
+        description=(
+            "Registered random seed used by every visual-anchor frame in this "
+            "request for reproducible generation and acceptance evidence."
+        ),
+    )
 
     # === Size Parameters ===
     canvas_width: Optional[int] = Field(None, ge=1, le=MAX_GENERATION_EDGE_PX, multiple_of=2, description="Final video canvas width. Defaults to the selected video preset.")

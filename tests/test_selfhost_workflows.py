@@ -455,6 +455,39 @@ def test_image_z_image_turbo_gguf_workflow_is_parseable():
     _assert_prompt_mapping_is_declared_once(metadata)
 
 
+def test_image_z_image_turbo_gguf_reference_workflow_is_parseable():
+    metadata = WorkflowParser().parse_workflow_file(
+        str(Path("workflows/selfhost/image_z_image_turbo_gguf_reference.json"))
+    )
+
+    assert set(metadata.params.keys()) == {
+        "prompt",
+        "negative_prompt",
+        "width",
+        "height",
+        "seed",
+        "reference_image",
+    }
+    assert metadata.params["reference_image"].required is True
+    assert metadata.params["reference_image"].need_upload is True
+    mappings = {
+        mapping.param_name: (mapping.node_id, mapping.input_field, mapping.need_upload)
+        for mapping in metadata.mapping_info.param_mappings
+    }
+    assert mappings["reference_image"] == ("92", "image", True)
+
+    workflow = json.loads(
+        Path("workflows/selfhost/image_z_image_turbo_gguf_reference.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert workflow["92"]["class_type"] == "LoadImage"
+    assert workflow["93"]["inputs"]["pixels"] == ["92", 0]
+    assert workflow["94"]["class_type"] == "ReferenceLatent"
+    assert workflow["94"]["inputs"]["latent"] == ["93", 0]
+    assert workflow["3"]["inputs"]["positive"] == ["94", 0]
+
+
 def test_z_image_workflows_route_negative_prompt_to_sampler():
     workflow_paths = [
         Path("workflows/selfhost/image_z_image.json"),

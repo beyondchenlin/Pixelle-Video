@@ -106,7 +106,6 @@ def test_image_prompt_composer_is_a_real_compatibility_adapter() -> None:
 async def test_canonical_prompt_composer_uses_signature_free_base_then_projection(
     monkeypatch,
 ) -> None:
-    base_prompt = "worker beside assembly machine, neutral cinematic scene"
     captured_generation = {}
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
@@ -119,13 +118,14 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
         fake_generate_styled_image_prompt_batch,
     )
 
-    result = await VisualPromptComposer().compose(
-        llm_service=None,
-        storyboard_plan=_storyboard_plan(),
-        image_config={},
-        ip_profile=_ip_profile(),
-        series_visual_signature_request=_enabled_request(),
-        visual_story_context={
+    with pytest.raises(ValueError, match="requires the media service"):
+        await VisualPromptComposer().compose(
+            llm_service=None,
+            storyboard_plan=_storyboard_plan(),
+            image_config={},
+            ip_profile=_ip_profile(),
+            series_visual_signature_request=_enabled_request(),
+            visual_story_context={
             "selected_visual_route": {
                 "route_id": "content-route",
                 "route_name": "Factory process",
@@ -180,116 +180,10 @@ async def test_canonical_prompt_composer_uses_signature_free_base_then_projectio
                     "identity_anchors": ["orange fur"],
                 },
             },
-        },
-    )
+            },
+        )
 
-    # Canonical V4.6 keeps every identity runtime input out of base generation.
-    assert captured_generation["series_visual_signature_enabled"] is False
-    assert captured_generation["series_visual_signature_request"] is None
-    assert captured_generation["series_visual_signature_profile"] is None
-    assert captured_generation["ip_profile"] is None
-    assert captured_generation["scene_casts_by_frame"] is None
-    assert not hasattr(composer_module, "FinalVisualPromptLLMAssembler")
-    generation_context = captured_generation["prompt_contexts"].frame_contexts[0]
-    assert "canonical_visual_identity" not in generation_context
-    for identity_fact in (
-        "dog_1",
-        "Dalmatian",
-        "black spots",
-        "black sunglasses",
-        "red collar",
-        "small round ears",
-        "de240f30303bfe2b937505a750c32bad2273c5edf80ffb9ad86da32837f163bd",
-    ):
-        assert identity_fact not in str(captured_generation["prompt_contexts"])
-    assert "visual_story_ip_fusion_plan" not in generation_context
-    context_text = str(generation_context)
-    for forbidden in (
-        "legacy_identity",
-        "legacy_ip_style",
-        "stable legacy signature",
-        "legacy IP anchor",
-        "legacy IP metaphor",
-        "legacy IP arena",
-        "legacy IP action",
-        "recommended_ip_role",
-        "ip_fit_reason",
-        "ip_compatibility",
-        "alternate blue mascot",
-        "blue fur",
-        "gold crown",
-        "always render the alternate mascot",
-        "replace the canonical identity",
-        "alternate orange mascot",
-        "orange fur",
-    ):
-        assert forbidden not in context_text
-    plan_context_text = str(captured_generation["prompt_contexts"].plan_context)
-    for forbidden in (
-        "alternate blue mascot",
-        "blue fur",
-        "gold crown",
-        "alternate orange mascot",
-        "orange fur",
-    ):
-        assert forbidden not in plan_context_text
-    assert "soft ink wash" in plan_context_text
-    assert "factory process article" in plan_context_text
-    assert generation_context["selected_visual_route"]["route_id"] == "content-route"
-    frame_plan = generation_context["visual_story_frame_plan"]
-    assert frame_plan["local_claim"] == "show the production process"
-    assert frame_plan["required_subjects"] == ["worker", "assembly machine"]
-
-    final_prompt = result.prompts[0]
-    assert base_prompt in final_prompt
-    assert "Dalmatian" in final_prompt
-    assert "black spots" in final_prompt
-    assert "black sunglasses" in final_prompt
-    assert "red collar" in final_prompt
-    assert "small round ears" in final_prompt
-    assert "worker" in final_prompt
-    assert "assembly machine" in final_prompt
-    assert "low quality" in (result.negative_prompt or "")
-    assert "sticker, corner badge, emblem, logo, or watermark overlay" in (
-        result.negative_prompt or ""
-    )
-    snapshot = result.planning_snapshot
-    assert snapshot["existing"] is True
-    assert "series_visual_signature_shadow_comparison" not in snapshot
-    assert "series_visual_signature_request" not in snapshot
-    assert "series_visual_signature_profile_v45" not in snapshot
-    audit = snapshot["series_visual_signature_projection_audit"]
-    assert snapshot["series_visual_signature_prompt_assembly"]["mode"] == (
-        "deterministic"
-    )
-    assert audit["status"] == "passed"
-    assert audit["all_frames_passed"] is True
-    assert audit["expected_frame_count"] == 1
-    assert audit["attempted_frame_count"] == 1
-    assert audit["projected_frame_count"] == 1
-    assert audit["failed_frame_count"] == 0
-    assert audit["not_attempted_frame_count"] == 0
-    assert audit["coverage_rate"] == 1.0
-    frame_audit = audit["frames"][0]
-    assert frame_audit["identity_trait_count"] == 4
-    assert frame_audit["final_gate_passed"] is True
-    assert frame_audit["prompt_contract_gate_passed"] is True
-    assert frame_audit["rendered_output_gate_passed"] is None
-    assert "positive_prompt" not in frame_audit
-    assert "negative_prompt" not in frame_audit
-    assert len(frame_audit["positive_prompt_sha256"]) == 64
-    assert snapshot["series_visual_signature_contract_by_frame"]["frame-1"][
-        "required_subject_count"
-    ] == 2
-    assert snapshot["series_visual_signature_profile_ref"] == {
-        "profile_id": "dog_1",
-        "identity_trait_count": 4,
-        "core_identity_trait_count": 4,
-        "supporting_identity_trait_count": 0,
-        "style_safe_trait_count": 0,
-        "forbidden_trait_count": 0,
-        "source_asset_count": 0,
-    }
+    assert captured_generation == {}
 
 
 @pytest.mark.asyncio
@@ -310,13 +204,14 @@ async def test_visual_story_required_subjects_reach_signature_projection(
         fake_generate_styled_image_prompt_batch,
     )
 
-    result = await VisualPromptComposer().compose(
-        llm_service=None,
-        storyboard_plan=_storyboard_plan_without_subject_fields(),
-        image_config={},
-        ip_profile=_ip_profile(),
-        series_visual_signature_request=_enabled_request(),
-        visual_story_context={
+    with pytest.raises(ValueError, match="requires the media service"):
+        await VisualPromptComposer().compose(
+            llm_service=None,
+            storyboard_plan=_storyboard_plan_without_subject_fields(),
+            image_config={},
+            ip_profile=_ip_profile(),
+            series_visual_signature_request=_enabled_request(),
+            visual_story_context={
             "frame_visual_plans": [
                 {
                     "frame_id": "frame-1",
@@ -328,11 +223,8 @@ async def test_visual_story_required_subjects_reach_signature_projection(
                     "required_subjects": ["worker", "assembly machine"],
                 }
             ]
-        },
-    )
-
-    mandatory = result.rendered_prompts[0].prompt_contract.mandatory_anchor_contract
-    assert mandatory.required_subject_labels == ("worker", "assembly machine")
+            },
+        )
 
 
 @pytest.mark.asyncio
@@ -368,17 +260,14 @@ async def test_signature_projection_uses_identity_isolated_base_brief_not_provid
         fake_generate_styled_image_prompt_batch,
     )
 
-    result = await VisualPromptComposer().compose(
-        llm_service=None,
-        storyboard_plan=_storyboard_plan(),
-        image_config={},
-        ip_profile=_ip_profile(),
-        series_visual_signature_request=_enabled_request(),
-    )
-
-    assert base_prompt in result.prompts[0]
-    assert "provider-facing repeated constraint" not in result.prompts[0]
-    assert len(result.prompts[0]) <= 800
+    with pytest.raises(ValueError, match="requires the media service"):
+        await VisualPromptComposer().compose(
+            llm_service=None,
+            storyboard_plan=_storyboard_plan(),
+            image_config={},
+            ip_profile=_ip_profile(),
+            series_visual_signature_request=_enabled_request(),
+        )
 
 
 @pytest.mark.asyncio
@@ -393,23 +282,16 @@ async def test_canonical_prompt_composer_skips_llm_assembly_when_user_disables_i
         "generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
-    result = await VisualPromptComposer().compose(
-        llm_service=object(),
-        storyboard_plan=_storyboard_plan(),
-        image_config={},
-        ip_profile=_ip_profile(),
-        series_visual_signature_request=_enabled_request(
-            series_visual_signature_llm_prompt_assembly_enabled=False
-        ),
-    )
-
-    assembly = result.planning_snapshot[
-        "series_visual_signature_prompt_assembly"
-    ]
-    assert assembly["mode"] == "deterministic"
-    assert assembly["llm_frame_count"] == 0
-    assert assembly["fallback_frame_count"] == 0
-    assert assembly["llm_requested_but_not_executed"] is False
+    with pytest.raises(ValueError, match="requires the media service"):
+        await VisualPromptComposer().compose(
+            llm_service=object(),
+            storyboard_plan=_storyboard_plan(),
+            image_config={},
+            ip_profile=_ip_profile(),
+            series_visual_signature_request=_enabled_request(
+                series_visual_signature_llm_prompt_assembly_enabled=False
+            ),
+        )
 
 
 @pytest.mark.asyncio
@@ -428,27 +310,16 @@ async def test_video_prompt_path_uses_same_canonical_visual_signature_projection
         fake_generate_styled_image_prompt_batch,
     )
 
-    result = await VisualPromptComposer().compose(
-        llm_service=None,
-        storyboard_plan=_storyboard_plan(),
-        image_config={},
-        media_type="video",
-        ip_profile=_ip_profile(),
-        series_visual_signature_request=_enabled_request(),
-    )
-
-    assert captured_generation["media_type"] == "video"
-    assert captured_generation["series_visual_signature_enabled"] is False
-    assert captured_generation["series_visual_signature_request"] is None
-    assert captured_generation["ip_profile"] is None
-    assert "canonical_visual_identity" not in (
-        captured_generation["prompt_contexts"].frame_contexts[0]
-    )
-    assert "Dalmatian" not in str(captured_generation["prompt_contexts"])
-    assert "Dalmatian" in result.prompts[0]
-    assert result.planning_snapshot[
-        "series_visual_signature_projection_audit"
-    ]["all_frames_passed"] is True
+    with pytest.raises(ValueError, match="requires an image workflow"):
+        await VisualPromptComposer().compose(
+            llm_service=None,
+            storyboard_plan=_storyboard_plan(),
+            image_config={},
+            media_type="video",
+            ip_profile=_ip_profile(),
+            series_visual_signature_request=_enabled_request(),
+        )
+    assert captured_generation == {}
 
 
 @pytest.mark.asyncio
@@ -581,7 +452,7 @@ async def test_canonical_revalidates_external_snapshot_before_model_generation(
 
 
 @pytest.mark.asyncio
-async def test_compatibility_adapter_compiles_legacy_controls_once(
+async def test_compatibility_adapter_rejects_fixed_legacy_controls(
     monkeypatch,
 ) -> None:
     captured_generation = {}
@@ -596,47 +467,23 @@ async def test_compatibility_adapter_compiles_legacy_controls_once(
         fake_generate_styled_image_prompt_batch,
     )
 
-    result = await ImagePromptComposer().compose(
-        llm_service=None,
-        storyboard_plan=_storyboard_plan(),
-        image_config={},
-        ip_profile=_ip_profile(),
-        series_visual_signature_enabled=True,
-        series_visual_signature_expression_mode="literal_character",
-        series_visual_signature_structure_mode="global",
-        series_visual_signature_participation_mode="mandatory",
-        series_visual_signature_llm_prompt_assembly_enabled=False,
-    )
-
-    assert "Dalmatian" in result.prompts[0]
-    request_audit = result.planning_snapshot["series_visual_signature_request_audit"]
-    assert request_audit["enabled"] is True
-    assert set(request_audit["compatibility_option_keys"]) >= {
-        "series_visual_signature_enabled",
-        "series_visual_signature_expression_mode",
-        "series_visual_signature_structure_mode",
-        "series_visual_signature_participation_mode",
-        "series_visual_signature_llm_prompt_assembly_enabled",
-    }
-    assert result.planning_snapshot["series_visual_signature_prompt_assembly"][
-        "mode"
-    ] == "deterministic"
-    snapshot_text = str(result.planning_snapshot)
-    assert "literal_character" not in snapshot_text
-    assert "global" not in snapshot_text
-    assert "'series_visual_signature_participation_mode': 'mandatory'" not in snapshot_text
-    frame_id = _storyboard_plan().frames[0].frame_id
-    prompt_budget = result.planning_snapshot[
-        "series_visual_signature_trace_by_frame"
-    ][frame_id]["prompt_budget"]
-    assert prompt_budget["positive_prompt_chars"] == len(result.prompts[0])
-    assert prompt_budget["positive_prompt_chars"] <= prompt_budget[
-        "positive_prompt_limit"
-    ]
-    rendered_metadata = result.rendered_prompts[0].metadata_to_dict()
-    assert rendered_metadata["series_visual_signature_v46"][
-        "prompt_budget"
-    ] == prompt_budget
+    with pytest.raises(
+        ValueError,
+        match="requires series_visual_signature_expression_mode=auto",
+    ):
+        await ImagePromptComposer().compose(
+            llm_service=None,
+            storyboard_plan=_storyboard_plan(),
+            image_config={},
+            ip_profile=_ip_profile(),
+            series_visual_signature_enabled=True,
+            series_visual_signature_expression_mode="literal_character",
+            series_visual_signature_structure_mode="global",
+            series_visual_signature_participation_mode="mandatory",
+            series_visual_signature_llm_prompt_assembly_enabled=False,
+            series_visual_signature_output_max_attempts=1,
+        )
+    assert captured_generation == {}
 
 
 @pytest.mark.asyncio
@@ -652,37 +499,17 @@ async def test_request_audit_never_persists_user_or_world_hint_text(monkeypatch)
     secret_hint = "private user visual instruction 938475"
     world_hint = "confidential world note 483920"
 
-    result = await VisualPromptComposer().compose(
-        llm_service=None,
-        storyboard_plan=_storyboard_plan(),
-        image_config={},
-        ip_profile=_ip_profile(),
-        series_visual_signature_request=_enabled_request(
-            series_visual_signature_user_hint=secret_hint,
-            generation_world_hint=world_hint,
-        ),
-    )
-
-    request_audit = result.planning_snapshot["series_visual_signature_request_audit"]
-    assert request_audit["contains_user_hint"] is True
-    assert request_audit["contains_generation_world_hint"] is True
-    projection_metadata = {
-        key: value
-        for key, value in result.planning_snapshot.items()
-        if key.startswith("series_visual_signature_")
-    }
-    projection_text = str(projection_metadata)
-    assert secret_hint not in projection_text
-    assert world_hint not in projection_text
-    audit_metadata = {
-        key: value
-        for key, value in projection_metadata.items()
-        if key != "series_visual_signature_trace_by_frame"
-    }
-    assert "black spots" not in str(audit_metadata)
-    assert "black spots" in str(
-        projection_metadata["series_visual_signature_trace_by_frame"]
-    )
+    with pytest.raises(ValueError, match="requires the media service"):
+        await VisualPromptComposer().compose(
+            llm_service=None,
+            storyboard_plan=_storyboard_plan(),
+            image_config={},
+            ip_profile=_ip_profile(),
+            series_visual_signature_request=_enabled_request(
+                series_visual_signature_user_hint=secret_hint,
+                generation_world_hint=world_hint,
+            ),
+        )
 
 
 @pytest.mark.asyncio

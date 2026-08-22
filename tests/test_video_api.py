@@ -239,7 +239,29 @@ def test_video_generate_request_accepts_series_visual_signature_controls():
     assert request.series_visual_signature_enabled is True
     assert request.series_visual_signature_asset_bible_id == "bible_demo"
     assert request.series_visual_signature_profile_id == "ip_main"
-    assert request.series_visual_signature_llm_prompt_assembly_enabled is True
+    assert request.series_visual_signature_llm_prompt_assembly_enabled is False
+
+
+def test_visual_anchor_seed_is_validated_and_forwarded_only_when_enabled():
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            series_visual_signature_enabled=True,
+            series_visual_signature_asset_bible_id="bible_demo",
+            series_visual_signature_profile_id="ip_main",
+            media_seed=2026082201,
+        ),
+        request_id="req_visual_anchor_seed",
+    )
+
+    assert params["media_seed"] == 2026082201
+    without_anchor = build_video_generation_params(
+        VideoGenerateRequest(text="demo", media_seed=2026082201),
+        request_id="req_without_visual_anchor",
+    )
+    assert "media_seed" not in without_anchor
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="demo", media_seed=-1)
 
 
 def test_video_generate_request_accepts_v44_planning_controls():
@@ -389,8 +411,12 @@ def test_build_video_generation_params_copies_series_visual_signature_controls()
     assert params["series_visual_signature_enabled"] is True
     assert params["series_visual_signature_asset_bible_id"] == "bible_demo"
     assert params["series_visual_signature_profile_id"] == "ip_main"
-    assert params["series_visual_signature_llm_prompt_assembly_enabled"] is True
-    assert "series_visual_signature_presentation_mode" not in params
+    assert params["series_visual_signature_llm_prompt_assembly_enabled"] is False
+    assert params["series_visual_signature_expression_mode"] == "auto"
+    assert params["series_visual_signature_structure_mode"] == "auto"
+    assert params["series_visual_signature_participation_mode"] == "auto"
+    assert params["series_visual_signature_presentation_mode"] == "auto"
+    assert params["series_visual_signature_output_max_attempts"] == 1
 
 
 def test_build_video_generation_params_copies_llm_prompt_assembly_opt_out():
@@ -415,20 +441,20 @@ def test_build_video_generation_params_copies_explicit_presentation_controls():
             series_visual_signature_enabled=True,
             series_visual_signature_asset_bible_id="bible_demo",
             series_visual_signature_profile_id="ip_main",
-            series_visual_signature_presentation_mode="legacy_visual_mark",
+            series_visual_signature_presentation_mode="auto",
             series_visual_signature_enforcement="strict",
             series_visual_signature_fallback_enabled=False,
             series_visual_signature_fallback_mode="disabled",
-            series_visual_signature_min_visibility="prominent",
+            series_visual_signature_min_visibility="clear",
         ),
         request_id="req_test",
     )
 
-    assert params["series_visual_signature_presentation_mode"] == "legacy_visual_mark"
+    assert params["series_visual_signature_presentation_mode"] == "auto"
     assert params["series_visual_signature_enforcement"] == "strict"
     assert params["series_visual_signature_fallback_enabled"] is False
     assert params["series_visual_signature_fallback_mode"] == "disabled"
-    assert params["series_visual_signature_min_visibility"] == "prominent"
+    assert params["series_visual_signature_min_visibility"] == "clear"
 
 
 def test_build_video_generation_params_copies_v44_planning_controls():

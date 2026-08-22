@@ -43,8 +43,8 @@ def _default_presentation_payload():
         "mandatory_content_bound_anchor": True,
         "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
         "series_visual_signature_output_validation_mode": "required",
-        "series_visual_signature_output_max_attempts": 3,
-        "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
+        "series_visual_signature_output_max_attempts": 1,
+        "series_visual_signature_presentation_mode": "auto",
         "series_visual_signature_enforcement": "strict",
         "series_visual_signature_fallback_enabled": False,
         "series_visual_signature_fallback_mode": "disabled",
@@ -85,11 +85,6 @@ def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
     assert [call["key"] for call in fake_ui.selectbox_calls] == [
         "style_series_visual_signature_asset_bible_id",
         "style_series_visual_signature_profile_id",
-        "style_ip_series_visual_signature_expression_mode",
-        "style_ip_series_visual_signature_structure_mode",
-        "style_ip_series_visual_signature_participation_mode",
-        "style_ip_series_visual_signature_mode",
-        "style_ip_series_visual_signature_consistency_mode",
     ]
     assert all(
         call.get("key")
@@ -202,11 +197,6 @@ def test_render_series_visual_signature_controls_supports_content_state_prefix()
     assert [call["key"] for call in fake_ui.selectbox_calls] == [
         "content_series_visual_signature_asset_bible_id",
         "content_series_visual_signature_profile_id",
-        "content_ip_series_visual_signature_expression_mode",
-        "content_ip_series_visual_signature_structure_mode",
-        "content_ip_series_visual_signature_participation_mode",
-        "content_ip_series_visual_signature_mode",
-        "content_ip_series_visual_signature_consistency_mode",
     ]
 
 

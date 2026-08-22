@@ -33,6 +33,9 @@ from loguru import logger
 
 from pixelle_video.models.progress import ProgressEvent, ProgressEventType, ProgressFrameAction
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
+from pixelle_video.models.visual_anchor_two_stage import (
+    VisualAnchorImageGenerationRequest,
+)
 from pixelle_video.services.prompt_trace_artifacts import (
     build_media_prompt_trace_context,
     build_workflow_params_trace,
@@ -44,6 +47,9 @@ from pixelle_video.services.remote_media import (
     materialize_media_source,
 )
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
+from pixelle_video.services.visual_anchor_generation_binding import (
+    VISUAL_ANCHOR_GENERATION_REQUEST_PARAM,
+)
 from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
 from pixelle_video.tts_workflow_contract import (
     is_index_tts2_workflow_key,
@@ -619,6 +625,10 @@ class FrameProcessor:
     ) -> None:
         if type(max_attempts) is not int or not 1 <= max_attempts <= 3:
             raise ValueError("media generation max_attempts must be between 1 and 3")
+        if frame.visual_anchor_generation_request is not None and max_attempts != 1:
+            raise ValueError(
+                "visual-anchor generation permits exactly one first image request"
+            )
         for generation_attempt in range(max_attempts):
             if generation_attempt == 0:
                 await self._step_generate_media(frame, config)
@@ -663,14 +673,50 @@ class FrameProcessor:
             "height": config.media_height,
             "index": frame.index + 1,  # 1-based index for workflow
         }
-        retry_seed = _generation_retry_seed(
-            task_id=config.task_id,
-            frame_index=frame.index,
-            generation_attempt=generation_attempt,
+        visual_anchor_request = None
+        if frame.visual_anchor_generation_request is not None:
+            visual_anchor_request = VisualAnchorImageGenerationRequest.model_validate(
+                frame.visual_anchor_generation_request
+            )
+            if generation_attempt != 0:
+                raise ValueError(
+                    "visual-anchor generation cannot create a repair or retry image"
+                )
+            if visual_anchor_request.task_id != config.task_id:
+                raise ValueError("visual-anchor request task id differs from storyboard")
+            if visual_anchor_request.frame_id != frame.frame_id:
+                raise ValueError("visual-anchor request frame id differs from storyboard")
+            if visual_anchor_request.final_positive_prompt != frame.image_prompt:
+                raise ValueError("visual-anchor request prompt differs from storyboard")
+            if frame.generation_seed != visual_anchor_request.random_seed:
+                raise ValueError("visual-anchor request seed differs from storyboard")
+            media_params["seed"] = visual_anchor_request.random_seed
+            media_params["reference_image_workflow_injection_mode"] = "required"
+            media_params[VISUAL_ANCHOR_GENERATION_REQUEST_PARAM] = (
+                visual_anchor_request.model_dump(mode="json")
+            )
+            retry_seed = None
+        else:
+            retry_seed = _generation_retry_seed(
+                task_id=config.task_id,
+                frame_index=frame.index,
+                generation_attempt=generation_attempt,
+            )
+            if retry_seed is not None:
+                media_params["seed"] = retry_seed
+        frame_negative_prompt = (
+            visual_anchor_request.final_negative_prompt
+            if visual_anchor_request is not None
+            else frame.negative_prompt or config.media_negative_prompt
         )
-        if retry_seed is not None:
-            media_params["seed"] = retry_seed
-        frame_negative_prompt = frame.negative_prompt or config.media_negative_prompt
+        if (
+            visual_anchor_request is not None
+            and (frame_negative_prompt or "")
+            != visual_anchor_request.final_negative_prompt
+        ):
+            raise ValueError(
+                "visual-anchor request negative prompt differs from storyboard"
+            )
         if frame_negative_prompt:
             media_params["negative_prompt"] = frame_negative_prompt
 
@@ -697,8 +743,8 @@ class FrameProcessor:
                 "height": config.media_height,
                 "index": media_params["index"],
             }
-            if retry_seed is not None:
-                workflow_params_for_trace["seed"] = retry_seed
+            if "seed" in media_params:
+                workflow_params_for_trace["seed"] = media_params["seed"]
             if frame_negative_prompt:
                 workflow_params_for_trace["negative_prompt"] = frame_negative_prompt
             if "duration" in media_params:
@@ -738,7 +784,16 @@ class FrameProcessor:
                         generation_context={
                             "source_artifact_path": trace_context.get("artifact_path"),
                             "frame_index": frame.index,
-                            "generation_attempt": generation_attempt,
+                            "generation_attempt": (
+                                visual_anchor_request.generation_attempt
+                                if visual_anchor_request is not None
+                                else generation_attempt
+                            ),
+                            "visual_anchor_generation_request": (
+                                visual_anchor_request.model_dump(mode="json")
+                                if visual_anchor_request is not None
+                                else None
+                            ),
                         },
                         workflow_params=workflow_params_for_trace,
                         task_root=trace_context.get("task_root"),

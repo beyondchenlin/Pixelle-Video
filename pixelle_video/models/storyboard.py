@@ -222,6 +222,8 @@ class StoryboardFrame:
     narration: str                             # Narration text
     image_prompt: str                          # Image generation prompt (can be None for text-only or video)
     negative_prompt: Optional[str] = None      # Optional per-frame negative prompt for capable workflows
+    generation_seed: Optional[int] = None
+    visual_anchor_generation_request: Optional[Dict[str, Any]] = None
     
     # Generated resource paths
     audio_path: Optional[str] = None           # Audio file path (narration)
@@ -250,6 +252,18 @@ class StoryboardFrame:
             self.created_at = datetime.now()
         if self.frame_id is not None:
             self.frame_id = normalize_storyboard_frame_id(self.frame_id)
+        if self.generation_seed is not None:
+            if isinstance(self.generation_seed, bool):
+                raise ValueError("generation_seed must be a positive integer")
+            self.generation_seed = int(self.generation_seed)
+            if not 1 <= self.generation_seed <= (2**64 - 1):
+                raise ValueError("generation_seed must be between 1 and 2^64-1")
+        if self.visual_anchor_generation_request is not None:
+            if not isinstance(self.visual_anchor_generation_request, Mapping):
+                raise ValueError("visual_anchor_generation_request must be a mapping")
+            self.visual_anchor_generation_request = dict(
+                self.visual_anchor_generation_request
+            )
         if isinstance(self.workbench_state, Mapping):
             self.workbench_state = StoryboardFrameWorkbenchState.from_dict(self.workbench_state)
         elif self.workbench_state is not None and not isinstance(

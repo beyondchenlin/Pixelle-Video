@@ -155,8 +155,17 @@ def resolve_reference_image_input(params: Mapping[str, Any] | None) -> Any | Non
 class ReferenceImageAssetService:
     """Prepare a reference image as task-local, trace-safe assets."""
 
-    def __init__(self, config: Any | None = None) -> None:
-        self.enabled = bool(_config_value(config, "enabled", False))
+    def __init__(
+        self,
+        config: Any | None = None,
+        *,
+        enabled: bool | None = None,
+    ) -> None:
+        self.enabled = (
+            bool(_config_value(config, "enabled", False))
+            if enabled is None
+            else bool(enabled)
+        )
         self.allowed_extensions = _normalize_allowed_extensions(
             _config_value(config, "allowed_extensions", DEFAULT_ALLOWED_EXTENSIONS)
         )
@@ -253,6 +262,11 @@ class ReferenceImageAssetService:
             width=width,
             height=height,
             byte_size=byte_size,
+            workflow_sha256=_file_sha256(workflow_path),
+            workflow_mime_type=_mime_type_for_format(workflow_format),
+            workflow_width=normalized_width,
+            workflow_height=normalized_height,
+            workflow_byte_size=workflow_path.stat().st_size,
             normalized_width=normalized_width,
             normalized_height=normalized_height,
             metadata={
@@ -359,3 +373,11 @@ class ReferenceImageAssetService:
                 prepared.close()
         finally:
             variant.close()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

@@ -1152,6 +1152,7 @@ def _validate_comfykit_media_prompt_trace_boundary(
     workflow_params: Mapping[str, Any],
     workflow_source: str,
     media_prompt_trace_context: Mapping[str, Any] | None,
+    media_workflow_params_for_trace: Mapping[str, Any] | None = None,
     media_type: str | None,
     resolved_workflow: str | None,
     media_workflow_contract: str | None = None,
@@ -1260,8 +1261,13 @@ def _validate_comfykit_media_prompt_trace_boundary(
         _WORKFLOW_HEIGHT_PARAM_KEYS,
     )
     negative_prompt = _extract_negative_prompt_from_workflow_params(workflow_params)
+    trace_params = (
+        media_workflow_params_for_trace
+        if isinstance(media_workflow_params_for_trace, Mapping)
+        else workflow_params
+    )
     workflow_param_trace = build_workflow_params_trace(
-        workflow_params,
+        trace_params,
         prompt=trace_prompt,
     )
     trace_context = require_media_prompt_trace_context(
@@ -3030,8 +3036,15 @@ class PixelleVideoCore:
         workflow_params: dict,
         *,
         backend_role: str = "default",
+        allow_local_workflow_retry: bool = True,
     ):
         role = self._normalize_comfyui_backend_role(backend_role)
+        if not allow_local_workflow_retry:
+            return await self._execute_local_comfykit_workflow_once(
+                workflow_input,
+                workflow_params,
+                backend_role=role,
+            )
         try:
             result = await self._execute_local_comfykit_workflow_once(
                 workflow_input,
@@ -3179,14 +3192,22 @@ class PixelleVideoCore:
         workflow_params: dict,
         *,
         backend_role: str = "default",
+        allow_local_workflow_retry: bool = True,
     ):
         role = self._normalize_comfyui_backend_role(backend_role)
         session = self._local_comfyui_workflow_session.get()
         if session is None:
+            if allow_local_workflow_retry:
+                return await self._execute_local_comfykit_workflow(
+                    workflow_input,
+                    workflow_params,
+                    backend_role=role,
+                )
             return await self._execute_local_comfykit_workflow(
                 workflow_input,
                 workflow_params,
                 backend_role=role,
+                allow_local_workflow_retry=False,
             )
         if session.backend_role != role:
             raise RuntimeError(
@@ -3232,10 +3253,17 @@ class PixelleVideoCore:
                     workflow_input,
                     backend_role=role,
                 )
+                if allow_local_workflow_retry:
+                    return await self._execute_local_comfykit_workflow(
+                        workflow_input,
+                        workflow_params,
+                        backend_role=role,
+                    )
                 return await self._execute_local_comfykit_workflow(
                     workflow_input,
                     workflow_params,
                     backend_role=role,
+                    allow_local_workflow_retry=False,
                 )
 
     @asynccontextmanager
@@ -3492,11 +3520,13 @@ class PixelleVideoCore:
         media_service_domain: str,
         backend_role: str = "default",
         media_prompt_trace_context: Mapping[str, Any] | None = None,
+        media_workflow_params_for_trace: Mapping[str, Any] | None = None,
         tts_workflow_trace_context: Mapping[str, Any] | None = None,
         workflow_domain: str | None = None,
         media_type: str | None = None,
         resolved_workflow: str | None = None,
         workflow_file_trace: Mapping[str, Any] | None = None,
+        allow_local_workflow_retry: bool = True,
     ):
         media_contract = str(media_service_domain or "").strip().lower()
         if media_contract not in _MEDIA_PROMPT_TRACE_MEDIA_TYPES:
@@ -3510,6 +3540,7 @@ class PixelleVideoCore:
             workflow_source=workflow_source,
             backend_role=backend_role,
             media_prompt_trace_context=media_prompt_trace_context,
+            media_workflow_params_for_trace=media_workflow_params_for_trace,
             tts_workflow_trace_context=tts_workflow_trace_context,
             tts_workflow_contract=None,
             tts_service_domain=None,
@@ -3519,6 +3550,7 @@ class PixelleVideoCore:
             media_type=media_type,
             resolved_workflow=resolved_workflow,
             workflow_file_trace=workflow_file_trace,
+            allow_local_workflow_retry=allow_local_workflow_retry,
         )
 
     async def _execute_comfykit_workflow_checked(
@@ -3529,6 +3561,7 @@ class PixelleVideoCore:
         workflow_source: str,
         backend_role: str = "default",
         media_prompt_trace_context: Mapping[str, Any] | None = None,
+        media_workflow_params_for_trace: Mapping[str, Any] | None = None,
         tts_workflow_trace_context: Mapping[str, Any] | None = None,
         analysis_workflow_trace_context: Mapping[str, Any] | None = None,
         tts_workflow_contract: str | None = None,
@@ -3540,6 +3573,7 @@ class PixelleVideoCore:
         resolved_workflow: str | None = None,
         workflow_file_trace: Mapping[str, Any] | None = None,
         trusted_workflow_file_trace: bool = False,
+        allow_local_workflow_retry: bool = True,
     ):
         effective_workflow_file_trace = _workflow_file_trace_from_execution_request(
             workflow_input=workflow_input,
@@ -3593,6 +3627,7 @@ class PixelleVideoCore:
             workflow_params=workflow_params,
             workflow_source=workflow_source,
             media_prompt_trace_context=media_prompt_trace_context,
+            media_workflow_params_for_trace=media_workflow_params_for_trace,
             media_type=media_type,
             resolved_workflow=resolved_workflow,
             media_workflow_contract=media_workflow_contract,
@@ -3609,6 +3644,7 @@ class PixelleVideoCore:
                     workflow_params,
                     workflow_source=workflow_source,
                     backend_role=backend_role,
+                    allow_local_workflow_retry=allow_local_workflow_retry,
                 )
             except Exception as exc:
                 error_result = self._workflow_exception_result_with_retry_attempts(exc)
@@ -3670,6 +3706,7 @@ class PixelleVideoCore:
         *,
         workflow_source: str,
         backend_role: str = "default",
+        allow_local_workflow_retry: bool = True,
     ):
         normalized_source = str(workflow_source or "selfhost").lower()
         if normalized_source == "runninghub":
@@ -3683,6 +3720,7 @@ class PixelleVideoCore:
                 workflow_input,
                 workflow_params,
                 backend_role=role,
+                allow_local_workflow_retry=allow_local_workflow_retry,
             )
 
         await self.await_comfyui_backend_ready(role)
@@ -3699,11 +3737,19 @@ class PixelleVideoCore:
                 )
                 workflow_failed = False
                 try:
-                    result = await self._execute_local_comfykit_workflow(
-                        workflow_input,
-                        workflow_params,
-                        backend_role=role,
-                    )
+                    if allow_local_workflow_retry:
+                        result = await self._execute_local_comfykit_workflow(
+                            workflow_input,
+                            workflow_params,
+                            backend_role=role,
+                        )
+                    else:
+                        result = await self._execute_local_comfykit_workflow(
+                            workflow_input,
+                            workflow_params,
+                            backend_role=role,
+                            allow_local_workflow_retry=False,
+                        )
                     workflow_failed = str(
                         getattr(result, "status", "") or ""
                     ).strip().lower() in {"error", "failed", "failure"}

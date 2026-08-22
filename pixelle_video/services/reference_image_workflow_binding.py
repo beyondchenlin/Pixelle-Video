@@ -142,11 +142,11 @@ def build_reference_image_workflow_binding(
         )
 
     trace_value = {
-        "asset_sha256": asset_trace.get("sha256"),
+        "asset_sha256": asset_trace.get("workflow_sha256") or asset_trace.get("sha256"),
         "workflow_asset_relative_path": asset_trace.get("workflow_asset_relative_path"),
-        "mime_type": asset_trace.get("mime_type"),
-        "width": asset_trace.get("width"),
-        "height": asset_trace.get("height"),
+        "mime_type": asset_trace.get("workflow_mime_type") or asset_trace.get("mime_type"),
+        "width": asset_trace.get("workflow_width") or asset_trace.get("width"),
+        "height": asset_trace.get("workflow_height") or asset_trace.get("height"),
         "source": "reference_image_asset",
     }
     injected_params = {name: str(asset_path) for name in candidate_param_names}

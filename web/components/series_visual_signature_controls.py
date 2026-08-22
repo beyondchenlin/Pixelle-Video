@@ -5,15 +5,6 @@ from typing import Any
 
 import streamlit as st
 
-from pixelle_video.models.series_visual_signature_identity import (
-    SeriesVisualSignatureParticipationMode,
-    SeriesVisualSignatureStructureMode,
-)
-from pixelle_video.models.series_visual_signature_strategy import (
-    SeriesVisualSignatureConsistencyMode,
-    SeriesVisualSignatureMode,
-)
-from pixelle_video.models.visual_expression import VisualExpressionMode
 from pixelle_video.platform_context import resolve_business_context
 from pixelle_video.utils.bool_parsing import coerce_bool
 from web.i18n import tr
@@ -122,46 +113,6 @@ def render_series_visual_signature_controls(
         translate("series_visual_signature.prompt_assembly.deterministic_v46")
     )
 
-    series_visual_signature_expression_mode = _select_valid_option(
-        ui=ui,
-        label=translate(f"{normalized_label_prefix}.series_visual_signature_expression_mode"),
-        key=_state_key(state_key_prefix, "series_visual_signature_expression_mode"),
-        options=[item.value for item in VisualExpressionMode],
-        format_func=lambda value: translate(f"{normalized_label_prefix}.series_visual_signature_expression_mode.option.{value}"),
-    )
-    series_visual_signature_structure_mode = _select_valid_option(
-        ui=ui,
-        label=translate(f"{normalized_label_prefix}.series_visual_signature_structure_mode"),
-        key=_state_key(state_key_prefix, "series_visual_signature_structure_mode"),
-        options=[item.value for item in SeriesVisualSignatureStructureMode],
-        format_func=lambda value: translate(f"{normalized_label_prefix}.series_visual_signature_structure_mode.option.{value}"),
-    )
-    series_visual_signature_participation_mode = _select_valid_option(
-        ui=ui,
-        label=translate(f"{normalized_label_prefix}.series_visual_signature_participation_mode"),
-        key=_state_key(state_key_prefix, "series_visual_signature_participation_mode"),
-        options=[item.value for item in SeriesVisualSignatureParticipationMode],
-        format_func=lambda value: translate(f"{normalized_label_prefix}.series_visual_signature_participation_mode.option.{value}"),
-    )
-    series_visual_signature_mode = _select_valid_option(
-        ui=ui,
-        label=translate(f"{normalized_label_prefix}.series_visual_signature_mode"),
-        key=_state_key(state_key_prefix, "series_visual_signature_mode"),
-        options=[item.value for item in SeriesVisualSignatureMode],
-        format_func=lambda value: translate(f"{normalized_label_prefix}.series_visual_signature_mode.option.{value}"),
-    )
-    series_visual_signature_consistency_mode = _select_valid_option(
-        ui=ui,
-        label=translate(f"{normalized_label_prefix}.series_visual_signature_consistency_mode"),
-        key=_state_key(state_key_prefix, "series_visual_signature_consistency_mode"),
-        options=[item.value for item in SeriesVisualSignatureConsistencyMode],
-        format_func=lambda value: translate(f"{normalized_label_prefix}.series_visual_signature_consistency_mode.option.{value}"),
-    )
-    ui.caption(translate(f"{normalized_label_prefix}.series_visual_signature_expression_mode_help"))
-    ui.caption(translate(f"{normalized_label_prefix}.series_visual_signature_structure_mode_help"))
-    ui.caption(translate(f"{normalized_label_prefix}.series_visual_signature_participation_mode_help"))
-    ui.caption(translate(f"{normalized_label_prefix}.series_visual_signature_mode_help"))
-    ui.caption(translate(f"{normalized_label_prefix}.series_visual_signature_consistency_mode_help"))
     presentation_payload = _render_presentation_policy_controls(
         ui=ui,
         translate=translate,
@@ -173,16 +124,16 @@ def render_series_visual_signature_controls(
         "series_visual_signature_enabled": True,
         "series_visual_signature_asset_bible_id": asset_bible_id,
         "series_visual_signature_profile_id": series_visual_signature_profile_id,
-        "series_visual_signature_expression_mode": series_visual_signature_expression_mode,
-        "series_visual_signature_structure_mode": series_visual_signature_structure_mode,
-        "series_visual_signature_participation_mode": series_visual_signature_participation_mode,
-        "series_visual_signature_mode": series_visual_signature_mode,
-        "series_visual_signature_consistency_mode": series_visual_signature_consistency_mode,
+        "series_visual_signature_expression_mode": "auto",
+        "series_visual_signature_structure_mode": "auto",
+        "series_visual_signature_participation_mode": "auto",
+        "series_visual_signature_mode": "auto",
+        "series_visual_signature_consistency_mode": "off",
         "series_visual_signature_llm_prompt_assembly_enabled": llm_prompt_assembly_enabled,
         "mandatory_content_bound_anchor": True,
         "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
         "series_visual_signature_output_validation_mode": "required",
-        "series_visual_signature_output_max_attempts": 3,
+        "series_visual_signature_output_max_attempts": 1,
         **presentation_payload,
     }
     ip_profile_world_hint = first_text(selected_profile.get("world_hint"))
@@ -316,7 +267,7 @@ def _render_presentation_policy_controls(
 ) -> dict[str, Any]:
     ui.caption(translate("series_visual_signature.presentation.mandatory_v46_note"))
     return {
-        "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
+        "series_visual_signature_presentation_mode": "auto",
         "series_visual_signature_enforcement": "strict",
         "series_visual_signature_fallback_enabled": False,
         "series_visual_signature_fallback_mode": "disabled",

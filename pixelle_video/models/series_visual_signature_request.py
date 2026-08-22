@@ -105,16 +105,20 @@ class SeriesVisualSignatureControlsContract:
         )
         if enabled:
             _validate_mandatory_anchor_control_values(mapping)
-            presentation_policy = SeriesVisualSignaturePresentationPolicy.from_mapping(
-                {
-                    "series_visual_signature_presentation_mode": (
-                        "content_bound_mandatory_ip"
-                    ),
-                    "series_visual_signature_enforcement": "strict",
-                    "series_visual_signature_fallback_enabled": False,
-                    "series_visual_signature_fallback_mode": "disabled",
-                    "series_visual_signature_min_visibility": "clear",
-                }
+            presentation_policy = (
+                requested_presentation_policy
+                if requested_presentation_policy.presentation_mode.value == "auto"
+                else SeriesVisualSignaturePresentationPolicy.from_mapping(
+                    {
+                        "series_visual_signature_presentation_mode": (
+                            "content_bound_mandatory_ip"
+                        ),
+                        "series_visual_signature_enforcement": "strict",
+                        "series_visual_signature_fallback_enabled": False,
+                        "series_visual_signature_fallback_mode": "disabled",
+                        "series_visual_signature_min_visibility": "clear",
+                    }
+                )
             )
         else:
             presentation_policy = requested_presentation_policy
@@ -151,7 +155,11 @@ class SeriesVisualSignatureControlsContract:
                 else None
             ),
             output_validation_mode="required",
-            output_max_attempts=3,
+            output_max_attempts=(
+                1
+                if mapping.get("series_visual_signature_output_max_attempts") == 1
+                else 3
+            ),
             explicit_fields=explicit_fields,
             source_mapping=mapping,
         )
@@ -246,9 +254,11 @@ def _validate_mandatory_anchor_control_values(mapping: Mapping[str, Any]) -> Non
             "enabled series visual signature requires rendered-output validation"
         )
     attempts = mapping.get("series_visual_signature_output_max_attempts")
-    if attempts is not None and (type(attempts) is not int or attempts != 3):
+    if attempts is not None and (
+        type(attempts) is not int or attempts not in {1, 3}
+    ):
         raise ValueError(
-            "enabled series visual signature requires exactly 3 output attempts"
+            "enabled series visual signature requires 1 or 3 output attempts"
         )
 
 

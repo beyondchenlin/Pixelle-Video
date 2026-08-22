@@ -1,0 +1,895 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
+
+from pixelle_video.models.llm_interaction_trace import (
+    LLMTraceContext,
+    trace_context_with_prompt_template,
+)
+from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+from pixelle_video.models.visual_anchor_two_stage import (
+    CONTENT_STAGE_PROMPT_VERSION,
+    FUSION_STAGE_PROMPT_VERSION,
+    PREFLIGHT_REVIEW_PROMPT_VERSION,
+    ContentStageInput,
+    ContentStageOutput,
+    ContinuousSceneContext,
+    FusionStageInput,
+    FusionStageOutput,
+    IdentityReferenceCondition,
+    PreflightReviewInput,
+    PreflightReviewOutput,
+    VisualAnchorIdentityProfile,
+    VisualAnchorImageGenerationRequest,
+    VisualAnchorTwoStageFrameResult,
+)
+from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
+from pixelle_video.utils.logging_util import emit_stage_event
+
+_CANDIDATE_TERMS = (
+    "候选方案",
+    "未选方案",
+    "方案一",
+    "方案二",
+    "方案三",
+    "或者",
+    "也可以",
+    "另一种形式",
+    "可选择",
+    "同时还可以",
+    "alternatively",
+    "another option",
+    "could also",
+    "or it could",
+    "candidate option",
+    "unselected option",
+    "option one",
+    "option two",
+    "option three",
+)
+_INTERNAL_PLANNING_TERMS = (
+    "视觉锚点",
+    "知识产权角色",
+    "受保护事实",
+    "融合方案",
+    "必须",
+    "禁止",
+    "visual anchor",
+    "protected fact",
+    "fusion option",
+)
+_CONTENT_STAGE_FORBIDDEN_TERMS = (
+    "视觉锚点",
+    "知识产权角色",
+    "系列角色",
+    "品牌形象",
+    "吉祥物",
+    "预留角落",
+    "预留位置",
+    "anchor slot",
+    "reserved corner",
+    "visual anchor",
+    "mascot",
+)
+_CONTENT_STAGE_RESERVATION_TERMS = (
+    "预留角落",
+    "预留位置",
+    "anchor slot",
+    "reserved corner",
+)
+_EMPTY_CONTINUITY_REASONS = frozenset(
+    {
+        "",
+        "无",
+        "无变化",
+        "未变化",
+        "不适用",
+        "无需说明",
+        "none",
+        "n/a",
+        "not applicable",
+    }
+)
+_CONTINUITY_CHANGE_TRIGGER_TERMS = (
+    "镜头",
+    "镜头切换",
+    "镜头变化",
+    "景别变化",
+    "视角变化",
+    "景别",
+    "视角",
+    "时间跳跃",
+    "时间变化",
+    "时间",
+    "地点变化",
+    "地点切换",
+    "地点",
+    "场景变化",
+    "场景",
+    "叙事需要",
+    "叙事要求",
+    "叙事",
+    "剧情",
+    "camera change",
+    "shot change",
+    "time jump",
+    "time change",
+    "location change",
+    "scene change",
+    "narrative need",
+    "camera",
+    "shot",
+    "time",
+    "location",
+    "scene",
+    "narrative",
+    "story",
+)
+
+
+class VisualAnchorTwoStageError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class VisualAnchorTwoStageBatchResult:
+    frames: tuple[VisualAnchorTwoStageFrameResult, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": "visual_anchor_two_stage_batch.v1",
+            "prompt_versions": {
+                "content_stage": CONTENT_STAGE_PROMPT_VERSION,
+                "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
+                "preflight_review": PREFLIGHT_REVIEW_PROMPT_VERSION,
+            },
+            "frames": [frame.model_dump(mode="json") for frame in self.frames],
+        }
+
+
+def identity_profile_from_snapshot(
+    snapshot: VisualSignatureProfileSnapshot,
+    *,
+    identity_reference_resource_id: str | None = None,
+) -> VisualAnchorIdentityProfile:
+    if not isinstance(snapshot, VisualSignatureProfileSnapshot):
+        raise TypeError("snapshot must be a VisualSignatureProfileSnapshot")
+    source_asset_ids = list(snapshot.source_asset_ids)
+    reference_resource_id = str(identity_reference_resource_id or "").strip()
+    if reference_resource_id and reference_resource_id not in source_asset_ids:
+        source_asset_ids.append(reference_resource_id)
+    if not source_asset_ids:
+        raise VisualAnchorTwoStageError("identity profile has no source assets")
+    return VisualAnchorIdentityProfile(
+        profile_id=snapshot.profile_id,
+        display_name=snapshot.display_name,
+        core_identity_traits=list(snapshot.core_identity_traits),
+        supporting_identity_traits=list(snapshot.supporting_identity_traits),
+        forbidden_traits=list(snapshot.forbidden_traits),
+        source_asset_ids=source_asset_ids,
+        identity_content_sha256=snapshot.identity_content_sha256,
+        identity_resource_version=(
+            f"identity:{snapshot.profile_id}:{snapshot.identity_content_sha256}"
+        ),
+    )
+
+
+class VisualAnchorTwoStageService:
+    """Strict three-call visual-anchor prompt pipeline with no fallback path."""
+
+    def __init__(
+        self,
+        *,
+        max_content_attempts: int = 2,
+        max_fusion_attempts: int = 2,
+    ) -> None:
+        if max_content_attempts not in {1, 2}:
+            raise ValueError("max_content_attempts must be one or two")
+        if max_fusion_attempts not in {1, 2}:
+            raise ValueError("max_fusion_attempts must be one or two")
+        self._max_content_attempts = max_content_attempts
+        self._max_fusion_attempts = max_fusion_attempts
+
+    async def run_batch(
+        self,
+        *,
+        llm_service,
+        storyboard_plan: StoryboardPlan,
+        identity_profile: VisualAnchorIdentityProfile,
+        identity_reference_condition: IdentityReferenceCondition,
+        target_visual_style: str,
+        target_image_prompt_language: str,
+        task_id: str,
+        workflow_key: str,
+        workflow_version_sha256: str,
+        random_seeds_by_frame: Mapping[str, int],
+        negative_prompt_supported: bool,
+        trace_context: LLMTraceContext | None = None,
+        trace_recorder=None,
+        stage_callback=None,
+    ) -> VisualAnchorTwoStageBatchResult:
+        if not storyboard_plan.frames:
+            raise VisualAnchorTwoStageError("storyboard plan has no frames")
+        if set(random_seeds_by_frame) != {
+            frame.frame_id for frame in storyboard_plan.frames
+        }:
+            raise VisualAnchorTwoStageError(
+                "random seeds must be registered for every storyboard frame and no others"
+            )
+
+        scene_ids = _continuous_scene_ids(storyboard_plan.frames)
+        decisions_by_scene: dict[str, FusionStageOutput] = {}
+        results: list[VisualAnchorTwoStageFrameResult] = []
+        for index, frame in enumerate(storyboard_plan.frames):
+            frame_result = await self._run_frame(
+                llm_service=llm_service,
+                storyboard_plan=storyboard_plan,
+                frame=frame,
+                frame_index=index,
+                scene_id=scene_ids[index],
+                existing_fusion_decision=decisions_by_scene.get(scene_ids[index]),
+                identity_profile=identity_profile,
+                identity_reference_condition=identity_reference_condition,
+                target_visual_style=target_visual_style,
+                target_image_prompt_language=target_image_prompt_language,
+                task_id=task_id,
+                workflow_key=workflow_key,
+                workflow_version_sha256=workflow_version_sha256,
+                random_seed=random_seeds_by_frame[frame.frame_id],
+                negative_prompt_supported=negative_prompt_supported,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                stage_callback=stage_callback,
+            )
+            decisions_by_scene[scene_ids[index]] = frame_result.fusion_stage_output
+            results.append(frame_result)
+        return VisualAnchorTwoStageBatchResult(frames=tuple(results))
+
+    async def _run_frame(
+        self,
+        *,
+        llm_service,
+        storyboard_plan: StoryboardPlan,
+        frame: StoryboardPlanFrame,
+        frame_index: int,
+        scene_id: str,
+        existing_fusion_decision: FusionStageOutput | None,
+        identity_profile: VisualAnchorIdentityProfile,
+        identity_reference_condition: IdentityReferenceCondition,
+        target_visual_style: str,
+        target_image_prompt_language: str,
+        task_id: str,
+        workflow_key: str,
+        workflow_version_sha256: str,
+        random_seed: int,
+        negative_prompt_supported: bool,
+        trace_context: LLMTraceContext | None,
+        trace_recorder,
+        stage_callback,
+    ) -> VisualAnchorTwoStageFrameResult:
+        previous_summary = (
+            storyboard_plan.frames[frame_index - 1].source_text
+            if frame_index > 0
+            else "首镜，无前一镜"
+        )
+        next_summary = (
+            storyboard_plan.frames[frame_index + 1].source_text
+            if frame_index + 1 < len(storyboard_plan.frames)
+            else "末镜，无后一镜"
+        )
+        content_input = ContentStageInput(
+            frame_id=frame.frame_id,
+            original_storyboard_text=frame.source_text,
+            article_context=storyboard_plan.source_text,
+            previous_frame_summary=previous_summary,
+            next_frame_summary=next_summary,
+            target_visual_style=target_visual_style,
+            target_image_prompt_language=target_image_prompt_language,
+        )
+        _emit_stage(
+            stage_callback,
+            stage="visual_anchor_content_stage",
+            event="start",
+            frame_id=frame.frame_id,
+            status="running",
+        )
+        try:
+            content_output = await self._run_content_stage(
+                llm_service=llm_service,
+                stage_input=content_input,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+            )
+        except Exception:
+            _emit_stage(
+                stage_callback,
+                stage="visual_anchor_content_stage",
+                event="fail",
+                frame_id=frame.frame_id,
+                status="failed",
+            )
+            raise
+        _emit_stage(
+            stage_callback,
+            stage="visual_anchor_content_stage",
+            event="end",
+            frame_id=frame.frame_id,
+            status="completed",
+        )
+
+        continuity_context = ContinuousSceneContext(
+            scene_id=scene_id,
+            previous_frame_summary=previous_summary,
+            next_frame_summary=next_summary,
+            continuity_anchors=list(frame.continuity_anchors),
+            existing_fusion_decision=(
+                _continuous_fusion_decision(existing_fusion_decision)
+                if existing_fusion_decision is not None
+                else None
+            )
+            or "无既有融合决策（当前连续场景首镜或独立镜头）",
+            existing_selected_fusion_method=(
+                existing_fusion_decision.selected_fusion_method
+                if existing_fusion_decision is not None
+                else None
+            ),
+            existing_final_manifestation=(
+                existing_fusion_decision.final_manifestation
+                if existing_fusion_decision is not None
+                else None
+            ),
+            existing_spatial_contact_and_lighting_relation=(
+                existing_fusion_decision.spatial_contact_and_lighting_relation
+                if existing_fusion_decision is not None
+                else None
+            ),
+        )
+
+        review_feedback: list[str] = []
+        last_review: PreflightReviewOutput | None = None
+        fusion_input: FusionStageInput | None = None
+        fusion_output: FusionStageOutput | None = None
+        review_input: PreflightReviewInput | None = None
+        for fusion_attempt in range(1, self._max_fusion_attempts + 1):
+            fusion_input = FusionStageInput(
+                frame_id=frame.frame_id,
+                original_storyboard_text=frame.source_text,
+                content_stage_output=content_output,
+                identity_profile=identity_profile,
+                identity_reference_condition=identity_reference_condition,
+                continuous_scene_context=continuity_context,
+                target_visual_style=target_visual_style,
+                target_image_prompt_language=target_image_prompt_language,
+                review_feedback=review_feedback,
+            )
+            _emit_stage(
+                stage_callback,
+                stage="visual_anchor_fusion_stage",
+                event="start",
+                frame_id=frame.frame_id,
+                status="running",
+                attempt=fusion_attempt,
+            )
+            try:
+                fusion_output = await self._call_structured(
+                    llm_service=llm_service,
+                    prompt_id="visual_anchor_fusion_stage",
+                    stage_input=fusion_input,
+                    response_type=FusionStageOutput,
+                    attempt=fusion_attempt,
+                    frame_id=frame.frame_id,
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                    temperature=0.7,
+                )
+            except Exception:
+                _emit_stage(
+                    stage_callback,
+                    stage="visual_anchor_fusion_stage",
+                    event="fail",
+                    frame_id=frame.frame_id,
+                    status="failed",
+                    attempt=fusion_attempt,
+                )
+                raise
+            try:
+                _validate_fusion_stage_output(fusion_input, fusion_output)
+            except VisualAnchorTwoStageError as exc:
+                _emit_stage(
+                    stage_callback,
+                    stage="visual_anchor_fusion_stage",
+                    event="fail",
+                    frame_id=frame.frame_id,
+                    status="rejected",
+                    attempt=fusion_attempt,
+                )
+                if fusion_attempt >= self._max_fusion_attempts:
+                    raise
+                review_feedback = [
+                    "结构化生成前校验失败："
+                    f"{exc}。请重新执行完整融合并严格满足全部输出合同。"
+                ]
+                continue
+            _emit_stage(
+                stage_callback,
+                stage="visual_anchor_fusion_stage",
+                event="end",
+                frame_id=frame.frame_id,
+                status="completed",
+                attempt=fusion_attempt,
+            )
+            review_input = PreflightReviewInput(
+                frame_id=frame.frame_id,
+                original_storyboard_text=frame.source_text,
+                content_stage_output=content_output,
+                identity_profile=identity_profile,
+                identity_reference_condition=identity_reference_condition,
+                continuous_scene_context=continuity_context,
+                fusion_stage_output=fusion_output,
+                negative_prompt_supported=negative_prompt_supported,
+            )
+            _emit_stage(
+                stage_callback,
+                stage="visual_anchor_preflight_review",
+                event="start",
+                frame_id=frame.frame_id,
+                status="running",
+                attempt=fusion_attempt,
+            )
+            try:
+                last_review = await self._call_structured(
+                    llm_service=llm_service,
+                    prompt_id="visual_anchor_preflight_review",
+                    stage_input=review_input,
+                    response_type=PreflightReviewOutput,
+                    attempt=fusion_attempt,
+                    frame_id=frame.frame_id,
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                    temperature=0.0,
+                )
+            except Exception:
+                _emit_stage(
+                    stage_callback,
+                    stage="visual_anchor_preflight_review",
+                    event="fail",
+                    frame_id=frame.frame_id,
+                    status="failed",
+                    attempt=fusion_attempt,
+                )
+                raise
+            try:
+                review_passed = _preflight_review_passes(review_input, last_review)
+            except Exception:
+                _emit_stage(
+                    stage_callback,
+                    stage="visual_anchor_preflight_review",
+                    event="fail",
+                    frame_id=frame.frame_id,
+                    status="failed",
+                    attempt=fusion_attempt,
+                )
+                raise
+            if review_passed:
+                _emit_stage(
+                    stage_callback,
+                    stage="visual_anchor_preflight_review",
+                    event="end",
+                    frame_id=frame.frame_id,
+                    status="passed",
+                    attempt=fusion_attempt,
+                )
+                generation_request = VisualAnchorImageGenerationRequest(
+                    task_id=task_id,
+                    frame_id=frame.frame_id,
+                    random_seed=random_seed,
+                    final_positive_prompt=last_review.allowed_final_positive_prompt,
+                    final_negative_prompt=last_review.allowed_final_negative_prompt,
+                    identity_profile_id=identity_profile.profile_id,
+                    identity_resource_version=identity_profile.identity_resource_version,
+                    identity_content_sha256=identity_profile.identity_content_sha256,
+                    identity_reference_condition=identity_reference_condition,
+                    content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
+                    fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
+                    preflight_review_prompt_version=PREFLIGHT_REVIEW_PROMPT_VERSION,
+                    preflight_review_decision="pass",
+                    workflow_key=workflow_key,
+                    workflow_version_sha256=workflow_version_sha256,
+                )
+                return VisualAnchorTwoStageFrameResult(
+                    frame_id=frame.frame_id,
+                    content_stage_input=content_input,
+                    content_stage_output=content_output,
+                    fusion_stage_input=fusion_input,
+                    fusion_stage_output=fusion_output,
+                    preflight_review_input=review_input,
+                    preflight_review_output=last_review,
+                    generation_request=generation_request,
+                    fusion_attempt_count=fusion_attempt,
+                )
+            _emit_stage(
+                stage_callback,
+                stage="visual_anchor_preflight_review",
+                event="fail",
+                frame_id=frame.frame_id,
+                status="rejected",
+                attempt=fusion_attempt,
+            )
+            review_feedback = list(last_review.failures)
+
+        evidence = "; ".join(last_review.failures if last_review is not None else [])
+        raise VisualAnchorTwoStageError(
+            f"preflight review rejected frame {frame.frame_id}: {evidence}"
+        )
+
+    async def _run_content_stage(
+        self,
+        *,
+        llm_service,
+        stage_input: ContentStageInput,
+        trace_context: LLMTraceContext | None,
+        trace_recorder,
+    ) -> ContentStageOutput:
+        last_output: ContentStageOutput | None = None
+        for attempt in range(1, self._max_content_attempts + 1):
+            last_output = await self._call_structured(
+                llm_service=llm_service,
+                prompt_id="visual_anchor_content_stage",
+                stage_input=stage_input,
+                response_type=ContentStageOutput,
+                attempt=attempt,
+                frame_id=stage_input.frame_id,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                temperature=0.5,
+            )
+            if last_output.self_check != "pass":
+                continue
+            try:
+                _validate_content_stage_output(stage_input, last_output)
+            except VisualAnchorTwoStageError:
+                if attempt >= self._max_content_attempts:
+                    raise
+                continue
+            return last_output
+        failures = "; ".join(last_output.self_check_failures if last_output else [])
+        raise VisualAnchorTwoStageError(
+            f"content stage rejected frame {stage_input.frame_id}: {failures}"
+        )
+
+    @staticmethod
+    async def _call_structured(
+        *,
+        llm_service,
+        prompt_id: str,
+        stage_input: Any,
+        response_type,
+        attempt: int,
+        frame_id: str,
+        trace_context: LLMTraceContext | None,
+        trace_recorder,
+        temperature: float,
+    ):
+        rendered = _render_stage_prompt(prompt_id, stage_input)
+        call_trace_context = (
+            trace_context_with_prompt_template(
+                trace_context,
+                rendered_prompt=rendered,
+                attempt=attempt,
+                stage=rendered.stage,
+                frame_id=frame_id,
+            )
+            if trace_context is not None
+            else None
+        )
+        response = await llm_service(
+            prompt=rendered.text,
+            response_type=response_type,
+            temperature=temperature,
+            max_tokens=8192,
+            trace_context=call_trace_context,
+            trace_recorder=trace_recorder,
+        )
+        return response if isinstance(response, response_type) else response_type.model_validate(response)
+
+
+def _render_stage_prompt(prompt_id: str, stage_input: Any) -> RenderedPrompt:
+    input_payload = stage_input.model_dump(mode="json")
+    if isinstance(stage_input, ContentStageInput):
+        input_payload.pop("prompt_version", None)
+    rendered = render_prompt_template(
+        prompt_id,
+        {
+            "input_json": json.dumps(
+                input_payload,
+                ensure_ascii=False,
+                indent=2,
+            )
+        },
+    )
+    expected_version = {
+        "visual_anchor_content_stage": CONTENT_STAGE_PROMPT_VERSION,
+        "visual_anchor_fusion_stage": FUSION_STAGE_PROMPT_VERSION,
+        "visual_anchor_preflight_review": PREFLIGHT_REVIEW_PROMPT_VERSION,
+    }[prompt_id]
+    if rendered.version != expected_version:
+        raise VisualAnchorTwoStageError(
+            f"prompt template version mismatch for {prompt_id}"
+        )
+    return rendered
+
+
+def _emit_stage(callback, *, stage: str, event: str, **fields: Any) -> None:
+    emit_stage_event(
+        channel="ai_creation",
+        stage=stage,
+        event=event,
+        message=f"{stage} {event}",
+        callback=callback,
+        **fields,
+    )
+
+
+def _validate_content_stage_output(
+    stage_input: ContentStageInput,
+    output: ContentStageOutput,
+) -> None:
+    if output.self_check != "pass":
+        raise VisualAnchorTwoStageError("content stage self-check did not pass")
+    source = _normalized_text(
+        f"{stage_input.original_storyboard_text}\n{stage_input.article_context}"
+    )
+    normalized_source = source.casefold()
+    for fact in output.protected_facts:
+        if _normalized_text(fact.source_evidence) not in source:
+            raise VisualAnchorTwoStageError(
+                f"protected fact {fact.fact_id} has no exact source evidence"
+            )
+
+    content_payload = _normalized_text(
+        "\n".join(
+            [
+                output.core_claim,
+                output.pure_content_prompt,
+                *output.adjustable_non_core_content,
+            ]
+        )
+    ).casefold()
+    for term in _CONTENT_STAGE_FORBIDDEN_TERMS:
+        normalized = _normalized_text(term).casefold()
+        is_unconditionally_forbidden = any(
+            _contains_term(normalized, reservation_term)
+            for reservation_term in _CONTENT_STAGE_RESERVATION_TERMS
+        )
+        if (
+            normalized
+            and _contains_term(content_payload, normalized)
+            and (
+                is_unconditionally_forbidden
+                or not _contains_term(normalized_source, normalized)
+            )
+        ):
+            raise VisualAnchorTwoStageError(
+                "content stage leaked or reserved visual-anchor identity information"
+            )
+
+
+def _validate_fusion_stage_output(
+    stage_input: FusionStageInput,
+    output: FusionStageOutput,
+) -> None:
+    if output.self_check != "pass":
+        raise VisualAnchorTwoStageError("fusion self-check did not pass")
+    expected_fact_ids = {
+        fact.fact_id for fact in stage_input.content_stage_output.protected_facts
+    }
+    actual_fact_id_list = [check.fact_id for check in output.protected_fact_checks]
+    actual_fact_ids = set(actual_fact_id_list)
+    if (
+        actual_fact_ids != expected_fact_ids
+        or len(actual_fact_id_list) != len(expected_fact_ids)
+    ):
+        raise VisualAnchorTwoStageError(
+            "fusion protected-fact checks do not exactly cover the content-stage contract"
+        )
+    if any(not check.preserved for check in output.protected_fact_checks):
+        raise VisualAnchorTwoStageError("fusion changed a protected fact")
+    existing_method = (
+        stage_input.continuous_scene_context.existing_selected_fusion_method
+    )
+    existing_manifestation = (
+        stage_input.continuous_scene_context.existing_final_manifestation
+    )
+    existing_spatial_relation = (
+        stage_input.continuous_scene_context.existing_spatial_contact_and_lighting_relation
+    )
+    has_existing_decision = existing_method is not None
+    change_reason = _normalized_text(output.continuity_change_reason).casefold()
+    if not output.inherited_existing_fusion_decision and (
+        has_existing_decision
+        and change_reason in _EMPTY_CONTINUITY_REASONS
+    ):
+        raise VisualAnchorTwoStageError(
+            "continuous-scene fusion changed without an explicit scene-change reason"
+        )
+    if (
+        not output.inherited_existing_fusion_decision
+        and has_existing_decision
+        and not any(
+            _contains_term(change_reason, term)
+            for term in _CONTINUITY_CHANGE_TRIGGER_TERMS
+        )
+    ):
+        raise VisualAnchorTwoStageError(
+            "continuous-scene fusion change reason must identify a camera, time, location, scene, or narrative trigger"
+        )
+    if (
+        not has_existing_decision
+        and output.inherited_existing_fusion_decision
+    ):
+        raise VisualAnchorTwoStageError(
+            "the first frame of a scene cannot claim to inherit a fusion decision"
+        )
+    if output.inherited_existing_fusion_decision and (
+        output.selected_fusion_method != existing_method
+        or output.final_manifestation != existing_manifestation
+        or output.spatial_contact_and_lighting_relation != existing_spatial_relation
+    ):
+        raise VisualAnchorTwoStageError(
+            "an inherited continuous-scene decision must preserve its method, manifestation, and basic spatial relation exactly"
+        )
+    decision_boundary = (
+        f"{output.selected_fusion_method}\n{output.final_manifestation}"
+    ).casefold()
+    for term in _CANDIDATE_TERMS:
+        if _contains_term(decision_boundary, term):
+            raise VisualAnchorTwoStageError(
+                "fusion decision contains more than one candidate method"
+            )
+    positive = output.final_positive_prompt.casefold()
+    for term in (*_CANDIDATE_TERMS, *_INTERNAL_PLANNING_TERMS):
+        if _contains_term(positive, term):
+            raise VisualAnchorTwoStageError(
+                "final positive prompt contains candidate or internal planning language"
+            )
+
+
+def _preflight_review_passes(
+    review_input: PreflightReviewInput,
+    output: PreflightReviewOutput,
+) -> bool:
+    if output.decision != "pass":
+        return False
+    fusion_output = review_input.fusion_stage_output
+    if output.allowed_final_positive_prompt != fusion_output.final_positive_prompt:
+        raise VisualAnchorTwoStageError(
+            "preflight reviewer modified the final positive prompt"
+        )
+    expected_negative = (
+        fusion_output.final_negative_prompt
+        if review_input.negative_prompt_supported
+        else ""
+    )
+    if output.allowed_final_negative_prompt != expected_negative:
+        raise VisualAnchorTwoStageError(
+            "preflight reviewer modified or incorrectly allowed the negative prompt"
+        )
+    return True
+
+
+def _continuous_scene_ids(
+    frames: Sequence[StoryboardPlanFrame],
+) -> tuple[str, ...]:
+    result: list[str] = []
+    previous_anchors: frozenset[str] = frozenset()
+    current_derived_scene = ""
+    for frame in frames:
+        explicit = str(frame.metadata.get("continuous_scene_id") or "").strip()
+        anchors = frozenset(
+            _normalized_text(anchor).casefold()
+            for anchor in frame.continuity_anchors
+            if _normalized_text(anchor)
+        )
+        if explicit:
+            scene_id = explicit
+        elif anchors and previous_anchors and anchors.intersection(previous_anchors):
+            scene_id = current_derived_scene
+        elif anchors:
+            scene_id = f"continuity:{frame.frame_id}"
+        else:
+            scene_id = f"independent:{frame.frame_id}"
+        result.append(scene_id)
+        current_derived_scene = scene_id
+        previous_anchors = anchors
+    return tuple(result)
+
+
+def _continuous_fusion_decision(output: FusionStageOutput) -> str:
+    return (
+        f"所选融合方式：{output.selected_fusion_method}；"
+        f"最终表现形态：{output.final_manifestation}；"
+        f"空间、接触与光照关系：{output.spatial_contact_and_lighting_relation}"
+    )
+
+
+def _normalized_text(value: object) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _contains_term(value: str, term: str) -> bool:
+    if term.isascii() and any(character.isalnum() for character in term):
+        return re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])",
+            value,
+            flags=re.IGNORECASE,
+        ) is not None
+    return term.casefold() in value.casefold()
+
+
+def resolve_registered_random_seeds(
+    *,
+    storyboard_plan: StoryboardPlan,
+    task_id: str,
+    media_seed: object = None,
+    media_seed_by_frame: object = None,
+) -> dict[str, int]:
+    frame_ids = tuple(frame.frame_id for frame in storyboard_plan.frames)
+    if isinstance(media_seed_by_frame, Mapping):
+        supplied = {str(key): value for key, value in media_seed_by_frame.items()}
+        if set(supplied) != set(frame_ids):
+            raise VisualAnchorTwoStageError(
+                "media_seed_by_frame must contain every frame id and no unknown frame ids"
+            )
+        return {
+            frame_id: _seed_value(supplied[frame_id], f"seed for {frame_id}")
+            for frame_id in frame_ids
+        }
+    if media_seed_by_frame is not None:
+        raise VisualAnchorTwoStageError("media_seed_by_frame must be a mapping")
+    if media_seed is not None:
+        seed = _seed_value(media_seed, "media_seed")
+        return {frame_id: seed for frame_id in frame_ids}
+    normalized_task_id = _normalized_text(task_id)
+    if not normalized_task_id:
+        raise VisualAnchorTwoStageError("task id is required before registering seeds")
+    return {
+        frame_id: max(
+            1,
+            int.from_bytes(
+                hashlib.sha256(
+                    f"{normalized_task_id}:{frame_id}".encode("utf-8")
+                ).digest()[:8],
+                "big",
+            ),
+        )
+        for frame_id in frame_ids
+    }
+
+
+def _seed_value(value: object, field_name: str) -> int:
+    if type(value) is int:
+        seed = value
+    elif isinstance(value, str) and re.fullmatch(r"[1-9][0-9]*", value.strip()):
+        seed = int(value.strip())
+    else:
+        raise VisualAnchorTwoStageError(f"{field_name} must be a positive integer")
+    if seed < 1 or seed > (2**64 - 1):
+        raise VisualAnchorTwoStageError(
+            f"{field_name} must be between 1 and 2^64-1"
+        )
+    return seed
+
+
+__all__ = [
+    "VisualAnchorTwoStageBatchResult",
+    "VisualAnchorTwoStageError",
+    "VisualAnchorTwoStageService",
+    "identity_profile_from_snapshot",
+    "resolve_registered_random_seeds",
+]

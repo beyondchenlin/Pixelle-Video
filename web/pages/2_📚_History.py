@@ -15,8 +15,11 @@ History Page - View generation history and manage tasks
 """
 # ruff: noqa: E402
 
+import hashlib
+import json
 import os
 import sys
+from collections.abc import Mapping
 from datetime import datetime
 from html import escape
 from pathlib import Path
@@ -28,9 +31,21 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 import streamlit as st
+from PIL import Image
 
 from pixelle_video.config import config_manager
 from pixelle_video.platform_context import CONFIGURED_API_BASE_URL
+from pixelle_video.services.visual_anchor_generation_binding import (
+    visual_anchor_first_request_binding_artifact_relative_path,
+)
+from pixelle_video.services.visual_anchor_manual_acceptance import (
+    VisualAnchorManualAcceptanceChecks,
+    VisualAnchorManualAcceptanceRecord,
+    manual_acceptance_artifact_relative_path,
+    record_visual_anchor_manual_acceptance,
+)
+from pixelle_video.utils.os_util import get_task_path
+from pixelle_video.utils.secret_redaction import redact_credentials_in_text
 from web.components.header import render_header
 from web.components.style_config import resolve_storyboard_preset_label
 from web.i18n import tr
@@ -332,6 +347,522 @@ def summarize_storyboard_planning_snapshot(snapshot: dict) -> list[tuple[str, st
             continue
         normalized.append((label_key, str(value)))
     return normalized
+
+
+def _mapping(value: object) -> dict:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _safe_evidence_runtime_config(value: object) -> dict:
+    source = _mapping(value)
+    allowed_keys = (
+        "llm_model",
+        "llm_base_url",
+        "comfyui_url",
+        "runninghub_enabled",
+        "render_backend",
+        "render_backend_requested",
+        "render_backend_effective",
+    )
+    return {
+        key: redact_credentials_in_text(source[key])
+        for key in allowed_keys
+        if key in source and source[key] is not None
+    }
+
+
+def _read_task_json_artifact(task_id: str, relative_path: object) -> dict:
+    text = str(relative_path or "").strip()
+    if not text:
+        return {}
+    task_root = Path(get_task_path(task_id)).resolve()
+    artifact_path = (task_root / text).resolve()
+    try:
+        artifact_path.relative_to(task_root)
+    except ValueError:
+        return {}
+    if not artifact_path.is_file() or artifact_path.suffix.casefold() != ".json":
+        return {}
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    return _mapping(payload)
+
+
+def _task_artifact_file(task_id: str, relative_path: object) -> Path | None:
+    text = str(relative_path or "").strip()
+    if not text:
+        return None
+    task_root = Path(get_task_path(task_id)).resolve()
+    artifact_path = (task_root / text).resolve()
+    try:
+        artifact_path.relative_to(task_root)
+    except ValueError:
+        return None
+    if not artifact_path.is_file() or artifact_path.is_symlink():
+        return None
+    return artifact_path
+
+
+def _captured_visual_anchor_output(
+    task_id: str,
+    actual_execution: Mapping[str, object],
+) -> Path | None:
+    direct = _task_artifact_file(
+        task_id,
+        actual_execution.get("generated_output_artifact"),
+    )
+    if direct is not None:
+        return direct
+    candidates = actual_execution.get("captured_first_output_artifacts")
+    if not isinstance(candidates, list):
+        return None
+    for candidate in candidates:
+        path = _task_artifact_file(task_id, candidate)
+        if path is not None:
+            return path
+    return None
+
+
+def _visual_anchor_generated_image(frame: object) -> Path | None:
+    image_path = str(getattr(frame, "image_path", "") or "").strip()
+    if not image_path:
+        return None
+    path = Path(image_path).resolve()
+    return path if path.is_file() else None
+
+
+def _image_dimensions(path: Path | None) -> str:
+    if path is None:
+        return "N/A"
+    with Image.open(path) as image:
+        width, height = image.size
+    return f"{width}×{height}"
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _render_visual_anchor_manual_acceptance_form(
+    *,
+    task_id: str,
+    task_title: str,
+    frame_id: str,
+    random_seed: object,
+    generated_image: Path | None,
+    preflight_output: Mapping[str, object],
+    generation_request: Mapping[str, object],
+    reference_condition: Mapping[str, object],
+    binding_audit: Mapping[str, object],
+    audit: Mapping[str, object],
+    manual_acceptance: Mapping[str, object],
+) -> None:
+    if manual_acceptance:
+        st.success("该原图的人工验收记录已锁定；再次判断必须创建新任务。")
+        return
+    if generated_image is None:
+        st.error("缺少未经修改的首次生成原图，不能提交人工验收。")
+        return
+
+    audit_checks = _mapping(audit.get("checks"))
+    actual_execution = _mapping(binding_audit.get("actual_execution"))
+    deterministic_checks = {
+        "唯一方案已下发": (
+            generation_request.get("target_visual_anchor_instance_count") == 1
+            and generation_request.get("generation_attempt") == 1
+        ),
+        "真实参考已进入首次生成": (
+            binding_audit.get("status") == "passed"
+            and actual_execution.get("uploaded_reference_sha256")
+            == reference_condition.get("asset_sha256")
+        ),
+        "生成前审查与生成后链路审计完整": (
+            preflight_output.get("decision") == "pass"
+            and audit.get("status") == "passed"
+        ),
+        "原图与本地首次生成输出一致": (
+            audit_checks.get("downloaded_image_matches_first_comfyui_output") is True
+        ),
+    }
+    st.markdown("**逐图片人工视觉验收**")
+    st.json(deterministic_checks, expanded=False)
+    if not all(deterministic_checks.values()):
+        st.error("确定性链路门禁未全部通过，不能提交人工视觉通过结论。")
+        return
+
+    visual_fields = (
+        ("protected_facts_visible", "文案核心事实完整可见"),
+        ("identity_present", "目标身份真实存在"),
+        ("identity_instance_count_one", "目标身份只有一个实例"),
+        ("identity_traits_recognizable", "核心身份特征可识别"),
+        (
+            "perspective_lighting_material_natural",
+            "透视、比例、光照和材质符合场景逻辑",
+        ),
+        (
+            "support_contact_occlusion_natural",
+            "支撑、接触和遮挡关系自然",
+        ),
+        (
+            "no_sticker_floating_or_penetration",
+            "没有贴图感、漂浮、穿模或后贴效果",
+        ),
+        (
+            "size_and_position_fit_current_composition",
+            "大小和位置适合当前构图，未套固定比例或位置",
+        ),
+        (
+            "continuous_scene_consistency",
+            "连续场景无无理由形态跳变；独立画面核对为不适用通过",
+        ),
+    )
+    form_key = f"visual_anchor_acceptance_{task_id}_{frame_id}"
+    with st.form(form_key, clear_on_submit=False):
+        acceptance_batch_id = st.text_input(
+            "验收批次编号",
+            value=task_title if task_title != "N/A" else task_id,
+        )
+        acceptance_round = st.number_input(
+            "验收轮次",
+            min_value=1,
+            step=1,
+            value=1,
+        )
+        sample_id = st.text_input(
+            "样本编号",
+            value=f"{task_id}-{frame_id}-{random_seed}",
+        )
+        reviewer = st.text_input("验收人", value="本地人工验收")
+        visual_values = {
+            field_name: st.checkbox(label, value=False, key=f"{form_key}_{field_name}")
+            for field_name, label in visual_fields
+        }
+        submitted = st.form_submit_button("锁定本张原图验收结论")
+    if not submitted:
+        return
+
+    task_root = Path(get_task_path(task_id)).resolve()
+    rendered_audit_path = (
+        task_root / str(audit.get("artifact_relative_path") or "")
+    ).resolve()
+    binding_path = (
+        task_root / str(audit.get("first_request_binding_artifact") or "")
+    ).resolve()
+    failed_labels = [
+        label
+        for field_name, label in visual_fields
+        if not visual_values[field_name]
+    ]
+    checks = VisualAnchorManualAcceptanceChecks(
+        **visual_values,
+        unique_final_plan_submitted=deterministic_checks["唯一方案已下发"],
+        first_generation_reference_bound=deterministic_checks[
+            "真实参考已进入首次生成"
+        ],
+        preflight_and_post_audit_complete=deterministic_checks[
+            "生成前审查与生成后链路审计完整"
+        ],
+        original_first_generation_unmodified=deterministic_checks[
+            "原图与本地首次生成输出一致"
+        ],
+    )
+    try:
+        seed = int(random_seed)
+        record = VisualAnchorManualAcceptanceRecord(
+            task_id=task_id,
+            acceptance_batch_id=acceptance_batch_id,
+            acceptance_round=int(acceptance_round),
+            sample_id=sample_id,
+            frame_id=frame_id,
+            random_seed=seed,
+            image_sha256=_file_sha256(generated_image),
+            rendered_audit_sha256=_file_sha256(rendered_audit_path),
+            first_request_binding_sha256=_file_sha256(binding_path),
+            status="passed" if checks.all_passed else "failed",
+            checks=checks,
+            failure_reasons=[f"{label}未通过" for label in failed_labels],
+            reviewer=reviewer,
+        )
+        record_visual_anchor_manual_acceptance(
+            task_dir=task_root,
+            image_path=generated_image,
+            rendered_audit_path=rendered_audit_path,
+            first_request_binding_path=binding_path,
+            record=record,
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        st.error(f"人工验收记录保存失败：{exc}")
+        return
+    st.success("人工验收记录已保存并锁定。")
+    st.rerun()
+
+
+def _render_prompt_evidence(label: str, value: object) -> None:
+    st.markdown(f"**{label}**")
+    st.code(str(value or "N/A"), language=None, wrap_lines=True)
+
+
+def render_visual_anchor_two_stage_evidence(
+    *,
+    task_id: str,
+    metadata: dict,
+    storyboard: object,
+    planning_snapshot: dict,
+) -> None:
+    """Render screenshot-ready evidence from persisted two-stage task records."""
+
+    batch = _mapping(planning_snapshot.get("visual_anchor_two_stage"))
+    raw_frames = batch.get("frames")
+    if not isinstance(raw_frames, list) or not raw_frames:
+        return
+
+    workflow = _mapping(
+        planning_snapshot.get("identity_reference_workflow_inspection")
+    )
+    audits = _mapping(
+        planning_snapshot.get("visual_anchor_rendered_output_audit_by_frame")
+    )
+    runtime_frames = {
+        str(getattr(frame, "frame_id", "") or ""): frame
+        for frame in list(getattr(storyboard, "frames", []) or [])
+    }
+    input_params = _mapping(metadata.get("input"))
+    task_title = str(input_params.get("title") or "N/A")
+    created_at = str(metadata.get("created_at") or "N/A")
+    completed_at = str(metadata.get("completed_at") or "N/A")
+    prompt_versions = _mapping(batch.get("prompt_versions"))
+    model_files = workflow.get("model_files")
+    model_label = "\n".join(str(item) for item in model_files or []) or "N/A"
+
+    st.divider()
+    st.markdown("## 视觉锚点二次融合验收证据")
+    st.caption(
+        f"任务编号：{task_id} ｜ 验收批次编号：{task_title} ｜ "
+        f"开始时间：{created_at} ｜ 完成时间：{completed_at}"
+    )
+    st.caption(
+        "提示词版本："
+        f"第一阶段 {prompt_versions.get('content_stage', 'N/A')} ｜ "
+        f"第二阶段 {prompt_versions.get('fusion_stage', 'N/A')} ｜ "
+        f"生成前审查 {prompt_versions.get('preflight_review', 'N/A')}"
+    )
+
+    for frame_number, raw_frame in enumerate(raw_frames, start=1):
+        if not isinstance(raw_frame, dict):
+            continue
+        frame_record = dict(raw_frame)
+        frame_id = str(frame_record.get("frame_id") or "")
+        content_input = _mapping(frame_record.get("content_stage_input"))
+        content_output = _mapping(frame_record.get("content_stage_output"))
+        fusion_input = _mapping(frame_record.get("fusion_stage_input"))
+        fusion_output = _mapping(frame_record.get("fusion_stage_output"))
+        preflight_output = _mapping(frame_record.get("preflight_review_output"))
+        generation_request = _mapping(frame_record.get("generation_request"))
+        identity_profile = _mapping(fusion_input.get("identity_profile"))
+        reference_condition = _mapping(
+            generation_request.get("identity_reference_condition")
+        )
+        audit = _mapping(audits.get(frame_id))
+        binding_artifact = (
+            audit.get("first_request_binding_artifact")
+            or visual_anchor_first_request_binding_artifact_relative_path(
+                frame_id
+            )
+        )
+        binding_audit = _read_task_json_artifact(task_id, binding_artifact)
+        actual_execution = _mapping(binding_audit.get("actual_execution"))
+        actual_model_files = actual_execution.get("model_files")
+        actual_model_label = (
+            "\n".join(str(item) for item in actual_model_files)
+            if isinstance(actual_model_files, list) and actual_model_files
+            else model_label
+        )
+        manual_acceptance = _read_task_json_artifact(
+            task_id,
+            manual_acceptance_artifact_relative_path(frame_id),
+        )
+        runtime_frame = runtime_frames.get(frame_id)
+        generated_image = (
+            _visual_anchor_generated_image(runtime_frame)
+            or _captured_visual_anchor_output(task_id, actual_execution)
+        )
+        audit_status = str(
+            audit.get("status")
+            or (
+                f"首次请求绑定{binding_audit.get('status')}"
+                if binding_audit.get("status")
+                else "未记录"
+            )
+        )
+        visual_acceptance_status = str(
+            manual_acceptance.get("status")
+            or audit.get("visual_acceptance_status")
+            or "未记录"
+        )
+        preflight_decision = str(preflight_output.get("decision") or "未记录")
+
+        with st.expander(
+            f"分镜 {frame_number} ｜ {frame_id} ｜ 随机种子 "
+            f"{generation_request.get('random_seed', 'N/A')} ｜ "
+            f"生成前审查 {preflight_decision} ｜ 生成后链路审计 {audit_status} ｜ "
+            f"人工图像验收 {visual_acceptance_status}",
+            expanded=False,
+        ):
+            image_column, evidence_column = st.columns([1, 1.35])
+            with image_column:
+                st.markdown("**未经修改的首次生成原图**")
+                if generated_image is None:
+                    st.error("首次生成原图不存在")
+                else:
+                    st.image(str(generated_image), width="stretch")
+                st.caption(
+                    f"分辨率：{_image_dimensions(generated_image)} ｜ "
+                    f"图片校验值："
+                    f"{audit.get('image_sha256') or (_file_sha256(generated_image) if generated_image else 'N/A')}"
+                )
+                st.markdown(
+                    f"**任务编号：** {task_id}  \n"
+                    f"**分镜编号：** {frame_id}  \n"
+                    f"**随机种子：** {generation_request.get('random_seed', 'N/A')}  \n"
+                    f"**生成次数：** {generation_request.get('generation_attempt', 'N/A')}  \n"
+                    f"**目标锚点实例数：** "
+                    f"{generation_request.get('target_visual_anchor_instance_count', 'N/A')}"
+                )
+                if manual_acceptance:
+                    st.markdown(
+                        f"**验收批次编号：** "
+                        f"{manual_acceptance.get('acceptance_batch_id', 'N/A')}  \n"
+                        f"**验收轮次：** "
+                        f"{manual_acceptance.get('acceptance_round', 'N/A')}  \n"
+                        f"**样本编号：** "
+                        f"{manual_acceptance.get('sample_id', 'N/A')}  \n"
+                        f"**验收记录时间：** "
+                        f"{manual_acceptance.get('recorded_at_utc', 'N/A')}"
+                    )
+
+            with evidence_column:
+                _render_prompt_evidence(
+                    "原始分镜文案",
+                    content_input.get("original_storyboard_text"),
+                )
+                _render_prompt_evidence(
+                    "第一阶段纯内容画面提示词",
+                    content_output.get("pure_content_prompt"),
+                )
+                st.markdown("**受保护事实**")
+                st.json(content_output.get("protected_facts") or [], expanded=True)
+                st.markdown("**可调整的非核心内容**")
+                st.json(
+                    content_output.get("adjustable_non_core_content") or [],
+                    expanded=True,
+                )
+                _render_prompt_evidence(
+                    "第二阶段选中的唯一融合方式",
+                    fusion_output.get("selected_fusion_method"),
+                )
+                st.markdown("**第二阶段非核心重构摘要**")
+                st.json(
+                    fusion_output.get("non_core_reconstruction_summary") or [],
+                    expanded=True,
+                )
+                _render_prompt_evidence(
+                    "视觉锚点最终表现形态",
+                    fusion_output.get("final_manifestation"),
+                )
+                _render_prompt_evidence(
+                    "最终生图正向提示词",
+                    generation_request.get("final_positive_prompt"),
+                )
+                _render_prompt_evidence(
+                    "最终生图反向提示词",
+                    generation_request.get("final_negative_prompt"),
+                )
+
+            st.markdown("**身份档案与真实参考条件**")
+            identity_column, workflow_column, review_column = st.columns(3)
+            with identity_column:
+                st.markdown(
+                    f"**身份档案：** {identity_profile.get('display_name', 'N/A')}  \n"
+                    f"**档案编号：** {identity_profile.get('profile_id', 'N/A')}  \n"
+                    f"**身份资源版本：** "
+                    f"{generation_request.get('identity_resource_version', 'N/A')}  \n"
+                    f"**参考资源标识：** "
+                    f"{', '.join(identity_profile.get('source_asset_ids') or []) or 'N/A'}  \n"
+                    f"**参考图校验值：** "
+                    f"{reference_condition.get('asset_sha256', 'N/A')}"
+                )
+            with workflow_column:
+                st.markdown(
+                    f"**图片模型文件：**  \n{actual_model_label}  \n"
+                    f"**工作流：** {generation_request.get('workflow_key', 'N/A')}  \n"
+                    f"**工作流路径：** "
+                    f"{workflow.get('workflow_relative_path', 'N/A')}  \n"
+                    f"**工作流版本：** "
+                    f"{generation_request.get('workflow_version_sha256', 'N/A')}  \n"
+                    f"**实际分辨率：** "
+                    f"{actual_execution.get('width', 'N/A')}×"
+                    f"{actual_execution.get('height', 'N/A')}  \n"
+                    f"**实际配置版本：** "
+                    f"{actual_execution.get('execution_config_sha256', 'N/A')}  \n"
+                    f"**本地生成任务编号：** "
+                    f"{actual_execution.get('comfyui_prompt_id', 'N/A')}"
+                )
+            with review_column:
+                st.markdown(
+                    f"**实际参考输入：** "
+                    f"{reference_condition.get('workflow_parameter', 'N/A')} → "
+                    f"{reference_condition.get('workflow_node_input_field', 'N/A')}  \n"
+                    f"**输入节点：** {reference_condition.get('workflow_node_id', 'N/A')} "
+                    f"({reference_condition.get('workflow_node_class_type', 'N/A')})  \n"
+                    f"**条件节点：** {reference_condition.get('conditioning_node_id', 'N/A')} "
+                    f"({reference_condition.get('conditioning_node_class_type', 'N/A')})  \n"
+                    f"**采样节点：** {reference_condition.get('sampler_node_id', 'N/A')} "
+                    f"({reference_condition.get('sampler_node_class_type', 'N/A')})  \n"
+                    f"**绑定路径：** "
+                    f"{' → '.join(reference_condition.get('binding_path_node_ids') or []) or 'N/A'}"
+                )
+
+            st.markdown("**生成前审查与生成后审计**")
+            st.json(
+                {
+                    "生成前审查": preflight_output,
+                    "首次生成参考绑定证据": binding_audit,
+                    "生成后首次请求完整性审计": audit,
+                    "真实图片人工验收": (
+                        manual_acceptance
+                        if manual_acceptance
+                        else {
+                            "status": visual_acceptance_status,
+                            "reason": "尚未提交逐图片人工验收记录",
+                        }
+                    ),
+                },
+                expanded=True,
+            )
+            _render_visual_anchor_manual_acceptance_form(
+                task_id=task_id,
+                task_title=task_title,
+                frame_id=frame_id,
+                random_seed=generation_request.get("random_seed"),
+                generated_image=generated_image,
+                preflight_output=preflight_output,
+                generation_request=generation_request,
+                reference_condition=reference_condition,
+                binding_audit=binding_audit,
+                audit=audit,
+                manual_acceptance=manual_acceptance,
+            )
+            st.markdown("**任务运行配置（已排除凭证）**")
+            st.json(
+                _safe_evidence_runtime_config(metadata.get("config")),
+                expanded=True,
+            )
 
 
 def render_sidebar_controls(pixelle_video):
@@ -695,6 +1226,13 @@ def render_task_detail_modal(task_id: str, pixelle_video):
             )
         else:
             st.warning("Video file not found")
+
+    render_visual_anchor_two_stage_evidence(
+        task_id=task_id,
+        metadata=metadata,
+        storyboard=storyboard,
+        planning_snapshot=planning_snapshot,
+    )
     
     st.divider()
     
