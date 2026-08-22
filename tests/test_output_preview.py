@@ -7,9 +7,11 @@ import pytest
 from PIL import Image
 
 from pixelle_video.models.progress import ProgressI18nMessage
+from pixelle_video.models.series_visual_signature import SeriesVisualSignatureRequest
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.video_generation_contract import (
     ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
+    normalize_standard_video_generation_params,
 )
 from web.components import output_preview
 from web.components.prompt_generation_performance import (
@@ -297,6 +299,8 @@ def test_build_single_generation_request_includes_series_visual_signature_contro
             "series_visual_signature_expression_mode": "explanatory_diagram",
             "series_visual_signature_structure_mode": "workflow",
             "series_visual_signature_participation_mode": "guide_explainer",
+            "series_visual_signature_mode": "supporting_integration",
+            "series_visual_signature_consistency_mode": "supporting_character",
         },
         progress_callback=_progress,
         session_state={},
@@ -305,9 +309,29 @@ def test_build_single_generation_request_includes_series_visual_signature_contro
     assert request["series_visual_signature_enabled"] is True
     assert request["series_visual_signature_asset_bible_id"] == "bible_demo"
     assert request["series_visual_signature_profile_id"] == "ip_main"
-    assert request["series_visual_signature_expression_mode"] == "explanatory_diagram"
-    assert request["series_visual_signature_structure_mode"] == "workflow"
-    assert request["series_visual_signature_participation_mode"] == "guide_explainer"
+    assert request["series_visual_signature_expression_mode"] == "auto"
+    assert request["series_visual_signature_structure_mode"] == "auto"
+    assert request["series_visual_signature_participation_mode"] == "auto"
+    assert request["series_visual_signature_mode"] == "auto"
+    assert request["series_visual_signature_consistency_mode"] == "off"
+    assert request["series_visual_signature_presentation_mode"] == "auto"
+    assert request["series_visual_signature_enforcement"] == "strict"
+    assert request["series_visual_signature_fallback_enabled"] is False
+    assert request["series_visual_signature_fallback_mode"] == "disabled"
+    assert request["series_visual_signature_min_visibility"] == "clear"
+    assert request["series_visual_signature_llm_prompt_assembly_enabled"] is False
+    assert request["mandatory_content_bound_anchor"] is True
+    assert request["series_visual_signature_contract_version"] == (
+        "final_visual_prompt_contract.v4_6"
+    )
+    assert request["series_visual_signature_output_validation_mode"] == "required"
+    assert request["series_visual_signature_output_max_attempts"] == 1
+
+    normalized = normalize_standard_video_generation_params(request)
+    visual_signature_request = SeriesVisualSignatureRequest.from_mapping(normalized)
+
+    assert visual_signature_request.strategy.signature_mode.value == "auto"
+    assert visual_signature_request.presentation_policy.presentation_mode.value == "auto"
 
 
 def test_build_single_generation_request_includes_generation_world_hint():
