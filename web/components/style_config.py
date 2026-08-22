@@ -78,6 +78,7 @@ from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATE
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
 from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
 from pixelle_video.utils import template_util as _template_util
+from pixelle_video.utils.bool_parsing import coerce_bool
 from pixelle_video.utils.os_util import get_runtime_path
 from pixelle_video.utils.prompt_prefix_generation import (
     PromptPrefixGenerationResult,
@@ -2826,7 +2827,11 @@ def _persist_web_reference_image_upload(
     return str(target_path.resolve())
 
 
-def render_reference_image_controls() -> dict[str, Any]:
+def render_reference_image_controls(
+    *,
+    required_for_visual_anchor: bool = False,
+    visual_anchor_identity_key: str | None = None,
+) -> dict[str, Any]:
     config = _reference_image_config_mapping()
     if not _reference_image_web_ui_enabled(config):
         return {}
@@ -2836,27 +2841,49 @@ def render_reference_image_controls() -> dict[str, Any]:
     analysis_modes = ("off", "auto", "required")
     injection_modes = ("off", "auto", "required")
     merge_modes = ("supplement", "override", "strict")
+    widget_suffix = (
+        "_"
+        + hashlib.sha256(
+            str(visual_anchor_identity_key or "visual-anchor").encode("utf-8")
+        ).hexdigest()[:12]
+        if required_for_visual_anchor
+        else ""
+    )
+    enabled_key = f"reference_image_web_ui_enabled{widget_suffix}"
+    upload_key = f"reference_image_web_upload{widget_suffix}"
+    analysis_key = f"reference_image_analysis_mode{widget_suffix}"
+    injection_key = f"reference_image_workflow_injection_mode{widget_suffix}"
+    merge_key = f"reference_image_profile_merge_mode{widget_suffix}"
 
     with render_middle_column_collapsible_section(
         tr("section.reference_image"),
-        expanded=False,
+        expanded=required_for_visual_anchor,
     ):
         if not allowed_extensions:
             st.error(tr("reference_image.web_ui.no_supported_extensions"))
             return {}
 
-        enabled = st.toggle(
+        if required_for_visual_anchor:
+            st.info(tr("reference_image.web_ui.visual_anchor_required"))
+            st.session_state[enabled_key] = True
+        enabled_toggle = st.toggle(
             tr("reference_image.web_ui.enabled"),
-            value=False,
-            key="reference_image_web_ui_enabled",
+            value=required_for_visual_anchor,
+            disabled=required_for_visual_anchor,
+            key=enabled_key,
         )
+        enabled = required_for_visual_anchor or bool(enabled_toggle)
         uploaded_file = st.file_uploader(
             tr("reference_image.web_ui.upload"),
             type=[ext.lstrip(".") for ext in allowed_extensions],
             accept_multiple_files=False,
             disabled=not enabled,
-            key="reference_image_web_upload",
+            key=upload_key,
         )
+        if required_for_visual_anchor:
+            st.session_state[analysis_key] = "off"
+            st.session_state[injection_key] = "required"
+            st.session_state[merge_key] = "supplement"
         analysis_mode = st.selectbox(
             tr("reference_image.analysis_mode"),
             analysis_modes,
@@ -2866,8 +2893,8 @@ def render_reference_image_controls() -> dict[str, Any]:
                 "auto",
             ),
             format_func=lambda value: tr(f"reference_image.mode.{value}"),
-            disabled=not enabled,
-            key="reference_image_analysis_mode",
+            disabled=required_for_visual_anchor or not enabled,
+            key=analysis_key,
         )
         workflow_injection_mode = st.selectbox(
             tr("reference_image.workflow_injection_mode"),
@@ -2878,8 +2905,8 @@ def render_reference_image_controls() -> dict[str, Any]:
                 "off",
             ),
             format_func=lambda value: tr(f"reference_image.mode.{value}"),
-            disabled=not enabled,
-            key="reference_image_workflow_injection_mode",
+            disabled=required_for_visual_anchor or not enabled,
+            key=injection_key,
         )
         profile_merge_mode = st.selectbox(
             tr("reference_image.profile_merge_mode"),
@@ -2890,9 +2917,14 @@ def render_reference_image_controls() -> dict[str, Any]:
                 "supplement",
             ),
             format_func=lambda value: tr(f"reference_image.profile_merge_mode.{value}"),
-            disabled=not enabled,
-            key="reference_image_profile_merge_mode",
+            disabled=required_for_visual_anchor or not enabled,
+            key=merge_key,
         )
+
+        if required_for_visual_anchor:
+            analysis_mode = "off"
+            workflow_injection_mode = "required"
+            profile_merge_mode = "supplement"
 
         if not enabled:
             return {}
@@ -3195,7 +3227,16 @@ def render_style_config(
         tts_split_settings = render_tts_split_settings()
 
     element_animation_settings = render_element_animation_controls()
-    reference_image_settings = render_reference_image_controls()
+    reference_image_settings = render_reference_image_controls(
+        required_for_visual_anchor=coerce_bool(
+            (content_context or {}).get("series_visual_signature_enabled"),
+            default=False,
+        ),
+        visual_anchor_identity_key=(
+            f"{(content_context or {}).get('series_visual_signature_asset_bible_id') or ''}:"
+            f"{(content_context or {}).get('series_visual_signature_profile_id') or ''}"
+        ),
+    )
 
     # ====================================================================
     # Storyboard Template Section

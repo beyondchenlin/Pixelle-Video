@@ -19,6 +19,7 @@
     "reference_image.web_ui.enabled": "Use reference image",
     "reference_image.web_ui.upload": "Upload reference image",
     "reference_image.web_ui.no_file": "Select a reference image before generating.",
+    "reference_image.web_ui.visual_anchor_required": "Two-stage visual-anchor fusion is enabled. Upload a real reference image for this identity before generation; it will be injected into the first image request.",
     "reference_image.web_ui.invalid_extension": "Unsupported reference image extension.",
     "reference_image.web_ui.invalid_image": "Reference image file is not a valid image.",
     "reference_image.web_ui.too_large": "Reference image exceeds {max_upload_size_mb} MB.",

@@ -20,6 +20,7 @@
     "reference_image.web_ui.enabled": "使用参考图",
     "reference_image.web_ui.upload": "上传参考图",
     "reference_image.web_ui.no_file": "生成前请选择一张参考图。",
+    "reference_image.web_ui.visual_anchor_required": "已启用视觉锚点二次融合，请先上传该形象的真实参考图；参考图会直接进入首次图片生成。",
     "reference_image.web_ui.invalid_extension": "不支持的参考图文件扩展名。",
     "reference_image.web_ui.invalid_image": "参考图不是有效图片。",
     "reference_image.web_ui.too_large": "参考图超过 {max_upload_size_mb} MB。",

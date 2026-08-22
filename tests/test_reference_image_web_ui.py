@@ -47,6 +47,17 @@ class _FakeStreamlit:
         self.calls.append("image")
 
 
+class _FakeStreamlitWithUpload(_FakeStreamlit):
+    def __init__(self, upload) -> None:
+        super().__init__()
+        self._upload = upload
+
+    def file_uploader(self, *_args, **_kwargs):
+        self.calls.append("file_uploader")
+        self.upload_key = _kwargs.get("key")
+        return self._upload
+
+
 def _image_bytes(image_format: str) -> bytes:
     buffer = BytesIO()
     Image.new("RGB", (1, 1), color=(255, 255, 255)).save(buffer, format=image_format)
@@ -89,6 +100,46 @@ def test_render_reference_image_controls_renders_when_backend_default_is_off(mon
     assert style_config.render_reference_image_controls() == {}
     assert "toggle" in fake_st.calls
     assert "file_uploader" in fake_st.calls
+
+
+def test_visual_anchor_requires_and_forces_reference_image_binding(tmp_path, monkeypatch):
+    upload = _FakeUpload(name="dog.png", content=_image_bytes("PNG"))
+    fake_st = _FakeStreamlitWithUpload(upload)
+    section_args = {}
+
+    @contextmanager
+    def _section(*_args, **kwargs):
+        section_args.update(kwargs)
+        yield
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get",
+        lambda key, default=None: {"web_ui_enabled": True} if key == "reference_image" else default,
+    )
+    monkeypatch.setattr(style_config, "render_middle_column_collapsible_section", _section)
+    monkeypatch.setattr(
+        style_config,
+        "get_runtime_path",
+        lambda *parts: str(tmp_path.joinpath(*parts)),
+    )
+
+    result = style_config.render_reference_image_controls(
+        required_for_visual_anchor=True,
+        visual_anchor_identity_key="dog:dog_1",
+    )
+
+    assert section_args["expanded"] is True
+    assert result["reference_image_enabled"] is True
+    assert result["reference_image_analysis_mode"] == "off"
+    assert result["reference_image_workflow_injection_mode"] == "required"
+    assert result["reference_image_profile_merge_mode"] == "supplement"
+    assert Path(result["ref_image"]).is_file()
+    assert fake_st.upload_key.startswith("reference_image_web_upload_")
+    assert fake_st.upload_key != "reference_image_web_upload"
+    assert "info" in fake_st.calls
+    assert "image" in fake_st.calls
 
 
 def test_reference_image_allowed_extensions_filters_backend_unsupported_types():
