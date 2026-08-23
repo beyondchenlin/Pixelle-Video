@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v10"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v8"
-PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v5"
+PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v6"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
 ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v5",
