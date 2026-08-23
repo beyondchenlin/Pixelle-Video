@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_preflight_review
-version: visual_anchor_preflight_review.v4
+version: visual_anchor_preflight_review.v5
 stage: visual_anchor_preflight_review
 purpose: 在首次生图前审查事实、身份、单实例、连续性和提示词纯净度
 output_contract: PreflightReviewOutput
@@ -10,10 +10,15 @@ output_contract: PreflightReviewOutput
 输入数据：
 {input_json}
 
+先固定角色边界再审查：
+- content_stage_output.primary_subject 是原文主要主体；identity_profile 描述的是额外加入画面的系列视觉锚点。除非原文明示两者是同一对象，否则它们是允许共存且职责不同的两个主体。identity_profile.core_identity_traits 只用于识别视觉锚点，不得拿来与 primary_subject 的身份或外观比较，也不得要求两者特征相同。
+- fusion_stage_output.primary_subject_final_prompt_evidence 是主要主体存在于最终正向提示词的直接证据。该证据与 primary_subject.name 都真实存在时，不得声称主要主体缺席；只有最终提示词明确让视觉锚点继承主要主体的身份、受保护动作或叙事职责，或者明确删除、遮挡、挤出主要主体时，才能判定发生替代。不得仅因视觉锚点也被具体描述，就推断它替代了主要主体。
+- 系列视觉锚点出现在严肃题材中不自动构成戏谑。只有最终提示词存在嘲弄、滑稽化、事实反转或明显稀释严肃事实的实际文字证据时，才能据此判定失败。
+
 逐项审查：
 1. 原文中的受保护人物、数量、时代、地点、物品、动作、关系、事件和主题全部保留；每项事实在纯内容提示词和最终正向提示词中都有真实证据。primary_subject 是真正主要主体，不是 visual_goal 或分镜占位句；它必须存在于最终正向提示词，且身份没有替代、反转、遮挡、挤出或删除主要主体及任何事实。纯内容提示词存在偏差时，content_stage_deviations 必须完整记录且最终画面已经按原文纠正。
 2. 增删替换和重组仅发生于非核心内容，没有因为少改构图而产生生硬融合，也没有为身份改变文案核心。
-3. 结合身份名称、全部核心识别特征和禁止变化项判断最终画面是否明确包含足以认出同一身份的特征；不能只出现身份名称。identity_trait_checks 必须逐项覆盖全部核心特征，每条证据必须真实存在于最终正向提示词。identity_conditioning_mode 必须匹配 workflow_identity_condition_summary：文生图工作流使用文字身份档案，参考图工作流使用完整、可用且声明绑定到首次图片工作流节点的真实参考条件。
+3. 只针对视觉锚点本身，结合 identity_profile 的身份名称、全部核心识别特征和禁止变化项判断最终画面是否明确包含足以认出同一视觉锚点的特征；不能只出现身份名称。identity_trait_checks 必须逐项覆盖全部核心特征，每条证据必须真实存在于最终正向提示词。不得把这些特征与 primary_subject 比较。identity_conditioning_mode 必须匹配 workflow_identity_condition_summary：文生图工作流使用文字身份档案，参考图工作流使用完整、可用且声明绑定到首次图片工作流节点的真实参考条件。
 4. 只有一种表现形态和一个实例，single_instance_prompt_evidence 必须真实存在于最终正向提示词并明确表达全画面只有一个该身份实例；没有实体、贴画、图案、摆件、雕塑、屏幕、镜像、倒影或背景复制，也没有其他元素继承身份特征。
    原文主体与该身份是同一对象时，必须已经合并为同一个实例。
 5. 不使用数值面积或固定位置判定；只检查身份可识别、内容主体受保护、空间关系合理。
