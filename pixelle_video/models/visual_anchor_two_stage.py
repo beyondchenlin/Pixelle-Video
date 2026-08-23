@@ -5,10 +5,18 @@ from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v5"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v4"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v6"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v5"
 PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v4"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
+ContentStagePromptVersion = Literal[
+    "visual_anchor_content_stage.v5",
+    CONTENT_STAGE_PROMPT_VERSION,
+]
+FusionStagePromptVersion = Literal[
+    "visual_anchor_fusion_stage.v4",
+    FUSION_STAGE_PROMPT_VERSION,
+]
 
 ReviewDecision = Literal["pass", "fail"]
 ContentSubjectCategory = Literal[
@@ -265,7 +273,13 @@ class ProtectedFact(BaseModel):
         "theme",
         "other",
     ]
-    subject_ids: list[str] = Field(default_factory=list)
+    subject_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "直接受该事实保护的主体编号数组；无关联主体使用 []，"
+            "单个主体也必须使用仅含一个字符串的数组"
+        ),
+    )
     statement: str
     source_evidence: str = Field(
         description="从原始分镜文案或文章背景中逐字复制的最短连续片段"
@@ -288,6 +302,19 @@ class ProtectedFact(BaseModel):
     def _validate_text(cls, value: object, info) -> str:
         return _concrete_subject_text(value, info.field_name)
 
+    @field_validator("subject_ids", mode="before")
+    @classmethod
+    def _normalize_single_subject_id(cls, value: object) -> object:
+        """Accept an unambiguous scalar emitted by imperfect structured-output providers.
+
+        The generated JSON schema remains array-only.  This boundary adapter handles only
+        one non-empty scalar reference; it deliberately does not split delimited strings or
+        coerce unrelated scalar/container types.
+        """
+        if isinstance(value, str):
+            return [value]
+        return value
+
     @field_validator("subject_ids")
     @classmethod
     def _validate_subject_ids(cls, value: list[str]) -> list[str]:
@@ -306,7 +333,7 @@ class ContentStageInput(BaseModel):
     next_frame_summary: str
     target_visual_style: TargetVisualStyle
     target_image_prompt_language: str
-    prompt_version: Literal[CONTENT_STAGE_PROMPT_VERSION] = CONTENT_STAGE_PROMPT_VERSION
+    prompt_version: ContentStagePromptVersion = CONTENT_STAGE_PROMPT_VERSION
 
     @field_validator("*", mode="before")
     @classmethod
@@ -540,8 +567,11 @@ class FusionStageInput(BaseModel):
     negative_prompt_supported: bool
     target_image_prompt_language: str
     required_single_instance_prompt_fragment: str
-    review_feedback: list[str] = Field(default_factory=list)
-    prompt_version: Literal[FUSION_STAGE_PROMPT_VERSION] = FUSION_STAGE_PROMPT_VERSION
+    review_feedback: list[str] = Field(
+        default_factory=list,
+        description="仅用于读取旧版审计制品，不得触发再次调用",
+    )
+    prompt_version: FusionStagePromptVersion = FUSION_STAGE_PROMPT_VERSION
 
     @field_validator(
         "frame_id",
@@ -855,8 +885,8 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     identity_reference_condition: IdentityReferenceCondition | None = None
     target_visual_style: TargetVisualStyle
     visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
-    content_stage_prompt_version: Literal[CONTENT_STAGE_PROMPT_VERSION]
-    fusion_stage_prompt_version: Literal[FUSION_STAGE_PROMPT_VERSION]
+    content_stage_prompt_version: ContentStagePromptVersion
+    fusion_stage_prompt_version: FusionStagePromptVersion
     preflight_review_prompt_version: Literal[PREFLIGHT_REVIEW_PROMPT_VERSION]
     preflight_review_decision: Literal["pass"]
     negative_prompt_supported: bool
@@ -1041,11 +1071,22 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     preflight_review_input: PreflightReviewInput
     preflight_review_output: PreflightReviewOutput
     generation_request: VisualAnchorImageGenerationRequest
-    content_attempt_count: int = Field(ge=1, le=2)
-    content_retry_validation_codes: list[ContentStageValidationCode] = Field(
-        default_factory=list
+    content_attempt_count: int = Field(
+        default=1,
+        ge=1,
+        le=2,
+        description="旧版审计字段；新生成结果固定为 1",
     )
-    fusion_attempt_count: int = Field(ge=1, le=2)
+    content_retry_validation_codes: list[ContentStageValidationCode] = Field(
+        default_factory=list,
+        description="旧版审计字段；新生成结果固定为空",
+    )
+    fusion_attempt_count: int = Field(
+        default=1,
+        ge=1,
+        le=2,
+        description="旧版审计字段；新生成结果固定为 1",
+    )
 
     @field_validator("frame_id", mode="before")
     @classmethod
@@ -1095,6 +1136,17 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
         if len(original_texts) != 1:
             raise ValueError(
                 "all visual-anchor stages must preserve the exact storyboard text"
+            )
+        if (
+            self.generation_request.content_stage_prompt_version
+            != self.content_stage_input.prompt_version
+            or self.generation_request.fusion_stage_prompt_version
+            != self.fusion_stage_input.prompt_version
+            or self.generation_request.preflight_review_prompt_version
+            != self.preflight_review_input.prompt_version
+        ):
+            raise ValueError(
+                "generation request prompt versions must match their stage inputs"
             )
         if self.fusion_stage_input.content_stage_output != self.content_stage_output:
             raise ValueError("fusion input must contain the exact content-stage output")

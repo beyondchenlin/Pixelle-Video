@@ -198,19 +198,12 @@ class ContentStageContractError(VisualAnchorTwoStageError):
 
 
 @dataclass(frozen=True)
-class _ContentStageExecution:
-    output: ContentStageOutput
-    attempt_count: int
-    retry_validation_codes: tuple[ContentStageValidationCode, ...]
-
-
-@dataclass(frozen=True)
 class VisualAnchorTwoStageBatchResult:
     frames: tuple[VisualAnchorTwoStageFrameResult, ...]
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v4",
+            "schema_version": "visual_anchor_two_stage_batch.v5",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -247,19 +240,6 @@ def identity_profile_from_snapshot(
 
 class VisualAnchorTwoStageService:
     """Content, fusion, and preflight calls before exactly one image request."""
-
-    def __init__(
-        self,
-        *,
-        max_content_attempts: int = 2,
-        max_fusion_attempts: int = 2,
-    ) -> None:
-        if max_content_attempts not in {1, 2}:
-            raise ValueError("max_content_attempts must be one or two")
-        if max_fusion_attempts not in {1, 2}:
-            raise ValueError("max_fusion_attempts must be one or two")
-        self._max_content_attempts = max_content_attempts
-        self._max_fusion_attempts = max_fusion_attempts
 
     async def run_batch(
         self,
@@ -415,7 +395,7 @@ class VisualAnchorTwoStageService:
             status="running",
         )
         try:
-            content_execution = await self._run_content_stage(
+            content_output = await self._run_content_stage(
                 llm_service=llm_service,
                 stage_input=content_input,
                 trace_context=trace_context,
@@ -430,7 +410,6 @@ class VisualAnchorTwoStageService:
                 status="failed",
             )
             raise
-        content_output = content_execution.output
         _emit_stage(
             stage_callback,
             stage="visual_anchor_content_stage",
@@ -467,220 +446,181 @@ class VisualAnchorTwoStageService:
             ),
         )
 
-        review_feedback: list[str] = []
-        last_review: PreflightReviewOutput | None = None
-        fusion_input: FusionStageInput | None = None
-        fusion_output: FusionStageOutput | None = None
-        review_input: PreflightReviewInput | None = None
-        for fusion_attempt in range(1, self._max_fusion_attempts + 1):
-            fusion_input = FusionStageInput(
+        fusion_input = FusionStageInput(
+            frame_id=frame.frame_id,
+            original_storyboard_text=frame.source_text,
+            content_stage_output=content_output,
+            identity_profile=identity_profile,
+            identity_conditioning_mode=identity_conditioning_mode,
+            identity_reference_condition=identity_reference_condition,
+            workflow_identity_condition_summary=workflow_identity_condition_summary,
+            continuous_scene_context=continuity_context,
+            target_visual_style=target_visual_style,
+            visible_text_policy=visible_text_policy,
+            negative_prompt_supported=negative_prompt_supported,
+            target_image_prompt_language=target_image_prompt_language,
+            required_single_instance_prompt_fragment=(
+                _required_single_instance_prompt_fragment(
+                    identity_profile.display_name,
+                    target_image_prompt_language,
+                )
+            ),
+        )
+        _emit_stage(
+            stage_callback,
+            stage="visual_anchor_fusion_stage",
+            event="start",
+            frame_id=frame.frame_id,
+            status="running",
+        )
+        try:
+            fusion_output = await self._call_structured(
+                llm_service=llm_service,
+                prompt_id="visual_anchor_fusion_stage",
+                stage_input=fusion_input,
+                response_type=FusionStageOutput,
+                attempt=1,
                 frame_id=frame.frame_id,
-                original_storyboard_text=frame.source_text,
-                content_stage_output=content_output,
-                identity_profile=identity_profile,
-                identity_conditioning_mode=identity_conditioning_mode,
-                identity_reference_condition=identity_reference_condition,
-                workflow_identity_condition_summary=(
-                    workflow_identity_condition_summary
-                ),
-                continuous_scene_context=continuity_context,
-                target_visual_style=target_visual_style,
-                visible_text_policy=visible_text_policy,
-                negative_prompt_supported=negative_prompt_supported,
-                target_image_prompt_language=target_image_prompt_language,
-                required_single_instance_prompt_fragment=(
-                    _required_single_instance_prompt_fragment(
-                        identity_profile.display_name,
-                        target_image_prompt_language,
-                    )
-                ),
-                review_feedback=review_feedback,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                temperature=0.7,
             )
+        except Exception:
             _emit_stage(
                 stage_callback,
                 stage="visual_anchor_fusion_stage",
-                event="start",
+                event="fail",
                 frame_id=frame.frame_id,
-                status="running",
-                attempt=fusion_attempt,
+                status="failed",
             )
-            try:
-                fusion_output = await self._call_structured(
-                    llm_service=llm_service,
-                    prompt_id="visual_anchor_fusion_stage",
-                    stage_input=fusion_input,
-                    response_type=FusionStageOutput,
-                    attempt=fusion_attempt,
-                    frame_id=frame.frame_id,
-                    trace_context=trace_context,
-                    trace_recorder=trace_recorder,
-                    temperature=0.7,
-                )
-            except Exception:
-                _emit_stage(
-                    stage_callback,
-                    stage="visual_anchor_fusion_stage",
-                    event="fail",
-                    frame_id=frame.frame_id,
-                    status="failed",
-                    attempt=fusion_attempt,
-                )
-                raise
-            try:
-                _validate_fusion_stage_output(fusion_input, fusion_output)
-            except VisualAnchorTwoStageError as exc:
-                _emit_stage(
-                    stage_callback,
-                    stage="visual_anchor_fusion_stage",
-                    event="fail",
-                    frame_id=frame.frame_id,
-                    status="rejected",
-                    attempt=fusion_attempt,
-                )
-                if fusion_attempt >= self._max_fusion_attempts:
-                    raise
-                review_feedback = [
-                    "结构化生成前校验失败："
-                    f"{exc}。请重新执行完整融合并严格满足全部输出合同。"
-                ]
-                continue
+            raise
+        try:
+            _validate_fusion_stage_output(fusion_input, fusion_output)
+        except VisualAnchorTwoStageError:
             _emit_stage(
                 stage_callback,
                 stage="visual_anchor_fusion_stage",
-                event="end",
+                event="fail",
                 frame_id=frame.frame_id,
-                status="completed",
-                attempt=fusion_attempt,
+                status="rejected",
             )
-            review_input = PreflightReviewInput(
+            raise
+        _emit_stage(
+            stage_callback,
+            stage="visual_anchor_fusion_stage",
+            event="end",
+            frame_id=frame.frame_id,
+            status="completed",
+        )
+
+        review_input = PreflightReviewInput(
+            frame_id=frame.frame_id,
+            original_storyboard_text=frame.source_text,
+            content_stage_output=content_output,
+            identity_profile=identity_profile,
+            identity_conditioning_mode=identity_conditioning_mode,
+            identity_reference_condition=identity_reference_condition,
+            continuous_scene_context=continuity_context,
+            target_visual_style=target_visual_style,
+            visible_text_policy=visible_text_policy,
+            fusion_stage_output=fusion_output,
+            negative_prompt_supported=negative_prompt_supported,
+        )
+        _emit_stage(
+            stage_callback,
+            stage="visual_anchor_preflight_review",
+            event="start",
+            frame_id=frame.frame_id,
+            status="running",
+        )
+        try:
+            review_output = await self._call_structured(
+                llm_service=llm_service,
+                prompt_id="visual_anchor_preflight_review",
+                stage_input=review_input,
+                response_type=PreflightReviewOutput,
+                attempt=1,
                 frame_id=frame.frame_id,
-                original_storyboard_text=frame.source_text,
-                content_stage_output=content_output,
-                identity_profile=identity_profile,
-                identity_conditioning_mode=identity_conditioning_mode,
-                identity_reference_condition=identity_reference_condition,
-                continuous_scene_context=continuity_context,
-                target_visual_style=target_visual_style,
-                visible_text_policy=visible_text_policy,
-                fusion_stage_output=fusion_output,
-                negative_prompt_supported=negative_prompt_supported,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                temperature=0.0,
             )
+            review_passed = _preflight_review_passes(review_input, review_output)
+        except Exception:
             _emit_stage(
                 stage_callback,
                 stage="visual_anchor_preflight_review",
-                event="start",
+                event="fail",
                 frame_id=frame.frame_id,
-                status="running",
-                attempt=fusion_attempt,
+                status="failed",
             )
-            try:
-                last_review = await self._call_structured(
-                    llm_service=llm_service,
-                    prompt_id="visual_anchor_preflight_review",
-                    stage_input=review_input,
-                    response_type=PreflightReviewOutput,
-                    attempt=fusion_attempt,
-                    frame_id=frame.frame_id,
-                    trace_context=trace_context,
-                    trace_recorder=trace_recorder,
-                    temperature=0.0,
-                )
-            except Exception:
-                _emit_stage(
-                    stage_callback,
-                    stage="visual_anchor_preflight_review",
-                    event="fail",
-                    frame_id=frame.frame_id,
-                    status="failed",
-                    attempt=fusion_attempt,
-                )
-                raise
-            try:
-                review_passed = _preflight_review_passes(review_input, last_review)
-            except Exception:
-                _emit_stage(
-                    stage_callback,
-                    stage="visual_anchor_preflight_review",
-                    event="fail",
-                    frame_id=frame.frame_id,
-                    status="failed",
-                    attempt=fusion_attempt,
-                )
-                raise
-            if review_passed:
-                _emit_stage(
-                    stage_callback,
-                    stage="visual_anchor_preflight_review",
-                    event="end",
-                    frame_id=frame.frame_id,
-                    status="passed",
-                    attempt=fusion_attempt,
-                )
-                generation_request = VisualAnchorImageGenerationRequest(
-                    task_id=task_id,
-                    frame_id=frame.frame_id,
-                    random_seed=random_seed,
-                    selected_fusion_method=fusion_output.selected_fusion_method,
-                    final_manifestation=fusion_output.final_manifestation,
-                    protected_fact_checks=fusion_output.protected_fact_checks,
-                    primary_subject_name=content_output.primary_subject.name,
-                    primary_subject_preserved=True,
-                    primary_subject_final_prompt_evidence=(
-                        fusion_output.primary_subject_final_prompt_evidence
-                    ),
-                    visual_anchor_replaces_primary_subject=False,
-                    identity_trait_checks=fusion_output.identity_trait_checks,
-                    single_instance_prompt_evidence=(
-                        fusion_output.single_instance_prompt_evidence
-                    ),
-                    final_positive_prompt=last_review.allowed_final_positive_prompt,
-                    final_negative_prompt=last_review.allowed_final_negative_prompt,
-                    identity_profile_id=identity_profile.profile_id,
-                    identity_display_name=identity_profile.display_name,
-                    identity_core_traits=identity_profile.core_identity_traits,
-                    identity_resource_version=identity_profile.identity_resource_version,
-                    identity_content_sha256=identity_profile.identity_content_sha256,
-                    identity_conditioning_mode=identity_conditioning_mode,
-                    identity_reference_condition=identity_reference_condition,
-                    target_visual_style=target_visual_style,
-                    visible_text_policy=visible_text_policy,
-                    content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
-                    fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
-                    preflight_review_prompt_version=PREFLIGHT_REVIEW_PROMPT_VERSION,
-                    preflight_review_decision="pass",
-                    negative_prompt_supported=negative_prompt_supported,
-                    workflow_key=workflow_key,
-                    workflow_version_sha256=workflow_version_sha256,
-                    expected_execution=expected_execution,
-                )
-                return VisualAnchorTwoStageFrameResult(
-                    frame_id=frame.frame_id,
-                    content_stage_input=content_input,
-                    content_stage_output=content_output,
-                    fusion_stage_input=fusion_input,
-                    fusion_stage_output=fusion_output,
-                    preflight_review_input=review_input,
-                    preflight_review_output=last_review,
-                    generation_request=generation_request,
-                    content_attempt_count=content_execution.attempt_count,
-                    content_retry_validation_codes=list(
-                        content_execution.retry_validation_codes
-                    ),
-                    fusion_attempt_count=fusion_attempt,
-                )
+            raise
+        if not review_passed:
             _emit_stage(
                 stage_callback,
                 stage="visual_anchor_preflight_review",
                 event="fail",
                 frame_id=frame.frame_id,
                 status="rejected",
-                attempt=fusion_attempt,
             )
-            review_feedback = list(last_review.failures)
+            evidence = "; ".join(review_output.failures)
+            raise VisualAnchorTwoStageError(
+                f"preflight review rejected frame {frame.frame_id}: {evidence}"
+            )
+        _emit_stage(
+            stage_callback,
+            stage="visual_anchor_preflight_review",
+            event="end",
+            frame_id=frame.frame_id,
+            status="passed",
+        )
 
-        evidence = "; ".join(last_review.failures if last_review is not None else [])
-        raise VisualAnchorTwoStageError(
-            f"preflight review rejected frame {frame.frame_id}: {evidence}"
+        generation_request = VisualAnchorImageGenerationRequest(
+            task_id=task_id,
+            frame_id=frame.frame_id,
+            random_seed=random_seed,
+            selected_fusion_method=fusion_output.selected_fusion_method,
+            final_manifestation=fusion_output.final_manifestation,
+            protected_fact_checks=fusion_output.protected_fact_checks,
+            primary_subject_name=content_output.primary_subject.name,
+            primary_subject_preserved=True,
+            primary_subject_final_prompt_evidence=(
+                fusion_output.primary_subject_final_prompt_evidence
+            ),
+            visual_anchor_replaces_primary_subject=False,
+            identity_trait_checks=fusion_output.identity_trait_checks,
+            single_instance_prompt_evidence=(
+                fusion_output.single_instance_prompt_evidence
+            ),
+            final_positive_prompt=review_output.allowed_final_positive_prompt,
+            final_negative_prompt=review_output.allowed_final_negative_prompt,
+            identity_profile_id=identity_profile.profile_id,
+            identity_display_name=identity_profile.display_name,
+            identity_core_traits=identity_profile.core_identity_traits,
+            identity_resource_version=identity_profile.identity_resource_version,
+            identity_content_sha256=identity_profile.identity_content_sha256,
+            identity_conditioning_mode=identity_conditioning_mode,
+            identity_reference_condition=identity_reference_condition,
+            target_visual_style=target_visual_style,
+            visible_text_policy=visible_text_policy,
+            content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
+            fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
+            preflight_review_prompt_version=PREFLIGHT_REVIEW_PROMPT_VERSION,
+            preflight_review_decision="pass",
+            negative_prompt_supported=negative_prompt_supported,
+            workflow_key=workflow_key,
+            workflow_version_sha256=workflow_version_sha256,
+            expected_execution=expected_execution,
+        )
+        return VisualAnchorTwoStageFrameResult(
+            frame_id=frame.frame_id,
+            content_stage_input=content_input,
+            content_stage_output=content_output,
+            fusion_stage_input=fusion_input,
+            fusion_stage_output=fusion_output,
+            preflight_review_input=review_input,
+            preflight_review_output=review_output,
+            generation_request=generation_request,
         )
 
     async def _run_content_stage(
@@ -690,44 +630,25 @@ class VisualAnchorTwoStageService:
         stage_input: ContentStageInput,
         trace_context: LLMTraceContext | None,
         trace_recorder,
-    ) -> _ContentStageExecution:
-        retry_validation_codes: tuple[ContentStageValidationCode, ...] = ()
-        for attempt in range(1, self._max_content_attempts + 1):
-            try:
-                output = await self._call_structured(
-                    llm_service=llm_service,
-                    prompt_id="visual_anchor_content_stage",
-                    stage_input=stage_input,
-                    response_type=ContentStageOutput,
-                    attempt=attempt,
-                    frame_id=stage_input.frame_id,
-                    trace_context=trace_context,
-                    trace_recorder=trace_recorder,
-                    temperature=0.5,
-                    content_validation_codes=retry_validation_codes,
-                )
-            except Exception as exc:
-                if not _is_repairable_content_stage_output_error(exc):
-                    raise
-                if attempt >= self._max_content_attempts:
-                    raise ContentStageContractError(
-                        ("schema_contract_invalid",)
-                    ) from exc
-                retry_validation_codes = ("schema_contract_invalid",)
-                continue
-            try:
-                _validate_content_stage_output(stage_input, output)
-            except ContentStageContractError as exc:
-                if attempt >= self._max_content_attempts:
-                    raise
-                retry_validation_codes = exc.codes
-                continue
-            return _ContentStageExecution(
-                output=output,
-                attempt_count=attempt,
-                retry_validation_codes=retry_validation_codes,
+    ) -> ContentStageOutput:
+        try:
+            output = await self._call_structured(
+                llm_service=llm_service,
+                prompt_id="visual_anchor_content_stage",
+                stage_input=stage_input,
+                response_type=ContentStageOutput,
+                attempt=1,
+                frame_id=stage_input.frame_id,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                temperature=0.5,
             )
-        raise AssertionError("content-stage attempt loop exited without a result")
+        except Exception as exc:
+            if _is_content_stage_output_contract_error(exc):
+                raise ContentStageContractError(("schema_contract_invalid",)) from exc
+            raise
+        _validate_content_stage_output(stage_input, output)
+        return output
 
     @staticmethod
     async def _call_structured(
@@ -741,13 +662,8 @@ class VisualAnchorTwoStageService:
         trace_context: LLMTraceContext | None,
         trace_recorder,
         temperature: float,
-        content_validation_codes: Sequence[ContentStageValidationCode] = (),
     ):
-        rendered = _render_stage_prompt(
-            prompt_id,
-            stage_input,
-            content_validation_codes=content_validation_codes,
-        )
+        rendered = _render_stage_prompt(prompt_id, stage_input)
         call_trace_context = (
             trace_context_with_prompt_template(
                 trace_context,
@@ -766,6 +682,7 @@ class VisualAnchorTwoStageService:
             max_tokens=8192,
             trace_context=call_trace_context,
             trace_recorder=trace_recorder,
+            single_request=True,
         )
         return response if isinstance(response, response_type) else response_type.model_validate(response)
 
@@ -773,31 +690,12 @@ class VisualAnchorTwoStageService:
 def _render_stage_prompt(
     prompt_id: str,
     stage_input: Any,
-    *,
-    content_validation_codes: Sequence[ContentStageValidationCode] = (),
 ) -> RenderedPrompt:
     input_payload = stage_input.model_dump(mode="json")
     if isinstance(stage_input, ContentStageInput):
         input_payload.pop("prompt_version", None)
-        validation_codes = _ordered_content_stage_validation_codes(
-            content_validation_codes
-        )
-        server_validation_json = json.dumps(
-            {
-                "codes": list(validation_codes),
-                "instructions": _content_stage_repair_instructions(
-                    validation_codes
-                ),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    else:
-        if content_validation_codes:
-            raise ValueError(
-                "content validation codes can only render the content-stage prompt"
-            )
-        server_validation_json = "{}"
+    if isinstance(stage_input, FusionStageInput):
+        input_payload.pop("review_feedback", None)
     rendered = render_prompt_template(
         prompt_id,
         {
@@ -806,7 +704,6 @@ def _render_stage_prompt(
                 ensure_ascii=False,
                 indent=2,
             ),
-            "server_validation_json": server_validation_json,
         },
     )
     expected_version = {
@@ -843,13 +740,7 @@ def _ordered_content_stage_validation_codes(
     return tuple(code for code in known_codes if code in requested)
 
 
-def _content_stage_repair_instructions(
-    codes: Sequence[ContentStageValidationCode],
-) -> list[str]:
-    return [_CONTENT_STAGE_VALIDATION_MESSAGES[code] for code in codes]
-
-
-def _is_repairable_content_stage_output_error(exc: Exception) -> bool:
+def _is_content_stage_output_contract_error(exc: Exception) -> bool:
     current: BaseException | None = exc
     visited: set[int] = set()
     while current is not None and id(current) not in visited:

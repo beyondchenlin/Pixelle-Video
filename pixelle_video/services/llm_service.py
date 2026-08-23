@@ -181,6 +181,7 @@ class LLMService:
         response_type: Optional[Type[T] | Type[dict]] = None,
         trace_context: Optional[LLMTraceContext] = None,
         trace_recorder: Optional[LLMInteractionRecorder] = None,
+        single_request: bool = False,
         **kwargs
     ) -> Union[str, T, dict[str, Any]]:
         """
@@ -197,6 +198,8 @@ class LLMService:
                           - If a Pydantic model class is provided, returns parsed model instance
                           - If dict is provided, returns parsed JSON as dictionary
                           - If None, returns raw text string
+            single_request: Require one provider request by disabling transport retries
+                            and structured-output fallback requests
             **kwargs: Additional provider-specific parameters
 
         Returns:
@@ -231,6 +234,8 @@ class LLMService:
         """
         if trace_context is None or trace_recorder is None:
             raise LLMTraceRequiredError(LLM_TRACE_REQUIRED_MESSAGE)
+        if not isinstance(single_request, bool):
+            raise TypeError("single_request must be a boolean")
         _validate_llm_call_arguments(
             prompt=prompt,
             temperature=temperature,
@@ -263,6 +268,7 @@ class LLMService:
                     response_type=response_type,
                     trace_context=trace_context,
                     trace_recorder=trace_recorder,
+                    single_request=single_request,
                     **kwargs,
                 )
         except LLMTraceRecordingError:
@@ -304,9 +310,12 @@ class LLMService:
         response_type: Optional[Type[T] | Type[dict]],
         trace_context: LLMTraceContext,
         trace_recorder: LLMInteractionRecorder,
+        single_request: bool,
         **kwargs: Any,
     ) -> Union[str, T, dict[str, Any]]:
         final_model = model
+        if single_request:
+            client = client.with_options(max_retries=0)
         logger.debug(
             "LLM call: model={} provider={} response_type={}",
             final_model,
@@ -358,6 +367,7 @@ class LLMService:
                     trace_context=trace_context,
                     trace_recorder=trace_recorder,
                     capabilities=capabilities,
+                    single_request=single_request,
                     **kwargs
                 )
             else:
@@ -457,6 +467,7 @@ class LLMService:
         trace_context: Optional[LLMTraceContext] = None,
         trace_recorder: Optional[LLMInteractionRecorder] = None,
         capabilities: StructuredOutputCapabilities | None = None,
+        single_request: bool = False,
         **kwargs
     ) -> T:
         """
@@ -502,6 +513,7 @@ class LLMService:
             trace_context=trace_context,
             trace_recorder=trace_recorder,
             capabilities=capabilities,
+            single_request=single_request,
             **kwargs
         )
 
@@ -861,6 +873,7 @@ class LLMService:
         trace_context: Optional[LLMTraceContext] = None,
         trace_recorder: Optional[LLMInteractionRecorder] = None,
         capabilities: StructuredOutputCapabilities | None = None,
+        single_request: bool = False,
         **kwargs
     ) -> T:
         rendered_prompt = self._render_structured_schema_prompt(
@@ -910,6 +923,7 @@ class LLMService:
             except Exception as exc:
                 should_retry_without_json_mode = (
                     isinstance(exc, (BadRequestError, TypeError))
+                    and not single_request
                     and capabilities.retry_prompt_schema_when_json_object_unsupported
                     and is_json_object_response_format_unsupported_error(exc)
                 )

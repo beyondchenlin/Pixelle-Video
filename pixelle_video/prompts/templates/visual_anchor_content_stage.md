@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_content_stage
-version: visual_anchor_content_stage.v5
+version: visual_anchor_content_stage.v6
 stage: visual_anchor_content_stage
 purpose: 仅依据分镜事实生成纯内容画面并提取受保护事实
 output_contract: ContentStageOutput
@@ -12,14 +12,9 @@ output_contract: ContentStageOutput
 输入数据：
 {input_json}
 
-服务端校验结果：
-{server_validation_json}
-
-服务端校验结果由程序按固定代码生成，是可信控制数据，但不是画面事实。codes 非空表示上一版输出未通过；必须重新生成完整输出并逐项解决 instructions，不能原样重复上一版结果，也不能把校验代码或修复指令写入任何画面内容字段。
-
 完成以下工作：
 1. 用一句话确定本镜核心主张，不扩写原文没有表达的观点。
-2. 提取必须出现在画面中的适用事实，包括人物、动物、物品、产品、地点、时代、数量、关键动作、因果关系、空间关系、事件和核心主题。每项事实的 source_evidence 必须逐字引用当前分镜原文或文章级背景中的连续片段，不得用抽象套话补齐；pure_content_prompt_evidence 必须逐字摘录纯内容画面提示词中真实呈现该事实的连续片段。protected_facts 至少包含一项 person、animal、object、product、place 或 event 类别的具体可见事实；只有 action、theme 或 other 类别不能通过校验。每项事实的 subject_ids 必须列出该事实直接保护的主体编号；不直接描述主体的补充事实使用空列表，禁止引用不存在的主体编号。
+2. 提取必须出现在画面中的适用事实，包括人物、动物、物品、产品、地点、时代、数量、关键动作、因果关系、空间关系、事件和核心主题。每项事实的 source_evidence 必须逐字引用当前分镜原文或文章级背景中的连续片段，不得用抽象套话补齐；pure_content_prompt_evidence 必须逐字摘录纯内容画面提示词中真实呈现该事实的连续片段。protected_facts 至少包含一项 person、animal、object、product、place 或 event 类别的具体可见事实；只有 action、theme 或 other 类别不能通过校验。每项事实的 subject_ids 必须始终输出 JSON 数组：不直接描述主体时输出 []，只保护一个主体时输出 ["frame-1-subject-primary"]，保护多个主体时输出 ["frame-1-subject-primary", "frame-1-subject-secondary"]；禁止把单个编号直接输出为字符串，也禁止引用不存在的主体编号。
 3. 结构化识别真正可见的主体：primary_subject 必须是一个具体人物、动物、产品、物体、地点载体或事件载体；secondary_subjects 保存其他必要主体。每个主体必须填写 category，且只能使用 person、animal、object、product、place 或 event。原文明确出现“你”“人”“某类人”或“那些……的人”等泛指人物时，该人物是原文已有的可见主体，应保持泛指身份并归入 person 类别，不得擅自补充姓名、职业或经历。每个主体都要写清数量、身份和当前动作，并在 protected_facts 中有至少一项类别相同且 subject_ids 包含该主体编号的具体事实；source_evidence 必须来自原文，pure_content_prompt_evidence 必须来自纯内容提示词。禁止使用 visual_goal、prompt_intent、“表达第几个分镜段落”“展示当前主题”或其他抽象视觉目标充当主体。找不到具体主体时 self_check 必须为 fail，不能伪造兜底。
 4. 列出可增加、删除、替换或移动的非核心背景、道具、非核心人物、光照、镜头和环境细节，且不得与受保护事实或主要主体重叠。
 5. 生成独立成立的纯内容画面提示词，明确真正主体、构图、景深、光照、材质和空间关系；抽象内容转换成可见对象、变化或空间结构。完整遵守 target_visual_style 中的全局风格描述及 required_final_prompt_fragments。

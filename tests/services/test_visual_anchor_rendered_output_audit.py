@@ -277,8 +277,6 @@ def _frame_result(tmp_path):
         preflight_review_input=review_input,
         preflight_review_output=review_output,
         generation_request=request,
-        content_attempt_count=1,
-        fusion_attempt_count=1,
     )
 
 

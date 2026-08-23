@@ -399,6 +399,56 @@ async def test_llm_service_retries_without_json_mode_when_provider_rejects_it(mo
 
 
 @pytest.mark.asyncio
+async def test_llm_service_single_request_forbids_all_retries(monkeypatch):
+    create_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content='{"title":"Fallback","rating":7}'
+                )
+            )
+        ]
+    )
+    create_recorder = _CreateRejectsJsonModeThenSucceeds(create_response)
+    with_options_calls = []
+    fake_client = SimpleNamespace(
+        base_url="https://custom-provider.example/v1",
+        beta=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(parse=_NativeParseRecorder(None).parse)
+            )
+        ),
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create_recorder.create)
+        ),
+    )
+    fake_client.with_options = lambda **kwargs: (
+        with_options_calls.append(dict(kwargs)) or fake_client
+    )
+
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_kwargs, _, trace_repository = _trace_dependencies("no_fallback_json")
+
+    with pytest.raises(LLMProviderRequestError):
+        await service(
+            prompt="Review fallback provider",
+            model="custom-model",
+            response_type=MovieReview,
+            max_tokens=1234,
+            single_request=True,
+            **trace_kwargs,
+        )
+
+    assert len(create_recorder.calls) == 1
+    assert with_options_calls == [{"max_retries": 0}]
+    assert create_recorder.calls[0]["response_format"] == {"type": "json_object"}
+    assert [item["trace"]["status"] for item in trace_repository.appended] == [
+        "error"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_llm_service_does_not_retry_unrelated_type_errors(monkeypatch):
     create_response = SimpleNamespace(
         choices=[

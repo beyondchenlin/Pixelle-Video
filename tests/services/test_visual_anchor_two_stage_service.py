@@ -7,7 +7,6 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from pixelle_video.models.llm_response import LLMProviderRequestError
 from pixelle_video.models.series_visual_signature import (
     VisualSignatureProfileSnapshot,
 )
@@ -24,9 +23,11 @@ from pixelle_video.models.visual_anchor_two_stage import (
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
     PreflightReviewOutput,
+    ProtectedFact,
     TargetVisualStyle,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
+    VisualAnchorTwoStageFrameResult,
 )
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.visual_anchor_generation_binding import (
@@ -67,35 +68,6 @@ class _QueuedLLM:
             }
         )
         return self.responses[response_type].pop(0)
-
-
-class _RepairAwareContentLLM:
-    def __init__(self, *, invalid_response, valid_response, wrapped_schema_error=False):
-        self.invalid_response = invalid_response
-        self.valid_response = valid_response
-        self.wrapped_schema_error = wrapped_schema_error
-        self.calls = []
-
-    async def __call__(self, *, prompt, response_type, **kwargs):
-        self.calls.append(
-            {
-                "prompt": prompt,
-                "response_type": response_type,
-                "kwargs": kwargs,
-            }
-        )
-        if len(self.calls) == 1:
-            if self.wrapped_schema_error:
-                try:
-                    response_type.model_validate(self.invalid_response)
-                except ValidationError as exc:
-                    raise LLMProviderRequestError(
-                        "structured response validation failed"
-                    ) from exc
-            return self.invalid_response
-        if '"codes": []' in prompt:
-            pytest.fail("the repair attempt did not receive typed validation codes")
-        return self.valid_response
 
 
 def _plan(*, continuous=False):
@@ -358,25 +330,27 @@ async def _run(
     review_outputs=None,
     target_visual_style="真实电影感",
     negative_prompt_supported=False,
+    llm=None,
 ):
-    contents = content_outputs or [
-        _content(frame.frame_id, frame.source_text) for frame in plan.frames
-    ]
-    fusions = fusion_outputs or [
-        _fusion(frame.frame_id, inherited=index > 0)
-        for index, frame in enumerate(plan.frames)
-    ]
-    reviews = review_outputs or [
-        _review(fusion, negative_supported=negative_prompt_supported)
-        for fusion in fusions
-    ]
-    llm = _QueuedLLM(
-        {
-            ContentStageOutput: contents,
-            FusionStageOutput: fusions,
-            PreflightReviewOutput: reviews,
-        }
-    )
+    if llm is None:
+        contents = content_outputs or [
+            _content(frame.frame_id, frame.source_text) for frame in plan.frames
+        ]
+        fusions = fusion_outputs or [
+            _fusion(frame.frame_id, inherited=index > 0)
+            for index, frame in enumerate(plan.frames)
+        ]
+        reviews = review_outputs or [
+            _review(fusion, negative_supported=negative_prompt_supported)
+            for fusion in fusions
+        ]
+        llm = _QueuedLLM(
+            {
+                ContentStageOutput: contents,
+                FusionStageOutput: fusions,
+                PreflightReviewOutput: reviews,
+            }
+        )
     result = await VisualAnchorTwoStageService().run_batch(
         llm_service=llm,
         storyboard_plan=plan,
@@ -463,8 +437,9 @@ async def test_content_stage_call_has_no_identity_or_reference_inputs():
         "target_image_prompt_language",
         "prompt_version",
     }
-    assert '"codes": []' in first_call["prompt"]
+    assert "服务端校验结果" not in first_call["prompt"]
     assert "review_feedback" not in first_call["prompt"]
+    assert first_call["kwargs"]["single_request"] is True
     assert "泛指人物" in first_call["prompt"]
     assert tuple(inspect.signature(_validate_content_stage_output).parameters) == (
         "stage_input",
@@ -515,7 +490,7 @@ async def test_content_stage_rejects_identity_bearing_style_before_any_model_cal
 
 
 @pytest.mark.asyncio
-async def test_content_stage_retries_its_own_invalid_fact_contract_without_identity_input():
+async def test_content_stage_contract_failure_stops_after_one_model_call():
     plan = _plan()
     invalid = _content("frame-a", plan.frames[0].source_text)
     invalid = ContentStageOutput(
@@ -535,22 +510,37 @@ async def test_content_stage_retries_its_own_invalid_fact_contract_without_ident
         }
     )
 
-    result, llm = await _run(
-        plan,
-        content_outputs=[invalid, _content("frame-a", plan.frames[0].source_text)],
+    stage_input = ContentStageInput(
+        frame_id="frame-a",
+        original_storyboard_text=plan.frames[0].source_text,
+        article_context=plan.source_text,
+        previous_frame_summary="首镜，无前一镜",
+        next_frame_summary="末镜，无后一镜",
+        target_visual_style=TargetVisualStyle(description="真实电影感"),
+        target_image_prompt_language="中文",
+    )
+    llm = _QueuedLLM(
+        {
+            ContentStageOutput: [
+                invalid,
+                _content("frame-a", plan.frames[0].source_text),
+            ]
+        }
     )
 
-    content_calls = [
-        call for call in llm.calls if call["response_type"] is ContentStageOutput
-    ]
-    assert len(content_calls) == 2
-    assert result.frames[0].content_stage_output.protected_facts[0].source_evidence == (
-        "乔布斯和沃兹尼亚克"
-    )
+    with pytest.raises(VisualAnchorTwoStageError, match="fact_source_evidence_invalid"):
+        await VisualAnchorTwoStageService()._run_content_stage(
+            llm_service=llm,
+            stage_input=stage_input,
+            trace_context=None,
+            trace_recorder=None,
+        )
+
+    assert len(llm.calls) == 1
 
 
 @pytest.mark.asyncio
-async def test_content_stage_retry_receives_trusted_feedback_for_missing_visible_fact():
+async def test_content_stage_missing_visible_fact_stops_after_one_model_call():
     plan = _plan()
     invalid = _content("frame-a", plan.frames[0].source_text)
     invalid = ContentStageOutput.model_validate(
@@ -566,30 +556,38 @@ async def test_content_stage_retry_receives_trusted_feedback_for_missing_visible
         }
     )
 
-    result, llm = await _run(
-        plan,
-        content_outputs=[invalid, _content("frame-a", plan.frames[0].source_text)],
+    stage_input = ContentStageInput(
+        frame_id="frame-a",
+        original_storyboard_text=plan.frames[0].source_text,
+        article_context=plan.source_text,
+        previous_frame_summary="首镜，无前一镜",
+        next_frame_summary="末镜，无后一镜",
+        target_visual_style=TargetVisualStyle(description="真实电影感"),
+        target_image_prompt_language="中文",
+    )
+    llm = _QueuedLLM(
+        {
+            ContentStageOutput: [
+                invalid,
+                _content("frame-a", plan.frames[0].source_text),
+            ]
+        }
     )
 
-    content_calls = [
-        call for call in llm.calls if call["response_type"] is ContentStageOutput
-    ]
-    assert len(content_calls) == 2
-    assert '"codes": []' in content_calls[0]["prompt"]
-    assert '"subject_fact_missing"' in content_calls[1]["prompt"]
-    assert "主体没有同类别的受保护事实" in content_calls[1]["prompt"]
-    assert result.frames[0].content_stage_output.protected_facts[0].category == "person"
-    assert result.frames[0].content_attempt_count == 2
-    assert result.frames[0].content_retry_validation_codes == [
-        "fact_subject_reference_invalid",
-        "subject_fact_missing",
-    ]
-    assert result.frames[0].content_stage_input.model_dump().get("review_feedback") is None
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v4"
+    with pytest.raises(VisualAnchorTwoStageError, match="subject_fact_missing"):
+        await VisualAnchorTwoStageService()._run_content_stage(
+            llm_service=llm,
+            stage_input=stage_input,
+            trace_context=None,
+            trace_recorder=None,
+        )
+
+    assert len(llm.calls) == 1
+    assert "服务端校验结果" not in llm.calls[0]["prompt"]
 
 
 @pytest.mark.asyncio
-async def test_generic_people_regression_repairs_only_after_typed_contract_feedback():
+async def test_generic_people_regression_passes_in_one_model_call():
     source_text = "真正拉开差距的，是那些不断尝试、永不放弃的人。"
     subject_id = "frame-generic-subject-primary"
     stage_input = ContentStageInput(
@@ -620,21 +618,6 @@ async def test_generic_people_regression_repairs_only_after_typed_contract_feedb
         "self_check": "pass",
         "self_check_failures": [],
     }
-    invalid_output = ContentStageOutput.model_validate(
-        {
-            **common_output,
-            "protected_facts": [
-                {
-                    "fact_id": "frame-generic-fact-action",
-                    "category": "action",
-                    "subject_ids": [],
-                    "statement": "不断尝试、永不放弃",
-                    "source_evidence": "不断尝试、永不放弃",
-                    "pure_content_prompt_evidence": "持续迈步",
-                }
-            ],
-        }
-    )
     valid_output = ContentStageOutput.model_validate(
         {
             **common_output,
@@ -650,31 +633,22 @@ async def test_generic_people_regression_repairs_only_after_typed_contract_feedb
             ],
         }
     )
-    llm = _RepairAwareContentLLM(
-        invalid_response=invalid_output,
-        valid_response=valid_output,
-    )
+    llm = _QueuedLLM({ContentStageOutput: [valid_output]})
 
-    execution = await VisualAnchorTwoStageService()._run_content_stage(
+    output = await VisualAnchorTwoStageService()._run_content_stage(
         llm_service=llm,
         stage_input=stage_input,
         trace_context=None,
         trace_recorder=None,
     )
 
-    assert execution.output == valid_output
-    assert execution.attempt_count == 2
-    assert execution.retry_validation_codes == (
-        "concrete_fact_missing",
-        "subject_fact_missing",
-    )
-    assert '"concrete_fact_missing"' in llm.calls[1]["prompt"]
-    assert '"subject_fact_missing"' in llm.calls[1]["prompt"]
-    assert "person" in llm.calls[1]["prompt"]
+    assert output == valid_output
+    assert len(llm.calls) == 1
+    assert "person" in llm.calls[0]["prompt"]
 
 
 @pytest.mark.asyncio
-async def test_content_stage_retries_provider_wrapped_schema_validation_failure():
+async def test_content_stage_schema_failure_stops_after_one_model_call():
     plan = _plan()
     source_text = plan.frames[0].source_text
     stage_input = ContentStageInput(
@@ -686,22 +660,151 @@ async def test_content_stage_retries_provider_wrapped_schema_validation_failure(
         target_visual_style=TargetVisualStyle(description="真实电影感"),
         target_image_prompt_language="中文",
     )
-    llm = _RepairAwareContentLLM(
-        invalid_response={"core_claim": "缺少其他必填字段"},
-        valid_response=_content("frame-a", source_text),
-        wrapped_schema_error=True,
+    llm = _QueuedLLM(
+        {
+            ContentStageOutput: [
+                {"core_claim": "缺少其他必填字段"},
+                _content("frame-a", source_text),
+            ]
+        }
     )
 
-    execution = await VisualAnchorTwoStageService()._run_content_stage(
-        llm_service=llm,
-        stage_input=stage_input,
-        trace_context=None,
-        trace_recorder=None,
+    with pytest.raises(VisualAnchorTwoStageError, match="schema_contract_invalid"):
+        await VisualAnchorTwoStageService()._run_content_stage(
+            llm_service=llm,
+            stage_input=stage_input,
+            trace_context=None,
+            trace_recorder=None,
+        )
+
+    assert len(llm.calls) == 1
+
+
+def test_content_fact_normalizes_one_scalar_subject_reference_at_input_boundary():
+    fact = ProtectedFact.model_validate(
+        {
+            "fact_id": "frame-a-fact-person",
+            "category": "person",
+            "subject_ids": " frame-a-subject-primary ",
+            "statement": "乔布斯和沃兹尼亚克在车库制作电脑",
+            "source_evidence": "乔布斯和沃兹尼亚克",
+            "pure_content_prompt_evidence": "两位创作者",
+        }
     )
 
-    assert execution.attempt_count == 2
-    assert execution.retry_validation_codes == ("schema_contract_invalid",)
-    assert '"schema_contract_invalid"' in llm.calls[1]["prompt"]
+    assert fact.subject_ids == ["frame-a-subject-primary"]
+    assert ProtectedFact.model_json_schema()["properties"]["subject_ids"]["type"] == (
+        "array"
+    )
+
+
+def test_content_stage_accepts_scalar_subject_ids_from_every_protected_fact():
+    plan = _plan()
+    stage_input = ContentStageInput(
+        frame_id="frame-a",
+        original_storyboard_text=plan.frames[0].source_text,
+        article_context=plan.source_text,
+        previous_frame_summary="首镜，无前一镜",
+        next_frame_summary="末镜，无后一镜",
+        target_visual_style=TargetVisualStyle(description="真实电影感"),
+        target_image_prompt_language="中文",
+    )
+    raw_output = _content("frame-a", plan.frames[0].source_text).model_dump(
+        mode="json"
+    )
+    expected_subject_ids = []
+    for fact in raw_output["protected_facts"]:
+        subject_id = fact["subject_ids"][0]
+        expected_subject_ids.append(subject_id)
+        fact["subject_ids"] = subject_id
+
+    output = ContentStageOutput.model_validate(raw_output)
+
+    assert [fact.subject_ids for fact in output.protected_facts] == [
+        [subject_id] for subject_id in expected_subject_ids
+    ]
+    _validate_content_stage_output(stage_input, output)
+
+
+@pytest.mark.asyncio
+async def test_scalar_subject_ids_complete_the_pipeline_in_exactly_three_model_calls():
+    plan = _plan()
+    raw_output = _content("frame-a", plan.frames[0].source_text).model_dump(
+        mode="json"
+    )
+    for fact in raw_output["protected_facts"]:
+        fact["subject_ids"] = fact["subject_ids"][0]
+
+    result, llm = await _run(plan, content_outputs=[raw_output])
+
+    assert [call["response_type"] for call in llm.calls] == [
+        ContentStageOutput,
+        FusionStageOutput,
+        PreflightReviewOutput,
+    ]
+    assert all(
+        len(fact.subject_ids) == 1
+        for fact in result.frames[0].content_stage_output.protected_facts
+    )
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v5"
+
+
+@pytest.mark.asyncio
+async def test_previous_prompt_versions_and_retry_audit_remain_readable():
+    result, _ = await _run(_plan())
+    payload = result.frames[0].model_dump(mode="json")
+    payload["content_stage_input"]["prompt_version"] = (
+        "visual_anchor_content_stage.v5"
+    )
+    payload["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v4"
+    )
+    payload["fusion_stage_input"]["review_feedback"] = ["旧版审计反馈"]
+    payload["generation_request"]["content_stage_prompt_version"] = (
+        "visual_anchor_content_stage.v5"
+    )
+    payload["generation_request"]["fusion_stage_prompt_version"] = (
+        "visual_anchor_fusion_stage.v4"
+    )
+    payload["content_attempt_count"] = 2
+    payload["content_retry_validation_codes"] = ["schema_contract_invalid"]
+    payload["fusion_attempt_count"] = 2
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.model_dump(mode="json") == payload
+
+
+@pytest.mark.parametrize("invalid_subject_ids", ["   ", 42, {"id": "subject-a"}])
+def test_content_fact_rejects_ambiguous_or_empty_subject_reference_shapes(
+    invalid_subject_ids,
+):
+    with pytest.raises(ValidationError):
+        ProtectedFact.model_validate(
+            {
+                "fact_id": "frame-a-fact-person",
+                "category": "person",
+                "subject_ids": invalid_subject_ids,
+                "statement": "乔布斯和沃兹尼亚克在车库制作电脑",
+                "source_evidence": "乔布斯和沃兹尼亚克",
+                "pure_content_prompt_evidence": "两位创作者",
+            }
+        )
+
+
+def test_content_fact_does_not_split_delimited_scalar_subject_references():
+    fact = ProtectedFact.model_validate(
+        {
+            "fact_id": "frame-a-fact-person",
+            "category": "person",
+            "subject_ids": "subject-a,subject-b",
+            "statement": "两位创作者",
+            "source_evidence": "乔布斯和沃兹尼亚克",
+            "pure_content_prompt_evidence": "两位创作者",
+        }
+    )
+
+    assert fact.subject_ids == ["subject-a,subject-b"]
 
 
 def test_content_stage_input_rejects_callers_forging_server_validation_feedback():
@@ -873,31 +976,29 @@ async def test_final_prompt_rejects_candidate_language():
 
 
 @pytest.mark.asyncio
-async def test_fusion_reexecutes_before_preflight_when_identity_semantics_are_missing():
+async def test_missing_identity_semantics_stop_before_preflight_without_retry():
+    plan = _plan()
+    content = _content("frame-a", plan.frames[0].source_text)
     incomplete = _fusion(
         "frame-a",
         positive="车库内，乔布斯和沃兹尼亚克在工作台组装电脑，一只小鸟自然站在工作台旁。",
     )
     complete = _fusion("frame-a")
-
-    result, llm = await _run(
-        _plan(),
-        fusion_outputs=[incomplete, complete],
-        review_outputs=[_review(complete)],
+    llm = _QueuedLLM(
+        {
+            ContentStageOutput: [content],
+            FusionStageOutput: [incomplete, complete],
+            PreflightReviewOutput: [_review(complete)],
+        }
     )
 
-    fusion_calls = [
-        call for call in llm.calls if call["response_type"] is FusionStageOutput
+    with pytest.raises(VisualAnchorTwoStageError, match="identity trait evidence"):
+        await _run(plan, llm=llm)
+
+    assert [call["response_type"] for call in llm.calls] == [
+        ContentStageOutput,
+        FusionStageOutput,
     ]
-    assert len(fusion_calls) == 2
-    review_calls = [
-        call for call in llm.calls if call["response_type"] is PreflightReviewOutput
-    ]
-    assert len(review_calls) == 1
-    assert "identity trait evidence" in fusion_calls[1]["prompt"]
-    assert result.frames[0].generation_request.final_positive_prompt == (
-        complete.final_positive_prompt
-    )
 
 
 @pytest.mark.asyncio
@@ -1000,33 +1101,58 @@ def test_unselected_candidate_cannot_equal_selected_manifestation():
 
 
 @pytest.mark.asyncio
-async def test_failed_preflight_reexecutes_complete_fusion_once():
-    first_fusion = _fusion("frame-a")
-    second_fusion = _fusion(
-        "frame-a",
-        positive="车库内，乔布斯和沃兹尼亚克在工作台组装电脑。画面中只有一只小皮，它拥有圆形白色脸和蓝色短耳，以单一实体自然站在工作台旁，地面接触、透视和暖色阴影完整。",
-    )
+async def test_failed_preflight_stops_without_reexecuting_fusion():
+    plan = _plan()
+    content = _content("frame-a", plan.frames[0].source_text)
+    fusion = _fusion("frame-a")
     failed_review = PreflightReviewOutput(
         decision="fail",
         failures=["空间接触关系证据不足"],
         allowed_final_positive_prompt="",
         allowed_final_negative_prompt="",
     )
-    result, llm = await _run(
-        _plan(),
-        fusion_outputs=[first_fusion, second_fusion],
-        review_outputs=[failed_review, _review(second_fusion)],
+    llm = _QueuedLLM(
+        {
+            ContentStageOutput: [content],
+            FusionStageOutput: [fusion, fusion],
+            PreflightReviewOutput: [failed_review, _review(fusion)],
+        }
     )
 
-    assert result.frames[0].fusion_attempt_count == 2
-    fusion_calls = [
-        call for call in llm.calls if call["response_type"] is FusionStageOutput
+    with pytest.raises(VisualAnchorTwoStageError, match="空间接触关系证据不足"):
+        await _run(plan, llm=llm)
+
+    assert [call["response_type"] for call in llm.calls] == [
+        ContentStageOutput,
+        FusionStageOutput,
+        PreflightReviewOutput,
     ]
-    assert len(fusion_calls) == 2
-    assert "空间接触关系证据不足" in fusion_calls[1]["prompt"]
-    assert result.frames[0].generation_request.final_positive_prompt == (
-        second_fusion.final_positive_prompt
+
+
+@pytest.mark.asyncio
+async def test_invalid_fusion_stops_without_a_second_fusion_call():
+    plan = _plan()
+    content = _content("frame-a", plan.frames[0].source_text)
+    invalid_fusion = _fusion(
+        "frame-a",
+        fact_evidence="最终正向提示词中不存在的事实证据",
     )
+    valid_fusion = _fusion("frame-a")
+    llm = _QueuedLLM(
+        {
+            ContentStageOutput: [content],
+            FusionStageOutput: [invalid_fusion, valid_fusion],
+            PreflightReviewOutput: [_review(valid_fusion)],
+        }
+    )
+
+    with pytest.raises(VisualAnchorTwoStageError):
+        await _run(plan, llm=llm)
+
+    assert [call["response_type"] for call in llm.calls] == [
+        ContentStageOutput,
+        FusionStageOutput,
+    ]
 
 
 def test_missing_reference_condition_fails_before_fusion():
