@@ -537,6 +537,10 @@ class VisualAnchorTwoStageService:
                 fusion_input,
                 fusion_output,
             )
+            fusion_output = _normalize_fusion_required_style_fragments(
+                fusion_input,
+                fusion_output,
+            )
             fusion_output = _normalize_fusion_single_instance_evidence(
                 fusion_input,
                 fusion_output,
@@ -1526,6 +1530,53 @@ def _normalize_fusion_protected_fact_evidence(
     if not changed:
         return output
     return output.model_copy(update={"protected_fact_checks": normalized_checks})
+
+
+def _normalize_fusion_required_style_fragments(
+    stage_input: FusionStageInput,
+    output: FusionStageOutput,
+) -> FusionStageOutput:
+    """Restore server-owned literal style fragments omitted by the model."""
+
+    def append_missing(prompt: str, required_fragments: Sequence[str]) -> str:
+        normalized_prompt = _normalized_text(prompt)
+        normalized_prompt_folded = normalized_prompt.casefold()
+        missing: list[str] = []
+        for fragment in required_fragments:
+            normalized_fragment = _normalized_text(fragment)
+            if (
+                normalized_fragment
+                and normalized_fragment.casefold() not in normalized_prompt_folded
+            ):
+                missing.append(normalized_fragment)
+                normalized_prompt_folded = (
+                    f"{normalized_prompt_folded} {normalized_fragment.casefold()}"
+                )
+        if not missing:
+            return prompt
+        return f"{normalized_prompt}，{', '.join(missing)}"
+
+    normalized_positive = append_missing(
+        output.final_positive_prompt,
+        stage_input.target_visual_style.required_final_prompt_fragments,
+    )
+    normalized_negative = output.final_negative_prompt
+    if stage_input.negative_prompt_supported:
+        normalized_negative = append_missing(
+            normalized_negative,
+            stage_input.target_visual_style.required_negative_prompt_fragments,
+        )
+    if (
+        normalized_positive == output.final_positive_prompt
+        and normalized_negative == output.final_negative_prompt
+    ):
+        return output
+    return output.model_copy(
+        update={
+            "final_positive_prompt": normalized_positive,
+            "final_negative_prompt": normalized_negative,
+        }
+    )
 
 
 def _extract_single_instance_prompt_evidence(

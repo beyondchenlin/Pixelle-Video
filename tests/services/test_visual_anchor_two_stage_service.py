@@ -480,6 +480,67 @@ async def test_negative_capable_workflow_preserves_required_negative_fragments()
 
 
 @pytest.mark.asyncio
+async def test_fusion_restores_server_owned_literal_style_fragments():
+    required_fragments = [
+        "minimal line art",
+        "elegant contour drawing",
+        "lots of negative space",
+        "subtle emotional tone",
+        "clean monochrome illustration",
+    ]
+    style = TargetVisualStyle(
+        description="简约单色线稿",
+        required_final_prompt_fragments=required_fragments,
+    )
+    fusion = _fusion("frame-a")
+    expected_positive = (
+        f"{fusion.final_positive_prompt}，{', '.join(required_fragments)}"
+    )
+    normalized_fusion = fusion.model_copy(
+        update={"final_positive_prompt": expected_positive}
+    )
+
+    result, llm = await _run(
+        _plan(),
+        fusion_outputs=[fusion],
+        review_outputs=[_review(normalized_fusion)],
+        target_visual_style=style,
+    )
+
+    frame = result.frames[0]
+    assert len(llm.calls) == 3
+    assert frame.fusion_stage_output.final_positive_prompt == expected_positive
+    assert frame.generation_request.final_positive_prompt == expected_positive
+    assert all(
+        fragment in frame.generation_request.final_positive_prompt
+        for fragment in required_fragments
+    )
+
+
+@pytest.mark.asyncio
+async def test_fusion_restores_required_negative_style_fragments_when_supported():
+    style = TargetVisualStyle(
+        description="真实电影感",
+        required_negative_prompt_fragments=["low quality", "duplicate subject"],
+    )
+    fusion = _fusion("frame-a", negative_prompt="低质量")
+    expected_negative = "低质量，low quality, duplicate subject"
+    normalized_fusion = fusion.model_copy(
+        update={"final_negative_prompt": expected_negative}
+    )
+
+    result, _ = await _run(
+        _plan(),
+        fusion_outputs=[fusion],
+        review_outputs=[_review(normalized_fusion, negative_supported=True)],
+        target_visual_style=style,
+        negative_prompt_supported=True,
+    )
+
+    assert result.frames[0].generation_request.final_negative_prompt == expected_negative
+
+
+@pytest.mark.asyncio
 async def test_content_stage_call_has_no_identity_or_reference_inputs():
     result, llm = await _run(_plan())
 
