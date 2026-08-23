@@ -364,7 +364,6 @@ def _decode_categoryless_subject_facts(
 def _decode_subject_fact_statements(
     subject: object,
     *,
-    core_claim: object,
     pure_content_prompt: object,
 ) -> object:
     """Materialize fact objects from bare statements using subject-local evidence."""
@@ -405,9 +404,6 @@ def _decode_subject_fact_statements(
     ):
         return subject
 
-    normalized_core_claim = (
-        " ".join(core_claim.split()) if isinstance(core_claim, str) else ""
-    )
     normalized_prompt = (
         " ".join(pure_content_prompt.split())
         if isinstance(pure_content_prompt, str)
@@ -422,9 +418,7 @@ def _decode_subject_fact_statements(
             {
                 "category": category,
                 "statement": statement,
-                "source_evidence": (
-                    statement if statement in normalized_core_claim else source_fallback
-                ),
+                "source_evidence": source_fallback,
                 "pure_content_prompt_evidence": (
                     statement if statement in normalized_prompt else prompt_fallback
                 ),
@@ -548,11 +542,9 @@ class ContentStageModelOutput(BaseModel):
     def _decode_subject_facts(cls, value: object) -> object:
         if not isinstance(value, dict):
             return value
-        core_claim = value.get("core_claim")
         pure_content_prompt = value.get("pure_content_prompt")
         primary_subject = _decode_subject_fact_statements(
             value.get("primary_subject"),
-            core_claim=core_claim,
             pure_content_prompt=pure_content_prompt,
         )
         primary_subject = _normalize_subject_prompt_evidence(
@@ -565,7 +557,6 @@ class ContentStageModelOutput(BaseModel):
                 _normalize_subject_prompt_evidence(
                     _decode_subject_fact_statements(
                         subject,
-                        core_claim=core_claim,
                         pure_content_prompt=pure_content_prompt,
                     ),
                     pure_content_prompt,
