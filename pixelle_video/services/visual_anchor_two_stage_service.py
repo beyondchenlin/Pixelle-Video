@@ -898,9 +898,19 @@ def _materialize_content_stage_output(
     """Assign server-owned identifiers after the model response has been validated."""
 
     protected_facts: list[dict[str, Any]] = []
+    protected_fact_keys: set[tuple[str, str, str, tuple[str, ...]]] = set()
 
     def append_facts(*, facts, subject_ids: list[str]) -> None:
         for fact in facts:
+            fact_key = (
+                fact.category,
+                _normalized_text(fact.source_evidence).casefold(),
+                _normalized_text(fact.pure_content_prompt_evidence).casefold(),
+                tuple(sorted(subject_ids)),
+            )
+            if fact_key in protected_fact_keys:
+                continue
+            protected_fact_keys.add(fact_key)
             fact_index = len(protected_facts) + 1
             protected_facts.append(
                 {
