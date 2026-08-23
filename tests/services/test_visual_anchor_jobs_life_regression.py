@@ -9,6 +9,7 @@ import pytest
 from pixelle_video.models.storyboard import StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
+    ContentStageModelOutput,
     ContentStageOutput,
     FusionStageOutput,
     ImageWorkflowExecutionContract,
@@ -23,6 +24,7 @@ from pixelle_video.services.visual_anchor_two_stage_service import (
     VisualAnchorTwoStageError,
     VisualAnchorTwoStageService,
     _contains_required_prompt_fragment_contract,
+    _materialize_content_stage_output,
 )
 from pixelle_video.services.visual_prompt_composer import (
     VisualPromptComposer,
@@ -92,7 +94,7 @@ def _jobs_plan() -> StoryboardPlan:
     )
 
 
-def _content_outputs(plan: StoryboardPlan) -> list[ContentStageOutput]:
+def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
     subject_specs = (
         (
             "乔布斯和沃兹尼亚克",
@@ -160,7 +162,7 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageOutput]:
         ),
     )
     outputs = []
-    for frame, spec, pure_prompt, event_spec in zip(
+    for _frame, spec, pure_prompt, event_spec in zip(
         plan.frames,
         subject_specs,
         pure_prompts,
@@ -177,37 +179,9 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageOutput]:
         ) = spec
         event_source, event_prompt, event_category = event_spec
         outputs.append(
-            ContentStageOutput(
+            ContentStageModelOutput(
                 core_claim=pure_prompt,
-                protected_facts=[
-                    {
-                        "fact_id": f"{frame.frame_id}-primary",
-                        "category": "person",
-                        "subject_ids": [f"{frame.frame_id}-subject-primary"],
-                        "statement": primary_source,
-                        "source_evidence": primary_source,
-                        "pure_content_prompt_evidence": primary_name,
-                    },
-                    {
-                        "fact_id": f"{frame.frame_id}-system",
-                        "category": "product",
-                        "subject_ids": [f"{frame.frame_id}-subject-system"],
-                        "statement": secondary_source,
-                        "source_evidence": secondary_source,
-                        "pure_content_prompt_evidence": secondary_name,
-                    },
-                    {
-                        "fact_id": f"{frame.frame_id}-event",
-                        "category": event_category,
-                        "subject_ids": [],
-                        "statement": event_source,
-                        "source_evidence": event_source,
-                        "pure_content_prompt_evidence": event_prompt,
-                    },
-                ],
                 primary_subject={
-                    "subject_id": f"{frame.frame_id}-subject-primary",
-                    "role": "primary",
                     "category": "person",
                     "name": primary_name,
                     "identity": "分镜原文中的真正叙事人物",
@@ -215,11 +189,17 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageOutput]:
                     "action": primary_action,
                     "source_evidence": primary_source,
                     "pure_content_prompt_evidence": primary_name,
+                    "protected_facts": [
+                        {
+                            "category": "person",
+                            "statement": primary_source,
+                            "source_evidence": primary_source,
+                            "pure_content_prompt_evidence": primary_name,
+                        }
+                    ],
                 },
                 secondary_subjects=[
                     {
-                        "subject_id": f"{frame.frame_id}-subject-system",
-                        "role": "secondary",
                         "category": "product",
                         "name": secondary_name,
                         "identity": "分镜原文中的产品、技术或道路系统",
@@ -227,6 +207,22 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageOutput]:
                         "action": secondary_action,
                         "source_evidence": secondary_source,
                         "pure_content_prompt_evidence": secondary_name,
+                        "protected_facts": [
+                            {
+                                "category": "product",
+                                "statement": secondary_source,
+                                "source_evidence": secondary_source,
+                                "pure_content_prompt_evidence": secondary_name,
+                            }
+                        ],
+                    }
+                ],
+                scene_facts=[
+                    {
+                        "category": event_category,
+                        "statement": event_source,
+                        "source_evidence": event_source,
+                        "pure_content_prompt_evidence": event_prompt,
                     }
                 ],
                 adjustable_non_core_content=["非核心环境道具", "辅助光影层次"],
@@ -486,7 +482,14 @@ def _execution() -> ImageWorkflowExecutionContract:
 
 async def _run_jobs_sample():
     plan = _jobs_plan()
-    contents = _content_outputs(plan)
+    model_contents = _content_outputs(plan)
+    contents = [
+        _materialize_content_stage_output(
+            frame_id=frame.frame_id,
+            model_output=model_output,
+        )
+        for frame, model_output in zip(plan.frames, model_contents)
+    ]
     fusions = _fusion_outputs(contents)
     reviews = [
         PreflightReviewOutput(
@@ -499,7 +502,7 @@ async def _run_jobs_sample():
     ]
     llm = _QueuedLLM(
         {
-            ContentStageOutput: contents,
+            ContentStageModelOutput: model_contents,
             FusionStageOutput: fusions,
             PreflightReviewOutput: reviews,
         }
@@ -535,7 +538,9 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
 
     assert len(llm.calls) == len(plan.frames) * 3
     content_calls = [
-        call for call in llm.calls if call["response_type"] is ContentStageOutput
+        call
+        for call in llm.calls
+        if call["response_type"] is ContentStageModelOutput
     ]
     fusion_calls = [
         call for call in llm.calls if call["response_type"] is FusionStageOutput
@@ -666,7 +671,11 @@ async def test_jobs_life_passed_preflight_generates_each_frame_exactly_once(
 @pytest.mark.asyncio
 async def test_rejected_preflight_exposes_no_image_generation_request():
     plan = _jobs_plan()
-    content = _content_outputs(plan)[0]
+    model_content = _content_outputs(plan)[0]
+    content = _materialize_content_stage_output(
+        frame_id=plan.frames[0].frame_id,
+        model_output=model_content,
+    )
     fusion = _fusion_outputs([content])[0]
     failed_review = PreflightReviewOutput(
         decision="fail",
@@ -676,7 +685,7 @@ async def test_rejected_preflight_exposes_no_image_generation_request():
     )
     llm = _QueuedLLM(
         {
-            ContentStageOutput: [content],
+            ContentStageModelOutput: [model_content],
             FusionStageOutput: [fusion],
             PreflightReviewOutput: [failed_review],
         }
@@ -710,7 +719,7 @@ async def test_rejected_preflight_exposes_no_image_generation_request():
 
     assert image_generation_calls == []
     assert [call["response_type"] for call in llm.calls] == [
-        ContentStageOutput,
+        ContentStageModelOutput,
         FusionStageOutput,
         PreflightReviewOutput,
     ]
