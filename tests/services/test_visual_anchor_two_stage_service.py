@@ -1334,6 +1334,59 @@ async def test_recorded_single_instance_evidence_expands_over_identity_modifiers
 
 
 @pytest.mark.asyncio
+async def test_recorded_local_instance_clause_is_promoted_to_global_uniqueness():
+    positive = (
+        "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。"
+        "在画面的一角，有一只拥有圆形白色脸和蓝色短耳的小皮静静坐着。"
+    )
+    expected_positive = positive.replace("有一只", "只有一只")
+    expected_evidence = "只有一只拥有圆形白色脸和蓝色短耳的小皮"
+    fusion = _fusion(
+        "frame-a",
+        positive=positive,
+        single_instance_evidence="画面中只有一只小皮",
+    )
+    normalized_fusion = fusion.model_copy(
+        update={
+            "final_positive_prompt": expected_positive,
+            "single_instance_prompt_evidence": expected_evidence,
+        }
+    )
+
+    result, llm = await _run(
+        _plan(),
+        fusion_outputs=[fusion],
+        review_outputs=[_review(normalized_fusion)],
+    )
+
+    frame = result.frames[0]
+    assert frame.generation_request.final_positive_prompt == expected_positive
+    assert frame.generation_request.single_instance_prompt_evidence == (
+        expected_evidence
+    )
+    assert len(llm.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_multiple_local_instance_clauses_are_not_promoted():
+    fusion = _fusion(
+        "frame-a",
+        positive=(
+            "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。"
+            "左侧有一只拥有圆形白色脸和蓝色短耳的小皮，"
+            "右侧有一只拥有圆形白色脸和蓝色短耳的小皮。"
+        ),
+        single_instance_evidence="画面中只有一只小皮",
+    )
+
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="single-instance evidence is not present",
+    ):
+        await _run(_plan(), fusion_outputs=[fusion])
+
+
+@pytest.mark.asyncio
 async def test_negated_single_instance_clause_is_not_accepted_as_evidence():
     negated_evidence = "画面中并非只有一只拥有圆形白色脸和蓝色短耳的小皮"
     fusion = _fusion(
