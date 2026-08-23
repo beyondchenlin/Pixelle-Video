@@ -1961,6 +1961,69 @@ async def test_recorded_protected_fact_evidence_uses_exact_content_evidence():
 
 
 @pytest.mark.asyncio
+async def test_fusion_restores_missing_server_owned_protected_fact_fragment():
+    source_text = "乔布斯和沃兹尼亚克在车库组装一台电脑。"
+    fact_evidence = "乔布斯和沃兹尼亚克在车库工作台前组装一台电脑"
+    base_content = _content("frame-a", source_text)
+    content = ContentStageModelOutput.model_validate(
+        {
+            **base_content.model_dump(mode="json"),
+            "scene_facts": [
+                {
+                    "category": "action",
+                    "statement": "两人在车库工作台前组装一台电脑",
+                    "source_evidence": source_text,
+                    "pure_content_prompt_evidence": fact_evidence,
+                }
+            ],
+            "pure_content_prompt": (
+                f"{fact_evidence}，暖色灯光和真实材质。"
+            ),
+        }
+    )
+    materialized_content = _materialize_content_stage_output(
+        frame_id="frame-a",
+        model_output=content,
+    )
+    fusion = _fusion(
+        "frame-a",
+        fact_ids=[fact.fact_id for fact in materialized_content.protected_facts],
+    )
+    fusion = FusionStageOutput.model_validate(
+        {
+            **fusion.model_dump(mode="json"),
+            "protected_fact_checks": [
+                {
+                    "fact_id": fact.fact_id,
+                    "preserved": True,
+                    "final_image_evidence": fact.pure_content_prompt_evidence,
+                }
+                for fact in materialized_content.protected_facts
+            ],
+        }
+    )
+    expected_positive = f"{fusion.final_positive_prompt}；{fact_evidence}"
+    normalized_fusion = fusion.model_copy(
+        update={"final_positive_prompt": expected_positive}
+    )
+
+    result, llm = await _run(
+        _plan(),
+        content_outputs=[content],
+        fusion_outputs=[fusion],
+        review_outputs=[_review(normalized_fusion)],
+    )
+
+    frame = result.frames[0]
+    assert len(llm.calls) == 3
+    assert frame.fusion_stage_output.final_positive_prompt == expected_positive
+    assert frame.generation_request.final_positive_prompt == expected_positive
+    assert frame.fusion_stage_output.protected_fact_checks[-1].final_image_evidence == (
+        fact_evidence
+    )
+
+
+@pytest.mark.asyncio
 async def test_generation_request_contains_only_one_instance_and_clean_prompt():
     result, _ = await _run(_plan())
     request = result.frames[0].generation_request
