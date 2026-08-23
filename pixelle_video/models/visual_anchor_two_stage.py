@@ -441,7 +441,7 @@ class ContentStageSubject(BaseModel):
         )
     )
     protected_facts: list[ContentFact] = Field(
-        min_length=1,
+        default_factory=list,
         description=(
             "直接描述该主体且必须由后续阶段保留的事实对象数组；"
             "每项必须是 ContentFact 对象，不能是字符串"
@@ -451,6 +451,8 @@ class ContentStageSubject(BaseModel):
     @field_validator("protected_facts", mode="before")
     @classmethod
     def _decode_protected_facts(cls, value: object) -> object:
+        if isinstance(value, list) and value and all(item is None for item in value):
+            return []
         return _decode_flattened_content_facts(value)
 
     @field_validator(
