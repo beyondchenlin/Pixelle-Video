@@ -263,6 +263,57 @@ async def test_generate_image_prompts_uses_structured_output():
     assert prompts == ["prompt one", "prompt two"]
 
 
+@pytest.mark.asyncio
+async def test_visual_anchor_preparation_uses_one_prompt_call_and_no_planning_calls(
+    monkeypatch,
+):
+    calls = []
+
+    class FakeLLM:
+        async def __call__(self, prompt, **kwargs):
+            calls.append(prompt)
+            return content_generators.ImagePromptBatchResponse(
+                image_prompts=["prompt one", "prompt two"]
+            )
+
+    async def forbidden_planning_call(*_args, **_kwargs):
+        raise AssertionError("single-pass visual anchor must not call a planner model")
+
+    monkeypatch.setattr(
+        content_generators.ContentWorldPlanner,
+        "plan",
+        forbidden_planning_call,
+    )
+    monkeypatch.setattr(
+        content_generators,
+        "plan_storyboard_batch",
+        forbidden_planning_call,
+    )
+    monkeypatch.setattr(
+        content_generators,
+        "estimate_input_tokens",
+        lambda _prompt: 100_000,
+    )
+
+    result = await content_generators.generate_styled_image_prompt_batch(
+        FakeLLM(),
+        narrations=["scene one", "scene two"],
+        image_config={},
+        batch_size=2,
+        max_concurrency=1,
+        max_retries=1,
+        generation_world_hint="restrained historical explainer",
+        shot_preset_id="documentary",
+        visual_anchor_preparation_enabled=True,
+        literal_style_resolution=True,
+    )
+
+    assert result.prompts[0].startswith("prompt one")
+    assert result.prompts[1].startswith("prompt two")
+    assert len(calls) == 1
+    assert "restrained historical explainer" in calls[0]
+
+
 def test_image_prompt_template_preserves_json_contract_and_explains_ip_scene_description():
     prompt = build_image_prompt_prompt(
         narrations=["Start from Changle Gate."],

@@ -65,7 +65,10 @@ from pixelle_video.models.render_package import (
     TextTrack,
     VisualClip,
 )
-from pixelle_video.models.series_visual_signature_request import SeriesVisualSignatureRequest
+from pixelle_video.models.series_visual_signature_request import (
+    SeriesVisualSignatureControlsContract,
+    SeriesVisualSignatureRequest,
+)
 from pixelle_video.models.size_contract import (
     GenerationSizeContract,
     orientation_from_dimensions,
@@ -157,6 +160,9 @@ from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
 from pixelle_video.services.video_cover import ensure_video_cover
+from pixelle_video.services.visual_anchor_reference_condition import (
+    inspect_identity_reference_workflow,
+)
 from pixelle_video.services.visual_anchor_rendered_output_audit import (
     VisualAnchorRenderedOutputAudit,
     VisualAnchorRenderedOutputAuditError,
@@ -219,22 +225,6 @@ LocalMediaSessionPolicy = Literal["none", "batch", "per_frame"]
 def _targets_z_image_workflow(workflow: Any) -> bool:
     text = str(workflow or "").strip().casefold()
     return not text or "z_image" in text or "z-image" in text or "image_z" in text
-
-
-def _workflow_supports_reference_image(
-    media_service: Any,
-    workflow: str | None,
-) -> bool:
-    resolver = getattr(media_service, "_resolve_workflow", None)
-    if not callable(resolver):
-        return False
-    workflow_info = resolver(
-        workflow=workflow,
-        workflow_domain="image",
-    )
-    return get_workflow_capabilities(
-        dict(workflow_info)
-    ).supports_reference_image
 
 
 def _validate_single_pass_z_image_signature_batch(
@@ -613,6 +603,12 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.final_video_path = get_task_final_video_path(task_id)
             logger.info(f"   Will copy final video to: {output_path}")
 
+    async def prepare_reference_image(self, ctx: PipelineContext) -> None:
+        """Prepare the asset, then reject invalid visual-anchor inputs before any LLM call."""
+
+        await super().prepare_reference_image(ctx)
+        await self._preflight_series_visual_signature(ctx)
+
     async def generate_content(self, ctx: PipelineContext):
         """Step 2: Generate or process script/narrations."""
         mode = ctx.params.get("mode", "generate")
@@ -752,6 +748,7 @@ class StandardPipeline(LinearVideoPipeline):
     async def plan_visuals(self, ctx: PipelineContext):
         """Step 4: Generate image prompts or visual descriptions."""
         ctx.params = _params_with_visual_profile_defaults(ctx.params)
+        await self._preflight_series_visual_signature(ctx)
         storyboard_contract = StoryboardControlsContract.from_mapping(
             ctx.params,
             default_prompt_language=DEFAULT_PROMPT_LANGUAGE,
@@ -798,32 +795,9 @@ class StandardPipeline(LinearVideoPipeline):
             or ip_controls.series_visual_signature_profile_id,
             generation_world_hint=storyboard_contract.generation_world_hint,
         )
-        visual_anchor_reference_conditioning_enabled = False
-        if series_visual_signature_request.enabled:
-            if template_type != "image":
-                raise ValueError(
-                    "visual-anchor two-stage fusion requires an image template"
-                )
-            visual_anchor_reference_conditioning_enabled = (
-                _workflow_supports_reference_image(
-                    self.core.media,
-                    ctx.params.get("media_workflow"),
-                )
-            )
-            if (
-                visual_anchor_reference_conditioning_enabled
-                and ctx.reference_image_asset is None
-            ):
-                raise ValueError(
-                    "the selected reference-image workflow requires a real reference image"
-                )
-            if (
-                visual_anchor_reference_conditioning_enabled
-                and ip_controls.series_visual_signature_output_max_attempts != 1
-            ):
-                raise ValueError(
-                    "reference-conditioned visual-anchor fusion permits exactly one first image request"
-                )
+        visual_anchor_reference_conditioning_enabled = (
+            ctx.visual_anchor_reference_conditioning_enabled
+        )
         content_planning_ip_profile = (
             None if visual_anchor_reference_conditioning_enabled else ip_profile
         )
@@ -847,7 +821,16 @@ class StandardPipeline(LinearVideoPipeline):
         )
 
         visual_story_context = None
-        if bool(ctx.params.get("visual_story_engine_enabled", True)):
+        if series_visual_signature_request.enabled:
+            ctx.observability["visual_anchor_visual_planning"] = {
+                "schema_version": "visual_anchor_visual_planning.v1",
+                "route_model_call_count": 0,
+                "frame_planning_model_call_count": 0,
+                "prompt_model_call_count": 1,
+                "prompt_retry_enabled": False,
+                "prompt_review_model_call_count": 0,
+            }
+        elif bool(ctx.params.get("visual_story_engine_enabled", True)):
             route_trace_collector = LLMTraceCollector(self._llm_trace_recorder(ctx))
             visual_story_plan = await VisualStoryEngineService().prepare(
                 llm_service=self.llm,
@@ -1002,10 +985,12 @@ class StandardPipeline(LinearVideoPipeline):
                 visual_anchor_reference_conditioning_enabled=(
                     visual_anchor_reference_conditioning_enabled
                 ),
+                identity_reference_workflow_inspection=(
+                    ctx.identity_reference_workflow_inspection
+                ),
             )
             if (
                 series_visual_signature_request.enabled
-                and not visual_anchor_reference_conditioning_enabled
                 and media_type == "image"
                 and _targets_z_image_workflow(ctx.params.get("media_workflow"))
             ):
@@ -1134,6 +1119,10 @@ class StandardPipeline(LinearVideoPipeline):
             media_placement=ctx.params.get("media_placement"),
             media_workflow=ctx.params.get("media_workflow"),
             media_negative_prompt=ctx.media_negative_prompt,
+            reference_image_workflow_injection_mode=ctx.params.get(
+                "reference_image_workflow_injection_mode",
+                "off",
+            ),
             frame_template=frame_template,
             template_params=ctx.params.get("template_params"),
             template_display=ctx.params.get("template_display"),
@@ -1160,6 +1149,9 @@ class StandardPipeline(LinearVideoPipeline):
             raise ValueError(
                 "image_prompts must match storyboard frame count before storyboard initialization"
             )
+        registered_media_seeds = dict(
+            ctx.params.get("registered_media_seed_by_frame") or {}
+        )
         for i, (plan_frame, image_prompt) in enumerate(zip(ctx.storyboard_plan.frames, ctx.image_prompts)):
             frame_negative_prompt = None
             if i < len(ctx.rendered_media_prompts):
@@ -1180,7 +1172,7 @@ class StandardPipeline(LinearVideoPipeline):
                 generation_seed=(
                     generation_request.get("random_seed")
                     if isinstance(generation_request, Mapping)
-                    else None
+                    else registered_media_seeds.get(plan_frame.frame_id)
                 ),
                 visual_anchor_generation_request=(
                     dict(generation_request)
@@ -3013,10 +3005,151 @@ class StandardPipeline(LinearVideoPipeline):
         if ctx.storyboard_plan is None:
             raise ValueError("storyboard_plan must be generated before IP prompt chain resolution")
 
+        ip_profile = ctx.series_visual_signature_profile
+        if ip_profile is None:
+            ip_profile = await self._load_series_visual_signature_profile(ctx)
+
         repository = getattr(self.core, "asset_bible_repository", None)
         if repository is None:
             raise ValueError("asset_bible_repository is required when series_visual_signature_enabled=True")
 
+        workspace_id = self._resolve_workspace_id(ctx)
+        project_id = self._resolve_project_id(ctx)
+        asset_bible_id = ip_contract.series_visual_signature_asset_bible_id
+        if asset_bible_id is None:
+            raise ValueError("ip prompt chain controls must include an asset bible ID")
+
+        scene_cast_payloads = await repository.list_scene_casts(
+            workspace_id,
+            project_id,
+            asset_bible_id,
+        )
+        storyboard_plan_id = ctx.storyboard_plan.plan_id
+        frame_ids = {frame.frame_id for frame in ctx.storyboard_plan.frames}
+        scene_casts_by_frame: dict[str, dict[str, Any]] = {}
+        for payload in scene_cast_payloads:
+            if not isinstance(payload, Mapping):
+                continue
+            candidate_storyboard_plan_id = str(payload.get("storyboard_plan_id") or "").strip()
+            frame_id = str(payload.get("frame_id") or "").strip()
+            if candidate_storyboard_plan_id != storyboard_plan_id or frame_id not in frame_ids:
+                continue
+            scene_casts_by_frame[frame_id] = dict(payload)
+
+        return ip_profile, (scene_casts_by_frame or None)
+
+    async def _preflight_series_visual_signature(
+        self,
+        ctx: PipelineContext,
+    ) -> None:
+        """Validate deterministic dependencies before visual-anchor model work."""
+
+        ctx.params = _params_with_visual_profile_defaults(ctx.params)
+        controls = SeriesVisualSignatureControlsContract.single_pass_from_mapping(
+            ctx.params
+        )
+        if not controls.enabled:
+            ctx.series_visual_signature_profile = None
+            ctx.visual_anchor_reference_conditioning_enabled = False
+            ctx.identity_reference_workflow_inspection = None
+            ctx.params.pop("reference_image_workflow_injection_mode", None)
+            return
+        if (
+            isinstance(ctx.series_visual_signature_profile, IPProfile)
+            and (ctx.observability.get("visual_anchor_preflight") or {}).get(
+                "status"
+            )
+            == "passed"
+        ):
+            return
+
+        ctx.params.update(controls.to_generation_dict())
+        ip_contract = IPControlsContract.from_mapping(ctx.params)
+        ip_contract.validate()
+
+        size_contract = GenerationSizeContract.from_params(
+            _size_params_with_template_defaults(ctx.params)
+        )
+        frame_template = _resolve_frame_template_for_size_contract(
+            ctx.params,
+            size_contract,
+        )
+        if _resolve_template_type_from_params(ctx.params, frame_template) != "image":
+            raise ValueError("visual anchor requires an image template")
+
+        workflow_info: Mapping[str, Any] | None = None
+        resolver = getattr(
+            getattr(self.core, "media", None),
+            "_resolve_workflow",
+            None,
+        )
+        if callable(resolver):
+            workflow_info = resolver(
+                workflow=ctx.params.get("media_workflow"),
+                workflow_domain="image",
+            )
+            reference_conditioning_enabled = get_workflow_capabilities(
+                dict(workflow_info)
+            ).supports_reference_image
+        else:
+            reference_conditioning_enabled = False
+
+        has_reference_asset = ctx.reference_image_asset is not None
+        if reference_conditioning_enabled and not has_reference_asset:
+            raise ValueError(
+                "the selected reference-image workflow requires a real reference image"
+            )
+        if has_reference_asset and not reference_conditioning_enabled:
+            raise ValueError(
+                "the selected text-only workflow cannot accept a reference image"
+            )
+
+        ctx.visual_anchor_reference_conditioning_enabled = (
+            reference_conditioning_enabled
+        )
+        ctx.identity_reference_workflow_inspection = None
+        if reference_conditioning_enabled:
+            if workflow_info is None or ctx.reference_image_asset is None:
+                raise ValueError(
+                    "reference-conditioned visual anchor requires resolved workflow inputs"
+                )
+            inspection = inspect_identity_reference_workflow(
+                workflow_info=workflow_info,
+                reference_asset_trace=ctx.reference_image_asset.to_trace_dict(),
+                project_root=Path(__file__).resolve().parents[2],
+            )
+            ctx.identity_reference_workflow_inspection = inspection.to_dict()
+            ctx.params["reference_image_workflow_injection_mode"] = "required"
+        else:
+            ctx.params.pop("reference_image_workflow_injection_mode", None)
+
+        ctx.series_visual_signature_profile = (
+            await self._load_series_visual_signature_profile(ctx)
+        )
+        ctx.observability["visual_anchor_preflight"] = {
+            "schema_version": "visual_anchor_preflight.v1",
+            "status": "passed",
+            "model_call_count": 0,
+            "template_type": "image",
+            "reference_conditioning_enabled": reference_conditioning_enabled,
+            "workflow_inspected": workflow_info is not None,
+            "profile_id": ip_contract.series_visual_signature_profile_id,
+        }
+
+    async def _load_series_visual_signature_profile(
+        self,
+        ctx: PipelineContext,
+    ) -> IPProfile:
+        cached = ctx.series_visual_signature_profile
+        if isinstance(cached, IPProfile):
+            return cached
+
+        repository = getattr(self.core, "asset_bible_repository", None)
+        if repository is None:
+            raise ValueError("asset_bible_repository is required when series_visual_signature_enabled=True")
+
+        ip_contract = IPControlsContract.from_mapping(ctx.params)
+        ip_contract.validate()
         workspace_id = self._resolve_workspace_id(ctx)
         project_id = self._resolve_project_id(ctx)
         asset_bible_id = ip_contract.series_visual_signature_asset_bible_id
@@ -3040,25 +3173,8 @@ class StandardPipeline(LinearVideoPipeline):
         if ip_profile is None:
             raise ValueError(f"ip profile was not found in asset bible: {series_visual_signature_profile_id}")
         ensure_ip_profile_ready_for_generation(ip_profile)
-
-        scene_cast_payloads = await repository.list_scene_casts(
-            workspace_id,
-            project_id,
-            asset_bible_id,
-        )
-        storyboard_plan_id = ctx.storyboard_plan.plan_id
-        frame_ids = {frame.frame_id for frame in ctx.storyboard_plan.frames}
-        scene_casts_by_frame: dict[str, dict[str, Any]] = {}
-        for payload in scene_cast_payloads:
-            if not isinstance(payload, Mapping):
-                continue
-            candidate_storyboard_plan_id = str(payload.get("storyboard_plan_id") or "").strip()
-            frame_id = str(payload.get("frame_id") or "").strip()
-            if candidate_storyboard_plan_id != storyboard_plan_id or frame_id not in frame_ids:
-                continue
-            scene_casts_by_frame[frame_id] = dict(payload)
-
-        return ip_profile, (scene_casts_by_frame or None)
+        ctx.series_visual_signature_profile = ip_profile
+        return ip_profile
 
     @staticmethod
     def _resolve_workspace_id(ctx: PipelineContext) -> str:

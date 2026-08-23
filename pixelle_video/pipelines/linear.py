@@ -211,6 +211,9 @@ class PipelineContext:
     reference_image_analysis: Optional[ReferenceImageAnalysis] = None
     reference_image_analysis_result: Optional[ReferenceImageAnalysisResult] = None
     reference_image_visual_context: Optional[ReferenceImageVisualContext] = None
+    series_visual_signature_profile: Any = field(default=None, repr=False)
+    visual_anchor_reference_conditioning_enabled: bool = False
+    identity_reference_workflow_inspection: Optional[Dict[str, Any]] = None
     generated_media_validator: Optional[
         Callable[[StoryboardFrame, int], Awaitable[bool]]
     ] = field(default=None, repr=False)

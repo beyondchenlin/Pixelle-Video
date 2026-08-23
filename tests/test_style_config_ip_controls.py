@@ -37,21 +37,6 @@ class _FakeStyleConfigUI:
         return _null_context()
 
 
-def _default_presentation_payload():
-    return {
-        "series_visual_signature_llm_prompt_assembly_enabled": False,
-        "mandatory_content_bound_anchor": True,
-        "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
-        "series_visual_signature_output_validation_mode": "off",
-        "series_visual_signature_output_max_attempts": 1,
-        "series_visual_signature_presentation_mode": "auto",
-        "series_visual_signature_enforcement": "strict",
-        "series_visual_signature_fallback_enabled": False,
-        "series_visual_signature_fallback_mode": "disabled",
-        "series_visual_signature_min_visibility": "clear",
-    }
-
-
 def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
     fake_ui = _FakeStyleConfigUI()
     fake_ui.session_state["style_series_visual_signature_enabled"] = True
@@ -75,12 +60,6 @@ def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
         "series_visual_signature_enabled": True,
         "series_visual_signature_asset_bible_id": "bible_demo",
         "series_visual_signature_profile_id": "ip_main",
-        "series_visual_signature_expression_mode": "auto",
-        "series_visual_signature_structure_mode": "auto",
-        "series_visual_signature_participation_mode": "auto",
-        "series_visual_signature_mode": "auto",
-        "series_visual_signature_consistency_mode": "off",
-        **_default_presentation_payload(),
     }
     assert [call["key"] for call in fake_ui.selectbox_calls] == [
         "style_series_visual_signature_asset_bible_id",
@@ -185,12 +164,6 @@ def test_render_series_visual_signature_controls_supports_content_state_prefix()
         "series_visual_signature_enabled": True,
         "series_visual_signature_asset_bible_id": "bible_demo",
         "series_visual_signature_profile_id": "ip_main",
-        "series_visual_signature_expression_mode": "auto",
-        "series_visual_signature_structure_mode": "auto",
-        "series_visual_signature_participation_mode": "auto",
-        "series_visual_signature_mode": "auto",
-        "series_visual_signature_consistency_mode": "off",
-        **_default_presentation_payload(),
         "ip_profile_world_hint": "Friendly guide world.",
     }
     assert fake_ui.toggle_calls[0]["key"] == "content_series_visual_signature_enabled"
@@ -316,16 +289,10 @@ def test_style_config_loads_ip_assets_after_enable_toggle():
         "series_visual_signature_enabled": True,
         "series_visual_signature_asset_bible_id": "bible_demo",
         "series_visual_signature_profile_id": "ip_main",
-        "series_visual_signature_expression_mode": "auto",
-        "series_visual_signature_structure_mode": "auto",
-        "series_visual_signature_participation_mode": "auto",
-        "series_visual_signature_mode": "auto",
-        "series_visual_signature_consistency_mode": "off",
-        **_default_presentation_payload(),
     }
 
 
-def test_style_config_treats_string_false_fallback_state_as_disabled():
+def test_style_config_does_not_submit_fallback_execution_state():
     fake_ui = _FakeStyleConfigUI()
     fake_ui.session_state["style_series_visual_signature_enabled"] = True
     fake_ui.session_state["style_ip_series_visual_signature_fallback_enabled"] = "false"
@@ -343,11 +310,11 @@ def test_style_config_treats_string_false_fallback_state_as_disabled():
         translate=lambda key, **_kwargs: key,
     )
 
-    assert payload["series_visual_signature_fallback_enabled"] is False
-    assert payload["series_visual_signature_fallback_mode"] == "disabled"
+    assert "series_visual_signature_fallback_enabled" not in payload
+    assert "series_visual_signature_fallback_mode" not in payload
 
 
-def test_style_config_keeps_prompt_assembly_deterministic():
+def test_style_config_does_not_submit_prompt_assembly_execution_state():
     fake_ui = _FakeStyleConfigUI()
     fake_ui.session_state["style_series_visual_signature_enabled"] = True
     fake_ui.session_state[
@@ -370,7 +337,7 @@ def test_style_config_keeps_prompt_assembly_deterministic():
         translate=lambda key, **_kwargs: key,
     )
 
-    assert payload["series_visual_signature_llm_prompt_assembly_enabled"] is False
+    assert "series_visual_signature_llm_prompt_assembly_enabled" not in payload
     assert all(
         call.get("key")
         != "style_ip_series_visual_signature_llm_prompt_assembly_enabled"

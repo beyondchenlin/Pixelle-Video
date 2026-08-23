@@ -314,7 +314,7 @@ async def test_video_prompt_path_uses_same_canonical_visual_signature_projection
         fake_generate_styled_image_prompt_batch,
     )
 
-    with pytest.raises(ValueError, match="requires an image workflow"):
+    with pytest.raises(ValueError, match="requires image media prompts"):
         await VisualPromptComposer().compose(
             llm_service=None,
             storyboard_plan=_storyboard_plan(),
@@ -543,9 +543,25 @@ async def test_default_text_to_image_visual_anchor_uses_text_projection_without_
     )
 
     assert captured_generation["series_visual_signature_enabled"] is False
+    assert captured_generation["max_retries"] == 1
+    assert captured_generation["batch_size"] == 1
+    assert captured_generation["max_concurrency"] == 1
+    assert captured_generation["visual_anchor_preparation_enabled"] is True
+    assert captured_generation["literal_style_resolution"] is True
     assert "Dalmatian" in result.prompts[0]
     assert "black spots" in result.prompts[0]
     assert "series_visual_signature_projection_audit" in result.planning_snapshot
+    assert result.planning_snapshot["visual_anchor_single_pass_prompt_policy"] == {
+        "schema_version": "visual_anchor_single_pass_prompt_policy.v1",
+        "visual_model_call_count": 1,
+        "model_retry_enabled": False,
+        "model_review_enabled": False,
+        "post_generation_model_validation_enabled": False,
+        "reference_conditioning_enabled": False,
+    }
+    assert result.planning_snapshot["series_visual_signature_contract_by_frame"][
+        "frame-1"
+    ]["remaining_repair_attempts"] == 0
     assert "visual_anchor_two_stage" not in result.planning_snapshot
 
 

@@ -202,7 +202,7 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -260,7 +260,7 @@ async def test_composer_injects_article_concretization_plans_into_prompt_context
         return _styled_batch(prompts=["prompt one", "prompt two"], planning_snapshot={})
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -295,7 +295,7 @@ async def test_composer_rejects_article_concretization_plan_frame_mismatch(monke
         raise AssertionError("frame mismatch should fail before prompt generation")
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -330,7 +330,7 @@ async def test_composer_carries_all_upstream_llm_trace_ids_into_prompt_plan_meta
         )
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -366,7 +366,7 @@ async def test_composer_passes_generation_world_hint_to_styled_batch(monkeypatch
         return _styled_batch(prompts=["prompt one", "prompt two"])
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -392,20 +392,21 @@ async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkey
         return _styled_batch(
             prompts=["prompt one", "prompt two"],
             planning_snapshot={
-                "ip_adaptations_by_frame": {
-                    plan.frames[0].frame_id: {
-                        "ip_presence_type": "scene_integrated",
-                        "image_text_plan": {
-                            "summary_text": "Changle Gate",
-                            "visible_text_whitelist": ["Changle Gate"],
-                        },
+                "base_visual_briefs_by_frame": {
+                    frame.frame_id: {
+                        "main_subjects": [frame.source_text],
+                        "base_image_prompt": prompt,
                     }
+                    for frame, prompt in zip(
+                        plan.frames,
+                        ("prompt one", "prompt two"),
+                    )
                 }
             },
         )
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -419,13 +420,14 @@ async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkey
     )
 
     assert captured["storyboard_plan"] == plan
-    assert captured["series_visual_signature_enabled"] is True
-    assert captured["ip_profile"] == profile
-    assert captured["scene_casts_by_frame"] == scene_casts_by_frame
+    assert captured["series_visual_signature_enabled"] is False
+    assert captured["ip_profile"] is None
+    assert captured["scene_casts_by_frame"] is None
     assert "ip_scene_description" not in captured["prompt_contexts"].frame_contexts[0]
-    assert result.prompt_plan_bundle.prompt_plans[0].metadata["ip_presence_type"] == (
-        "scene_integrated"
-    )
+    assert "Zhengding guide" in result.prompts[0]
+    assert result.planning_snapshot["visual_anchor_single_pass_prompt_policy"][
+        "visual_model_call_count"
+    ] == 1
 
 
 @pytest.mark.asyncio
@@ -434,11 +436,11 @@ async def test_composer_rejects_series_visual_signature_enabled_prompt_count_mis
         return _styled_batch(prompts=["prompt one"])
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
-    with pytest.raises(ValueError, match="image prompt count must match storyboard frame count"):
+    with pytest.raises(ValueError, match="visual prompt count must match storyboard frame count"):
         await ImagePromptComposer().compose(
             llm_service=object(),
             storyboard_plan=_plan(),
@@ -458,7 +460,7 @@ async def test_composer_projects_text_rendering_to_prompt_payload(monkeypatch):
         return _styled_batch(prompts=["prompt one", "prompt two"])
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -487,11 +489,11 @@ async def test_composer_rejects_prompt_count_mismatch(monkeypatch):
         return _styled_batch(prompts=["prompt one"])
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
-    with pytest.raises(ValueError, match="image prompt count must match storyboard frame count"):
+    with pytest.raises(ValueError, match="visual prompt count must match storyboard frame count"):
         await ImagePromptComposer().compose(
             llm_service=object(),
             storyboard_plan=_plan(),
@@ -505,7 +507,7 @@ async def test_composer_rejects_legacy_frame_override_identity(monkeypatch):
         raise AssertionError("legacy override should be rejected before prompt generation")
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -533,7 +535,7 @@ async def test_composer_rejects_non_sha256_source_digest_override(monkeypatch):
         raise AssertionError("malformed override should be rejected before prompt generation")
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -571,7 +573,7 @@ async def test_composer_applies_new_frame_override_identity_to_prompt_context(mo
         )
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -620,7 +622,7 @@ async def test_composer_applies_source_text_override_to_frame_source_text(monkey
         return _styled_batch(prompts=["prompt one", "prompt two"], planning_snapshot={})
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 

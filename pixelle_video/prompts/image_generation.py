@@ -68,6 +68,7 @@ def render_image_prompt_prompt(
     series_visual_signature_display_name: str = "",
     series_visual_signature_identity_traits: str = "",
     series_visual_signature_role_description: str = "",
+    visual_anchor_preparation_enabled: bool = False,
 ) -> RenderedPrompt:
     """
     Build image prompt generation prompt
@@ -112,6 +113,7 @@ def render_image_prompt_prompt(
             "series_visual_signature_display_name": series_visual_signature_display_name,
             "series_visual_signature_identity_traits": series_visual_signature_identity_traits,
             "series_visual_signature_role_description": series_visual_signature_role_description,
+            "visual_anchor_preparation_enabled": visual_anchor_preparation_enabled,
         },
     )
 
@@ -124,6 +126,7 @@ def build_image_prompt_prompt(
     style_profile: Optional[dict[str, Any]] = None,
     prompt_contexts: Optional[PromptContextInput] = None,
     prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
+    visual_anchor_preparation_enabled: bool = False,
 ) -> str:
     return render_image_prompt_prompt(
         narrations,
@@ -132,4 +135,5 @@ def build_image_prompt_prompt(
         style_profile=style_profile,
         prompt_contexts=prompt_contexts,
         prompt_language=prompt_language,
+        visual_anchor_preparation_enabled=visual_anchor_preparation_enabled,
     ).text

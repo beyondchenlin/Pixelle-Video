@@ -40,6 +40,7 @@ All final image prompt strings must be written in English.
 - Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the image from an isolated text fragment alone.
 - Preserve continuity across frames by respecting shared subjects, world elements, and any `locked_fields` in the matching prompt_context.
 - When `plan_context.generation_world_profile` exists, use generation_world_profile as the script world profile; it refines world_preset and must preserve protected original source subjects.
+- When `plan_context.generation_world_hint` exists, apply that user instruction literally while preserving protected original source subjects.
 - When `plan_context.visual_story_engine` exists, treat it as the upstream article visual route decision. Preserve `selected_visual_route`, `style_harmonization`, `frame_storytelling_logic`, route-specific rules, and channel-memory intent.
 - When a frame contains `visual_story_frame_plan`, it is the authoritative local visual task. The image must express its `local_claim`, `visual_task`, `visual_logic`, `required_subjects`, and `forbidden_losses`.
 - When `ip_scene_description` is present from a legacy context, weave it into the scene as part of subject action, scale, eye-line, or spatial relation; never treat it as an overlay, sticker, logo, corner mark, or detached decoration.
@@ -49,6 +50,18 @@ All final image prompt strings must be written in English.
 - Generate article-content visuals only. Do not invent or insert a recurring identity, mascot, visual signature, logo character, or channel character.
 - A deterministic downstream contract owns recurring-identity insertion. Keeping that entity out of this base prompt prevents duplicate subjects and preserves one clear owner.
 - Only include a character or branded entity when it is explicitly a source subject in the matching frame context.
+
+<!-- if visual_anchor_preparation_enabled -->
+# Single-Pass Visual-Anchor Preparation
+
+- Complete the visual planning inside this response; there is no later model repair or model review.
+- For each frame, derive one concrete cognitive action, one physical metaphor, and one scene arena directly from the source meaning.
+- Preserve every named person, object, place, quantity, era, and key action from the frame source.
+- Build one natural in-scene action relationship that a downstream recurring identity can join without replacing or hiding any source subject.
+- Do not add the recurring identity itself. A deterministic downstream contract inserts exactly one identity instance.
+- Do not create stickers, logos, watermarks, corner badges, floating layers, repeated patterns, mirrors, or decorative carriers as the future action relationship.
+- If the content is serious or historical, use a restrained explanatory composition and do not weaken the source facts.
+<!-- endif -->
 
 # Content-bound IP Preparation
 

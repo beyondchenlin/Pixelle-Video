@@ -36,6 +36,9 @@ from pixelle_video.models.article_concretization import (
     ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
 )
 from pixelle_video.models.layered_template import active_layered_template_spec
+from pixelle_video.models.series_visual_signature_request import (
+    SeriesVisualSignatureControlsContract,
+)
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.services.generation_coordinator import build_generation_fingerprint
 from pixelle_video.services.resource_resolver import (
@@ -169,44 +172,12 @@ def build_video_generation_params(
 
     if request_body.series_visual_signature_enabled:
         video_params.update(
-            {
-                "series_visual_signature_expression_mode": "auto",
-                "series_visual_signature_structure_mode": "auto",
-                "series_visual_signature_participation_mode": "auto",
-                "series_visual_signature_mode": "auto",
-                "series_visual_signature_consistency_mode": "off",
-                "series_visual_signature_presentation_mode": "auto",
-                "series_visual_signature_enforcement": "strict",
-                "series_visual_signature_fallback_enabled": False,
-                "series_visual_signature_fallback_mode": "disabled",
-                "series_visual_signature_min_visibility": "clear",
-                "series_visual_signature_llm_prompt_assembly_enabled": False,
-                "mandatory_content_bound_anchor": True,
-                "series_visual_signature_contract_version": (
-                    "final_visual_prompt_contract.v4_6"
-                ),
-                "series_visual_signature_output_validation_mode": "off",
-                "series_visual_signature_output_max_attempts": 1,
-            }
+            SeriesVisualSignatureControlsContract.single_pass_from_mapping(
+                request_body.model_dump(mode="python")
+            ).to_generation_dict()
         )
         if request_body.media_seed is not None:
             video_params["media_seed"] = request_body.media_seed
-
-    for key in (
-        "series_visual_signature_expression_mode",
-        "series_visual_signature_structure_mode",
-        "series_visual_signature_participation_mode",
-        "series_visual_signature_mode",
-        "series_visual_signature_consistency_mode",
-        "series_visual_signature_presentation_mode",
-        "series_visual_signature_enforcement",
-        "series_visual_signature_fallback_enabled",
-        "series_visual_signature_fallback_mode",
-        "series_visual_signature_min_visibility",
-    ):
-        value = getattr(request_body, key)
-        if value is not None:
-            video_params[key] = value
 
     if api_task_id is not None:
         video_params["api_task_id"] = api_task_id

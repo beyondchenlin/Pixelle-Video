@@ -112,7 +112,7 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
         )
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         real_styled_batch_with_capture,
     )
     monkeypatch.setattr(
@@ -237,7 +237,7 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
         )
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -296,7 +296,7 @@ async def test_standard_pipeline_plan_visuals_uses_video_config_and_media_type(m
         )
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -344,7 +344,7 @@ async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hin
         )
 
     monkeypatch.setattr(
-        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 

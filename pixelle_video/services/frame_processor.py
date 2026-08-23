@@ -709,13 +709,18 @@ class FrameProcessor:
             )
             retry_seed = None
         else:
-            retry_seed = _generation_retry_seed(
-                task_id=config.task_id,
-                frame_index=frame.index,
-                generation_attempt=generation_attempt,
-            )
-            if retry_seed is not None:
-                media_params["seed"] = retry_seed
+            if frame.generation_seed is not None:
+                media_params["seed"] = frame.generation_seed
+            else:
+                retry_seed = _generation_retry_seed(
+                    task_id=config.task_id,
+                    frame_index=frame.index,
+                    generation_attempt=generation_attempt,
+                )
+                if retry_seed is not None:
+                    media_params["seed"] = retry_seed
+            if config.reference_image_workflow_injection_mode == "required":
+                media_params["reference_image_workflow_injection_mode"] = "required"
         frame_negative_prompt = (
             visual_anchor_request.final_negative_prompt
             if visual_anchor_request is not None

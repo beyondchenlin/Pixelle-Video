@@ -56,7 +56,7 @@ def render_series_visual_signature_controls(
     ]
     if not normalized_asset_bibles:
         ui.warning(translate(f"{normalized_label_prefix}.empty_asset_bibles"))
-        return {"series_visual_signature_enabled": False}
+        return {"series_visual_signature_enabled": True}
 
     asset_bible_options = [
         first_text(item.get("asset_bible_id")) for item in normalized_asset_bibles
@@ -82,7 +82,10 @@ def render_series_visual_signature_controls(
     ]
     if not ip_profiles:
         ui.warning(translate(f"{normalized_label_prefix}.empty_profiles"))
-        return {"series_visual_signature_enabled": False}
+        return {
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": asset_bible_id,
+        }
 
     ip_profile_options = [first_text(item.get("series_visual_signature_profile_id")) for item in ip_profiles]
     series_visual_signature_profile_id = _select_valid_option(
@@ -108,12 +111,10 @@ def render_series_visual_signature_controls(
 
     _render_ip_capability_preview(selected_profile, ui=ui, translate=translate)
 
-    llm_prompt_assembly_enabled = False
     ui.caption(
         translate("series_visual_signature.prompt_assembly.deterministic_v46")
     )
-
-    presentation_payload = _render_presentation_policy_controls(
+    _render_presentation_policy_controls(
         ui=ui,
         translate=translate,
         state_key_prefix=state_key_prefix,
@@ -124,17 +125,6 @@ def render_series_visual_signature_controls(
         "series_visual_signature_enabled": True,
         "series_visual_signature_asset_bible_id": asset_bible_id,
         "series_visual_signature_profile_id": series_visual_signature_profile_id,
-        "series_visual_signature_expression_mode": "auto",
-        "series_visual_signature_structure_mode": "auto",
-        "series_visual_signature_participation_mode": "auto",
-        "series_visual_signature_mode": "auto",
-        "series_visual_signature_consistency_mode": "off",
-        "series_visual_signature_llm_prompt_assembly_enabled": llm_prompt_assembly_enabled,
-        "mandatory_content_bound_anchor": True,
-        "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
-        "series_visual_signature_output_validation_mode": "off",
-        "series_visual_signature_output_max_attempts": 1,
-        **presentation_payload,
     }
     ip_profile_world_hint = first_text(selected_profile.get("world_hint"))
     if ip_profile_world_hint:

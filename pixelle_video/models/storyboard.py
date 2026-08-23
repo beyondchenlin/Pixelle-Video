@@ -126,6 +126,7 @@ class StoryboardConfig:
     media_workflow: Optional[str] = None       # Media workflow filename (image or video, None = use default)
     media_negative_prompt: Optional[str] = None  # Optional negative prompt for media workflows
     media_prompt_trace_context: Optional[Dict[str, Any]] = None  # Prompt trace artifact context required for media generation
+    reference_image_workflow_injection_mode: str = "off"
     
     # Frame template (includes template design-coordinate information in path)
     frame_template: str = DEFAULT_IMAGE_TEMPLATE
@@ -196,6 +197,14 @@ class StoryboardConfig:
         self.template_text_policy = normalize_template_text_policy(self.template_text_policy)
         self.visual_quality_gate_enabled = bool(self.visual_quality_gate_enabled)
         self.visual_quality_gate_strict = bool(self.visual_quality_gate_strict)
+        if self.reference_image_workflow_injection_mode not in {
+            "off",
+            "auto",
+            "required",
+        }:
+            raise ValueError(
+                "reference_image_workflow_injection_mode must be off, auto, or required"
+            )
         if self.visual_profile is not None:
             if not isinstance(self.visual_profile, Mapping):
                 raise ValueError("visual_profile must be a mapping")

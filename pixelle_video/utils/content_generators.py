@@ -108,6 +108,7 @@ from pixelle_video.utils.prompt_helper import (
 )
 from pixelle_video.utils.style_resolution import (
     normalize_storyboard_style,
+    resolve_literal_style_spec,
     resolve_style_source,
     resolve_style_spec,
 )
@@ -1166,6 +1167,7 @@ async def generate_image_prompts(
     series_visual_signature_display_name: str = "",
     series_visual_signature_identity_traits: str = "",
     series_visual_signature_role_description: str = "",
+    visual_anchor_preparation_enabled: bool = False,
 ) -> List[str]:
     """
     Generate image prompts from narrations (with batching and retry)
@@ -1210,7 +1212,11 @@ async def generate_image_prompts(
         max_concurrency=resolved_max_concurrency,
     )
 
-    if resolved_batch_size > 1 and narrations:
+    if (
+        resolved_batch_size > 1
+        and narrations
+        and not visual_anchor_preparation_enabled
+    ):
         sample_items = narrations[:resolved_batch_size]
         sample_prompt = render_image_prompt_prompt(
             narrations=sample_items,
@@ -1219,6 +1225,7 @@ async def generate_image_prompts(
             style_profile=style_profile,
             prompt_contexts=_slice_prompt_contexts(normalized_prompt_contexts, 0, len(sample_items)),
             prompt_language=prompt_language,
+            visual_anchor_preparation_enabled=visual_anchor_preparation_enabled,
         )
         est_tokens = estimate_input_tokens(sample_prompt.text)
         if est_tokens > _LLM_BATCH_SAFE_TOKENS:
@@ -1258,6 +1265,7 @@ async def generate_image_prompts(
             series_visual_signature_display_name=series_visual_signature_display_name,
             series_visual_signature_identity_traits=series_visual_signature_identity_traits,
             series_visual_signature_role_description=series_visual_signature_role_description,
+            visual_anchor_preparation_enabled=visual_anchor_preparation_enabled,
         )
 
         response: ImagePromptBatchResponse = await llm_service(
@@ -1413,6 +1421,8 @@ async def generate_styled_image_prompt_batch(
     series_visual_signature_fallback_enabled: bool | None = None,
     series_visual_signature_fallback_mode: str | None = None,
     series_visual_signature_min_visibility: str | None = None,
+    visual_anchor_preparation_enabled: bool = False,
+    literal_style_resolution: bool = False,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
@@ -1435,6 +1445,10 @@ async def generate_styled_image_prompt_batch(
         generation_world_hint=generation_world_hint,
     )
     ip_prompt_chain_enabled = resolved_series_visual_signature_request.enabled
+    if ip_prompt_chain_enabled and media_type != "image":
+        raise ValueError(
+            "visual signature requires image media prompts"
+        )
     resolved_series_visual_signature_profile = series_visual_signature_profile
     _sv_display_name = ""
     _sv_identity_traits = ""
@@ -1492,7 +1506,10 @@ async def generate_styled_image_prompt_batch(
             ]
         )
 
-    storyboard_enabled = _storyboard_controls_enabled()
+    storyboard_enabled = (
+        _storyboard_controls_enabled()
+        and not visual_anchor_preparation_enabled
+    )
     storyboard_world_preset = (
         lookup_world_preset(
             config_manager.get_storyboard_world_preset_library(),
@@ -1515,7 +1532,8 @@ async def generate_styled_image_prompt_batch(
             trace_context=trace_context,
             trace_recorder=active_trace_recorder,
         )
-        if _should_plan_generation_world_profile(
+        if not visual_anchor_preparation_enabled
+        and _should_plan_generation_world_profile(
             generation_world_hint=generation_world_hint,
             ip_profile=ip_profile,
             storyboard_enabled=storyboard_enabled,
@@ -1527,6 +1545,23 @@ async def generate_styled_image_prompt_batch(
         generation_world_profile=generation_world_profile,
         expected_count=len(narrations),
     )
+    if visual_anchor_preparation_enabled and generation_world_hint:
+        literal_plan_context = dict(
+            normalized_prompt_contexts.plan_context
+            if normalized_prompt_contexts is not None
+            else {}
+        )
+        literal_plan_context["generation_world_hint"] = str(
+            generation_world_hint
+        ).strip()
+        normalized_prompt_contexts = PromptContextEnvelope(
+            plan_context=literal_plan_context,
+            frame_contexts=(
+                normalized_prompt_contexts.frame_contexts
+                if normalized_prompt_contexts is not None
+                else tuple({} for _ in narrations)
+            ),
+        )
 
     if source is not None:
         style_resolution_start = perf_counter()
@@ -1548,11 +1583,15 @@ async def generate_styled_image_prompt_batch(
                 callback=stage_callback,
                 provider=getattr(source, "provider", None),
             )
-            resolved_style = await resolve_style_spec(
-                llm_service,
-                source,
-                trace_context=trace_context,
-                trace_recorder=active_trace_recorder,
+            resolved_style = (
+                resolve_literal_style_spec(source)
+                if literal_style_resolution
+                else await resolve_style_spec(
+                    llm_service,
+                    source,
+                    trace_context=trace_context,
+                    trace_recorder=active_trace_recorder,
+                )
             )
             style_profile = resolved_style.style_profile
             emit_stage_event(
@@ -1563,7 +1602,7 @@ async def generate_styled_image_prompt_batch(
                 callback=stage_callback,
                 status="success",
                 latency_ms=round((perf_counter() - style_resolution_start) * 1000),
-                llm_call_count=1,
+                llm_call_count=0 if literal_style_resolution else 1,
                 retry_count=0,
             )
             logger.info(
@@ -1582,7 +1621,7 @@ async def generate_styled_image_prompt_batch(
                 callback=stage_callback,
                 status="failed",
                 latency_ms=round((perf_counter() - style_resolution_start) * 1000),
-                llm_call_count=1,
+                llm_call_count=0 if literal_style_resolution else 1,
                 retry_count=0,
             )
             logger.exception("Style resolution failed; aborting prompt generation")
@@ -1783,6 +1822,7 @@ async def generate_styled_image_prompt_batch(
             series_visual_signature_display_name=_sv_display_name,
             series_visual_signature_identity_traits=_sv_identity_traits,
             series_visual_signature_role_description=_sv_role_description,
+            visual_anchor_preparation_enabled=visual_anchor_preparation_enabled,
         )
 
     if trace_collector is not None:

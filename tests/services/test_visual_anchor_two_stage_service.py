@@ -8,7 +8,6 @@ import pytest
 from pydantic import ValidationError
 
 from pixelle_video.models.series_visual_signature import (
-    SeriesVisualSignatureRequest,
     VisualSignatureProfileSnapshot,
 )
 from pixelle_video.models.storyboard import StoryboardFrame
@@ -27,10 +26,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorImageGenerationRequest,
 )
 from pixelle_video.services.frame_processor import FrameProcessor
-from pixelle_video.services.reference_image_visual_context_adapter import (
-    reset_reference_image_visual_story_context_patch,
-    set_reference_image_visual_story_context_patch,
-)
 from pixelle_video.services.visual_anchor_generation_binding import (
     validate_visual_anchor_first_generation_binding,
 )
@@ -48,9 +43,7 @@ from pixelle_video.services.visual_anchor_two_stage_service import (
     resolve_registered_random_seeds,
 )
 from pixelle_video.services.visual_prompt_composer import (
-    VisualPromptComposer,
     _content_only_visual_story_context,
-    _render_two_stage_prompt,
 )
 
 
@@ -659,124 +652,6 @@ async def test_failed_preflight_reexecutes_complete_fusion_once():
     assert "空间接触关系证据不足" in fusion_calls[1]["prompt"]
     assert result.frames[0].generation_request.final_positive_prompt == (
         second_fusion.final_positive_prompt
-    )
-
-
-@pytest.mark.asyncio
-async def test_two_stage_result_renders_without_audit_fields_leaking_into_image_prompt():
-    result, _ = await _run(_plan())
-    rendered = _render_two_stage_prompt(result.frames[0])
-
-    assert rendered.prompt == result.frames[0].generation_request.final_positive_prompt
-    assert rendered.negative_prompt is None
-    assert "selected_fusion_method" not in rendered.prompt
-    assert rendered.metadata_to_dict()["generation_request"][
-        "target_visual_anchor_instance_count"
-    ] == 1
-
-
-@pytest.mark.asyncio
-async def test_enabled_composer_uses_two_stage_contract_and_preserves_disabled_path(
-    monkeypatch,
-):
-    plan = _plan()
-
-    async def fake_base_batch(**kwargs):
-        raise AssertionError(
-            "enabled two-stage fusion must bypass the legacy prompt generator"
-        )
-
-    monkeypatch.setattr(
-        "pixelle_video.services.visual_prompt_composer.generate_styled_image_prompt_batch",
-        fake_base_batch,
-    )
-    contents = [_content("frame-a", plan.frames[0].source_text)]
-    fusions = [_fusion("frame-a")]
-    llm = _QueuedLLM(
-        {
-            ContentStageOutput: contents,
-            FusionStageOutput: fusions,
-            PreflightReviewOutput: [
-                _review(fusions[0], negative_supported=True)
-            ],
-        }
-    )
-    project_root = Path(__file__).resolve().parents[2]
-    workflow_path = (
-        project_root
-        / "workflows/selfhost/image_z_image_turbo_gguf_reference.json"
-    )
-    media_service = SimpleNamespace(
-        _resolve_workflow=lambda **kwargs: {
-            "source": "selfhost",
-            "path": str(workflow_path),
-            "key": "selfhost/image_z_image_turbo_gguf_reference.json",
-        }
-    )
-    reference_patch_token = set_reference_image_visual_story_context_patch(
-        {
-            "reference_image": {
-                "enabled": True,
-                "asset": {
-                    "sha256": "a" * 64,
-                    "workflow_asset_relative_path": "reference_image/workflow.png",
-                    "mime_type": "image/png",
-                    "width": 512,
-                    "height": 512,
-                    "byte_size": 1024,
-                },
-            }
-        }
-    )
-    try:
-        batch = await VisualPromptComposer().compose(
-            llm_service=llm,
-            storyboard_plan=plan,
-            image_config={},
-            workflow="selfhost/image_z_image_turbo_gguf_reference.json",
-            media_service=media_service,
-            media_type="image",
-            series_visual_signature_request=SeriesVisualSignatureRequest(
-                enabled=True,
-                asset_bible_id="bible-a",
-                profile_id="profile-pixelle",
-                user_hint="private-user-hint-must-not-be-persisted",
-                generation_world_hint="private-world-hint-must-not-be-persisted",
-            ),
-            series_visual_signature_profile_snapshot=VisualSignatureProfileSnapshot(
-                profile_id="profile-pixelle",
-                display_name="小皮",
-                core_identity_traits=("圆形白色脸", "蓝色短耳"),
-                supporting_identity_traits=("橙色围巾",),
-                forbidden_traits=("改变脸型",),
-                source_asset_ids=("asset-pixelle-reference",),
-            ),
-            task_id="task-two-stage",
-            random_seeds_by_frame={"frame-a": 101},
-            media_width=768,
-            media_height=768,
-        )
-    finally:
-        reset_reference_image_visual_story_context_patch(reference_patch_token)
-
-    assert batch.prompts == [fusions[0].final_positive_prompt]
-    assert batch.planning_snapshot["visual_anchor_generation_request_by_frame"][
-        "frame-a"
-    ]["random_seed"] == 101
-    assert "series_visual_signature_trace_by_frame" not in batch.planning_snapshot
-    assert batch.prompt_plan_bundle.prompt_plans[0].final_prompt == (
-        fusions[0].final_positive_prompt
-    )
-    request_audit = batch.planning_snapshot[
-        "series_visual_signature_request_audit"
-    ]
-    assert request_audit["contains_user_hint"] is True
-    assert request_audit["contains_generation_world_hint"] is True
-    assert "private-user-hint-must-not-be-persisted" not in str(
-        batch.planning_snapshot
-    )
-    assert "private-world-hint-must-not-be-persisted" not in str(
-        batch.planning_snapshot
     )
 
 

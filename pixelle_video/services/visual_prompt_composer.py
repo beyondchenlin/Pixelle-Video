@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 
 from pixelle_video.models.article_concretization import ArticleConcretizationPlan
 from pixelle_video.models.final_visual_prompt_contract import (
     V44_TRACE_METADATA_KEYS,
-    FinalVisualPromptContract,
     RenderedMediaPrompt,
-    join_rendered_negative_prompts,
 )
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.native_prompt import NativePromptHint
@@ -27,11 +23,7 @@ from pixelle_video.models.video_generation_contract import (
     PLAN_FRAME_OVERRIDE_VALUE_FIELDS,
     normalize_plan_frame_overrides,
 )
-from pixelle_video.models.visual_anchor_two_stage import (
-    ImageWorkflowExecutionContract,
-)
 from pixelle_video.prompt_language import (
-    CHINESE_PROMPT_LANGUAGE,
     DEFAULT_PROMPT_LANGUAGE,
     PromptLanguage,
 )
@@ -57,13 +49,6 @@ from pixelle_video.services.series_visual_signature_profile_snapshot_builder imp
 from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureProjectionService,
 )
-from pixelle_video.services.visual_anchor_reference_condition import (
-    inspect_identity_reference_workflow,
-)
-from pixelle_video.services.visual_anchor_two_stage_service import (
-    VisualAnchorTwoStageService,
-    identity_profile_from_snapshot,
-)
 from pixelle_video.services.visual_profile_registry import resolve_visual_profile
 from pixelle_video.services.visual_prompt_profile_projector import apply_visual_profile_to_batch
 from pixelle_video.services.visual_quality_gate import VisualQualityGate
@@ -73,7 +58,6 @@ from pixelle_video.utils.prompt_helper import (
     final_visual_prompt_clause_template_metadata,
     final_visual_prompt_template_metadata,
 )
-from pixelle_video.utils.style_resolution import resolve_style_source, resolve_style_spec
 from pixelle_video.utils.workflow_capabilities import get_workflow_capabilities
 
 _CONTENT_FRAME_VISUAL_KEYS = (
@@ -117,10 +101,10 @@ class VisualPromptComposer:
     """Canonical visual prompt boundary.
 
     Historical product controls are normalized before reaching this service.
-    When recurring identity is enabled, the first language-model call receives
-    only content facts. The second call receives the immutable identity profile,
-    real reference condition, and continuity context before one reviewed prompt
-    pair is admitted to the first image workflow request.
+    When recurring identity is enabled, one language-model call receives only
+    content facts and completes every frame prompt together. The immutable
+    identity profile is projected afterward by deterministic code before the
+    only image workflow request.
     """
 
     async def compose(
@@ -168,6 +152,7 @@ class VisualPromptComposer:
         media_width: int | None = None,
         media_height: int | None = None,
         visual_anchor_reference_conditioning_enabled: bool | None = None,
+        identity_reference_workflow_inspection: Mapping[str, Any] | None = None,
     ) -> StyledImagePromptBatch:
         reference_patch = current_reference_image_visual_story_context_patch()
         ip_profile = merge_ip_profile_from_reference_patch(ip_profile, reference_patch)
@@ -181,6 +166,10 @@ class VisualPromptComposer:
                 "series_visual_signature_request must be the canonical SeriesVisualSignatureRequest"
             )
         signature_enabled = resolved_signature_request.enabled
+        if signature_enabled and media_type != "image":
+            raise ValueError(
+                "visual signature requires image media prompts"
+            )
         if visual_anchor_reference_conditioning_enabled is None:
             visual_anchor_reference_conditioning_enabled = (
                 signature_enabled
@@ -198,6 +187,26 @@ class VisualPromptComposer:
             raise ValueError(
                 "reference conditioning requires an enabled visual signature"
             )
+        if visual_anchor_reference_conditioning_enabled:
+            if media_type != "image":
+                raise ValueError(
+                    "reference-conditioned visual anchor requires an image workflow"
+                )
+            if media_service is None:
+                raise ValueError(
+                    "reference-conditioned visual anchor requires the media service"
+                )
+            reference_payload = reference_patch.get("reference_image")
+            if not isinstance(reference_payload, Mapping) or not reference_payload.get(
+                "enabled"
+            ):
+                raise ValueError(
+                    "reference-conditioned visual anchor requires a real reference image"
+                )
+            if not isinstance(identity_reference_workflow_inspection, Mapping):
+                raise ValueError(
+                    "reference-conditioned visual anchor requires completed workflow preflight"
+                )
         if not signature_enabled and series_visual_signature_profile_snapshot is not None:
             raise ValueError(
                 "series_visual_signature_profile_snapshot requires an enabled canonical request"
@@ -239,66 +248,63 @@ class VisualPromptComposer:
             prompt_contexts,
             visual_story_context,
         )
-        if visual_anchor_reference_conditioning_enabled:
-            batch = await _resolve_visual_anchor_style_batch(
-                llm_service=llm_service,
-                image_config=image_config,
-                prompt_prefix=prompt_prefix,
-                frame_count=storyboard_plan.resolved_scene_count,
-                trace_context=trace_context,
-                trace_recorder=trace_recorder,
-            )
-        else:
-            batch = await generate_styled_image_prompt_batch(
-                llm_service=llm_service,
-                narrations=[
-                    str(context["frame_source_text"])
-                    for context in prompt_contexts.frame_contexts
-                ],
-                storyboard_plan=storyboard_plan,
-                prompt_contexts=prompt_contexts,
-                image_config=image_config,
-                prompt_language=prompt_language,
-                prompt_prefix=prompt_prefix,
-                workflow=workflow,
-                media_service=media_service,
-                media_type=media_type,
-                min_words=min_words,
-                max_words=max_words,
-                batch_size=batch_size,
-                max_concurrency=max_concurrency,
-                progress_callback=progress_callback,
-                world_preset_id=world_preset_id,
-                generation_world_hint=generation_world_hint,
-                shot_preset_id=shot_preset_id,
-                consistency_strength=consistency_strength,
-                content_mode=content_mode,
-                role_strategy=role_strategy,
-                role_locking_strength=role_locking_strength,
-                shot_strategy=shot_strategy,
-                frame_overrides=normalized_overrides,
-                text_rendering=project_prompt_text_rendering_request(text_rendering),
-                native_prompt_hints_by_frame=native_prompt_hints_by_frame,
-                series_visual_signature_enabled=False,
-                ip_profile=None,
-                series_visual_signature_expression_mode=None,
-                series_visual_signature_structure_mode=None,
-                series_visual_signature_participation_mode=None,
-                series_visual_signature_request=None,
-                series_visual_signature_profile=None,
-                series_visual_signature_mode=None,
-                series_visual_signature_consistency_mode=None,
-                series_visual_signature_presentation_mode=None,
-                series_visual_signature_enforcement=None,
-                series_visual_signature_fallback_enabled=None,
-                series_visual_signature_fallback_mode=None,
-                series_visual_signature_min_visibility=None,
-                scene_casts_by_frame=None,
-                stage_callback=stage_callback,
-                upstream_llm_trace_refs=upstream_llm_trace_refs,
-                trace_context=trace_context,
-                trace_recorder=trace_recorder,
-            )
+        batch = await generate_styled_image_prompt_batch(
+            llm_service=llm_service,
+            narrations=[
+                str(context["frame_source_text"])
+                for context in prompt_contexts.frame_contexts
+            ],
+            storyboard_plan=storyboard_plan,
+            prompt_contexts=prompt_contexts,
+            image_config=image_config,
+            prompt_language=prompt_language,
+            prompt_prefix=prompt_prefix,
+            workflow=workflow,
+            media_service=media_service,
+            media_type=media_type,
+            min_words=min_words,
+            max_words=max_words,
+            batch_size=(
+                storyboard_plan.resolved_scene_count
+                if signature_enabled
+                else batch_size
+            ),
+            max_concurrency=1 if signature_enabled else max_concurrency,
+            max_retries=1 if signature_enabled else 3,
+            progress_callback=progress_callback,
+            world_preset_id=world_preset_id,
+            generation_world_hint=generation_world_hint,
+            shot_preset_id=shot_preset_id,
+            consistency_strength=consistency_strength,
+            content_mode=content_mode,
+            role_strategy=role_strategy,
+            role_locking_strength=role_locking_strength,
+            shot_strategy=shot_strategy,
+            frame_overrides=normalized_overrides,
+            text_rendering=project_prompt_text_rendering_request(text_rendering),
+            native_prompt_hints_by_frame=native_prompt_hints_by_frame,
+            series_visual_signature_enabled=False,
+            ip_profile=None,
+            series_visual_signature_expression_mode=None,
+            series_visual_signature_structure_mode=None,
+            series_visual_signature_participation_mode=None,
+            series_visual_signature_request=None,
+            series_visual_signature_profile=None,
+            series_visual_signature_mode=None,
+            series_visual_signature_consistency_mode=None,
+            series_visual_signature_presentation_mode=None,
+            series_visual_signature_enforcement=None,
+            series_visual_signature_fallback_enabled=None,
+            series_visual_signature_fallback_mode=None,
+            series_visual_signature_min_visibility=None,
+            scene_casts_by_frame=None,
+            stage_callback=stage_callback,
+            upstream_llm_trace_refs=upstream_llm_trace_refs,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+            visual_anchor_preparation_enabled=signature_enabled,
+            literal_style_resolution=signature_enabled,
+        )
         if len(batch.prompts) != storyboard_plan.resolved_scene_count:
             raise ValueError("visual prompt count must match storyboard frame count")
 
@@ -325,145 +331,31 @@ class VisualPromptComposer:
 
         planning_snapshot = dict(batch.planning_snapshot or {})
         final_assembly_trace_refs: list[dict[str, str]] = []
-        if signature_enabled and visual_anchor_reference_conditioning_enabled:
+        if signature_enabled:
             if profile_snapshot is None:
                 raise RuntimeError(
                     "enabled visual signature must have a prevalidated canonical profile snapshot"
                 )
-            if media_type != "image":
-                raise ValueError(
-                    "visual-anchor two-stage fusion requires an image workflow"
-                )
-            if media_service is None:
-                raise ValueError(
-                    "visual-anchor two-stage fusion requires the media service"
-                )
-            resolved_task_id = str(
-                task_id or getattr(trace_context, "task_id", "") or ""
-            ).strip()
-            if not resolved_task_id:
-                raise ValueError(
-                    "visual-anchor two-stage fusion requires a task id"
-                )
-            reference_payload = reference_patch.get("reference_image")
-            if not isinstance(reference_payload, Mapping) or not reference_payload.get(
-                "enabled"
-            ):
-                raise ValueError(
-                    "visual-anchor two-stage fusion requires an immutable real reference image"
-                )
-            asset_trace = reference_payload.get("asset")
-            if not isinstance(asset_trace, Mapping):
-                raise ValueError(
-                    "visual-anchor two-stage fusion requires immutable reference asset metadata"
-                )
-            workflow_info = media_service._resolve_workflow(
-                workflow=workflow,
-                workflow_domain="image",
-            )
-            reference_inspection = inspect_identity_reference_workflow(
-                workflow_info=workflow_info,
-                reference_asset_trace=asset_trace,
-                project_root=Path(__file__).resolve().parents[2],
-            )
-            workflow_capabilities = get_workflow_capabilities(dict(workflow_info))
-            if reference_inspection.condition.workflow_parameter not in (
-                workflow_capabilities.reference_image_param_names
-            ):
-                raise ValueError(
-                    "the inspected reference-image node is not declared as a workflow input"
-                )
-            registered_seeds = dict(random_seeds_by_frame or {})
-            if set(registered_seeds) != {
-                frame.frame_id for frame in storyboard_plan.frames
-            }:
-                raise ValueError(
-                    "visual-anchor random seeds must be registered for every frame"
-                )
-            identity_profile = identity_profile_from_snapshot(
-                profile_snapshot,
-                identity_reference_resource_id=(
-                    reference_inspection.condition.resource_version
+            planning_snapshot["visual_anchor_single_pass_prompt_policy"] = {
+                "schema_version": "visual_anchor_single_pass_prompt_policy.v1",
+                "visual_model_call_count": 1,
+                "model_retry_enabled": False,
+                "model_review_enabled": False,
+                "post_generation_model_validation_enabled": False,
+                "reference_conditioning_enabled": (
+                    visual_anchor_reference_conditioning_enabled
                 ),
-            )
-            if (
-                type(media_width) is not int
-                or media_width <= 0
-                or type(media_height) is not int
-                or media_height <= 0
-            ):
-                raise ValueError(
-                    "visual-anchor two-stage fusion requires positive media dimensions"
-                )
-            expected_execution = ImageWorkflowExecutionContract(
-                width=media_width,
-                height=media_height,
-                model_files=list(reference_inspection.model_files),
-                steps=reference_inspection.sampler_defaults["steps"],
-                cfg=reference_inspection.sampler_defaults["cfg"],
-                sampler_name=reference_inspection.sampler_defaults["sampler_name"],
-                scheduler=reference_inspection.sampler_defaults["scheduler"],
-                denoise=reference_inspection.sampler_defaults["denoise"],
-            )
-            two_stage_result = await VisualAnchorTwoStageService().run_batch(
-                llm_service=llm_service,
-                storyboard_plan=storyboard_plan,
-                identity_profile=identity_profile,
-                identity_reference_condition=reference_inspection.condition,
-                target_visual_style=_target_visual_style(
-                    batch=batch,
-                    visual_profile_snapshot=visual_profile_snapshot,
-                ),
-                target_image_prompt_language=(
-                    "中文"
-                    if prompt_language == CHINESE_PROMPT_LANGUAGE
-                    else "英文"
-                ),
-                task_id=resolved_task_id,
-                workflow_key=reference_inspection.workflow_key,
-                workflow_version_sha256=(
-                    reference_inspection.workflow_version_sha256
-                ),
-                expected_execution=expected_execution,
-                random_seeds_by_frame=registered_seeds,
-                negative_prompt_supported=(
-                    workflow_capabilities.supports_negative_prompt
-                ),
-                trace_context=trace_context,
-                trace_recorder=trace_recorder,
-                stage_callback=stage_callback,
-            )
-            rendered_prompts = [
-                _render_two_stage_prompt(frame_result)
-                for frame_result in two_stage_result.frames
-            ]
-            batch = StyledImagePromptBatch(
-                prompts=[item.prompt for item in rendered_prompts],
-                negative_prompt=join_rendered_negative_prompts(rendered_prompts),
-                resolved_style=batch.resolved_style,
-                planning_snapshot=planning_snapshot,
-                rendered_prompts=rendered_prompts,
-            )
-            planning_snapshot["visual_anchor_two_stage"] = two_stage_result.to_dict()
-            planning_snapshot["visual_anchor_generation_request_by_frame"] = {
-                item.frame_id: item.generation_request.model_dump(mode="json")
-                for item in two_stage_result.frames
             }
-            planning_snapshot["identity_reference_workflow_inspection"] = (
-                reference_inspection.to_dict()
-            )
-            planning_snapshot["series_visual_signature_request_audit"] = (
-                _series_visual_signature_request_audit(
-                    resolved_signature_request
-                )
-            )
-            planning_snapshot["series_visual_signature_profile_ref"] = (
-                identity_profile.model_dump(mode="json")
-            )
-        elif signature_enabled:
-            if profile_snapshot is None:
-                raise RuntimeError(
-                    "enabled visual signature must have a prevalidated canonical profile snapshot"
+            if visual_anchor_reference_conditioning_enabled:
+                registered_seeds = dict(random_seeds_by_frame or {})
+                if set(registered_seeds) != {
+                    frame.frame_id for frame in storyboard_plan.frames
+                }:
+                    raise ValueError(
+                        "visual-anchor random seeds must be registered for every frame"
+                    )
+                planning_snapshot["identity_reference_workflow_inspection"] = dict(
+                    identity_reference_workflow_inspection or {}
                 )
             briefs = dict(
                 planning_snapshot.get("base_visual_briefs_by_frame") or {}
@@ -542,7 +434,7 @@ class VisualPromptComposer:
                     "contract_version": frame.contract.contract_version,
                     "user_status": "image_generating",
                     "generation_attempt": 0,
-                    "remaining_repair_attempts": 2,
+                    "remaining_repair_attempts": 0,
                     "prompt_budget": dict(
                         bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
                         or {}
@@ -570,7 +462,7 @@ class VisualPromptComposer:
                     "contract_version": frame.contract.contract_version,
                     "user_status": "image_generating",
                     "generation_attempt": 0,
-                    "remaining_repair_attempts": 2,
+                    "remaining_repair_attempts": 0,
                     "prompt_budget": dict(
                         bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
                         or {}
@@ -645,39 +537,6 @@ class VisualPromptComposer:
         )
 
 
-async def _resolve_visual_anchor_style_batch(
-    *,
-    llm_service,
-    image_config,
-    prompt_prefix: str | None,
-    frame_count: int,
-    trace_context: LLMTraceContext | None,
-    trace_recorder: LLMInteractionRecorder | None,
-) -> StyledImagePromptBatch:
-    """Resolve style without running the legacy image-prompt generator."""
-
-    source = resolve_style_source(
-        image_config,
-        prompt_prefix_override=prompt_prefix,
-    )
-    resolved_style = (
-        await resolve_style_spec(
-            llm_service,
-            source,
-            trace_context=trace_context,
-            trace_recorder=trace_recorder,
-        )
-        if source is not None
-        else None
-    )
-    return StyledImagePromptBatch(
-        prompts=[""] * frame_count,
-        negative_prompt=None,
-        resolved_style=resolved_style,
-        planning_snapshot={},
-    )
-
-
 def _workflow_supports_reference_image(
     *,
     media_service: Any,
@@ -693,84 +552,6 @@ def _workflow_supports_reference_image(
     return get_workflow_capabilities(
         dict(workflow_info)
     ).supports_reference_image
-
-
-def _target_visual_style(
-    *,
-    batch: StyledImagePromptBatch,
-    visual_profile_snapshot: Mapping[str, Any] | None,
-) -> str:
-    payload: dict[str, Any] = {}
-    if batch.resolved_style is not None:
-        payload["resolved_style"] = {
-            "style_kind": batch.resolved_style.style_kind,
-            "prompt_template": batch.resolved_style.prompt_template,
-            "style_profile": dict(batch.resolved_style.style_profile),
-            "resolver_version": batch.resolved_style.resolver_version,
-            "source_identity": batch.resolved_style.source_identity,
-        }
-    if visual_profile_snapshot:
-        payload["visual_profile"] = dict(visual_profile_snapshot)
-    return (
-        json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        if payload
-        else "未指定额外风格，保持当前内容画面的自然视觉风格"
-    )
-
-
-def _series_visual_signature_request_audit(
-    request: SeriesVisualSignatureRequest,
-) -> dict[str, Any]:
-    """Persist request shape and presence flags without retaining user text."""
-
-    return {
-        "schema_version": "visual_anchor_request_audit.v1",
-        "enabled": request.enabled,
-        "pipeline_version": request.pipeline_version,
-        "profile_id": request.profile_id,
-        "asset_bible_id": request.asset_bible_id,
-        "role": request.role.value,
-        "role_was_explicit": request.role_was_explicit,
-        "contains_user_hint": bool(request.user_hint),
-        "contains_generation_world_hint": bool(request.generation_world_hint),
-        "compatibility_option_keys": sorted(
-            str(key) for key in request.compatibility_options
-        ),
-    }
-
-
-def _render_two_stage_prompt(frame_result) -> RenderedMediaPrompt:
-    fusion = frame_result.fusion_stage_output
-    request = frame_result.generation_request
-    negative_prompt = request.final_negative_prompt or None
-    contract = FinalVisualPromptContract(
-        scene=request.final_positive_prompt,
-        composition=fusion.selected_fusion_method,
-        style_assignment="融合结果服从当前场景风格、材质、光照和景深",
-        character_layer_style=(
-            "唯一身份实例使用已绑定首次工作流的真实参考资源保持身份"
-        ),
-        world_layer_style=fusion.spatial_contact_and_lighting_relation,
-        integration_priority="先保护全部文案事实，再保持唯一身份和场景协调",
-        negative_rules=(request.final_negative_prompt,)
-        if request.final_negative_prompt
-        else (),
-        metadata={
-            "visual_anchor_two_stage": frame_result.model_dump(mode="json"),
-        },
-        version="visual_anchor_two_stage_contract.v2",
-    )
-    return RenderedMediaPrompt(
-        prompt=request.final_positive_prompt,
-        negative_prompt=negative_prompt,
-        prompt_contract=contract,
-        renderer_id="visual_anchor_two_stage_renderer",
-        renderer_version="v2",
-        metadata={
-            "visual_anchor_two_stage": frame_result.model_dump(mode="json"),
-            "generation_request": request.model_dump(mode="json"),
-        },
-    )
 
 
 def _content_only_visual_story_context(

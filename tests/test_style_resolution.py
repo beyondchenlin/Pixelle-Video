@@ -11,9 +11,11 @@ from pixelle_video.models.style_resolution import (
 )
 from pixelle_video.prompts.style_resolution import build_style_resolution_prompt
 from pixelle_video.utils.style_resolution import (
+    LITERAL_RESOLVER_VERSION,
     RESOLVER_VERSION,
     build_style_resolution_cache_key,
     reset_style_resolution_cache,
+    resolve_literal_style_spec,
     resolve_style_source,
     resolve_style_spec,
 )
@@ -73,6 +75,27 @@ def test_build_style_resolution_cache_key_distinguishes_library_and_request():
     )
     assert build_style_resolution_cache_key(request_source) == (
         f"request:hash-req:{RESOLVER_VERSION}"
+    )
+
+
+def test_literal_style_resolution_preserves_user_style_without_model_call():
+    source = StyleSourceSpec(
+        origin="request",
+        raw_content="  restrained   archival illustration  ",
+        content_hash="hash-literal",
+        source_identity="request:hash-literal",
+        item_id=None,
+    )
+
+    resolved = resolve_literal_style_spec(source)
+
+    assert resolved.raw_content == "restrained archival illustration"
+    assert resolved.prompt_template == (
+        "{prompt}, restrained archival illustration"
+    )
+    assert resolved.resolver_version == LITERAL_RESOLVER_VERSION
+    assert resolved.style_profile["subject_policy"] == (
+        "preserve_subject_semantics"
     )
 
 

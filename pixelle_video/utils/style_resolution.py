@@ -31,10 +31,14 @@ from pixelle_video.models.style_resolution import (
     StyleResolutionResponse,
     StyleSourceSpec,
 )
+from pixelle_video.models.visual_style_contract import (
+    visual_style_contract_from_style_profile,
+)
 from pixelle_video.prompts.style_resolution import render_style_resolution_prompt
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 
 RESOLVER_VERSION = "2026-04-21-v1"
+LITERAL_RESOLVER_VERSION = "2026-08-23-literal-v1"
 _STYLE_RESOLUTION_CACHE_MAX_SIZE = 128
 _STYLE_RESOLUTION_CACHE: OrderedDict[str, ResolvedStyleSpec] = OrderedDict()
 _WORLD_IDENTITY_STOPWORDS = {
@@ -271,3 +275,32 @@ async def resolve_style_spec(
     _remember_resolved_style(cache_key, resolved)
     logger.debug("Resolved style {} via runtime cache key {}", source.source_identity, cache_key)
     return resolved
+
+
+def resolve_literal_style_spec(source: StyleSourceSpec) -> ResolvedStyleSpec:
+    """Preserve an explicit style instruction without another model call."""
+
+    raw_content = " ".join(source.raw_content.split())
+    style_profile = {
+        "style_kind": "visual_only",
+        "subject_policy": "preserve_subject_semantics",
+        "shape_language": raw_content,
+        "material": "",
+        "palette": "",
+        "lighting": "",
+        "world_elements": "",
+        "consistency_anchor": raw_content,
+        "negative_rules": "",
+    }
+    return ResolvedStyleSpec(
+        style_kind="visual_only",
+        prompt_template=f"{{prompt}}, {raw_content}",
+        style_profile=style_profile,
+        content_hash=source.content_hash,
+        resolver_version=LITERAL_RESOLVER_VERSION,
+        source_identity=source.source_identity,
+        raw_content=raw_content,
+        visual_style_contract=visual_style_contract_from_style_profile(
+            style_profile
+        ),
+    )

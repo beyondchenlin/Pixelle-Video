@@ -811,6 +811,88 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
     scene_casts_by_frame = captured["scene_casts_by_frame"]
     assert list(scene_casts_by_frame) == [plan.frames[0].frame_id]
     assert scene_casts_by_frame[plan.frames[0].frame_id]["metadata"]["ip_presence_type"] == "scene_integrated"
+    assert ctx.observability["visual_anchor_visual_planning"] == {
+        "schema_version": "visual_anchor_visual_planning.v1",
+        "route_model_call_count": 0,
+        "frame_planning_model_call_count": 0,
+        "prompt_model_call_count": 1,
+        "prompt_retry_enabled": False,
+        "prompt_review_model_call_count": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_visual_anchor_preflight_finishes_before_storyboard_generation() -> None:
+    repository = _RecordingAssetBibleRepository()
+    core = _DummyCore()
+    core.asset_bible_repository = repository
+    ctx = PipelineContext(
+        input_text="topic",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "media_workflow": "selfhost/image_custom.json",
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
+            "series_visual_signature_output_max_attempts": 3,
+        },
+    )
+
+    pipeline = StandardPipeline(core)
+    await pipeline.prepare_reference_image(ctx)
+    await pipeline._preflight_series_visual_signature(ctx)
+
+    assert ctx.storyboard_plan is None
+    assert repository.load_calls == [("workspace_1", "bible_demo")]
+    assert ctx.params["series_visual_signature_output_max_attempts"] == 1
+    assert ctx.params["series_visual_signature_output_validation_mode"] == "off"
+    assert ctx.observability["visual_anchor_preflight"]["model_call_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_reference_conditioned_frame_uses_registered_seed_without_retry_request(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    captured = {}
+
+    class MediaCore:
+        async def media(self, **kwargs):
+            captured.update(kwargs)
+            return MediaResult(
+                media_type="image",
+                url="https://example.com/frame.png",
+            )
+
+    processor = FrameProcessor(MediaCore())
+
+    async def fake_download_media(*_args, **_kwargs):
+        return str(tmp_path / "frame.png")
+
+    monkeypatch.setattr(processor, "_download_media", fake_download_media)
+    frame = StoryboardFrame(
+        index=0,
+        frame_id="frame-seeded",
+        narration="scene",
+        image_prompt="prompt",
+        generation_seed=123456,
+    )
+    config = StoryboardConfig(
+        task_id="task-seeded",
+        media_width=1024,
+        media_height=1024,
+        media_workflow="selfhost/image_reference.json",
+        frame_template="1080x1920/image_default.html",
+        reference_image_workflow_injection_mode="required",
+    )
+
+    await processor._step_generate_media(frame, config)
+
+    assert captured["seed"] == 123456
+    assert captured["reference_image_workflow_injection_mode"] == "required"
+    assert "visual_anchor_generation_request" not in captured
 
 
 @pytest.mark.asyncio

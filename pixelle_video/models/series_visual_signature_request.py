@@ -59,6 +59,25 @@ _SERIES_VISUAL_SIGNATURE_V4_OPTION_KEYS = frozenset(
         *PRESENTATION_CONTROL_OPTION_KEYS,
     }
 )
+_SINGLE_PASS_VISUAL_ANCHOR_CONTROLS = {
+    "series_visual_signature_expression_mode": "auto",
+    "series_visual_signature_structure_mode": "auto",
+    "series_visual_signature_participation_mode": "auto",
+    "series_visual_signature_mode": "auto",
+    "series_visual_signature_consistency_mode": "off",
+    "series_visual_signature_presentation_mode": "auto",
+    "series_visual_signature_enforcement": "strict",
+    "series_visual_signature_fallback_enabled": False,
+    "series_visual_signature_fallback_mode": "disabled",
+    "series_visual_signature_min_visibility": "clear",
+    "series_visual_signature_llm_prompt_assembly_enabled": False,
+    "mandatory_content_bound_anchor": True,
+    "series_visual_signature_contract_version": (
+        MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION
+    ),
+    "series_visual_signature_output_validation_mode": "off",
+    "series_visual_signature_output_max_attempts": 1,
+}
 
 
 @dataclass(frozen=True)
@@ -159,6 +178,30 @@ class SeriesVisualSignatureControlsContract:
             explicit_fields=explicit_fields,
             source_mapping=mapping,
         )
+
+    @classmethod
+    def single_pass_from_mapping(
+        cls,
+        source: Mapping[str, Any] | None,
+    ) -> "SeriesVisualSignatureControlsContract":
+        """Build the fixed execution policy from user intent only."""
+
+        mapping = dict(source or {})
+        intent = {
+            "series_visual_signature_enabled": mapping.get(
+                "series_visual_signature_enabled",
+                False,
+            ),
+            "series_visual_signature_asset_bible_id": mapping.get(
+                "series_visual_signature_asset_bible_id"
+            ),
+            "series_visual_signature_profile_id": mapping.get(
+                "series_visual_signature_profile_id"
+            ),
+            "generation_world_hint": mapping.get("generation_world_hint"),
+            **_SINGLE_PASS_VISUAL_ANCHOR_CONTROLS,
+        }
+        return cls.from_mapping(intent)
 
     @property
     def effective_signature_mode(self) -> SeriesVisualSignatureMode:
