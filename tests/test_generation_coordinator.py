@@ -445,6 +445,73 @@ async def test_core_release_generation_resources_releases_alignment_and_managed_
 
 
 @pytest.mark.asyncio
+async def test_core_shutdown_stops_all_configured_managed_backends_before_cleanup():
+    events = []
+
+    class _Backend:
+        def __init__(self, role):
+            self.role = role
+
+        def can_manage(self):
+            return True
+
+        async def stop(self, *, reason):
+            events.append(("stop", self.role, reason))
+            return SimpleNamespace(payload={"stopped": True})
+
+    class _Registry:
+        config = SimpleNamespace(
+            backends={
+                "default": SimpleNamespace(url="http://127.0.0.1:8001"),
+                "image": SimpleNamespace(url="http://127.0.0.1:8001"),
+                "tts": SimpleNamespace(url="http://127.0.0.1:8002"),
+            },
+        )
+
+        def profile(self, role):
+            return self.config.backends[role]
+
+        def managed_backend(self, role):
+            return _Backend(role)
+
+    core = PixelleVideoCore()
+    core._get_comfyui_backend_registry = lambda: _Registry()
+
+    async def _cleanup():
+        events.append(("cleanup",))
+
+    core.cleanup = _cleanup
+
+    await core.shutdown()
+
+    assert events == [
+        ("stop", "default", "core-shutdown generation resource release"),
+        ("stop", "tts", "core-shutdown generation resource release"),
+        ("cleanup",),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_core_shutdown_still_cleans_up_when_managed_backend_stop_fails():
+    events = []
+    core = PixelleVideoCore()
+
+    async def _stop(**_kwargs):
+        events.append("stop")
+        raise RuntimeError("stop failed")
+
+    async def _cleanup():
+        events.append("cleanup")
+
+    core._stop_idle_managed_comfyui_backends = _stop
+    core.cleanup = _cleanup
+
+    await core.shutdown()
+
+    assert events == ["stop", "cleanup"]
+
+
+@pytest.mark.asyncio
 async def test_core_releases_alignment_model_at_stage_boundary(monkeypatch):
     config = PixelleVideoConfig.model_validate(
         {"runtime": {"release_alignment_service_after_use": True}}

@@ -23,6 +23,8 @@ param(
     [string]$AcceleratorMutexName,
     [ValidateRange(0, 30000)]
     [int]$AcceleratorMutexWaitMilliseconds = 5000,
+    [ValidateRange(0, 2147483647)]
+    [int]$LifetimeOwnerPid = 0,
     [int]$Port = 0
 )
 
@@ -252,7 +254,20 @@ $backendProcess = $null
 $backendStarted = $false
 $stdoutStream = $null
 $stderrStream = $null
+$lifetimeOwnerProcess = $null
+$lifetimeOwnerExited = $false
 try {
+    if ($LifetimeOwnerPid -gt 0) {
+        try {
+            $lifetimeOwnerProcess = Get-Process -Id $LifetimeOwnerPid -ErrorAction Stop
+        }
+        catch {
+            throw (
+                "[PIXELLE_LIFETIME_OWNER_MISSING] Refusing to start the backend " +
+                "because lifetime owner PID $LifetimeOwnerPid is not running."
+            )
+        }
+    }
     try {
         $acceleratorMutexAcquired = $acceleratorMutex.WaitOne(
             $AcceleratorMutexWaitMilliseconds
@@ -306,12 +321,32 @@ try {
         $backendProcess.StandardError.BaseStream,
         $stderrStream
     )
-    $backendProcess.WaitForExit()
+    while (-not $backendProcess.WaitForExit(250)) {
+        if ($lifetimeOwnerProcess -and $lifetimeOwnerProcess.HasExited) {
+            $lifetimeOwnerExited = $true
+            break
+        }
+    }
     # A launcher may hand the listener to a child and exit. Keep the job handle
     # alive until every process from this launch has exited, so that stopping the
     # supervisor still terminates the complete service tree.
-    while ($job.ActiveProcessCount -gt 0) {
+    while (-not $lifetimeOwnerExited -and $job.ActiveProcessCount -gt 0) {
+        if ($lifetimeOwnerProcess -and $lifetimeOwnerProcess.HasExited) {
+            $lifetimeOwnerExited = $true
+            break
+        }
         Start-Sleep -Milliseconds 100
+    }
+    if ($lifetimeOwnerExited) {
+        Add-Content `
+            -LiteralPath $SupervisorStderrLog `
+            -Value (
+                "[PIXELLE_LIFETIME_OWNER_EXITED] Lifetime owner PID " +
+                "$LifetimeOwnerPid exited; stopping the managed backend tree."
+            ) `
+            -Encoding UTF8
+        Set-Content -LiteralPath $ExitCodeFile -Value '0' -Encoding ASCII
+        exit 0
     }
     [void]$stdoutTask.GetAwaiter().GetResult()
     [void]$stderrTask.GetAwaiter().GetResult()
@@ -330,6 +365,9 @@ finally {
     }
     if ($stderrStream) {
         $stderrStream.Dispose()
+    }
+    if ($lifetimeOwnerProcess) {
+        $lifetimeOwnerProcess.Dispose()
     }
     if ($backendStarted -and -not $backendProcess.HasExited) {
         Stop-Process -Id $backendProcess.Id -Force -ErrorAction SilentlyContinue

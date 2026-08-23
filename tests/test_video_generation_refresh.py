@@ -111,8 +111,11 @@ async def test_browser_session_cleanup_does_not_stop_process_task_resources(monk
     events = []
 
     class Core:
+        async def shutdown(self):
+            events.append("session_core_shutdown")
+
         async def cleanup(self):
-            events.append("session_core_cleanup")
+            raise AssertionError("session cleanup must use the full core shutdown path")
 
     from pixelle_video.services.frame_html import HTMLFrameGenerator
 
@@ -127,7 +130,7 @@ async def test_browser_session_cleanup_does_not_stop_process_task_resources(monk
     )
     try:
         await web_session._cleanup_pixelle_video_session("stale")
-        assert events == ["session_core_cleanup"]
+        assert events == ["session_core_shutdown"]
     finally:
         web_session._PIXELLE_VIDEO_SESSIONS.clear()
 

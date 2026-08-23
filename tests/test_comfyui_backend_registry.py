@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -77,6 +78,7 @@ def test_registry_managed_backend_passes_profile_runtime_arguments(tmp_path: Pat
 
     assert backend is not None
     assert backend.profile_name == "image"
+    assert backend.lifetime_owner_pid == os.getpid()
     profile = registry.profile("image")
     args = backend._script_args()
     assert "-DataRoot" in args

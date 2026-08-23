@@ -95,6 +95,7 @@ class ComfyUIBackendController:
         ready_timeout_seconds: int | None = None,
         command_timeout_seconds: int | None = None,
         maintenance_client: ComfyUIMaintenanceClient | None = None,
+        lifetime_owner_pid: int | None = None,
     ) -> None:
         self.repo_root = (Path(repo_root) if repo_root else Path.cwd()).resolve()
         self.working_directory = (
@@ -116,6 +117,11 @@ class ComfyUIBackendController:
             self.profile.startup_retry_base_delay_seconds
         )
         self.command_timeout_seconds = command_timeout_seconds
+        self.lifetime_owner_pid = (
+            None if lifetime_owner_pid is None else int(lifetime_owner_pid)
+        )
+        if self.lifetime_owner_pid is not None and self.lifetime_owner_pid <= 0:
+            raise ValueError("lifetime_owner_pid must be a positive process ID")
         self.maintenance_client = maintenance_client or ComfyUIMaintenanceClient(
             self.comfyui_url
         )
@@ -457,14 +463,17 @@ class ComfyUIBackendController:
         return True
 
     async def start(self, *, reason: str) -> ComfyUIBackendCommandResult:
+        extra_args = [
+            "-ReadyTimeoutSeconds",
+            str(self.ready_timeout_seconds),
+        ]
+        if self.lifetime_owner_pid is not None:
+            extra_args.extend(["-LifetimeOwnerPid", str(self.lifetime_owner_pid)])
         return await self._run_script(
             "start_backend.ps1",
             "start",
             reason=reason,
-            extra_args=[
-                "-ReadyTimeoutSeconds",
-                str(self.ready_timeout_seconds),
-            ],
+            extra_args=extra_args,
         )
 
     def diagnose_recent_failure(self, *, max_age_seconds: float = 120.0) -> str | None:
