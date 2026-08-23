@@ -440,6 +440,33 @@ async def test_smart_storyboard_preserves_structured_visible_subjects():
 
 
 @pytest.mark.asyncio
+async def test_smart_storyboard_accepts_one_secondary_subject_as_string():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    llm = SmartFakeLLM(
+        frames=[
+            {
+                "source_text": "乔布斯创立苹果公司。",
+                "visual_goal": "展示乔布斯创立苹果公司的关键时刻。",
+                "prompt_intent": "乔布斯站在早期电脑旁。",
+                "primary_subject": "乔布斯",
+                "secondary_subjects": "早期电脑",
+                "sentence_indices": [0],
+            }
+        ]
+    )
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="乔布斯创立苹果公司。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert plan.frames[0].secondary_subjects == ("早期电脑",)
+
+
+@pytest.mark.asyncio
 async def test_smart_auto_caps_default_max_tokens_for_qwen_compatible_providers():
     service = StoryboardGenerationService()
     llm = SmartFakeLLM(
@@ -1375,3 +1402,21 @@ async def test_smart_auto_falls_back_when_llm_exceeds_dynamic_scene_cap():
     assert plan.diagnostics["strategy"] == "smart_sentence_fallback"
     assert plan.diagnostics["auto_max_scene_count"] == 1
     assert plan.resolved_scene_count == 1
+
+
+@pytest.mark.asyncio
+async def test_smart_auto_fallback_preserves_whitespace_inside_coalesced_source_range():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 1})
+
+    plan = await service.generate(
+        llm_service=SmartFakeLLM(),
+        source_text="开头完整表达。 结尾完整表达。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert plan.diagnostics["strategy"] == "smart_sentence_fallback"
+    assert plan.source_texts() == ["开头完整表达。 结尾完整表达。"]
+    frame = plan.frames[0]
+    assert plan.source_text[frame.source_start : frame.source_end] == frame.source_text

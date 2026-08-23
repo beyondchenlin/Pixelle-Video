@@ -101,6 +101,13 @@ class SmartStoryboardFrameResponse(BaseModel):
         stripped = value.strip()
         return stripped or None
 
+    @field_validator("secondary_subjects", mode="before")
+    @classmethod
+    def _coerce_secondary_subjects(cls, value):
+        if isinstance(value, str):
+            return [value]
+        return value
+
     @field_validator("secondary_subjects")
     @classmethod
     def _normalize_secondary_subjects(cls, values: list[str]) -> list[str]:
