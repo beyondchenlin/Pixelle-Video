@@ -6,7 +6,7 @@ from typing import Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v11"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v12"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v8"
 PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v6"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
@@ -17,6 +17,7 @@ ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v8",
     "visual_anchor_content_stage.v9",
     "visual_anchor_content_stage.v10",
+    "visual_anchor_content_stage.v11",
     CONTENT_STAGE_PROMPT_VERSION,
 ]
 FusionStagePromptVersion = Literal[
@@ -574,7 +575,9 @@ class ContentStageModelOutput(BaseModel):
     scene_facts: list[ContentFact] = Field(
         default_factory=list,
         description=(
-            "跨主体或全场景事实对象数组；每项必须是 ContentFact 对象，不能是字符串"
+            "只保存 pure_content_prompt 直接呈现的跨主体或全场景事实对象数组；"
+            "抽象事实若已转换成结果、隐喻或氛围且原事实不再直接出现，必须省略；"
+            "每项必须是 ContentFact 对象，不能是字符串"
         ),
     )
     adjustable_non_core_content: list[str] = Field(default_factory=list)
