@@ -6,7 +6,7 @@ from typing import Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v10"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v6"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v7"
 PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v5"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
 ContentStagePromptVersion = Literal[
@@ -20,6 +20,7 @@ ContentStagePromptVersion = Literal[
 FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v4",
     "visual_anchor_fusion_stage.v5",
+    "visual_anchor_fusion_stage.v6",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 
