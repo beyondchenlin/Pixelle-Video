@@ -54,7 +54,7 @@ def test_visual_anchor_two_stage_writes_every_stage_and_generation_request(tmp_p
         "visual_anchor_two_stage": {
             "schema_version": "visual_anchor_two_stage_batch.v5",
             "prompt_versions": {
-                "content_stage": "visual_anchor_content_stage.v8",
+                "content_stage": "visual_anchor_content_stage.v9",
                 "fusion_stage": "visual_anchor_fusion_stage.v5",
                 "preflight_review": "visual_anchor_preflight_review.v4",
             },

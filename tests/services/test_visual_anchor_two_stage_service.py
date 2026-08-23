@@ -682,6 +682,8 @@ async def test_generic_people_regression_passes_in_one_model_call():
     assert output.protected_facts[0].fact_id == "frame-generic-fact-1"
     assert len(llm.calls) == 1
     assert "person" in llm.calls[0]["prompt"]
+    assert "都必须是事实对象数组" in llm.calls[0]["prompt"]
+    assert "严禁把一个事实对象展开成" in llm.calls[0]["prompt"]
 
 
 @pytest.mark.asyncio
@@ -738,6 +740,129 @@ def test_content_model_output_rejects_generated_identifier_fields():
         ContentStageModelOutput.model_validate(payload)
 
 
+def test_content_model_output_decodes_complete_flattened_fact_object():
+    payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
+        mode="json"
+    )
+    payload["primary_subject"]["protected_facts"] = [
+        "category: person",
+        "statement: 乔布斯站立",
+        "source_evidence: 乔布斯的一生，就是一部传奇。",
+        "pure_content_prompt_evidence: 乔布斯",
+    ]
+    payload["scene_facts"] = [
+        "category: theme",
+        "statement: 乔布斯的一生是一部传奇",
+        "source_evidence: 乔布斯的一生，就是一部传奇。",
+        "pure_content_prompt_evidence: 乔布斯的一生是一部传奇",
+    ]
+
+    output = ContentStageModelOutput.model_validate(payload)
+
+    assert output.primary_subject.protected_facts[0].model_dump(mode="json") == {
+        "category": "person",
+        "statement": "乔布斯站立",
+        "source_evidence": "乔布斯的一生，就是一部传奇。",
+        "pure_content_prompt_evidence": "乔布斯",
+    }
+    assert output.scene_facts[0].model_dump(mode="json") == {
+        "category": "theme",
+        "statement": "乔布斯的一生是一部传奇",
+        "source_evidence": "乔布斯的一生，就是一部传奇。",
+        "pure_content_prompt_evidence": "乔布斯的一生是一部传奇",
+    }
+
+
+@pytest.mark.asyncio
+async def test_content_stage_accepts_recorded_flattened_fact_response_in_one_call():
+    source_text = "乔布斯的一生，就是一部传奇。"
+    stage_input = ContentStageInput(
+        frame_id="frame-recorded",
+        original_storyboard_text=source_text,
+        article_context=source_text,
+        previous_frame_summary="首镜，无前一镜",
+        next_frame_summary="末镜，无后一镜",
+        target_visual_style=TargetVisualStyle(description="简约单色线稿"),
+        target_image_prompt_language="中文",
+    )
+    recorded_response = {
+        "core_claim": source_text,
+        "primary_subject": {
+            "category": "person",
+            "name": "乔布斯",
+            "identity": "乔布斯",
+            "quantity": 1,
+            "action": "站立",
+            "source_evidence": source_text,
+            "pure_content_prompt_evidence": "乔布斯",
+            "protected_facts": [
+                "category: person",
+                "statement: 乔布斯站立",
+                f"source_evidence: {source_text}",
+                "pure_content_prompt_evidence: 乔布斯",
+            ],
+        },
+        "secondary_subjects": [],
+        "scene_facts": [
+            {
+                "category": "theme",
+                "statement": "乔布斯的一生是一部传奇",
+                "source_evidence": source_text,
+                "pure_content_prompt_evidence": "乔布斯的一生是一部传奇",
+            }
+        ],
+        "adjustable_non_core_content": ["背景中的简约线条艺术风格"],
+        "pure_content_prompt": "乔布斯站立，乔布斯的一生是一部传奇，简约单色线稿",
+        "self_check": "pass",
+        "self_check_failures": [],
+    }
+    llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
+
+    output = await VisualAnchorTwoStageService()._run_content_stage(
+        llm_service=llm,
+        stage_input=stage_input,
+        trace_context=None,
+        trace_recorder=None,
+    )
+
+    assert len(llm.calls) == 1
+    assert [fact.statement for fact in output.protected_facts] == [
+        "乔布斯站立",
+        "乔布斯的一生是一部传奇",
+    ]
+    assert [fact.fact_id for fact in output.protected_facts] == [
+        "frame-recorded-fact-1",
+        "frame-recorded-fact-2",
+    ]
+
+
+@pytest.mark.parametrize(
+    "flattened_facts",
+    [
+        ["乔布斯站立"],
+        [
+            "category: person",
+            "statement: 乔布斯站立",
+            "source_evidence: 乔布斯的一生，就是一部传奇。",
+        ],
+        [
+            "statement: 乔布斯站立",
+            "category: person",
+            "source_evidence: 乔布斯的一生，就是一部传奇。",
+            "category: person",
+        ],
+    ],
+)
+def test_content_model_output_rejects_ambiguous_flattened_facts(flattened_facts):
+    payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
+        mode="json"
+    )
+    payload["primary_subject"]["protected_facts"] = flattened_facts
+
+    with pytest.raises(ValidationError):
+        ContentStageModelOutput.model_validate(payload)
+
+
 def test_server_materializes_deterministic_internal_identifiers():
     plan = _plan()
     output = _materialized_content("frame-a", plan.frames[0].source_text)
@@ -761,6 +886,7 @@ def test_server_materializes_deterministic_internal_identifiers():
         ("visual_anchor_content_stage.v5", "visual_anchor_fusion_stage.v4"),
         ("visual_anchor_content_stage.v6", "visual_anchor_fusion_stage.v5"),
         ("visual_anchor_content_stage.v7", "visual_anchor_fusion_stage.v5"),
+        ("visual_anchor_content_stage.v8", "visual_anchor_fusion_stage.v5"),
     ],
 )
 async def test_previous_prompt_versions_and_retry_audit_remain_readable(
