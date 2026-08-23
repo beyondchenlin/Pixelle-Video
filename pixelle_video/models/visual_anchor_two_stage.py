@@ -430,6 +430,42 @@ def _decode_subject_fact_statements(
     return {**subject, "protected_facts": decoded}
 
 
+def _unique_longest_exact_prompt_fragment(
+    evidence: object,
+    normalized_prompt: str,
+) -> str | None:
+    """Resolve an unambiguous exact excerpt from delimiter-joined evidence."""
+
+    if not isinstance(evidence, str):
+        return None
+    fragments = [
+        " ".join(fragment.split())
+        for fragment in re.split(r"[，,;；、]+", evidence)
+        if fragment.strip()
+    ]
+    if len(fragments) < 2:
+        return None
+
+    normalized_prompt_folded = normalized_prompt.casefold()
+    exact_fragments: dict[str, str] = {}
+    for fragment in fragments:
+        folded_fragment = fragment.casefold()
+        if folded_fragment in normalized_prompt_folded:
+            exact_fragments.setdefault(folded_fragment, fragment)
+    if not exact_fragments:
+        return None
+
+    longest_length = max(len(fragment) for fragment in exact_fragments)
+    longest_fragments = [
+        fragment
+        for fragment in exact_fragments.values()
+        if len(fragment.casefold()) == longest_length
+    ]
+    if len(longest_fragments) != 1:
+        return None
+    return longest_fragments[0]
+
+
 def _use_exact_prompt_evidence(value: object, pure_content_prompt: object) -> object:
     """Prefer an existing exact prompt excerpt when the claimed excerpt is inexact."""
 
@@ -443,6 +479,12 @@ def _use_exact_prompt_evidence(value: object, pure_content_prompt: object) -> ob
         and " ".join(current_evidence.split()) in normalized_prompt
     ):
         return value
+    exact_fragment = _unique_longest_exact_prompt_fragment(
+        current_evidence,
+        normalized_prompt,
+    )
+    if exact_fragment is not None:
+        return {**value, "pure_content_prompt_evidence": exact_fragment}
     for field_name in ("statement", "source_evidence"):
         candidate = value.get(field_name)
         if (
