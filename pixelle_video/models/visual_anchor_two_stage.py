@@ -536,6 +536,30 @@ def _normalize_subject_prompt_evidence(
     }
 
 
+def _retain_rendered_scene_facts(
+    scene_facts: list[object],
+    pure_content_prompt: object,
+) -> list[object]:
+    """Keep only scene facts with exact evidence in the rendered content prompt."""
+
+    if not isinstance(pure_content_prompt, str):
+        return scene_facts
+    normalized_prompt = " ".join(pure_content_prompt.split()).casefold()
+    retained: list[object] = []
+    for fact in scene_facts:
+        normalized_fact = _use_exact_prompt_evidence(fact, pure_content_prompt)
+        if not isinstance(normalized_fact, dict):
+            retained.append(normalized_fact)
+            continue
+        evidence = normalized_fact.get("pure_content_prompt_evidence")
+        if not isinstance(evidence, str) or not evidence.strip():
+            retained.append(normalized_fact)
+            continue
+        if " ".join(evidence.split()).casefold() in normalized_prompt:
+            retained.append(normalized_fact)
+    return retained
+
+
 class ContentStageSubject(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -638,10 +662,10 @@ class ContentStageModelOutput(BaseModel):
         scene_facts = value.get("scene_facts")
         if isinstance(scene_facts, list):
             scene_facts = _decode_flattened_content_facts(scene_facts)
-            decoded_value["scene_facts"] = [
-                _use_exact_prompt_evidence(fact, pure_content_prompt)
-                for fact in scene_facts
-            ]
+            decoded_value["scene_facts"] = _retain_rendered_scene_facts(
+                scene_facts,
+                pure_content_prompt,
+            )
         return decoded_value
 
     @field_validator("core_claim", "pure_content_prompt", mode="before")
