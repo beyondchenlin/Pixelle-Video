@@ -680,19 +680,34 @@ async def test_content_stage_schema_failure_stops_after_one_model_call():
     assert len(llm.calls) == 1
 
 
-def test_content_fact_normalizes_one_scalar_subject_reference_at_input_boundary():
+@pytest.mark.parametrize(
+    ("raw_subject_ids", "expected_subject_ids"),
+    [
+        (" frame-a-subject-primary ", ["frame-a-subject-primary"]),
+        ('["frame-a-subject-primary"]', ["frame-a-subject-primary"]),
+        (
+            '["frame-a-subject-primary", "frame-a-subject-secondary"]',
+            ["frame-a-subject-primary", "frame-a-subject-secondary"],
+        ),
+        ("[]", []),
+    ],
+)
+def test_content_fact_normalizes_unambiguous_subject_reference_shapes(
+    raw_subject_ids,
+    expected_subject_ids,
+):
     fact = ProtectedFact.model_validate(
         {
             "fact_id": "frame-a-fact-person",
             "category": "person",
-            "subject_ids": " frame-a-subject-primary ",
+            "subject_ids": raw_subject_ids,
             "statement": "乔布斯和沃兹尼亚克在车库制作电脑",
             "source_evidence": "乔布斯和沃兹尼亚克",
             "pure_content_prompt_evidence": "两位创作者",
         }
     )
 
-    assert fact.subject_ids == ["frame-a-subject-primary"]
+    assert fact.subject_ids == expected_subject_ids
     assert ProtectedFact.model_json_schema()["properties"]["subject_ids"]["type"] == (
         "array"
     )
@@ -750,6 +765,31 @@ async def test_scalar_subject_ids_complete_the_pipeline_in_exactly_three_model_c
 
 
 @pytest.mark.asyncio
+async def test_json_encoded_subject_ids_complete_pipeline_in_exactly_three_model_calls():
+    plan = _plan()
+    raw_output = _content("frame-a", plan.frames[0].source_text).model_dump(
+        mode="json"
+    )
+    for fact in raw_output["protected_facts"]:
+        fact["subject_ids"] = json.dumps(
+            fact["subject_ids"],
+            ensure_ascii=False,
+        )
+
+    result, llm = await _run(plan, content_outputs=[raw_output])
+
+    assert [call["response_type"] for call in llm.calls] == [
+        ContentStageOutput,
+        FusionStageOutput,
+        PreflightReviewOutput,
+    ]
+    assert all(
+        len(fact.subject_ids) == 1
+        for fact in result.frames[0].content_stage_output.protected_facts
+    )
+
+
+@pytest.mark.asyncio
 async def test_previous_prompt_versions_and_retry_audit_remain_readable():
     result, _ = await _run(_plan())
     payload = result.frames[0].model_dump(mode="json")
@@ -775,7 +815,17 @@ async def test_previous_prompt_versions_and_retry_audit_remain_readable():
     assert restored.model_dump(mode="json") == payload
 
 
-@pytest.mark.parametrize("invalid_subject_ids", ["   ", 42, {"id": "subject-a"}])
+@pytest.mark.parametrize(
+    "invalid_subject_ids",
+    [
+        "   ",
+        42,
+        {"id": "subject-a"},
+        "[subject-a]",
+        '["subject-a", 42]',
+        '[["subject-a"]]',
+    ],
+)
 def test_content_fact_rejects_ambiguous_or_empty_subject_reference_shapes(
     invalid_subject_ids,
 ):
@@ -805,6 +855,21 @@ def test_content_fact_does_not_split_delimited_scalar_subject_references():
     )
 
     assert fact.subject_ids == ["subject-a,subject-b"]
+
+
+def test_content_fact_preserves_opaque_scalar_reference_with_unpaired_bracket():
+    fact = ProtectedFact.model_validate(
+        {
+            "fact_id": "frame-a-fact-person",
+            "category": "person",
+            "subject_ids": "[subject-a",
+            "statement": "两位创作者",
+            "source_evidence": "乔布斯和沃兹尼亚克",
+            "pure_content_prompt_evidence": "两位创作者",
+        }
+    )
+
+    assert fact.subject_ids == ["[subject-a"]
 
 
 def test_content_stage_input_rejects_callers_forging_server_validation_feedback():
