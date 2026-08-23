@@ -344,6 +344,18 @@ def test_fusion_template_requires_exact_single_instance_and_trait_evidence():
     assert "不能写不存在的“一只斑点狗”" in template
 
 
+def test_preflight_template_keeps_primary_subject_and_visual_anchor_roles_distinct():
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates/visual_anchor_preflight_review.md"
+    ).read_text(encoding="utf-8")
+
+    assert "允许共存且职责不同的两个主体" in template
+    assert "不得拿来与 primary_subject 的身份或外观比较" in template
+    assert "不得仅因视觉锚点也被具体描述，就推断它替代了主要主体" in template
+    assert "系列视觉锚点出现在严肃题材中不自动构成戏谑" in template
+
+
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
     policy = _visible_text_policy(
         {"image_text": {"suppress_embedded_text": True}},
