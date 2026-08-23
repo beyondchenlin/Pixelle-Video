@@ -1149,10 +1149,12 @@ def test_actual_text_workflow_exposes_registered_seed_before_any_model_call():
 
     assert inspection.sampler_defaults["steps"] == 5
     workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
-    assert "$seed.seed!" in workflow["3"]["_meta"]["title"]
+    assert "$seed.seed" in workflow["3"]["_meta"]["title"]
 
 
-def test_text_workflow_without_fixed_seed_mapping_fails_before_model_call(tmp_path):
+def test_text_workflow_without_registered_seed_mapping_fails_before_model_call(
+    tmp_path,
+):
     project_root = Path(__file__).resolve().parents[2]
     source_path = project_root / "workflows/selfhost/image_z_image_turbo_gguf.json"
     payload = json.loads(source_path.read_text(encoding="utf-8"))
@@ -1164,7 +1166,7 @@ def test_text_workflow_without_fixed_seed_mapping_fails_before_model_call(tmp_pa
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="fixed seed"):
+    with pytest.raises(ValueError, match="registered seed"):
         inspect_image_workflow(
             workflow_info={
                 "source": "selfhost",
