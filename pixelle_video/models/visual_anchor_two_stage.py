@@ -1,16 +1,39 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v4"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v5"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v4"
 PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v4"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
 
 ReviewDecision = Literal["pass", "fail"]
+ContentSubjectCategory = Literal[
+    "person",
+    "animal",
+    "object",
+    "product",
+    "place",
+    "event",
+]
+ContentStageValidationCode = Literal[
+    "schema_contract_invalid",
+    "self_check_failed",
+    "subject_source_evidence_invalid",
+    "subject_prompt_evidence_invalid",
+    "concrete_fact_missing",
+    "fact_subject_reference_invalid",
+    "fact_subject_evidence_mismatch",
+    "subject_fact_missing",
+    "fact_source_evidence_invalid",
+    "fact_prompt_evidence_invalid",
+    "identity_isolation_failed",
+    "server_control_leaked",
+]
+_CONTENT_STAGE_VALIDATION_CODES = get_args(ContentStageValidationCode)
 
 _FORBIDDEN_IMAGE_PROMPT_TERMS = (
     "视觉锚点",
@@ -64,6 +87,9 @@ _FORBIDDEN_IMAGE_PROMPT_TERMS = (
     "continuity_change_reason",
     "self_check",
     "review_feedback",
+    "server_validation",
+    "validation_codes",
+    *_CONTENT_STAGE_VALIDATION_CODES,
     "alternatively",
     "another option",
     "could also",
@@ -191,6 +217,7 @@ class ContentSubject(BaseModel):
 
     subject_id: str
     role: Literal["primary", "secondary"]
+    category: ContentSubjectCategory
     name: str
     identity: str
     quantity: int = Field(gt=0)
@@ -238,6 +265,7 @@ class ProtectedFact(BaseModel):
         "theme",
         "other",
     ]
+    subject_ids: list[str] = Field(default_factory=list)
     statement: str
     source_evidence: str = Field(
         description="从原始分镜文案或文章背景中逐字复制的最短连续片段"
@@ -260,6 +288,11 @@ class ProtectedFact(BaseModel):
     def _validate_text(cls, value: object, info) -> str:
         return _concrete_subject_text(value, info.field_name)
 
+    @field_validator("subject_ids")
+    @classmethod
+    def _validate_subject_ids(cls, value: list[str]) -> list[str]:
+        return _text_list(value, "subject_ids")
+
 
 class ContentStageInput(BaseModel):
     """Identity-free input boundary for the content-only language-model call."""
@@ -273,22 +306,12 @@ class ContentStageInput(BaseModel):
     next_frame_summary: str
     target_visual_style: TargetVisualStyle
     target_image_prompt_language: str
-    review_feedback: list[str] = Field(default_factory=list)
     prompt_version: Literal[CONTENT_STAGE_PROMPT_VERSION] = CONTENT_STAGE_PROMPT_VERSION
-
-    @field_validator("review_feedback")
-    @classmethod
-    def _validate_review_feedback(cls, value: list[str]) -> list[str]:
-        return _text_list(value, "review_feedback")
 
     @field_validator("*", mode="before")
     @classmethod
     def _validate_text(cls, value: object, info):
-        if info.field_name in {
-            "prompt_version",
-            "review_feedback",
-            "target_visual_style",
-        }:
+        if info.field_name in {"prompt_version", "target_visual_style"}:
             return value
         return _text(value, info.field_name)
 
@@ -1018,6 +1041,10 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     preflight_review_input: PreflightReviewInput
     preflight_review_output: PreflightReviewOutput
     generation_request: VisualAnchorImageGenerationRequest
+    content_attempt_count: int = Field(ge=1, le=2)
+    content_retry_validation_codes: list[ContentStageValidationCode] = Field(
+        default_factory=list
+    )
     fusion_attempt_count: int = Field(ge=1, le=2)
 
     @field_validator("frame_id", mode="before")
@@ -1025,8 +1052,32 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     def _validate_frame_id(cls, value: object) -> str:
         return _text(value, "frame_id")
 
+    @field_validator("content_retry_validation_codes")
+    @classmethod
+    def _validate_content_retry_validation_codes(
+        cls,
+        value: list[ContentStageValidationCode],
+    ) -> list[ContentStageValidationCode]:
+        requested = set(value)
+        canonical = [
+            code for code in _CONTENT_STAGE_VALIDATION_CODES if code in requested
+        ]
+        if value != canonical:
+            raise ValueError(
+                "content retry validation codes must be unique and canonical"
+            )
+        return value
+
     @model_validator(mode="after")
     def _validate_cross_stage_contract(self) -> "VisualAnchorTwoStageFrameResult":
+        if self.content_attempt_count == 1 and self.content_retry_validation_codes:
+            raise ValueError(
+                "a single content attempt cannot contain retry validation codes"
+            )
+        if self.content_attempt_count > 1 and not self.content_retry_validation_codes:
+            raise ValueError(
+                "a retried content stage must record validation codes"
+            )
         frame_ids = {
             self.frame_id,
             self.content_stage_input.frame_id,

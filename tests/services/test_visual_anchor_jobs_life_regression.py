@@ -183,6 +183,7 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageOutput]:
                     {
                         "fact_id": f"{frame.frame_id}-primary",
                         "category": "person",
+                        "subject_ids": [f"{frame.frame_id}-subject-primary"],
                         "statement": primary_source,
                         "source_evidence": primary_source,
                         "pure_content_prompt_evidence": primary_name,
@@ -190,6 +191,7 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageOutput]:
                     {
                         "fact_id": f"{frame.frame_id}-system",
                         "category": "product",
+                        "subject_ids": [f"{frame.frame_id}-subject-system"],
                         "statement": secondary_source,
                         "source_evidence": secondary_source,
                         "pure_content_prompt_evidence": secondary_name,
@@ -197,6 +199,7 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageOutput]:
                     {
                         "fact_id": f"{frame.frame_id}-event",
                         "category": event_category,
+                        "subject_ids": [],
                         "statement": event_source,
                         "source_evidence": event_source,
                         "pure_content_prompt_evidence": event_prompt,
@@ -205,6 +208,7 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageOutput]:
                 primary_subject={
                     "subject_id": f"{frame.frame_id}-subject-primary",
                     "role": "primary",
+                    "category": "person",
                     "name": primary_name,
                     "identity": "分镜原文中的真正叙事人物",
                     "quantity": primary_quantity,
@@ -216,6 +220,7 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageOutput]:
                     {
                         "subject_id": f"{frame.frame_id}-subject-system",
                         "role": "secondary",
+                        "category": "product",
                         "name": secondary_name,
                         "identity": "分镜原文中的产品、技术或道路系统",
                         "quantity": 1,
