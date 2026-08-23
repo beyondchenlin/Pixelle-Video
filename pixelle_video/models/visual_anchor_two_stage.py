@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Literal, get_args
 
@@ -304,16 +305,27 @@ class ProtectedFact(BaseModel):
 
     @field_validator("subject_ids", mode="before")
     @classmethod
-    def _normalize_single_subject_id(cls, value: object) -> object:
-        """Accept an unambiguous scalar emitted by imperfect structured-output providers.
+    def _normalize_subject_ids(cls, value: object) -> object:
+        """Normalize unambiguous subject-reference shapes at the response boundary.
 
-        The generated JSON schema remains array-only.  This boundary adapter handles only
-        one non-empty scalar reference; it deliberately does not split delimited strings or
-        coerce unrelated scalar/container types.
+        The generated JSON schema remains array-only. Some providers still serialize that
+        array as a JSON string. Decode only strings with a complete array envelope and
+        preserve every other opaque scalar reference for backward compatibility.
         """
-        if isinstance(value, str):
+        if not isinstance(value, str):
+            return value
+
+        candidate = value.strip()
+        if not (candidate.startswith("[") and candidate.endswith("]")):
             return [value]
-        return value
+
+        try:
+            decoded = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            raise ValueError("subject_ids JSON array string is malformed") from exc
+        if not isinstance(decoded, list):
+            raise ValueError("subject_ids JSON string must encode an array")
+        return decoded
 
     @field_validator("subject_ids")
     @classmethod
