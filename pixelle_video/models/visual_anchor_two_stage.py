@@ -4,8 +4,9 @@ import re
 from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v10"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v11"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v8"
 PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v6"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
@@ -15,6 +16,7 @@ ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v7",
     "visual_anchor_content_stage.v8",
     "visual_anchor_content_stage.v9",
+    "visual_anchor_content_stage.v10",
     CONTENT_STAGE_PROMPT_VERSION,
 ]
 FusionStagePromptVersion = Literal[
@@ -487,7 +489,7 @@ class ContentStageSubject(BaseModel):
             "不得跨过其他词语拼接名称、身份和动作"
         )
     )
-    protected_facts: list[ContentFact] = Field(
+    protected_facts: SkipJsonSchema[list[ContentFact]] = Field(
         default_factory=list,
         description=(
             "直接描述该主体且必须由后续阶段保留的事实对象数组；"
@@ -535,8 +537,8 @@ class ContentStageModelOutput(BaseModel):
     )
     adjustable_non_core_content: list[str] = Field(default_factory=list)
     pure_content_prompt: str
-    self_check: ReviewDecision
-    self_check_failures: list[str] = Field(default_factory=list)
+    self_check: SkipJsonSchema[ReviewDecision] = "pass"
+    self_check_failures: SkipJsonSchema[list[str]] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod

@@ -693,8 +693,9 @@ async def test_generic_people_regression_passes_in_one_model_call():
     assert output.protected_facts[0].fact_id == "frame-generic-fact-1"
     assert len(llm.calls) == 1
     assert "person" in llm.calls[0]["prompt"]
-    assert "都必须是事实对象数组" in llm.calls[0]["prompt"]
-    assert "严禁把一个事实对象展开成" in llm.calls[0]["prompt"]
+    assert "scene_facts" in llm.calls[0]["prompt"]
+    assert "每项事实必须是同时包含" in llm.calls[0]["prompt"]
+    assert "严禁把事实对象展开成" in llm.calls[0]["prompt"]
     assert "原文没有动作时 action 必须输出空字符串" in llm.calls[0]["prompt"]
 
 
@@ -740,6 +741,55 @@ def test_content_model_schema_contains_no_generated_identifier_fields():
     assert '"subject_id"' not in schema_json
     assert '"subject_ids"' not in schema_json
     assert '"fact_id"' not in schema_json
+    assert '"protected_facts"' not in schema_json
+    assert '"self_check"' not in schema_json
+    assert '"self_check_failures"' not in schema_json
+
+
+@pytest.mark.asyncio
+async def test_content_stage_materializes_subject_fact_from_simplified_response():
+    source_text = "乔布斯的一生，就是一部传奇。"
+    stage_input = ContentStageInput(
+        frame_id="frame-simplified-content",
+        original_storyboard_text=source_text,
+        article_context=source_text,
+        previous_frame_summary="首镜，无前一镜",
+        next_frame_summary="末镜，无后一镜",
+        target_visual_style=TargetVisualStyle(description="简约单色线稿"),
+        target_image_prompt_language="中文",
+    )
+    simplified_response = {
+        "core_claim": source_text,
+        "primary_subject": {
+            "category": "person",
+            "name": "乔布斯",
+            "identity": "乔布斯",
+            "quantity": 1,
+            "action": "",
+            "source_evidence": "乔布斯",
+            "pure_content_prompt_evidence": "乔布斯",
+        },
+        "secondary_subjects": [],
+        "scene_facts": [],
+        "adjustable_non_core_content": [],
+        "pure_content_prompt": "乔布斯站在留白背景中，简约单色线稿",
+    }
+    llm = _QueuedLLM({ContentStageModelOutput: [simplified_response]})
+
+    output = await VisualAnchorTwoStageService()._run_content_stage(
+        llm_service=llm,
+        stage_input=stage_input,
+        trace_context=None,
+        trace_recorder=None,
+    )
+
+    assert len(llm.calls) == 1
+    assert output.self_check == "pass"
+    assert output.self_check_failures == []
+    assert len(output.protected_facts) == 1
+    assert output.protected_facts[0].statement == "乔布斯"
+    assert output.protected_facts[0].source_evidence == "乔布斯"
+    assert output.protected_facts[0].pure_content_prompt_evidence == "乔布斯"
 
 
 def test_content_model_output_rejects_generated_identifier_fields():
@@ -1225,6 +1275,7 @@ def test_server_materializes_deterministic_internal_identifiers():
         ("visual_anchor_content_stage.v7", "visual_anchor_fusion_stage.v5"),
         ("visual_anchor_content_stage.v8", "visual_anchor_fusion_stage.v5"),
         ("visual_anchor_content_stage.v9", "visual_anchor_fusion_stage.v5"),
+        ("visual_anchor_content_stage.v10", "visual_anchor_fusion_stage.v7"),
     ],
 )
 async def test_previous_prompt_versions_and_retry_audit_remain_readable(

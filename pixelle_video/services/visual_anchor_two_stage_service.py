@@ -21,6 +21,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     CONTENT_STAGE_PROMPT_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
     PREFLIGHT_REVIEW_PROMPT_VERSION,
+    ContentFact,
     ContentStageInput,
     ContentStageModelOutput,
     ContentStageOutput,
@@ -926,6 +927,21 @@ def _materialize_content_stage_output(
     protected_facts: list[dict[str, Any]] = []
     protected_fact_keys: set[tuple[str, str, str, tuple[str, ...]]] = set()
 
+    def subject_facts(subject) -> Sequence[ContentFact]:
+        if (
+            subject.protected_facts
+            or "protected_facts" in subject.model_fields_set
+        ):
+            return subject.protected_facts
+        return (
+            ContentFact(
+                category=subject.category,
+                statement=subject.name,
+                source_evidence=subject.source_evidence,
+                pure_content_prompt_evidence=subject.pure_content_prompt_evidence,
+            ),
+        )
+
     def append_facts(*, facts, subject_ids: list[str]) -> None:
         for fact in facts:
             fact_key = (
@@ -956,7 +972,7 @@ def _materialize_content_stage_output(
         "role": "primary",
     }
     append_facts(
-        facts=model_output.primary_subject.protected_facts,
+        facts=subject_facts(model_output.primary_subject),
         subject_ids=[primary_subject_id],
     )
 
@@ -977,7 +993,7 @@ def _materialize_content_stage_output(
             }
         )
         append_facts(
-            facts=subject.protected_facts,
+            facts=subject_facts(subject),
             subject_ids=[subject_id],
         )
 
