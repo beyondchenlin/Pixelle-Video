@@ -312,6 +312,8 @@ async def test_visual_anchor_preparation_uses_one_prompt_call_and_no_planning_ca
     assert result.prompts[1].startswith("prompt two")
     assert len(calls) == 1
     assert "restrained historical explainer" in calls[0]
+    assert "primary_subject" in calls[0]
+    assert "secondary_subjects" in calls[0]
 
 
 def test_image_prompt_template_preserves_json_contract_and_explains_ip_scene_description():

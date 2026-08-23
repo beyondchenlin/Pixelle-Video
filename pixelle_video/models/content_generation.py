@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class _StringListResponse(BaseModel):
@@ -56,6 +56,8 @@ class SmartStoryboardFrameResponse(BaseModel):
     source_text: str
     visual_goal: str
     prompt_intent: str
+    primary_subject: Optional[str] = None
+    secondary_subjects: list[str] = Field(default_factory=list)
     source_start: Optional[int] = None
     source_end: Optional[int] = None
     # New field: sentence indices covered by this frame (alternative to source_start/source_end)
@@ -90,6 +92,28 @@ class SmartStoryboardFrameResponse(BaseModel):
         if not stripped:
             raise ValueError("smart storyboard text fields must not be empty")
         return stripped
+
+    @field_validator("primary_subject")
+    @classmethod
+    def _normalize_primary_subject(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("secondary_subjects")
+    @classmethod
+    def _normalize_secondary_subjects(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            stripped = value.strip()
+            key = stripped.casefold()
+            if not stripped or key in seen:
+                continue
+            seen.add(key)
+            normalized.append(stripped)
+        return normalized
 
     @field_validator("sentence_indices", mode="before")
     @classmethod

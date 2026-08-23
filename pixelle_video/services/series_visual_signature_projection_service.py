@@ -582,12 +582,35 @@ def _required_subjects(
     selected_by_id: dict[str, int] = {}
     selected_by_label: dict[str, int] = {}
     overridden: list[dict[str, str]] = []
-    for source_name, values in sources:
-        candidates = build_subject_anchors(
-            frame_id=frame_id,
-            values=values,
-            evidence_source=source_name,
+    source_candidates = [
+        (
+            source_name,
+            build_subject_anchors(
+                frame_id=frame_id,
+                values=values,
+                evidence_source=source_name,
+            ),
         )
+        for source_name, values in sources
+    ]
+    if not any(candidates for _, candidates in source_candidates):
+        visual_carrier = _first_text(
+            frame_context.get("visual_goal"),
+            frame_context.get("prompt_intent"),
+        )
+        if visual_carrier:
+            source_candidates.append(
+                (
+                    "auditable_visual_carrier",
+                    build_subject_anchors(
+                        frame_id=frame_id,
+                        values=(visual_carrier,),
+                        evidence_source="auditable_visual_carrier",
+                    ),
+                )
+            )
+
+    for source_name, candidates in source_candidates:
         for candidate in candidates:
             existing_index = selected_by_id.get(candidate.subject_id)
             if existing_index is None:

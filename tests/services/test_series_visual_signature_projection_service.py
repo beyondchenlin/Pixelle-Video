@@ -134,6 +134,34 @@ def test_projection_fails_closed_when_required_subjects_are_empty() -> None:
     assert exc_info.value.metrics.projected_frame_count == 0
 
 
+def test_projection_uses_visual_goal_when_storyboard_subject_fields_are_missing() -> None:
+    profile = SeriesVisualSignatureProfileSnapshotBuilder().build(
+        request=_request(),
+        ip_profile=_ip_profile(),
+    )
+    visual_goal = "展示乔布斯的形象与苹果公司的早期产品"
+
+    result = SeriesVisualSignatureProjectionService().project_batch(
+        base_prompts=["乔布斯年轻时站在早期电脑旁的极简线条画"],
+        frame_ids=["frame-1"],
+        frame_contexts=[
+            {
+                "frame_source_text": "乔布斯创立苹果公司。",
+                "visual_goal": visual_goal,
+                "prompt_intent": "表现创业初期。",
+            }
+        ],
+        request=_request(),
+        profile=profile,
+    )
+
+    assert result.frames[0].required_subjects == (visual_goal,)
+    resolution = result.frames[0].contract.article_concretization[
+        "subject_source_resolution"
+    ]
+    assert resolution["selected"][0]["source"] == "auditable_visual_carrier"
+
+
 @pytest.mark.parametrize(
     ("base_prompt", "frame_context"),
     [

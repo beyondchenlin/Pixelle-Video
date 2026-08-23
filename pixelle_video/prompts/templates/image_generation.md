@@ -1,6 +1,6 @@
 ---
 prompt_id: image_generation
-version: 4
+version: 5
 stage: image_prompt_generation
 purpose: Generate content-only image prompts from frame-aware source context.
 output_contract: JSON object with image_prompts array.
@@ -38,6 +38,7 @@ All final image prompt strings must be written in English.
 - Use prompt_contexts as the primary source for image prompt generation when it is present.
 - Read `plan_source_text` first to understand the complete script and maintain global meaning.
 - Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the image from an isolated text fragment alone.
+- Treat each frame's `primary_subject` and `secondary_subjects` as required visible content; keep them recognizable and never replace them with the recurring identity.
 - Preserve continuity across frames by respecting shared subjects, world elements, and any `locked_fields` in the matching prompt_context.
 - When `plan_context.generation_world_profile` exists, use generation_world_profile as the script world profile; it refines world_preset and must preserve protected original source subjects.
 - When `plan_context.generation_world_hint` exists, apply that user instruction literally while preserving protected original source subjects.

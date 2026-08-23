@@ -1,9 +1,9 @@
 ---
 prompt_id: storyboard_generation
-version: 1
+version: 2
 stage: storyboard_generation
 purpose: Create a storyboard plan from complete source text.
-output_contract: JSON storyboard plan payload.
+output_contract: JSON storyboard plan payload with visible subject fields.
 ---
 
 <!-- template-loader:strip # storyboard_generation -->
@@ -28,6 +28,9 @@ output_contract: JSON storyboard plan payload.
     "Maintain continuity of style, subjects, and visual logic across all frames.",
     "Do not rewrite or summarize voiceover text; speech and captions are planned separately from source_text.",
     "Do not generate final image prompts.",
+    "For every frame, identify one concise primary_subject that must remain visibly present in the later image.",
+    "Return secondary_subjects as a concise list of other visible people, objects, places, or symbols that must not be lost.",
+    "Derive primary_subject and secondary_subjects from this frame's covered source text and visual meaning; do not add a mascot, logo, watermark, or unrelated decorative carrier.",
     "Return JSON only."
 <!-- if use_sentence_indices -->
     ,"Use sentence_indices to specify which sentences each frame covers.",
@@ -54,7 +57,9 @@ output_contract: JSON storyboard plan payload.
 <!-- if write_english_fields -->
     "visual_goal": "What this frame should communicate visually.",
 <!-- endif -->
-    "prompt_intent": "Guidance for later image prompt composition."
+    "prompt_intent": "Guidance for later image prompt composition.",
+    "primary_subject": "One concise visible subject that the later image must preserve.",
+    "secondary_subjects": ["Other concise visible subjects that the later image must preserve."]
 <!-- if use_sentence_indices -->
     ,"sentence_indices": "Required: consecutive sentence indices covered by this frame (e.g., [0, 1] or [3])."
 <!-- endif -->

@@ -410,6 +410,36 @@ async def test_smart_auto_uses_llm_to_create_plan_from_whole_source_text():
 
 
 @pytest.mark.asyncio
+async def test_smart_storyboard_preserves_structured_visible_subjects():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    llm = SmartFakeLLM(
+        frames=[
+            {
+                "source_text": "乔布斯创立苹果公司。",
+                "visual_goal": "展示乔布斯创立苹果公司的关键时刻。",
+                "prompt_intent": "乔布斯站在早期电脑旁。",
+                "primary_subject": "乔布斯",
+                "secondary_subjects": ["早期电脑", "车库工作台", "早期电脑"],
+                "sentence_indices": [0],
+            }
+        ]
+    )
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="乔布斯创立苹果公司。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert plan.frames[0].primary_subject == "乔布斯"
+    assert plan.frames[0].secondary_subjects == ("早期电脑", "车库工作台")
+    assert "primary_subject" in llm.calls[0]["prompt"]
+    assert "secondary_subjects" in llm.calls[0]["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_smart_auto_caps_default_max_tokens_for_qwen_compatible_providers():
     service = StoryboardGenerationService()
     llm = SmartFakeLLM(
