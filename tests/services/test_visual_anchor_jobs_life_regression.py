@@ -26,6 +26,7 @@ from pixelle_video.services.visual_anchor_two_stage_service import (
 )
 from pixelle_video.services.visual_prompt_composer import (
     VisualPromptComposer,
+    _positive_only_avoidance_fragments,
     _resolve_visual_anchor_style_batch,
     _target_visual_style_contract,
     _visible_text_policy,
@@ -267,6 +268,49 @@ def test_selected_minimal_emotion_style_maps_to_complete_final_contract():
     assert contract.required_negative_prompt_fragments == _STYLE_NEGATIVE
 
 
+def test_z_image_style_contract_moves_avoidance_rules_into_positive_prompt():
+    batch = _resolve_visual_anchor_style_batch(
+        image_config={
+            "prompt_prefix_library": {
+                "active_prefix_id": "builtin_line_art_emotion_minimal",
+                "items": [
+                    {
+                        "id": "builtin_line_art_emotion_minimal",
+                        "name": "Minimal Emotion Line Art",
+                        "content": (
+                            "minimal line art, elegant contour drawing, lots of "
+                            "negative space, subtle emotional tone, clean "
+                            "monochrome illustration"
+                        ),
+                        "style_category_id": "minimal_line_art",
+                        "scene_category_id": "emotional_copywriting",
+                    }
+                ],
+            }
+        },
+        prompt_prefix=None,
+        frame_count=1,
+    )
+
+    contract = _target_visual_style_contract(
+        batch=batch,
+        visual_profile_snapshot=None,
+        prompt_language=CHINESE_PROMPT_LANGUAGE,
+        negative_prompt_supported=False,
+    )
+
+    assert contract.required_final_prompt_fragments == _STYLE_POSITIVE
+    assert contract.required_negative_prompt_fragments == []
+
+
+def test_z_image_converts_custom_negative_style_rules_to_explicit_positive_avoidance():
+    assert _positive_only_avoidance_fragments(
+        positive_fragments=["克制的水墨插画"],
+        negative_fragments=["低质量", "禁止模糊"],
+        prompt_language=CHINESE_PROMPT_LANGUAGE,
+    ) == ["禁止出现低质量", "禁止模糊"]
+
+
 def test_fusion_template_allows_required_style_and_text_prohibitions():
     template = (
         Path(__file__).resolve().parents[2]
@@ -325,7 +369,6 @@ def _fusion_outputs(
     contents: list[ContentStageOutput],
 ) -> list[FusionStageOutput]:
     style_positive = "，".join(_STYLE_POSITIVE)
-    style_negative = "，".join(_STYLE_NEGATIVE)
     outputs = []
     for content in contents:
         fact_checks = [
@@ -382,10 +425,7 @@ def _fusion_outputs(
                 inherited_existing_fusion_decision=False,
                 continuity_change_reason="独立镜头没有既有融合决定",
                 final_positive_prompt=positive,
-                final_negative_prompt=(
-                    f"{style_negative}，{_NO_TEXT_NEGATIVE}，"
-                    "重复的斑点狗，多个实例，镜像，倒影，遮挡主要主体"
-                ),
+                final_negative_prompt="",
                 self_check="pass",
                 self_check_failures=[],
             )
@@ -448,7 +488,7 @@ async def _run_jobs_sample():
             decision="pass",
             failures=[],
             allowed_final_positive_prompt=fusion.final_positive_prompt,
-            allowed_final_negative_prompt=fusion.final_negative_prompt,
+            allowed_final_negative_prompt="",
         )
         for fusion in fusions
     ]
@@ -479,7 +519,7 @@ async def _run_jobs_sample():
             frame.frame_id: 100 + index
             for index, frame in enumerate(plan.frames, start=1)
         },
-        negative_prompt_supported=True,
+        negative_prompt_supported=False,
     )
     return plan, result, llm
 
@@ -506,6 +546,7 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
         assert '"continuous_scene_context"' in call["prompt"]
         assert '"target_visual_style"' in call["prompt"]
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
+        assert '"negative_prompt_supported": false' in call["prompt"]
 
     expected_primary_subjects = (
         "乔布斯和沃兹尼亚克",
@@ -531,11 +572,9 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
         assert request.target_visual_anchor_instance_count == 1
         assert "画面中只有一只斑点狗" in request.final_positive_prompt
         assert _NO_TEXT_POSITIVE in request.final_positive_prompt
-        assert _NO_TEXT_NEGATIVE in request.final_negative_prompt
+        assert request.final_negative_prompt == ""
         for fragment in _STYLE_POSITIVE:
             assert fragment in request.final_positive_prompt
-        for fragment in _STYLE_NEGATIVE:
-            assert fragment in request.final_negative_prompt
         for forbidden_fixed_rule in (
             "大尺寸",
             "居中",
@@ -612,6 +651,7 @@ async def test_jobs_life_passed_preflight_generates_each_frame_exactly_once(
         "reference_image_workflow_injection_mode" not in call
         for call in media_calls
     )
+    assert all("negative_prompt" not in call for call in media_calls)
     assert all(
         call["_visual_anchor_generation_request"]["generation_attempt"] == 1
         for call in media_calls
@@ -660,7 +700,7 @@ async def test_rejected_preflight_exposes_no_image_generation_request():
             workflow_version_sha256="c" * 64,
             expected_execution=_execution(),
             random_seeds_by_frame={"jobs-1": 101},
-            negative_prompt_supported=True,
+            negative_prompt_supported=False,
         )
 
     assert image_generation_calls == []

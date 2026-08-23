@@ -540,7 +540,7 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
             "A worker operates an assembly machine while exactly one Dalmatian "
             "with black spots observes from a natural side position."
         )
-        final_negative_prompt = "duplicate Dalmatian, text, watermark"
+        final_negative_prompt = ""
         identity_conditioning_mode = "text_profile"
 
         def model_dump(self, *, mode=None):
@@ -626,9 +626,11 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
     assert captured_generation == {}
     assert captured_two_stage["identity_conditioning_mode"] == "text_profile"
     assert captured_two_stage["identity_reference_condition"] is None
+    assert captured_two_stage["negative_prompt_supported"] is False
     assert captured_two_stage["identity_profile"].display_name == "Dalmatian"
     assert "Dalmatian" in result.prompts[0]
     assert "black spots" in result.prompts[0]
+    assert result.negative_prompt is None
     assert "visual_anchor_two_stage" in result.planning_snapshot
     assert result.planning_snapshot["visual_anchor_two_stage_prompt_policy"] == {
         "schema_version": "visual_anchor_two_stage_prompt_policy.v3",
@@ -638,6 +640,7 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
         "post_generation_prompt_repair_enabled": False,
         "post_generation_regeneration_enabled": False,
         "identity_conditioning_mode": "text_profile",
+        "negative_prompt_supported": False,
     }
     assert "base_image_prompt" not in str(result.planning_snapshot)
 

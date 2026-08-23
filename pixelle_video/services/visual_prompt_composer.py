@@ -47,6 +47,10 @@ from pixelle_video.services.article_concretization_pipeline import (
 )
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import merge_llm_trace_refs
+from pixelle_video.services.model_prompt_renderer import (
+    PositiveOnlyPromptRenderer,
+    select_model_prompt_renderer,
+)
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.services.reference_image_visual_context_adapter import (
     current_reference_image_visual_story_context_patch,
@@ -435,10 +439,18 @@ class VisualPromptComposer:
                 scheduler=sampler_defaults.get("scheduler"),
                 denoise=sampler_defaults.get("denoise"),
             )
+            negative_prompt_supported = not isinstance(
+                select_model_prompt_renderer(
+                    workflow=workflow_key,
+                    capabilities=workflow_capabilities,
+                ),
+                PositiveOnlyPromptRenderer,
+            )
             target_visual_style = _target_visual_style_contract(
                 batch=batch,
                 visual_profile_snapshot=visual_profile_snapshot,
                 prompt_language=prompt_language,
+                negative_prompt_supported=negative_prompt_supported,
             )
             visible_text_policy = _visible_text_policy(
                 text_rendering,
@@ -463,7 +475,7 @@ class VisualPromptComposer:
                 workflow_version_sha256=workflow_version_sha256,
                 expected_execution=expected_execution,
                 random_seeds_by_frame=registered_seeds,
-                negative_prompt_supported=workflow_capabilities.supports_negative_prompt,
+                negative_prompt_supported=negative_prompt_supported,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
                 stage_callback=stage_callback,
@@ -494,6 +506,7 @@ class VisualPromptComposer:
                 "post_generation_prompt_repair_enabled": False,
                 "post_generation_regeneration_enabled": False,
                 "identity_conditioning_mode": identity_conditioning_mode,
+                "negative_prompt_supported": negative_prompt_supported,
             }
             planning_snapshot["series_visual_signature_request_audit"] = (
                 _series_visual_signature_request_audit(resolved_signature_request)
@@ -591,6 +604,7 @@ def _target_visual_style_contract(
     batch: StyledImagePromptBatch,
     visual_profile_snapshot: Mapping[str, Any] | None,
     prompt_language: PromptLanguage,
+    negative_prompt_supported: bool = True,
 ) -> TargetVisualStyle:
     resolved_style = batch.resolved_style
     payload: dict[str, Any] = {}
@@ -647,6 +661,15 @@ def _target_visual_style_contract(
                     "3D rendering",
                     "complex colorful background",
                 ]
+    if not negative_prompt_supported:
+        required_positive.extend(
+            _positive_only_avoidance_fragments(
+                positive_fragments=required_positive,
+                negative_fragments=required_negative,
+                prompt_language=prompt_language,
+            )
+        )
+        required_negative = []
     if visual_profile_snapshot:
         payload["visual_profile"] = dict(visual_profile_snapshot)
     description = (
@@ -664,6 +687,47 @@ def _target_visual_style_contract(
 def _style_fragments(value: str) -> list[str]:
     normalized = str(value or "").replace("；", ",").replace(";", ",")
     return [" ".join(part.split()) for part in normalized.split(",") if part.strip()]
+
+
+def _positive_only_avoidance_fragments(
+    *,
+    positive_fragments: Sequence[str],
+    negative_fragments: Sequence[str],
+    prompt_language: PromptLanguage,
+) -> list[str]:
+    result: list[str] = []
+    normalized_positive = [
+        " ".join(str(fragment or "").split()).casefold()
+        for fragment in positive_fragments
+    ]
+    for fragment in negative_fragments:
+        text = " ".join(str(fragment or "").split())
+        normalized = text.casefold()
+        if not normalized:
+            continue
+        covered = any(
+            normalized in positive
+            and any(
+                marker in positive
+                for marker in ("禁止", "避免", "不要", " no ", "no ", "avoid", "without")
+            )
+            for positive in normalized_positive
+        )
+        if covered:
+            continue
+        if prompt_language == CHINESE_PROMPT_LANGUAGE:
+            result.append(
+                text
+                if text.startswith(("禁止", "避免", "不要"))
+                else f"禁止出现{text}"
+            )
+        else:
+            result.append(
+                text
+                if normalized.startswith(("no ", "avoid ", "without "))
+                else f"avoid {text}"
+            )
+    return result
 
 
 def _dedupe_fragments(values: Sequence[str]) -> list[str]:

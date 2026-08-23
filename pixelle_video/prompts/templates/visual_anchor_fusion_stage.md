@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_fusion_stage
-version: visual_anchor_fusion_stage.v3
+version: visual_anchor_fusion_stage.v4
 stage: visual_anchor_fusion_stage
 purpose: 在保护原文事实的前提下将唯一视觉锚点原生融合进完整画面
 output_contract: FusionStageOutput
@@ -27,10 +27,10 @@ output_contract: FusionStageOutput
 12. target_visual_anchor_instance_count 必须为 1，other_scene_elements_inherit_identity_features 必须为 false。final_positive_prompt 必须逐字包含 required_single_instance_prompt_fragment，single_instance_prompt_evidence 必须逐字等于该输入片段。
 13. final_positive_prompt 必须明确写出一个该身份实例及足以识别同一身份的全部核心特征，不能只写身份名称；允许自然改写，不要求照抄身份档案原句。
 14. final_positive_prompt 只能是一段完整、连贯、确定的画面描述。不得包含内部字段或规划用语，不得出现“视觉锚点”“知识产权角色”“受保护事实”“融合方案”，不得出现“或者”“也可以”“另一种形式”“可选择”“同时还可以”等候选表达，不得包含分析、未选方案、修改理由或审查结论。target_visual_style 和 visible_text_policy 明确要求的“禁止”类画面约束属于最终提示词内容，必须逐字保留。
-15. target_visual_style 是唯一全局风格事实源。final_positive_prompt 必须逐字包含 required_final_prompt_fragments 的每一项；final_negative_prompt 必须逐字包含 required_negative_prompt_fragments 的每一项。完整重写时不得稀释、替换或遗漏这些风格要求。
-16. visible_text_policy.suppress_visible_text 为 true 时，final_positive_prompt 和 final_negative_prompt 必须分别逐字包含其中指定的文字抑制片段，禁止画内文字、标题、水印和乱码。
+15. target_visual_style 是唯一全局风格事实源。final_positive_prompt 必须逐字包含 required_final_prompt_fragments 的每一项。negative_prompt_supported 为 true 时，final_negative_prompt 必须逐字包含 required_negative_prompt_fragments 的每一项；为 false 时，required_negative_prompt_fragments 必须为空，全部风格避让要求已经转换进 required_final_prompt_fragments，必须留在 final_positive_prompt。完整重写时不得稀释、替换或遗漏这些风格要求。
+16. visible_text_policy.suppress_visible_text 为 true 时，final_positive_prompt 必须逐字包含 required_positive_prompt_fragment。negative_prompt_supported 为 true 时，final_negative_prompt 还必须逐字包含 required_negative_prompt_fragment；为 false 时，只保留正向提示词中的明确禁止画内文字、标题、水印和乱码约束。
 17. workflow_identity_condition_summary 是当前工作流真实支持的身份条件。text_profile 模式只依靠最终提示词中的身份档案文字特征，不得虚构参考图绑定；reference_image 模式必须保留真实参考图条件。
-18. final_negative_prompt 只写图片模型需要避免的可见错误，包括重复身份、副本、倒影、镜像、身份特征泄漏、画布水印、界面角标、悬浮图层、主体替代和严重遮挡，不写分析规则。
+18. negative_prompt_supported 为 true 时，final_negative_prompt 写图片模型需要避免的可见错误，包括重复身份、副本、倒影、镜像、身份特征泄漏、画布水印、界面角标、悬浮图层、主体替代和严重遮挡，不写分析规则。negative_prompt_supported 为 false 时，final_negative_prompt 必须严格输出空字符串，并把实际需要的避让要求改写成 final_positive_prompt 中自然、明确的正向约束；不得为了填字段虚构反向提示词。
 19. review_feedback 非空时，必须重新执行完整融合并解决每一项反馈，不能局部修补提示词。
 
 输出前必须先完成 final_positive_prompt，再按以下顺序逐项复制证据：

@@ -135,6 +135,7 @@ def _frame_result(tmp_path):
         workflow_identity_condition_summary="当前工作流使用真实参考图绑定身份",
         continuous_scene_context=continuity,
         target_visual_style=target_style,
+        negative_prompt_supported=True,
         target_image_prompt_language="中文",
         required_single_instance_prompt_fragment="画面中只有一只小皮",
     )
