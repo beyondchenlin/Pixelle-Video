@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_content_stage
-version: visual_anchor_content_stage.v6
+version: visual_anchor_content_stage.v7
 stage: visual_anchor_content_stage
 purpose: 仅依据分镜事实生成纯内容画面并提取受保护事实
 output_contract: ContentStageOutput

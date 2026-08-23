@@ -6,12 +6,13 @@ from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v6"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v7"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v5"
 PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v4"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
 ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v5",
+    "visual_anchor_content_stage.v6",
     CONTENT_STAGE_PROMPT_VERSION,
 ]
 FusionStagePromptVersion = Literal[
@@ -275,7 +276,6 @@ class ProtectedFact(BaseModel):
         "other",
     ]
     subject_ids: list[str] = Field(
-        default_factory=list,
         description=(
             "直接受该事实保护的主体编号数组；无关联主体使用 []，"
             "单个主体也必须使用仅含一个字符串的数组"
