@@ -785,6 +785,76 @@ def test_content_model_output_decodes_complete_flattened_fact_object():
     }
 
 
+def test_content_model_output_decodes_categoryless_subject_fact_object():
+    payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
+        mode="json"
+    )
+    payload["primary_subject"]["protected_facts"] = [
+        "statement: 乔布斯的一生，改变了我们每个人的生活。",
+        "source_evidence: 乔布斯的一生，改变了我们每个人的生活。",
+        "pure_content_prompt_evidence: 乔布斯的一生",
+    ]
+    payload["pure_content_prompt"] = "乔布斯的一生，改变了我们每个人的生活。"
+
+    output = ContentStageModelOutput.model_validate(payload)
+
+    assert output.primary_subject.protected_facts[0].model_dump(mode="json") == {
+        "category": "person",
+        "statement": "乔布斯的一生，改变了我们每个人的生活。",
+        "source_evidence": "乔布斯的一生，改变了我们每个人的生活。",
+        "pure_content_prompt_evidence": "乔布斯的一生",
+    }
+
+
+@pytest.mark.asyncio
+async def test_content_stage_accepts_complete_categoryless_subject_fact_in_one_call():
+    source_text = "乔布斯的一生，改变了我们每个人的生活。"
+    stage_input = ContentStageInput(
+        frame_id="frame-categoryless-fact",
+        original_storyboard_text=source_text,
+        article_context=source_text,
+        previous_frame_summary="首镜，无前一镜",
+        next_frame_summary="末镜，无后一镜",
+        target_visual_style=TargetVisualStyle(description="简约单色线稿"),
+        target_image_prompt_language="中文",
+    )
+    recorded_response = {
+        "core_claim": source_text,
+        "primary_subject": {
+            "category": "person",
+            "name": "乔布斯",
+            "identity": "苹果公司的创始人",
+            "quantity": 1,
+            "action": "",
+            "source_evidence": source_text,
+            "pure_content_prompt_evidence": "乔布斯",
+            "protected_facts": [
+                f"statement: {source_text}",
+                f"source_evidence: {source_text}",
+                f"pure_content_prompt_evidence: {source_text}",
+            ],
+        },
+        "secondary_subjects": [],
+        "scene_facts": [],
+        "adjustable_non_core_content": [],
+        "pure_content_prompt": f"{source_text}，简约单色线稿",
+        "self_check": "pass",
+        "self_check_failures": [],
+    }
+    llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
+
+    output = await VisualAnchorTwoStageService()._run_content_stage(
+        llm_service=llm,
+        stage_input=stage_input,
+        trace_context=None,
+        trace_recorder=None,
+    )
+
+    assert len(llm.calls) == 1
+    assert output.protected_facts[0].category == "person"
+    assert output.protected_facts[0].statement == source_text
+
+
 @pytest.mark.asyncio
 async def test_content_stage_accepts_recorded_flattened_fact_response_in_one_call():
     source_text = "乔布斯的一生，就是一部传奇。"
@@ -1047,6 +1117,16 @@ async def test_content_stage_deduplicates_recorded_subject_and_scene_fact_by_evi
             "category: person",
             "source_evidence: 乔布斯的一生，就是一部传奇。",
             "category: person",
+        ],
+        [
+            "statement: 乔布斯站立",
+            "source_evidence: 乔布斯的一生，就是一部传奇。",
+            "source_evidence: 乔布斯",
+        ],
+        [
+            "statement: 乔布斯站立",
+            "source_evidence: 乔布斯的一生，就是一部传奇。",
+            "unknown: 乔布斯",
         ],
     ],
 )

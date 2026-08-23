@@ -284,6 +284,11 @@ _FLATTENED_CONTENT_FACT_FIELDS = (
     "source_evidence",
     "pure_content_prompt_evidence",
 )
+_CATEGORYLESS_SUBJECT_FACT_FIELDS = (
+    "statement",
+    "source_evidence",
+    "pure_content_prompt_evidence",
+)
 
 
 def _decode_flattened_content_facts(value: object) -> object:
@@ -318,6 +323,44 @@ def _decode_flattened_content_facts(value: object) -> object:
     return decoded
 
 
+def _decode_categoryless_subject_facts(
+    value: object,
+    *,
+    subject_category: object,
+) -> object:
+    """Decode complete subject-local fact groups whose category is inherited."""
+
+    if subject_category not in get_args(ContentSubjectCategory):
+        return value
+    if not isinstance(value, list) or not value:
+        return value
+    if not all(isinstance(item, str) for item in value):
+        return value
+    if len(value) % len(_CATEGORYLESS_SUBJECT_FACT_FIELDS) != 0:
+        return value
+
+    decoded: list[dict[str, str]] = []
+    group_size = len(_CATEGORYLESS_SUBJECT_FACT_FIELDS)
+    for offset in range(0, len(value), group_size):
+        group = value[offset : offset + group_size]
+        fact: dict[str, str] = {}
+        for item in group:
+            field_name, separator, field_value = item.partition(":")
+            normalized_field_name = field_name.strip()
+            if (
+                not separator
+                or normalized_field_name not in _CATEGORYLESS_SUBJECT_FACT_FIELDS
+                or normalized_field_name in fact
+                or not field_value.strip()
+            ):
+                return value
+            fact[normalized_field_name] = field_value.strip()
+        if set(fact) != set(_CATEGORYLESS_SUBJECT_FACT_FIELDS):
+            return value
+        decoded.append({"category": subject_category, **fact})
+    return decoded
+
+
 def _decode_subject_fact_statements(
     subject: object,
     *,
@@ -337,6 +380,13 @@ def _decode_subject_fact_statements(
     keyed_facts = _decode_flattened_content_facts(facts)
     if keyed_facts is not facts:
         return {**subject, "protected_facts": keyed_facts}
+
+    categoryless_facts = _decode_categoryless_subject_facts(
+        facts,
+        subject_category=subject.get("category"),
+    )
+    if categoryless_facts is not facts:
+        return {**subject, "protected_facts": categoryless_facts}
 
     for item in facts:
         field_name, separator, _ = item.partition(":")
