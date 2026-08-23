@@ -142,6 +142,9 @@ _SINGLE_INSTANCE_PROMPT_TERMS = (
     "only one",
     "a single",
 )
+_CONTENT_SUBJECT_PRONOUN_NAMES = frozenset(
+    {"他", "她", "它", "他们", "她们", "它们", "此人", "该人物", "该角色"}
+)
 _PLACEHOLDER_SUBJECT_PATTERNS = (
     re.compile(r"表达.*第?[一二三四五六七八九十0-9]+个?分镜", re.IGNORECASE),
     re.compile(r"第?[一二三四五六七八九十0-9]+个?分镜段落", re.IGNORECASE),
@@ -504,6 +507,24 @@ def _normalize_subject_prompt_evidence(
     if not isinstance(subject, dict):
         return subject
     normalized_subject = _use_exact_prompt_evidence(subject, pure_content_prompt)
+    if isinstance(pure_content_prompt, str):
+        normalized_name = " ".join(str(normalized_subject.get("name", "")).split())
+        normalized_identity = " ".join(
+            str(normalized_subject.get("identity", "")).split()
+        )
+        normalized_evidence = " ".join(
+            str(
+                normalized_subject.get("pure_content_prompt_evidence", "")
+            ).split()
+        )
+        normalized_prompt = " ".join(pure_content_prompt.split())
+        if (
+            normalized_name in _CONTENT_SUBJECT_PRONOUN_NAMES
+            and normalized_identity.casefold() == normalized_evidence.casefold()
+            and normalized_evidence
+            and normalized_evidence.casefold() in normalized_prompt.casefold()
+        ):
+            normalized_subject = {**normalized_subject, "name": normalized_evidence}
     facts = normalized_subject.get("protected_facts")
     if not isinstance(facts, list):
         return normalized_subject
