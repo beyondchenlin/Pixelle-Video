@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_fusion_stage
-version: visual_anchor_fusion_stage.v7
+version: visual_anchor_fusion_stage.v8
 stage: visual_anchor_fusion_stage
 purpose: 在保护原文事实的前提下将唯一视觉锚点原生融合进完整画面
 output_contract: FusionStageOutput
@@ -27,11 +27,12 @@ output_contract: FusionStageOutput
 12. target_visual_anchor_instance_count 必须为 1，other_scene_elements_inherit_identity_features 必须为 false。final_positive_prompt 必须用同一连续分句明确写出全画面只有一个身份实例；该分句必须同时包含唯一数量词和 identity_profile.display_name，允许在数量词与身份名称之间自然插入核心身份修饰词。single_instance_prompt_evidence 必须逐字复制该完整连续分句。required_single_instance_prompt_fragment 仅提供必须表达的数量与身份语义，不要求在插入身份修饰词后仍保持逐字相邻。
 13. final_positive_prompt 必须明确写出一个该身份实例及足以识别同一身份的全部核心特征，不能只写身份名称；允许自然改写，不要求照抄身份档案原句。
 14. final_positive_prompt 只能是一段完整、连贯、确定的画面描述。不得包含内部字段或规划用语，不得出现“视觉锚点”“知识产权角色”“受保护事实”“融合方案”，不得出现“或者”“也可以”“另一种形式”“可选择”“同时还可以”等候选表达，不得包含分析、未选方案、修改理由或审查结论。target_visual_style 和 visible_text_policy 明确要求的“禁止”类画面约束属于最终提示词内容，必须逐字保留。
-15. target_visual_style 是唯一全局风格事实源。final_positive_prompt 必须逐字包含 required_final_prompt_fragments 的每一项。negative_prompt_supported 为 true 时，final_negative_prompt 必须逐字包含 required_negative_prompt_fragments 的每一项；为 false 时，required_negative_prompt_fragments 必须为空，全部风格避让要求已经转换进 required_final_prompt_fragments，必须留在 final_positive_prompt。完整重写时不得稀释、替换或遗漏这些风格要求。
+15. target_visual_style 是唯一全局风格事实源。required_final_prompt_fragments 中的每一项都是不可翻译、不可改写的字面量，即使 target_image_prompt_language 要求使用另一种语言，也必须保持该项原有字符和原有语言并逐字放入 final_positive_prompt；只允许用目标语言编写这些字面量以外的画面描述。negative_prompt_supported 为 true 时，required_negative_prompt_fragments 也按相同字面量规则逐字放入 final_negative_prompt；为 false 时，required_negative_prompt_fragments 必须为空，全部风格避让要求已经转换进 required_final_prompt_fragments，必须留在 final_positive_prompt。完整重写时不得翻译、稀释、替换或遗漏这些风格要求。
 16. visible_text_policy.suppress_visible_text 为 true 时，final_positive_prompt 必须逐字包含 required_positive_prompt_fragment。negative_prompt_supported 为 true 时，final_negative_prompt 还必须逐字包含 required_negative_prompt_fragment；为 false 时，只保留正向提示词中的明确禁止画内文字、标题、水印和乱码约束。
 17. workflow_identity_condition_summary 是当前工作流真实支持的身份条件。text_profile 模式只依靠最终提示词中的身份档案文字特征，不得虚构参考图绑定；reference_image 模式必须保留真实参考图条件。
 18. negative_prompt_supported 为 true 时，final_negative_prompt 写图片模型需要避免的可见错误，包括重复身份、副本、倒影、镜像、身份特征泄漏、画布水印、界面角标、悬浮图层、主体替代和严重遮挡，不写分析规则。negative_prompt_supported 为 false 时，final_negative_prompt 必须严格输出空字符串，并把实际需要的避让要求改写成 final_positive_prompt 中自然、明确的正向约束；不得为了填字段虚构反向提示词。
 输出前必须先完成 final_positive_prompt，再按以下顺序逐项复制证据：
+- 先逐项把 required_final_prompt_fragments 的原字符原样复制进 final_positive_prompt，再编写其余画面描述；例如片段是英文时必须保留英文，不能翻译成中文近义词。完成后逐项做连续子串核验。
 - protected_fact_checks、primary_subject_final_prompt_evidence、identity_trait_checks.final_prompt_evidence 和 single_instance_prompt_evidence 都只能从 final_positive_prompt 中逐字复制连续片段，不得改写、概括或跨词拼接。
 - 逐项把 content_stage_output.protected_facts[].pure_content_prompt_evidence 原样放入 final_positive_prompt，再把同一原文片段复制到对应 protected_fact_checks[].final_image_evidence。不要先改写事实再尝试回填一个不存在的证据句。
 - final_positive_prompt 必须在同一连续分句中写出 required_single_instance_prompt_fragment 所表达的全画面唯一数量和身份名称；允许在两者之间插入核心身份修饰词。single_instance_prompt_evidence 必须复制包含唯一数量词、全部中间修饰词和身份名称的完整连续片段。仅写“旁边有一只戴着墨镜的斑点狗”不能证明全画面没有第二个实例。
