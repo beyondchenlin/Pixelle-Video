@@ -6,8 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v3"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v3"
-PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v3"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v4"
+PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v4"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
 
 ReviewDecision = Literal["pass", "fail"]
@@ -504,6 +504,7 @@ class FusionStageInput(BaseModel):
     continuous_scene_context: ContinuousSceneContext
     target_visual_style: TargetVisualStyle
     visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
+    negative_prompt_supported: bool
     target_image_prompt_language: str
     required_single_instance_prompt_fragment: str
     review_feedback: list[str] = Field(default_factory=list)
@@ -638,12 +639,18 @@ class FusionStageOutput(BaseModel):
         "spatial_contact_and_lighting_relation",
         "continuity_change_reason",
         "final_positive_prompt",
-        "final_negative_prompt",
         mode="before",
     )
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
+
+    @field_validator("final_negative_prompt", mode="before")
+    @classmethod
+    def _validate_optional_negative_prompt(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("final_negative_prompt must be a string")
+        return " ".join(value.split())
 
     @field_validator(
         "non_core_reconstruction_summary",

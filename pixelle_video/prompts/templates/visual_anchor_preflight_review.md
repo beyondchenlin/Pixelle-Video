@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_preflight_review
-version: visual_anchor_preflight_review.v3
+version: visual_anchor_preflight_review.v4
 stage: visual_anchor_preflight_review
 purpose: 在首次生图前审查事实、身份、单实例、连续性和提示词纯净度
 output_contract: PreflightReviewOutput
@@ -19,7 +19,7 @@ output_contract: PreflightReviewOutput
 5. 不使用数值面积或固定位置判定；只检查身份可识别、内容主体受保护、空间关系合理。
 6. 透视、光照、阴影、材质、景深、支撑、接触、附着和遮挡中的适用项成立，无水印、界面角标、悬浮贴图或后贴效果。
 7. 连续镜头正确继承既有决定；未继承时存在真实场景变化依据。
-8. target_visual_style 的每一个正向和负向风格片段都被最终提示词逐字保留；全局风格没有因融合重写而丢失。当 visible_text_policy 要求抑制画内文字时，正向和负向文字禁止片段都完整存在。
+8. target_visual_style 的每一个正向风格片段都被最终正向提示词逐字保留；全局风格没有因融合重写而丢失。negative_prompt_supported 为 true 时，负向风格片段和负向文字禁止片段也必须存在于最终反向提示词；为 false 时，最终反向提示词必须为空，风格避让和画内文字禁止要求必须已经明确写入最终正向提示词。
 9. unselected_candidate_summaries 只存在于结构化审计记录；正向和负向提示词都没有泄漏任何未选摘要、候选表达、互斥分析、内部规划字段、规则、分析或审查语言，且正向提示词清晰连贯可生成。
 10. 严肃题材没有戏谑或稀释事实；抽象和信息结构没有重复身份；载体不会自然复制身份。无法同时满足事实、主体、风格、身份、单实例和自然融合时必须判定失败。
 

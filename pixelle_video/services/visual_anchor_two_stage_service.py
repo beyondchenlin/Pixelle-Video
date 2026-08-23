@@ -436,6 +436,7 @@ class VisualAnchorTwoStageService:
                 continuous_scene_context=continuity_context,
                 target_visual_style=target_visual_style,
                 visible_text_policy=visible_text_policy,
+                negative_prompt_supported=negative_prompt_supported,
                 target_image_prompt_language=target_image_prompt_language,
                 required_single_instance_prompt_fragment=(
                     _required_single_instance_prompt_fragment(
@@ -1059,20 +1060,28 @@ def _validate_fusion_stage_output(
             raise VisualAnchorTwoStageError(
                 "fusion dropped a required global style fragment"
             )
-    for fragment in stage_input.target_visual_style.required_negative_prompt_fragments:
-        if _normalized_text(fragment).casefold() not in normalized_negative:
-            raise VisualAnchorTwoStageError(
-                "fusion dropped a required negative style fragment"
-            )
+    if stage_input.negative_prompt_supported:
+        for fragment in stage_input.target_visual_style.required_negative_prompt_fragments:
+            if _normalized_text(fragment).casefold() not in normalized_negative:
+                raise VisualAnchorTwoStageError(
+                    "fusion dropped a required negative style fragment"
+                )
+    elif normalized_negative:
+        raise VisualAnchorTwoStageError(
+            "positive-only image workflow must leave the final negative prompt empty"
+        )
     if stage_input.visible_text_policy.suppress_visible_text:
         if (
             not _contains_required_prompt_fragment_contract(
                 normalized_positive,
                 stage_input.visible_text_policy.required_positive_prompt_fragment,
             )
-            or not _contains_required_prompt_fragment_contract(
-                normalized_negative,
-                stage_input.visible_text_policy.required_negative_prompt_fragment,
+            or (
+                stage_input.negative_prompt_supported
+                and not _contains_required_prompt_fragment_contract(
+                    normalized_negative,
+                    stage_input.visible_text_policy.required_negative_prompt_fragment,
+                )
             )
         ):
             raise VisualAnchorTwoStageError(

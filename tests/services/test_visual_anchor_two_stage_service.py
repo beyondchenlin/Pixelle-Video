@@ -232,6 +232,7 @@ def _fusion(
     fact_evidence=None,
     identity_evidence=("圆形白色脸", "蓝色短耳"),
     single_instance_evidence="画面中只有一只小皮",
+    negative_prompt="",
 ):
     ids = fact_ids or [f"{frame_id}-fact-1"]
     continuing = frame_id == "frame-b"
@@ -290,7 +291,7 @@ def _fusion(
             else "当前是连续场景首镜"
         ),
         final_positive_prompt=positive or default_positive,
-        final_negative_prompt="重复的小皮，副本，镜像，倒影，悬浮，贴纸边缘，穿模，严重遮挡",
+        final_negative_prompt=negative_prompt,
         self_check="pass",
         self_check_failures=[],
     )
@@ -314,6 +315,7 @@ async def _run(
     fusion_outputs=None,
     review_outputs=None,
     target_visual_style="真实电影感",
+    negative_prompt_supported=False,
 ):
     contents = content_outputs or [
         _content(frame.frame_id, frame.source_text) for frame in plan.frames
@@ -322,7 +324,10 @@ async def _run(
         _fusion(frame.frame_id, inherited=index > 0)
         for index, frame in enumerate(plan.frames)
     ]
-    reviews = review_outputs or [_review(fusion) for fusion in fusions]
+    reviews = review_outputs or [
+        _review(fusion, negative_supported=negative_prompt_supported)
+        for fusion in fusions
+    ]
     llm = _QueuedLLM(
         {
             ContentStageOutput: contents,
@@ -342,9 +347,58 @@ async def _run(
         workflow_version_sha256="c" * 64,
         expected_execution=_execution(),
         random_seeds_by_frame={frame.frame_id: 101 + i for i, frame in enumerate(plan.frames)},
-        negative_prompt_supported=False,
+        negative_prompt_supported=negative_prompt_supported,
     )
     return result, llm
+
+
+@pytest.mark.asyncio
+async def test_positive_only_workflow_requires_an_empty_negative_prompt():
+    result, llm = await _run(_plan())
+
+    frame = result.frames[0]
+    assert frame.fusion_stage_input.negative_prompt_supported is False
+    assert frame.fusion_stage_output.final_negative_prompt == ""
+    assert frame.preflight_review_output.allowed_final_negative_prompt == ""
+    assert frame.generation_request.final_negative_prompt == ""
+    assert len(llm.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_positive_only_workflow_rejects_a_nonempty_negative_prompt():
+    invalid = _fusion(
+        "frame-a",
+        negative_prompt="重复的小皮，副本，镜像，倒影",
+    )
+
+    with pytest.raises(VisualAnchorTwoStageError, match="positive-only"):
+        await _run(
+            _plan(),
+            fusion_outputs=[invalid, invalid],
+        )
+
+
+@pytest.mark.asyncio
+async def test_negative_capable_workflow_preserves_required_negative_fragments():
+    fusion = _fusion(
+        "frame-a",
+        negative_prompt="低质量，重复的小皮，镜像，倒影",
+    )
+    style = TargetVisualStyle(
+        description="真实电影感",
+        required_negative_prompt_fragments=["低质量"],
+    )
+
+    result, _ = await _run(
+        _plan(),
+        fusion_outputs=[fusion],
+        target_visual_style=style,
+        negative_prompt_supported=True,
+    )
+
+    frame = result.frames[0]
+    assert frame.fusion_stage_input.negative_prompt_supported is True
+    assert frame.generation_request.final_negative_prompt == fusion.final_negative_prompt
 
 
 @pytest.mark.asyncio
