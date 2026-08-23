@@ -86,15 +86,25 @@ def _frame_result(tmp_path):
         protected_facts=[
             {
                 "fact_id": "fact-1",
-                "category": "event",
-                "statement": "两位创作者在车库组装电脑",
-                "source_evidence": "两位创作者在车库组装电脑",
-                "pure_content_prompt_evidence": "两位创作者在车库工作台组装电脑",
-            }
+                "category": "person",
+                "subject_ids": ["subject-creators"],
+                "statement": "两位创作者组装电脑",
+                "source_evidence": "两位创作者",
+                "pure_content_prompt_evidence": "两位创作者",
+            },
+            {
+                "fact_id": "fact-2",
+                "category": "product",
+                "subject_ids": ["subject-computer"],
+                "statement": "电脑正在被组装",
+                "source_evidence": "电脑",
+                "pure_content_prompt_evidence": "电脑",
+            },
         ],
         primary_subject={
             "subject_id": "subject-creators",
             "role": "primary",
+            "category": "person",
             "name": "两位创作者",
             "identity": "在车库创业的电脑创作者",
             "quantity": 2,
@@ -106,6 +116,7 @@ def _frame_result(tmp_path):
             {
                 "subject_id": "subject-computer",
                 "role": "secondary",
+                "category": "product",
                 "name": "电脑",
                 "identity": "工作台上的技术产品",
                 "quantity": 1,
@@ -154,7 +165,12 @@ def _frame_result(tmp_path):
                 "fact_id": "fact-1",
                 "preserved": True,
                 "final_image_evidence": "两位创作者在车库组装电脑",
-            }
+            },
+            {
+                "fact_id": "fact-2",
+                "preserved": True,
+                "final_image_evidence": "电脑",
+            },
         ],
         primary_subject_preserved=True,
         primary_subject_final_prompt_evidence="两位创作者",
@@ -261,6 +277,7 @@ def _frame_result(tmp_path):
         preflight_review_input=review_input,
         preflight_review_output=review_output,
         generation_request=request,
+        content_attempt_count=1,
         fusion_attempt_count=1,
     )
 

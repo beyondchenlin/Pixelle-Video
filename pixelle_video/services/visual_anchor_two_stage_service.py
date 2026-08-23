@@ -5,12 +5,15 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, get_args
+
+from pydantic import ValidationError
 
 from pixelle_video.models.llm_interaction_trace import (
     LLMTraceContext,
     trace_context_with_prompt_template,
 )
+from pixelle_video.models.llm_response import LLMResponseContractError
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
@@ -19,6 +22,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     PREFLIGHT_REVIEW_PROMPT_VERSION,
     ContentStageInput,
     ContentStageOutput,
+    ContentStageValidationCode,
     ContinuousSceneContext,
     FusionStageInput,
     FusionStageOutput,
@@ -149,10 +153,55 @@ _CONTINUITY_CHANGE_TRIGGER_TERMS = (
     "narrative",
     "story",
 )
+_CONCRETE_CONTENT_CATEGORIES = {
+    "person",
+    "animal",
+    "object",
+    "product",
+    "place",
+    "event",
+}
+_CONTENT_STAGE_VALIDATION_MESSAGES: dict[ContentStageValidationCode, str] = {
+    "schema_contract_invalid": "输出缺少字段、字段类型错误或违反结构合同",
+    "self_check_failed": "输出自检未通过",
+    "subject_source_evidence_invalid": "主体的原文证据不是输入中的连续原文",
+    "subject_prompt_evidence_invalid": "主体没有真实出现在纯内容提示词中",
+    "concrete_fact_missing": "输出没有具体可见事实",
+    "fact_subject_reference_invalid": "事实引用了不存在或类别不一致的主体",
+    "fact_subject_evidence_mismatch": "事实证据与所引用主体的证据不对应",
+    "subject_fact_missing": "主体没有同类别的受保护事实",
+    "fact_source_evidence_invalid": "事实的原文证据不是输入中的连续原文",
+    "fact_prompt_evidence_invalid": "事实没有真实出现在纯内容提示词中",
+    "identity_isolation_failed": "内容阶段混入了视觉锚点身份或预留信息",
+    "server_control_leaked": "内容字段泄漏了服务端校验代码或修复指令",
+}
+if set(_CONTENT_STAGE_VALIDATION_MESSAGES) != set(
+    get_args(ContentStageValidationCode)
+):
+    raise RuntimeError("content-stage validation codes and messages must stay aligned")
 
 
 class VisualAnchorTwoStageError(RuntimeError):
     pass
+
+
+class ContentStageContractError(VisualAnchorTwoStageError):
+    def __init__(self, codes: Sequence[ContentStageValidationCode]) -> None:
+        self.codes = _ordered_content_stage_validation_codes(codes)
+        details = "; ".join(
+            _CONTENT_STAGE_VALIDATION_MESSAGES[code] for code in self.codes
+        )
+        code_summary = ",".join(self.codes)
+        super().__init__(
+            f"content stage contract validation failed [{code_summary}]: {details}"
+        )
+
+
+@dataclass(frozen=True)
+class _ContentStageExecution:
+    output: ContentStageOutput
+    attempt_count: int
+    retry_validation_codes: tuple[ContentStageValidationCode, ...]
 
 
 @dataclass(frozen=True)
@@ -161,7 +210,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v3",
+            "schema_version": "visual_anchor_two_stage_batch.v4",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -366,7 +415,7 @@ class VisualAnchorTwoStageService:
             status="running",
         )
         try:
-            content_output = await self._run_content_stage(
+            content_execution = await self._run_content_stage(
                 llm_service=llm_service,
                 stage_input=content_input,
                 trace_context=trace_context,
@@ -381,6 +430,7 @@ class VisualAnchorTwoStageService:
                 status="failed",
             )
             raise
+        content_output = content_execution.output
         _emit_stage(
             stage_callback,
             stage="visual_anchor_content_stage",
@@ -612,6 +662,10 @@ class VisualAnchorTwoStageService:
                     preflight_review_input=review_input,
                     preflight_review_output=last_review,
                     generation_request=generation_request,
+                    content_attempt_count=content_execution.attempt_count,
+                    content_retry_validation_codes=list(
+                        content_execution.retry_validation_codes
+                    ),
                     fusion_attempt_count=fusion_attempt,
                 )
             _emit_stage(
@@ -636,39 +690,44 @@ class VisualAnchorTwoStageService:
         stage_input: ContentStageInput,
         trace_context: LLMTraceContext | None,
         trace_recorder,
-    ) -> ContentStageOutput:
-        last_output: ContentStageOutput | None = None
-        review_feedback: list[str] = []
+    ) -> _ContentStageExecution:
+        retry_validation_codes: tuple[ContentStageValidationCode, ...] = ()
         for attempt in range(1, self._max_content_attempts + 1):
-            attempt_input = stage_input.model_copy(
-                update={"review_feedback": review_feedback}
-            )
-            last_output = await self._call_structured(
-                llm_service=llm_service,
-                prompt_id="visual_anchor_content_stage",
-                stage_input=attempt_input,
-                response_type=ContentStageOutput,
-                attempt=attempt,
-                frame_id=stage_input.frame_id,
-                trace_context=trace_context,
-                trace_recorder=trace_recorder,
-                temperature=0.5,
-            )
-            if last_output.self_check != "pass":
-                review_feedback = _content_stage_repair_feedback()
+            try:
+                output = await self._call_structured(
+                    llm_service=llm_service,
+                    prompt_id="visual_anchor_content_stage",
+                    stage_input=stage_input,
+                    response_type=ContentStageOutput,
+                    attempt=attempt,
+                    frame_id=stage_input.frame_id,
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                    temperature=0.5,
+                    content_validation_codes=retry_validation_codes,
+                )
+            except Exception as exc:
+                if not _is_repairable_content_stage_output_error(exc):
+                    raise
+                if attempt >= self._max_content_attempts:
+                    raise ContentStageContractError(
+                        ("schema_contract_invalid",)
+                    ) from exc
+                retry_validation_codes = ("schema_contract_invalid",)
                 continue
             try:
-                _validate_content_stage_output(stage_input, last_output)
-            except VisualAnchorTwoStageError:
+                _validate_content_stage_output(stage_input, output)
+            except ContentStageContractError as exc:
                 if attempt >= self._max_content_attempts:
                     raise
-                review_feedback = _content_stage_repair_feedback()
+                retry_validation_codes = exc.codes
                 continue
-            return last_output
-        failures = "; ".join(last_output.self_check_failures if last_output else [])
-        raise VisualAnchorTwoStageError(
-            f"content stage rejected frame {stage_input.frame_id}: {failures}"
-        )
+            return _ContentStageExecution(
+                output=output,
+                attempt_count=attempt,
+                retry_validation_codes=retry_validation_codes,
+            )
+        raise AssertionError("content-stage attempt loop exited without a result")
 
     @staticmethod
     async def _call_structured(
@@ -682,8 +741,13 @@ class VisualAnchorTwoStageService:
         trace_context: LLMTraceContext | None,
         trace_recorder,
         temperature: float,
+        content_validation_codes: Sequence[ContentStageValidationCode] = (),
     ):
-        rendered = _render_stage_prompt(prompt_id, stage_input)
+        rendered = _render_stage_prompt(
+            prompt_id,
+            stage_input,
+            content_validation_codes=content_validation_codes,
+        )
         call_trace_context = (
             trace_context_with_prompt_template(
                 trace_context,
@@ -706,10 +770,34 @@ class VisualAnchorTwoStageService:
         return response if isinstance(response, response_type) else response_type.model_validate(response)
 
 
-def _render_stage_prompt(prompt_id: str, stage_input: Any) -> RenderedPrompt:
+def _render_stage_prompt(
+    prompt_id: str,
+    stage_input: Any,
+    *,
+    content_validation_codes: Sequence[ContentStageValidationCode] = (),
+) -> RenderedPrompt:
     input_payload = stage_input.model_dump(mode="json")
     if isinstance(stage_input, ContentStageInput):
         input_payload.pop("prompt_version", None)
+        validation_codes = _ordered_content_stage_validation_codes(
+            content_validation_codes
+        )
+        server_validation_json = json.dumps(
+            {
+                "codes": list(validation_codes),
+                "instructions": _content_stage_repair_instructions(
+                    validation_codes
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    else:
+        if content_validation_codes:
+            raise ValueError(
+                "content validation codes can only render the content-stage prompt"
+            )
+        server_validation_json = "{}"
     rendered = render_prompt_template(
         prompt_id,
         {
@@ -717,7 +805,8 @@ def _render_stage_prompt(prompt_id: str, stage_input: Any) -> RenderedPrompt:
                 input_payload,
                 ensure_ascii=False,
                 indent=2,
-            )
+            ),
+            "server_validation_json": server_validation_json,
         },
     )
     expected_version = {
@@ -743,18 +832,44 @@ def _emit_stage(callback, *, stage: str, event: str, **fields: Any) -> None:
     )
 
 
-def _content_stage_repair_feedback() -> list[str]:
-    return [
-        "上一次输出未通过服务端内容合同。请重新生成完整输出：所有主体和事实证据都必须逐字连续匹配原文与纯内容提示词；protected_facts 至少包含一项 person、animal、object、product、place 或 event 类别的具体可见事实；每个主要或次要主体都必须有对应的具体类别事实。原文已有的泛指人物必须保持泛指身份并归入 person，不得虚构姓名、职业或经历。"
-    ]
+def _ordered_content_stage_validation_codes(
+    codes: Sequence[ContentStageValidationCode],
+) -> tuple[ContentStageValidationCode, ...]:
+    known_codes = tuple(_CONTENT_STAGE_VALIDATION_MESSAGES)
+    unknown_codes = set(codes).difference(known_codes)
+    if unknown_codes:
+        raise ValueError("unknown content-stage validation code")
+    requested = set(codes)
+    return tuple(code for code in known_codes if code in requested)
+
+
+def _content_stage_repair_instructions(
+    codes: Sequence[ContentStageValidationCode],
+) -> list[str]:
+    return [_CONTENT_STAGE_VALIDATION_MESSAGES[code] for code in codes]
+
+
+def _is_repairable_content_stage_output_error(exc: Exception) -> bool:
+    current: BaseException | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if isinstance(
+            current,
+            (json.JSONDecodeError, LLMResponseContractError, ValidationError),
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _validate_content_stage_output(
     stage_input: ContentStageInput,
     output: ContentStageOutput,
 ) -> None:
+    validation_codes: list[ContentStageValidationCode] = []
     if output.self_check != "pass":
-        raise VisualAnchorTwoStageError("content stage self-check did not pass")
+        validation_codes.append("self_check_failed")
     source = _normalized_text(
         f"{stage_input.original_storyboard_text}\n{stage_input.article_context}"
     )
@@ -766,35 +881,54 @@ def _validate_content_stage_output(
     for subject in subjects:
         source_evidence = _normalized_text(subject.source_evidence).casefold()
         if source_evidence not in normalized_source:
-            raise VisualAnchorTwoStageError(
-                f"content subject {subject.subject_id} has no exact source evidence"
-            )
+            validation_codes.append("subject_source_evidence_invalid")
         prompt_evidence = _normalized_text(
             subject.pure_content_prompt_evidence
         ).casefold()
         if prompt_evidence not in normalized_pure_prompt:
-            raise VisualAnchorTwoStageError(
-                f"content subject {subject.subject_id} is missing from the pure content prompt"
-            )
+            validation_codes.append("subject_prompt_evidence_invalid")
     if not any(
-        fact.category in {"person", "animal", "object", "product", "place", "event"}
+        fact.category in _CONCRETE_CONTENT_CATEGORIES
         for fact in output.protected_facts
     ):
-        raise VisualAnchorTwoStageError(
-            "content stage must protect at least one concrete visible fact"
-        )
+        validation_codes.append("concrete_fact_missing")
+
+    subjects_by_id = {subject.subject_id: subject for subject in subjects}
+    matched_subject_ids: set[str] = set()
     for fact in output.protected_facts:
-        if _normalized_text(fact.source_evidence).casefold() not in normalized_source:
-            raise VisualAnchorTwoStageError(
-                f"protected fact {fact.fact_id} has no exact source evidence"
-            )
-        prompt_evidence = _normalized_text(
+        fact_source_evidence = _normalized_text(fact.source_evidence).casefold()
+        fact_prompt_evidence = _normalized_text(
             fact.pure_content_prompt_evidence
         ).casefold()
-        if not prompt_evidence or prompt_evidence not in normalized_pure_prompt:
-            raise VisualAnchorTwoStageError(
-                f"protected fact {fact.fact_id} is missing from the pure content prompt"
-            )
+        for subject_id in fact.subject_ids:
+            subject = subjects_by_id.get(subject_id)
+            if subject is None or subject.category != fact.category:
+                validation_codes.append("fact_subject_reference_invalid")
+                continue
+            if not (
+                _evidence_fragments_overlap(
+                    fact_source_evidence,
+                    _normalized_text(subject.source_evidence).casefold(),
+                )
+                and _evidence_fragments_overlap(
+                    fact_prompt_evidence,
+                    _normalized_text(
+                        subject.pure_content_prompt_evidence
+                    ).casefold(),
+                )
+            ):
+                validation_codes.append("fact_subject_evidence_mismatch")
+                continue
+            matched_subject_ids.add(subject_id)
+        if fact_source_evidence not in normalized_source:
+            validation_codes.append("fact_source_evidence_invalid")
+        if (
+            not fact_prompt_evidence
+            or fact_prompt_evidence not in normalized_pure_prompt
+        ):
+            validation_codes.append("fact_prompt_evidence_invalid")
+    if matched_subject_ids != set(subjects_by_id):
+        validation_codes.append("subject_fact_missing")
 
     content_payload = _normalized_text(
         "\n".join(
@@ -819,9 +953,22 @@ def _validate_content_stage_output(
                 or not _contains_term(normalized_source, normalized)
             )
         ):
-            raise VisualAnchorTwoStageError(
-                "content stage leaked or reserved visual-anchor identity information"
-            )
+            validation_codes.append("identity_isolation_failed")
+
+    server_control_terms = (
+        "server_validation",
+        "validation_codes",
+        *_CONTENT_STAGE_VALIDATION_MESSAGES,
+        *_CONTENT_STAGE_VALIDATION_MESSAGES.values(),
+    )
+    if any(
+        _contains_term(content_payload, _normalized_text(term).casefold())
+        for term in server_control_terms
+    ):
+        validation_codes.append("server_control_leaked")
+
+    if validation_codes:
+        raise ContentStageContractError(validation_codes)
 
 
 def _validate_content_stage_identity_isolation(
@@ -1161,6 +1308,10 @@ def _continuous_fusion_decision(output: FusionStageOutput) -> str:
 
 def _normalized_text(value: object) -> str:
     return " ".join(str(value or "").split())
+
+
+def _evidence_fragments_overlap(left: str, right: str) -> bool:
+    return bool(left and right and (left in right or right in left))
 
 
 def _contains_required_prompt_fragment_contract(prompt: str, required: str) -> bool:

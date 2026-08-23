@@ -572,7 +572,7 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
 
         def to_dict(self):
             return {
-                "schema_version": "visual_anchor_two_stage_batch.v3",
+                "schema_version": "visual_anchor_two_stage_batch.v4",
                 "frames": [self.frames[0].model_dump(mode="json")],
             }
 

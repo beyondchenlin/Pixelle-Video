@@ -22,7 +22,8 @@ _CONDITION_MARKER_RE = re.compile(
 _SAMPLER_NODE_CLASSES = frozenset(
     {"KSampler", "KSamplerAdvanced", "SamplerCustom", "SamplerCustomAdvanced"}
 )
-_SEED_MARKER_RE = re.compile(r"\$seed\.seed!", re.IGNORECASE)
+_REGISTERED_SEED_MARKER_RE = re.compile(r"\$seed\.seed!?", re.IGNORECASE)
+_REQUIRED_SEED_MARKER_RE = re.compile(r"\$seed\.seed!", re.IGNORECASE)
 _PROMPT_MARKER_RE = re.compile(r"\$prompt\.value!", re.IGNORECASE)
 IDENTITY_REFERENCE_CONDITION_WIDTH = 32
 IDENTITY_REFERENCE_CONDITION_HEIGHT = 32
@@ -117,9 +118,11 @@ def inspect_image_workflow(
     sampler_title = str((samplers[0].get("_meta") or {}).get("title") or "")
     if not isinstance(sampler_inputs, Mapping):
         raise ValueError("visual-anchor image sampler inputs are missing")
-    if "seed" not in sampler_inputs or not _SEED_MARKER_RE.search(sampler_title):
+    if "seed" not in sampler_inputs or not _REGISTERED_SEED_MARKER_RE.search(
+        sampler_title
+    ):
         raise ValueError(
-            "visual-anchor sampler must expose the required fixed seed parameter"
+            "visual-anchor sampler must expose a registered seed parameter"
         )
     return ImageWorkflowInspection(
         workflow_key=_required_text(workflow_info.get("key"), "workflow key"),
@@ -309,7 +312,9 @@ def inspect_identity_reference_workflow(
         raise ValueError(
             "TextEncodeZImageOmni must enter the sampler's positive conditioning input"
         )
-    if "seed" not in sampler_inputs or not _SEED_MARKER_RE.search(sampler_title):
+    if "seed" not in sampler_inputs or not _REQUIRED_SEED_MARKER_RE.search(
+        sampler_title
+    ):
         raise ValueError(
             "visual-anchor sampler must expose the required fixed seed parameter"
         )
