@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_fusion_stage
-version: visual_anchor_fusion_stage.v4
+version: visual_anchor_fusion_stage.v5
 stage: visual_anchor_fusion_stage
 purpose: 在保护原文事实的前提下将唯一视觉锚点原生融合进完整画面
 output_contract: FusionStageOutput
@@ -31,8 +31,6 @@ output_contract: FusionStageOutput
 16. visible_text_policy.suppress_visible_text 为 true 时，final_positive_prompt 必须逐字包含 required_positive_prompt_fragment。negative_prompt_supported 为 true 时，final_negative_prompt 还必须逐字包含 required_negative_prompt_fragment；为 false 时，只保留正向提示词中的明确禁止画内文字、标题、水印和乱码约束。
 17. workflow_identity_condition_summary 是当前工作流真实支持的身份条件。text_profile 模式只依靠最终提示词中的身份档案文字特征，不得虚构参考图绑定；reference_image 模式必须保留真实参考图条件。
 18. negative_prompt_supported 为 true 时，final_negative_prompt 写图片模型需要避免的可见错误，包括重复身份、副本、倒影、镜像、身份特征泄漏、画布水印、界面角标、悬浮图层、主体替代和严重遮挡，不写分析规则。negative_prompt_supported 为 false 时，final_negative_prompt 必须严格输出空字符串，并把实际需要的避让要求改写成 final_positive_prompt 中自然、明确的正向约束；不得为了填字段虚构反向提示词。
-19. review_feedback 非空时，必须重新执行完整融合并解决每一项反馈，不能局部修补提示词。
-
 输出前必须先完成 final_positive_prompt，再按以下顺序逐项复制证据：
 - protected_fact_checks、primary_subject_final_prompt_evidence、identity_trait_checks.final_prompt_evidence 和 single_instance_prompt_evidence 都只能从 final_positive_prompt 中逐字复制连续片段，不得改写、概括或跨词拼接。
 - final_positive_prompt 必须直接逐字写入 required_single_instance_prompt_fragment；single_instance_prompt_evidence 再逐字复制该输入值。仅写“旁边有一只戴着墨镜的斑点狗”不能证明全画面没有第二个实例。

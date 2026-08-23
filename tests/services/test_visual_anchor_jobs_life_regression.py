@@ -677,8 +677,8 @@ async def test_rejected_preflight_exposes_no_image_generation_request():
     llm = _QueuedLLM(
         {
             ContentStageOutput: [content],
-            FusionStageOutput: [fusion, fusion],
-            PreflightReviewOutput: [failed_review, failed_review],
+            FusionStageOutput: [fusion],
+            PreflightReviewOutput: [failed_review],
         }
     )
     image_generation_calls = []
@@ -709,3 +709,8 @@ async def test_rejected_preflight_exposes_no_image_generation_request():
         )
 
     assert image_generation_calls == []
+    assert [call["response_type"] for call in llm.calls] == [
+        ContentStageOutput,
+        FusionStageOutput,
+        PreflightReviewOutput,
+    ]
