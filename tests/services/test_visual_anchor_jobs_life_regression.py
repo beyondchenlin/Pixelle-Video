@@ -358,6 +358,9 @@ def test_preflight_template_keeps_primary_subject_and_visual_anchor_roles_distin
     assert "不得拿来与 primary_subject 的身份或外观比较" in template
     assert "不得仅因视觉锚点也被具体描述，就推断它替代了主要主体" in template
     assert "系列视觉锚点出现在严肃题材中不自动构成戏谑" in template
+    assert "作为唯一外部主体加入画面" in template
+    assert "未被原文提及" in template
+    assert "均不得记为失败项" in template
 
 
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():

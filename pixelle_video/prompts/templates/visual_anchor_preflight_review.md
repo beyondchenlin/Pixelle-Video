@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_preflight_review
-version: visual_anchor_preflight_review.v5
+version: visual_anchor_preflight_review.v6
 stage: visual_anchor_preflight_review
 purpose: 在首次生图前审查事实、身份、单实例、连续性和提示词纯净度
 output_contract: PreflightReviewOutput
@@ -11,6 +11,7 @@ output_contract: PreflightReviewOutput
 {input_json}
 
 先固定角色边界再审查：
+- 本任务明确授权 identity_profile 指定的系列视觉锚点作为唯一外部主体加入画面；它通常不会出现在原文中，也不需要与原文主题存在事实关系。视觉锚点未被原文提及、与原文主要主体不是同一对象或没有原文事实关系，均不得记为失败项。只能依据它是否替代或挤出原文主体、破坏受保护事实、造成不自然融合、重复实例或稀释严肃内容进行审查。
 - content_stage_output.primary_subject 是原文主要主体；identity_profile 描述的是额外加入画面的系列视觉锚点。除非原文明示两者是同一对象，否则它们是允许共存且职责不同的两个主体。identity_profile.core_identity_traits 只用于识别视觉锚点，不得拿来与 primary_subject 的身份或外观比较，也不得要求两者特征相同。
 - fusion_stage_output.primary_subject_final_prompt_evidence 是主要主体存在于最终正向提示词的直接证据。该证据与 primary_subject.name 都真实存在时，不得声称主要主体缺席；只有最终提示词明确让视觉锚点继承主要主体的身份、受保护动作或叙事职责，或者明确删除、遮挡、挤出主要主体时，才能判定发生替代。不得仅因视觉锚点也被具体描述，就推断它替代了主要主体。
 - 系列视觉锚点出现在严肃题材中不自动构成戏谑。只有最终提示词存在嘲弄、滑稽化、事实反转或明显稀释严肃事实的实际文字证据时，才能据此判定失败。
