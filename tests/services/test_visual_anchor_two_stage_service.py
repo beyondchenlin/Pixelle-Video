@@ -1297,6 +1297,52 @@ async def test_preflight_allows_semantically_equivalent_identity_wording():
 
 
 @pytest.mark.asyncio
+async def test_recorded_single_instance_evidence_expands_over_identity_modifiers():
+    positive = (
+        "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。"
+        "画面中只有一只拥有圆形白色脸和蓝色短耳的小皮，"
+        "它自然站在工作台旁并共享暖色光影。"
+    )
+    fusion = _fusion(
+        "frame-a",
+        positive=positive,
+        single_instance_evidence="画面中只有一只小皮",
+    )
+
+    result, llm = await _run(_plan(), fusion_outputs=[fusion])
+
+    expected_evidence = "只有一只拥有圆形白色脸和蓝色短耳的小皮"
+    frame = result.frames[0]
+    assert frame.fusion_stage_output.single_instance_prompt_evidence == (
+        expected_evidence
+    )
+    assert frame.generation_request.single_instance_prompt_evidence == (
+        expected_evidence
+    )
+    assert len(llm.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_negated_single_instance_clause_is_not_accepted_as_evidence():
+    negated_evidence = "画面中并非只有一只拥有圆形白色脸和蓝色短耳的小皮"
+    fusion = _fusion(
+        "frame-a",
+        positive=(
+            "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。"
+            f"{negated_evidence}，"
+            "它们自然站在工作台旁并共享暖色光影。"
+        ),
+        single_instance_evidence=negated_evidence,
+    )
+
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="single-instance evidence is negated",
+    ):
+        await _run(_plan(), fusion_outputs=[fusion])
+
+
+@pytest.mark.asyncio
 async def test_generation_request_contains_only_one_instance_and_clean_prompt():
     result, _ = await _run(_plan())
     request = result.frames[0].generation_request

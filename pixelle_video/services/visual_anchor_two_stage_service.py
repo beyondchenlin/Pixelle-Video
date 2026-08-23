@@ -88,6 +88,18 @@ _SINGLE_INSTANCE_TERMS = (
     "only one",
     "a single",
 )
+_SINGLE_INSTANCE_CLAUSE_DELIMITERS = ",，;；。.!！?？\n"
+_SINGLE_INSTANCE_NEGATION_SUFFIXES = (
+    "不",
+    "并非",
+    "不是",
+    "并不是",
+    "未",
+    "并未",
+    "not",
+    "is not",
+    "isn't",
+)
 _CONTENT_STAGE_FORBIDDEN_TERMS = (
     "视觉锚点",
     "知识产权角色",
@@ -513,6 +525,10 @@ class VisualAnchorTwoStageService:
                 trace_recorder=trace_recorder,
                 temperature=0.7,
                 call_audit=fusion_call_audit,
+            )
+            fusion_output = _normalize_fusion_single_instance_evidence(
+                fusion_input,
+                fusion_output,
             )
         except Exception:
             _emit_stage(
@@ -1138,13 +1154,6 @@ def _validate_fusion_stage_output(
     single_instance_evidence = _normalized_text(
         output.single_instance_prompt_evidence
     ).casefold()
-    required_single_instance_evidence = _normalized_text(
-        stage_input.required_single_instance_prompt_fragment
-    ).casefold()
-    if single_instance_evidence != required_single_instance_evidence:
-        raise VisualAnchorTwoStageError(
-            "single-instance evidence must exactly match the required final-prompt fragment"
-        )
     if single_instance_evidence not in normalized_positive:
         raise VisualAnchorTwoStageError(
             "single-instance evidence is not present in the final positive prompt"
@@ -1162,6 +1171,16 @@ def _validate_fusion_stage_output(
     ):
         raise VisualAnchorTwoStageError(
             "single-instance evidence does not identify the selected identity"
+        )
+    if (
+        _extract_single_instance_prompt_evidence(
+            single_instance_evidence,
+            normalized_identity_name,
+        )
+        is None
+    ):
+        raise VisualAnchorTwoStageError(
+            "single-instance evidence is negated or does not form one continuous clause"
         )
     existing_method = (
         stage_input.continuous_scene_context.existing_selected_fusion_method
@@ -1355,6 +1374,77 @@ def _required_single_instance_prompt_fragment(
     if "中文" in language or language.startswith("zh"):
         return f"画面中只有一只{display_name}"
     return f"There is exactly one {display_name} in the entire image"
+
+
+def _normalize_fusion_single_instance_evidence(
+    stage_input: FusionStageInput,
+    output: FusionStageOutput,
+) -> FusionStageOutput:
+    normalized_positive = _normalized_text(output.final_positive_prompt)
+    normalized_evidence = _normalized_text(output.single_instance_prompt_evidence)
+    extracted_evidence = _extract_single_instance_prompt_evidence(
+        normalized_positive,
+        stage_input.identity_profile.display_name,
+    )
+    if extracted_evidence is None:
+        return output
+    if (
+        normalized_evidence.casefold() in normalized_positive.casefold()
+        and extracted_evidence.casefold() in normalized_evidence.casefold()
+    ):
+        return output
+    return output.model_copy(
+        update={"single_instance_prompt_evidence": extracted_evidence}
+    )
+
+
+def _extract_single_instance_prompt_evidence(
+    final_positive_prompt: str,
+    identity_display_name: str,
+) -> str | None:
+    prompt = _normalized_text(final_positive_prompt)
+    identity = _normalized_text(identity_display_name)
+    if not prompt or not identity:
+        return None
+
+    candidates: list[tuple[int, int, str]] = []
+    for term in _SINGLE_INSTANCE_TERMS:
+        term_pattern = re.escape(term)
+        if term.isascii() and any(character.isalnum() for character in term):
+            term_pattern = rf"(?<![A-Za-z0-9_]){term_pattern}(?![A-Za-z0-9_])"
+        for term_match in re.finditer(term_pattern, prompt, flags=re.IGNORECASE):
+            clause_start = max(
+                prompt.rfind(delimiter, 0, term_match.start())
+                for delimiter in _SINGLE_INSTANCE_CLAUSE_DELIMITERS
+            ) + 1
+            prefix = prompt[clause_start : term_match.start()].strip().casefold()
+            if any(
+                prefix.endswith(suffix.casefold())
+                for suffix in _SINGLE_INSTANCE_NEGATION_SUFFIXES
+            ):
+                continue
+
+            identity_match = re.search(
+                re.escape(identity),
+                prompt[term_match.end() :],
+                flags=re.IGNORECASE,
+            )
+            if identity_match is None:
+                continue
+            identity_start = term_match.end() + identity_match.start()
+            between = prompt[term_match.end() : identity_start]
+            if any(
+                delimiter in between
+                for delimiter in _SINGLE_INSTANCE_CLAUSE_DELIMITERS
+            ):
+                continue
+            identity_end = term_match.end() + identity_match.end()
+            evidence = prompt[term_match.start() : identity_end]
+            candidates.append((len(evidence), term_match.start(), evidence))
+
+    if not candidates:
+        return None
+    return min(candidates)[2]
 
 
 def _contains_term(value: str, term: str) -> bool:
