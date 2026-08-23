@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v3"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v4"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v4"
 PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v4"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
@@ -273,12 +273,22 @@ class ContentStageInput(BaseModel):
     next_frame_summary: str
     target_visual_style: TargetVisualStyle
     target_image_prompt_language: str
+    review_feedback: list[str] = Field(default_factory=list)
     prompt_version: Literal[CONTENT_STAGE_PROMPT_VERSION] = CONTENT_STAGE_PROMPT_VERSION
+
+    @field_validator("review_feedback")
+    @classmethod
+    def _validate_review_feedback(cls, value: list[str]) -> list[str]:
+        return _text_list(value, "review_feedback")
 
     @field_validator("*", mode="before")
     @classmethod
     def _validate_text(cls, value: object, info):
-        if info.field_name in {"prompt_version", "target_visual_style"}:
+        if info.field_name in {
+            "prompt_version",
+            "review_feedback",
+            "target_visual_style",
+        }:
             return value
         return _text(value, info.field_name)
 

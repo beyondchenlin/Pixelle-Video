@@ -419,8 +419,11 @@ async def test_content_stage_call_has_no_identity_or_reference_inputs():
         "next_frame_summary",
         "target_visual_style",
         "target_image_prompt_language",
+        "review_feedback",
         "prompt_version",
     }
+    assert '"review_feedback": []' in first_call["prompt"]
+    assert "泛指人物" in first_call["prompt"]
     assert tuple(inspect.signature(_validate_content_stage_output).parameters) == (
         "stage_input",
         "output",
@@ -500,6 +503,37 @@ async def test_content_stage_retries_its_own_invalid_fact_contract_without_ident
     assert result.frames[0].content_stage_output.protected_facts[0].source_evidence == (
         plan.frames[0].source_text
     )
+
+
+@pytest.mark.asyncio
+async def test_content_stage_retry_receives_trusted_feedback_for_missing_visible_fact():
+    plan = _plan()
+    invalid = _content("frame-a", plan.frames[0].source_text)
+    invalid = ContentStageOutput.model_validate(
+        {
+            **invalid.model_dump(mode="json"),
+            "protected_facts": [
+                {
+                    **invalid.protected_facts[0].model_dump(mode="json"),
+                    "category": "action",
+                }
+            ],
+        }
+    )
+
+    result, llm = await _run(
+        plan,
+        content_outputs=[invalid, _content("frame-a", plan.frames[0].source_text)],
+    )
+
+    content_calls = [
+        call for call in llm.calls if call["response_type"] is ContentStageOutput
+    ]
+    assert len(content_calls) == 2
+    assert '"review_feedback": []' in content_calls[0]["prompt"]
+    assert "上一次输出未通过服务端内容合同" in content_calls[1]["prompt"]
+    assert "原文已有的泛指人物必须保持泛指身份并归入 person" in content_calls[1]["prompt"]
+    assert result.frames[0].content_stage_output.protected_facts[0].category == "event"
 
 
 @pytest.mark.asyncio

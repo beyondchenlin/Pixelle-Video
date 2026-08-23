@@ -638,11 +638,15 @@ class VisualAnchorTwoStageService:
         trace_recorder,
     ) -> ContentStageOutput:
         last_output: ContentStageOutput | None = None
+        review_feedback: list[str] = []
         for attempt in range(1, self._max_content_attempts + 1):
+            attempt_input = stage_input.model_copy(
+                update={"review_feedback": review_feedback}
+            )
             last_output = await self._call_structured(
                 llm_service=llm_service,
                 prompt_id="visual_anchor_content_stage",
-                stage_input=stage_input,
+                stage_input=attempt_input,
                 response_type=ContentStageOutput,
                 attempt=attempt,
                 frame_id=stage_input.frame_id,
@@ -651,12 +655,14 @@ class VisualAnchorTwoStageService:
                 temperature=0.5,
             )
             if last_output.self_check != "pass":
+                review_feedback = _content_stage_repair_feedback()
                 continue
             try:
                 _validate_content_stage_output(stage_input, last_output)
             except VisualAnchorTwoStageError:
                 if attempt >= self._max_content_attempts:
                     raise
+                review_feedback = _content_stage_repair_feedback()
                 continue
             return last_output
         failures = "; ".join(last_output.self_check_failures if last_output else [])
@@ -735,6 +741,12 @@ def _emit_stage(callback, *, stage: str, event: str, **fields: Any) -> None:
         callback=callback,
         **fields,
     )
+
+
+def _content_stage_repair_feedback() -> list[str]:
+    return [
+        "上一次输出未通过服务端内容合同。请重新生成完整输出：所有主体和事实证据都必须逐字连续匹配原文与纯内容提示词；protected_facts 至少包含一项 person、animal、object、product、place 或 event 类别的具体可见事实；每个主要或次要主体都必须有对应的具体类别事实。原文已有的泛指人物必须保持泛指身份并归入 person，不得虚构姓名、职业或经历。"
+    ]
 
 
 def _validate_content_stage_output(
