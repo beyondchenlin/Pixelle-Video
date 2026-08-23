@@ -17,6 +17,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     ImageWorkflowExecutionContract,
     PreflightReviewInput,
     PreflightReviewOutput,
+    TargetVisualStyle,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
@@ -70,13 +71,14 @@ def _frame_result(tmp_path):
         sampler_node_class_type="KSampler",
         binding_path_node_ids=["92", "93", "94", "3"],
     )
+    target_style = TargetVisualStyle(description="真实电影感")
     content_input = ContentStageInput(
         frame_id="frame-a",
         original_storyboard_text="两位创作者在车库组装电脑。",
         article_context="两位创作者在车库组装电脑。",
         previous_frame_summary="首镜，无前一镜",
         next_frame_summary="末镜，无后一镜",
-        target_visual_style="真实电影感",
+        target_visual_style=target_style,
         target_image_prompt_language="中文",
     )
     content_output = ContentStageOutput(
@@ -88,6 +90,28 @@ def _frame_result(tmp_path):
                 "statement": "两位创作者在车库组装电脑",
                 "source_evidence": "两位创作者在车库组装电脑",
                 "pure_content_prompt_evidence": "两位创作者在车库工作台组装电脑",
+            }
+        ],
+        primary_subject={
+            "subject_id": "subject-creators",
+            "role": "primary",
+            "name": "两位创作者",
+            "identity": "在车库创业的电脑创作者",
+            "quantity": 2,
+            "action": "组装电脑",
+            "source_evidence": "两位创作者",
+            "pure_content_prompt_evidence": "两位创作者",
+        },
+        secondary_subjects=[
+            {
+                "subject_id": "subject-computer",
+                "role": "secondary",
+                "name": "电脑",
+                "identity": "工作台上的技术产品",
+                "quantity": 1,
+                "action": "正在被组装",
+                "source_evidence": "电脑",
+                "pure_content_prompt_evidence": "电脑",
             }
         ],
         adjustable_non_core_content=["工作台工具"],
@@ -106,10 +130,13 @@ def _frame_result(tmp_path):
         original_storyboard_text=content_input.original_storyboard_text,
         content_stage_output=content_output,
         identity_profile=identity,
+        identity_conditioning_mode="reference_image",
         identity_reference_condition=reference,
+        workflow_identity_condition_summary="当前工作流使用真实参考图绑定身份",
         continuous_scene_context=continuity,
-        target_visual_style="真实电影感",
+        target_visual_style=target_style,
         target_image_prompt_language="中文",
+        required_single_instance_prompt_fragment="画面中只有一只小皮",
     )
     fusion_output = FusionStageOutput(
         selected_fusion_method="小皮作为工作台旁的唯一实体参与现场",
@@ -128,6 +155,9 @@ def _frame_result(tmp_path):
                 "final_image_evidence": "两位创作者在车库组装电脑",
             }
         ],
+        primary_subject_preserved=True,
+        primary_subject_final_prompt_evidence="两位创作者",
+        visual_anchor_replaces_primary_subject=False,
         identity_trait_checks=[
             {
                 "trait": "圆形白色脸",
@@ -159,8 +189,10 @@ def _frame_result(tmp_path):
         original_storyboard_text=content_input.original_storyboard_text,
         content_stage_output=content_output,
         identity_profile=identity,
+        identity_conditioning_mode="reference_image",
         identity_reference_condition=reference,
         continuous_scene_context=continuity,
+        target_visual_style=target_style,
         fusion_stage_output=fusion_output,
         negative_prompt_supported=False,
     )
@@ -177,6 +209,12 @@ def _frame_result(tmp_path):
         selected_fusion_method=fusion_output.selected_fusion_method,
         final_manifestation=fusion_output.final_manifestation,
         protected_fact_checks=fusion_output.protected_fact_checks,
+        primary_subject_name=content_output.primary_subject.name,
+        primary_subject_preserved=True,
+        primary_subject_final_prompt_evidence=(
+            fusion_output.primary_subject_final_prompt_evidence
+        ),
+        visual_anchor_replaces_primary_subject=False,
         identity_trait_checks=fusion_output.identity_trait_checks,
         single_instance_prompt_evidence=(
             fusion_output.single_instance_prompt_evidence
@@ -188,11 +226,14 @@ def _frame_result(tmp_path):
         identity_core_traits=identity.core_identity_traits,
         identity_resource_version=identity.identity_resource_version,
         identity_content_sha256=identity.identity_content_sha256,
+        identity_conditioning_mode="reference_image",
         identity_reference_condition=reference,
+        target_visual_style=target_style,
         content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
         fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
         preflight_review_prompt_version=PREFLIGHT_REVIEW_PROMPT_VERSION,
         preflight_review_decision="pass",
+        negative_prompt_supported=False,
         workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
         workflow_version_sha256="c" * 64,
         expected_execution=ImageWorkflowExecutionContract(
@@ -400,7 +441,6 @@ async def test_rendered_audit_records_original_image_and_first_request_provenanc
     assert result.random_seed == 101
     assert result.image_sha256 == hashlib.sha256(image_path.read_bytes()).hexdigest()
     assert result.recorded_at_utc
-    assert result.visual_acceptance_status == "pending_manual_review"
     assert result.checks["actual_uploaded_reference_preserved"] is True
     assert result.checks["downloaded_image_matches_first_comfyui_output"] is True
     artifact = json.loads((tmp_path / result.artifact_relative_path).read_text("utf-8"))

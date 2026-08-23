@@ -451,7 +451,14 @@ def test_image_z_image_turbo_gguf_workflow_is_parseable():
         "negative_prompt",
         "width",
         "height",
+        "seed",
     }
+    assert metadata.params["seed"].required is True
+    mappings = {
+        mapping.param_name: (mapping.node_id, mapping.input_field, mapping.need_upload)
+        for mapping in metadata.mapping_info.param_mappings
+    }
+    assert mappings["seed"] == ("3", "seed", False)
     _assert_prompt_mapping_is_declared_once(metadata)
 
 

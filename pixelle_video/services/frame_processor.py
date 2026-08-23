@@ -703,7 +703,12 @@ class FrameProcessor:
                     "visual-anchor request dimensions differ from storyboard"
                 )
             media_params["seed"] = visual_anchor_request.random_seed
-            media_params["reference_image_workflow_injection_mode"] = "required"
+            if visual_anchor_request.identity_conditioning_mode == "reference_image":
+                media_params["reference_image_workflow_injection_mode"] = "required"
+            elif config.reference_image_workflow_injection_mode == "required":
+                raise ValueError(
+                    "text-profile visual-anchor generation cannot inject a reference image"
+                )
             media_params[VISUAL_ANCHOR_GENERATION_REQUEST_PARAM] = (
                 visual_anchor_request.model_dump(mode="json")
             )

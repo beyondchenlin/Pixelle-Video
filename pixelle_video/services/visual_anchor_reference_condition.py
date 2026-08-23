@@ -63,6 +63,73 @@ class IdentityReferenceWorkflowInspection:
         }
 
 
+@dataclass(frozen=True)
+class ImageWorkflowInspection:
+    """Immutable execution facts for text-only or reference-image workflows."""
+
+    workflow_key: str
+    workflow_version_sha256: str
+    workflow_relative_path: str
+    model_files: tuple[str, ...]
+    sampler_defaults: Mapping[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": "image_workflow_inspection.v1",
+            "workflow_key": self.workflow_key,
+            "workflow_version_sha256": self.workflow_version_sha256,
+            "workflow_relative_path": self.workflow_relative_path,
+            "model_files": list(self.model_files),
+            "sampler_defaults": dict(self.sampler_defaults),
+        }
+
+
+def inspect_image_workflow(
+    *,
+    workflow_info: Mapping[str, Any],
+    project_root: str | Path,
+) -> ImageWorkflowInspection:
+    """Inspect the selected local image workflow without inventing reference support."""
+
+    if str(workflow_info.get("source") or "") != "selfhost":
+        raise ValueError("visual-anchor generation requires a self-hosted image workflow")
+    workflow_path = Path(str(workflow_info.get("path") or "")).resolve()
+    root = Path(project_root).resolve()
+    if not workflow_path.is_file():
+        raise ValueError("visual-anchor workflow file does not exist")
+    try:
+        workflow_relative_path = workflow_path.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise ValueError("visual-anchor workflow must be inside the project") from exc
+    workflow_bytes = workflow_path.read_bytes()
+    workflow = json.loads(workflow_bytes.decode("utf-8"))
+    if not isinstance(workflow, Mapping):
+        raise ValueError("visual-anchor workflow must be an API-format node mapping")
+    samplers = [
+        raw_node
+        for raw_node in workflow.values()
+        if isinstance(raw_node, Mapping)
+        and str(raw_node.get("class_type") or "") in _SAMPLER_NODE_CLASSES
+    ]
+    if len(samplers) != 1:
+        raise ValueError("visual-anchor workflow must contain exactly one image sampler")
+    sampler_inputs = samplers[0].get("inputs")
+    sampler_title = str((samplers[0].get("_meta") or {}).get("title") or "")
+    if not isinstance(sampler_inputs, Mapping):
+        raise ValueError("visual-anchor image sampler inputs are missing")
+    if "seed" not in sampler_inputs or not _SEED_MARKER_RE.search(sampler_title):
+        raise ValueError(
+            "visual-anchor sampler must expose the required fixed seed parameter"
+        )
+    return ImageWorkflowInspection(
+        workflow_key=_required_text(workflow_info.get("key"), "workflow key"),
+        workflow_version_sha256=hashlib.sha256(workflow_bytes).hexdigest(),
+        workflow_relative_path=workflow_relative_path,
+        model_files=_workflow_model_files(workflow),
+        sampler_defaults=_sampler_defaults(sampler_inputs),
+    )
+
+
 def inspect_identity_reference_workflow(
     *,
     workflow_info: Mapping[str, Any],
@@ -471,6 +538,8 @@ __all__ = [
     "IDENTITY_REFERENCE_CONDITION_HEIGHT",
     "IDENTITY_REFERENCE_CONDITION_UPSCALE_METHOD",
     "IDENTITY_REFERENCE_CONDITION_WIDTH",
+    "ImageWorkflowInspection",
     "IdentityReferenceWorkflowInspection",
+    "inspect_image_workflow",
     "inspect_identity_reference_workflow",
 ]

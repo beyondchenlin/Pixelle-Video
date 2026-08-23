@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 
 from pixelle_video.models.article_concretization import ArticleConcretizationPlan
 from pixelle_video.models.final_visual_prompt_contract import (
     V44_TRACE_METADATA_KEYS,
+    FinalVisualPromptContract,
     RenderedMediaPrompt,
+    join_rendered_negative_prompts,
 )
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.native_prompt import NativePromptHint
@@ -18,21 +22,28 @@ from pixelle_video.models.series_visual_signature import (
 )
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
-from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
+from pixelle_video.models.text_overlay import (
+    build_text_rendering_settings,
+    project_prompt_text_rendering_request,
+)
 from pixelle_video.models.video_generation_contract import (
     PLAN_FRAME_OVERRIDE_VALUE_FIELDS,
     normalize_plan_frame_overrides,
 )
+from pixelle_video.models.visual_anchor_two_stage import (
+    IdentityReferenceCondition,
+    ImageWorkflowExecutionContract,
+    TargetVisualStyle,
+    VisibleTextPolicy,
+)
 from pixelle_video.prompt_language import (
+    CHINESE_PROMPT_LANGUAGE,
     DEFAULT_PROMPT_LANGUAGE,
     PromptLanguage,
 )
 from pixelle_video.services.article_concretization_pipeline import (
     article_concretization_plans_by_frame,
     article_concretization_snapshot,
-)
-from pixelle_video.services.final_visual_prompt_llm_assembler import (
-    deterministic_prompt_assembly_result,
 )
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import merge_llm_trace_refs
@@ -46,8 +57,12 @@ from pixelle_video.services.series_visual_signature_profile_snapshot_builder imp
     SeriesVisualSignatureProfileSnapshotBuilder,
     validate_series_visual_signature_profile_snapshot,
 )
-from pixelle_video.services.series_visual_signature_projection_service import (
-    SeriesVisualSignatureProjectionService,
+from pixelle_video.services.visual_anchor_reference_condition import (
+    inspect_image_workflow,
+)
+from pixelle_video.services.visual_anchor_two_stage_service import (
+    VisualAnchorTwoStageService,
+    identity_profile_from_snapshot,
 )
 from pixelle_video.services.visual_profile_registry import resolve_visual_profile
 from pixelle_video.services.visual_prompt_profile_projector import apply_visual_profile_to_batch
@@ -57,6 +72,10 @@ from pixelle_video.utils.content_generators import generate_styled_image_prompt_
 from pixelle_video.utils.prompt_helper import (
     final_visual_prompt_clause_template_metadata,
     final_visual_prompt_template_metadata,
+)
+from pixelle_video.utils.style_resolution import (
+    resolve_literal_style_spec,
+    resolve_style_source,
 )
 from pixelle_video.utils.workflow_capabilities import get_workflow_capabilities
 
@@ -101,10 +120,9 @@ class VisualPromptComposer:
     """Canonical visual prompt boundary.
 
     Historical product controls are normalized before reaching this service.
-    When recurring identity is enabled, one language-model call receives only
-    content facts and completes every frame prompt together. The immutable
-    identity profile is projected afterward by deterministic code before the
-    only image workflow request.
+    When recurring identity is enabled, every frame first receives an
+    identity-free content call, then a full identity-fusion rewrite and a
+    blocking preflight review before the only image workflow request.
     """
 
     async def compose(
@@ -248,63 +266,63 @@ class VisualPromptComposer:
             prompt_contexts,
             visual_story_context,
         )
-        batch = await generate_styled_image_prompt_batch(
-            llm_service=llm_service,
-            narrations=[
-                str(context["frame_source_text"])
-                for context in prompt_contexts.frame_contexts
-            ],
-            storyboard_plan=storyboard_plan,
-            prompt_contexts=prompt_contexts,
-            image_config=image_config,
-            prompt_language=prompt_language,
-            prompt_prefix=prompt_prefix,
-            workflow=workflow,
-            media_service=media_service,
-            media_type=media_type,
-            min_words=min_words,
-            max_words=max_words,
-            batch_size=(
-                storyboard_plan.resolved_scene_count
-                if signature_enabled
-                else batch_size
-            ),
-            max_concurrency=1 if signature_enabled else max_concurrency,
-            max_retries=1 if signature_enabled else 3,
-            progress_callback=progress_callback,
-            world_preset_id=world_preset_id,
-            generation_world_hint=generation_world_hint,
-            shot_preset_id=shot_preset_id,
-            consistency_strength=consistency_strength,
-            content_mode=content_mode,
-            role_strategy=role_strategy,
-            role_locking_strength=role_locking_strength,
-            shot_strategy=shot_strategy,
-            frame_overrides=normalized_overrides,
-            text_rendering=project_prompt_text_rendering_request(text_rendering),
-            native_prompt_hints_by_frame=native_prompt_hints_by_frame,
-            series_visual_signature_enabled=False,
-            ip_profile=None,
-            series_visual_signature_expression_mode=None,
-            series_visual_signature_structure_mode=None,
-            series_visual_signature_participation_mode=None,
-            series_visual_signature_request=None,
-            series_visual_signature_profile=None,
-            series_visual_signature_mode=None,
-            series_visual_signature_consistency_mode=None,
-            series_visual_signature_presentation_mode=None,
-            series_visual_signature_enforcement=None,
-            series_visual_signature_fallback_enabled=None,
-            series_visual_signature_fallback_mode=None,
-            series_visual_signature_min_visibility=None,
-            scene_casts_by_frame=None,
-            stage_callback=stage_callback,
-            upstream_llm_trace_refs=upstream_llm_trace_refs,
-            trace_context=trace_context,
-            trace_recorder=trace_recorder,
-            visual_anchor_preparation_enabled=signature_enabled,
-            literal_style_resolution=signature_enabled,
-        )
+        if signature_enabled:
+            batch = _resolve_visual_anchor_style_batch(
+                image_config=image_config,
+                prompt_prefix=prompt_prefix,
+                frame_count=storyboard_plan.resolved_scene_count,
+            )
+        else:
+            batch = await generate_styled_image_prompt_batch(
+                llm_service=llm_service,
+                narrations=[
+                    str(context["frame_source_text"])
+                    for context in prompt_contexts.frame_contexts
+                ],
+                storyboard_plan=storyboard_plan,
+                prompt_contexts=prompt_contexts,
+                image_config=image_config,
+                prompt_language=prompt_language,
+                prompt_prefix=prompt_prefix,
+                workflow=workflow,
+                media_service=media_service,
+                media_type=media_type,
+                min_words=min_words,
+                max_words=max_words,
+                batch_size=batch_size,
+                max_concurrency=max_concurrency,
+                progress_callback=progress_callback,
+                world_preset_id=world_preset_id,
+                generation_world_hint=generation_world_hint,
+                shot_preset_id=shot_preset_id,
+                consistency_strength=consistency_strength,
+                content_mode=content_mode,
+                role_strategy=role_strategy,
+                role_locking_strength=role_locking_strength,
+                shot_strategy=shot_strategy,
+                frame_overrides=normalized_overrides,
+                text_rendering=project_prompt_text_rendering_request(text_rendering),
+                native_prompt_hints_by_frame=native_prompt_hints_by_frame,
+                series_visual_signature_enabled=False,
+                ip_profile=None,
+                series_visual_signature_expression_mode=None,
+                series_visual_signature_structure_mode=None,
+                series_visual_signature_participation_mode=None,
+                series_visual_signature_request=None,
+                series_visual_signature_profile=None,
+                series_visual_signature_mode=None,
+                series_visual_signature_consistency_mode=None,
+                series_visual_signature_presentation_mode=None,
+                series_visual_signature_enforcement=None,
+                series_visual_signature_fallback_enabled=None,
+                series_visual_signature_fallback_mode=None,
+                series_visual_signature_min_visibility=None,
+                scene_casts_by_frame=None,
+                stage_callback=stage_callback,
+                upstream_llm_trace_refs=upstream_llm_trace_refs,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+            )
         if len(batch.prompts) != storyboard_plan.resolved_scene_count:
             raise ValueError("visual prompt count must match storyboard frame count")
 
@@ -314,7 +332,7 @@ class VisualPromptComposer:
         )
         visual_profile_snapshot = None
         if resolved_visual_profile is not None and media_type == "image":
-            if visual_anchor_reference_conditioning_enabled:
+            if signature_enabled:
                 visual_profile_snapshot = {
                     "profile": resolved_visual_profile.to_dict()
                 }
@@ -336,146 +354,153 @@ class VisualPromptComposer:
                 raise RuntimeError(
                     "enabled visual signature must have a prevalidated canonical profile snapshot"
                 )
-            planning_snapshot["visual_anchor_single_pass_prompt_policy"] = {
-                "schema_version": "visual_anchor_single_pass_prompt_policy.v1",
-                "visual_model_call_count": 1,
-                "model_retry_enabled": False,
-                "model_review_enabled": False,
-                "post_generation_model_validation_enabled": False,
-                "reference_conditioning_enabled": (
-                    visual_anchor_reference_conditioning_enabled
-                ),
-            }
-            if visual_anchor_reference_conditioning_enabled:
-                registered_seeds = dict(random_seeds_by_frame or {})
-                if set(registered_seeds) != {
-                    frame.frame_id for frame in storyboard_plan.frames
-                }:
-                    raise ValueError(
-                        "visual-anchor random seeds must be registered for every frame"
-                    )
-                planning_snapshot["identity_reference_workflow_inspection"] = dict(
-                    identity_reference_workflow_inspection or {}
+            if media_service is None:
+                raise ValueError(
+                    "visual-anchor two-stage fusion requires the media service"
                 )
-            briefs = dict(
-                planning_snapshot.get("base_visual_briefs_by_frame") or {}
+            resolved_task_id = str(
+                task_id or getattr(trace_context, "task_id", "") or ""
+            ).strip()
+            if not resolved_task_id:
+                raise ValueError(
+                    "visual-anchor two-stage fusion requires a task id"
+                )
+            registered_seeds = dict(random_seeds_by_frame or {})
+            if set(registered_seeds) != {
+                frame.frame_id for frame in storyboard_plan.frames
+            }:
+                raise ValueError(
+                    "visual-anchor random seeds must be registered for every frame"
+                )
+
+            workflow_info = media_service._resolve_workflow(
+                workflow=workflow,
+                workflow_domain="image",
             )
-            projection_base_prompts = _projection_base_prompts(
+            workflow_capabilities = get_workflow_capabilities(dict(workflow_info))
+            reference_condition: IdentityReferenceCondition | None = None
+            if visual_anchor_reference_conditioning_enabled:
+                inspection_payload = dict(identity_reference_workflow_inspection or {})
+                reference_condition = IdentityReferenceCondition.model_validate(
+                    inspection_payload.get("condition")
+                )
+                workflow_key = str(inspection_payload.get("workflow_key") or "").strip()
+                workflow_version_sha256 = str(
+                    inspection_payload.get("workflow_version_sha256") or ""
+                ).strip()
+                model_files = list(inspection_payload.get("model_files") or [])
+                sampler_defaults = dict(
+                    inspection_payload.get("sampler_defaults") or {}
+                )
+                identity_conditioning_mode = "reference_image"
+                identity_condition_summary = (
+                    "当前工作流真实支持参考图输入；使用已校验的参考资源和文字身份档案共同保持身份"
+                )
+                identity_profile = identity_profile_from_snapshot(
+                    profile_snapshot,
+                    identity_reference_resource_id=(
+                        reference_condition.resource_version
+                    ),
+                )
+                planning_snapshot["identity_reference_workflow_inspection"] = (
+                    inspection_payload
+                )
+            else:
+                workflow_inspection = inspect_image_workflow(
+                    workflow_info=workflow_info,
+                    project_root=Path(__file__).resolve().parents[2],
+                )
+                workflow_key = workflow_inspection.workflow_key
+                workflow_version_sha256 = (
+                    workflow_inspection.workflow_version_sha256
+                )
+                model_files = list(workflow_inspection.model_files)
+                sampler_defaults = dict(workflow_inspection.sampler_defaults)
+                identity_conditioning_mode = "text_profile"
+                identity_condition_summary = (
+                    "当前工作流不支持参考图输入；仅使用身份档案名称、核心识别特征和禁止变化项作为真实身份条件"
+                )
+                identity_profile = identity_profile_from_snapshot(profile_snapshot)
+                planning_snapshot["image_workflow_inspection"] = (
+                    workflow_inspection.to_dict()
+                )
+
+            expected_execution = ImageWorkflowExecutionContract(
+                width=media_width,
+                height=media_height,
+                model_files=model_files,
+                steps=sampler_defaults.get("steps"),
+                cfg=sampler_defaults.get("cfg"),
+                sampler_name=sampler_defaults.get("sampler_name"),
+                scheduler=sampler_defaults.get("scheduler"),
+                denoise=sampler_defaults.get("denoise"),
+            )
+            target_visual_style = _target_visual_style_contract(
                 batch=batch,
-                frame_ids=tuple(frame.frame_id for frame in storyboard_plan.frames),
-                briefs=briefs,
+                visual_profile_snapshot=visual_profile_snapshot,
+                prompt_language=prompt_language,
             )
-            base_negative_prompts = _base_negative_prompts(
-                batch=batch,
-                frame_count=storyboard_plan.resolved_scene_count,
+            visible_text_policy = _visible_text_policy(
+                text_rendering,
+                prompt_language=prompt_language,
             )
-            projection = SeriesVisualSignatureProjectionService().project_batch(
-                base_prompts=projection_base_prompts,
-                frame_ids=[frame.frame_id for frame in storyboard_plan.frames],
-                frame_contexts=prompt_contexts.frame_contexts,
-                request=resolved_signature_request,
-                profile=profile_snapshot,
-                article_concretization_plans=article_concretization_plans,
-                base_visual_briefs_by_frame=briefs,
-                base_negative_prompts=base_negative_prompts,
-            )
-            assembly_result = deterministic_prompt_assembly_result(projection)
-            projection = assembly_result.batch
-            planning_snapshot["series_visual_signature_prompt_assembly"] = {
-                **dict(assembly_result.audit),
-                "production_mode": "deterministic_v46_only",
-                "llm_requested_but_not_executed": bool(
-                    resolved_signature_request.llm_prompt_assembly_enabled
+            two_stage_result = await VisualAnchorTwoStageService().run_batch(
+                llm_service=llm_service,
+                storyboard_plan=storyboard_plan,
+                identity_profile=identity_profile,
+                identity_reference_condition=reference_condition,
+                identity_conditioning_mode=identity_conditioning_mode,
+                workflow_identity_condition_summary=identity_condition_summary,
+                target_visual_style=target_visual_style,
+                visible_text_policy=visible_text_policy,
+                target_image_prompt_language=(
+                    "中文"
+                    if prompt_language == CHINESE_PROMPT_LANGUAGE
+                    else "英文"
                 ),
-            }
-            bundle_metadata_by_frame = {
-                frame.frame_id: frame.bundle.to_dict()["metadata"]
-                for frame in projection.frames
-            }
-            rendered_prompts = _project_rendered_prompts(
-                batch.rendered_prompts,
-                projection.frames,
-                bundle_metadata_by_frame=bundle_metadata_by_frame,
+                task_id=resolved_task_id,
+                workflow_key=workflow_key,
+                workflow_version_sha256=workflow_version_sha256,
+                expected_execution=expected_execution,
+                random_seeds_by_frame=registered_seeds,
+                negative_prompt_supported=workflow_capabilities.supports_negative_prompt,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                stage_callback=stage_callback,
             )
+            rendered_prompts = [
+                _render_two_stage_prompt(frame_result)
+                for frame_result in two_stage_result.frames
+            ]
             batch = StyledImagePromptBatch(
-                prompts=projection.prompts,
-                negative_prompt=_projection_negative_prompt(
-                    projection.frames,
-                    rendered_prompts,
-                ),
+                prompts=[item.prompt for item in rendered_prompts],
+                negative_prompt=join_rendered_negative_prompts(rendered_prompts),
                 resolved_style=batch.resolved_style,
                 planning_snapshot=planning_snapshot,
                 rendered_prompts=rendered_prompts,
             )
+            planning_snapshot["visual_anchor_two_stage"] = two_stage_result.to_dict()
+            planning_snapshot["visual_anchor_generation_request_by_frame"] = {
+                item.frame_id: item.generation_request.model_dump(mode="json")
+                for item in two_stage_result.frames
+            }
+            planning_snapshot["visual_anchor_two_stage_prompt_policy"] = {
+                "schema_version": "visual_anchor_two_stage_prompt_policy.v3",
+                "prompt_chain": (
+                    "content_stage_then_fusion_rewrite_then_preflight_review"
+                ),
+                "image_generation_attempts_per_frame": 1,
+                "post_generation_model_validation_enabled": False,
+                "post_generation_prompt_repair_enabled": False,
+                "post_generation_regeneration_enabled": False,
+                "identity_conditioning_mode": identity_conditioning_mode,
+            }
             planning_snapshot["series_visual_signature_request_audit"] = (
-                projection.audit_policy.request_audit_dict(
-                    resolved_signature_request
-                )
+                _series_visual_signature_request_audit(resolved_signature_request)
             )
             planning_snapshot["series_visual_signature_profile_ref"] = (
-                projection.audit_policy.profile_reference_dict(profile_snapshot)
+                identity_profile.model_dump(mode="json")
             )
-            planning_snapshot["series_visual_signature_projection_audit"] = (
-                projection.audit_dict()
-            )
-            planning_snapshot["series_visual_signature_contract_by_frame"] = {
-                frame.frame_id: {
-                    "contract_id": frame.contract.contract_id,
-                    "role": frame.signature.role.value,
-                    "max_area_ratio": frame.signature.max_area_ratio,
-                    "relative_size": frame.signature.relative_size.value,
-                    "required_subject_count": len(frame.required_subjects),
-                    "identity_content_sha256": (
-                        frame.signature.profile.identity_content_sha256
-                        if frame.signature.profile is not None
-                        else ""
-                    ),
-                    "contract_content_sha256": frame.contract.contract_content_sha256,
-                    "contract_version": frame.contract.contract_version,
-                    "user_status": "image_generating",
-                    "generation_attempt": 0,
-                    "remaining_repair_attempts": 0,
-                    "prompt_budget": dict(
-                        bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
-                        or {}
-                    ),
-                    "prompt_assembly": dict(
-                        bundle_metadata_by_frame[frame.frame_id].get(
-                            "prompt_assembly"
-                        )
-                        or {}
-                    ),
-                }
-                for frame in projection.frames
-            }
-            planning_snapshot["series_visual_signature_trace_by_frame"] = {
-                frame.frame_id: {
-                    "contract": frame.contract.to_dict(),
-                    "final_positive_prompt": frame.bundle.positive_prompt,
-                    "final_negative_prompt": frame.bundle.negative_prompt,
-                    "identity_content_sha256": (
-                        frame.signature.profile.identity_content_sha256
-                        if frame.signature.profile is not None
-                        else ""
-                    ),
-                    "contract_content_sha256": frame.contract.contract_content_sha256,
-                    "contract_version": frame.contract.contract_version,
-                    "user_status": "image_generating",
-                    "generation_attempt": 0,
-                    "remaining_repair_attempts": 0,
-                    "prompt_budget": dict(
-                        bundle_metadata_by_frame[frame.frame_id].get("prompt_budget")
-                        or {}
-                    ),
-                    "prompt_assembly": dict(
-                        bundle_metadata_by_frame[frame.frame_id].get(
-                            "prompt_assembly"
-                        )
-                        or {}
-                    ),
-                }
-                for frame in projection.frames
-            }
 
         reference_snapshot = reference_image_prompt_planning_snapshot(
             reference_patch,
@@ -535,6 +560,219 @@ class VisualPromptComposer:
             prompt_plan_bundle=prompt_plan_bundle,
             rendered_prompts=batch.rendered_prompts,
         )
+
+
+def _resolve_visual_anchor_style_batch(
+    *,
+    image_config: Any,
+    prompt_prefix: str | None,
+    frame_count: int,
+) -> StyledImagePromptBatch:
+    """Resolve the user's literal style without an extra style-model call."""
+
+    source = resolve_style_source(
+        image_config,
+        prompt_prefix_override=prompt_prefix,
+    )
+    resolved_style = resolve_literal_style_spec(source) if source is not None else None
+    return StyledImagePromptBatch(
+        prompts=["" for _ in range(frame_count)],
+        negative_prompt=(
+            resolved_style.negative_prompt if resolved_style is not None else None
+        ),
+        resolved_style=resolved_style,
+        planning_snapshot={},
+        rendered_prompts=[],
+    )
+
+
+def _target_visual_style_contract(
+    *,
+    batch: StyledImagePromptBatch,
+    visual_profile_snapshot: Mapping[str, Any] | None,
+    prompt_language: PromptLanguage,
+) -> TargetVisualStyle:
+    resolved_style = batch.resolved_style
+    payload: dict[str, Any] = {}
+    required_positive: list[str] = []
+    required_negative: list[str] = []
+    if resolved_style is not None:
+        payload["resolved_style"] = {
+            "style_kind": resolved_style.style_kind,
+            "prompt_template": resolved_style.prompt_template,
+            "negative_prompt": resolved_style.negative_prompt,
+            "style_profile": dict(resolved_style.style_profile),
+            "resolver_version": resolved_style.resolver_version,
+            "source_identity": resolved_style.source_identity,
+            "raw_content": resolved_style.raw_content,
+        }
+        required_positive.extend(_style_fragments(resolved_style.raw_content))
+        required_negative.extend(_style_fragments(resolved_style.negative_prompt))
+        profile_negative = str(
+            resolved_style.style_profile.get("negative_rules") or ""
+        ).strip()
+        required_negative.extend(_style_fragments(profile_negative))
+        if "builtin_line_art_emotion_minimal" in resolved_style.source_identity:
+            if prompt_language == CHINESE_PROMPT_LANGUAGE:
+                required_positive = [
+                    "极简线稿",
+                    "二维表达",
+                    "单色或严格受控配色",
+                    "大面积留白",
+                    "简洁轮廓",
+                    "细微情绪",
+                    "禁止摄影写实",
+                    "禁止三维渲染",
+                    "禁止复杂彩色背景",
+                ]
+                required_negative = [
+                    "摄影写实",
+                    "三维渲染",
+                    "复杂彩色背景",
+                ]
+            else:
+                required_positive = [
+                    "minimal line art",
+                    "two-dimensional expression",
+                    "monochrome or strictly controlled palette",
+                    "large areas of negative space",
+                    "clean concise contours",
+                    "subtle emotion",
+                    "no photorealism",
+                    "no 3D rendering",
+                    "no complex colorful background",
+                ]
+                required_negative = [
+                    "photorealism",
+                    "3D rendering",
+                    "complex colorful background",
+                ]
+    if visual_profile_snapshot:
+        payload["visual_profile"] = dict(visual_profile_snapshot)
+    description = (
+        json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        if payload
+        else "未选择额外全局风格；保持纯内容阶段建立的统一视觉表达"
+    )
+    return TargetVisualStyle(
+        description=description,
+        required_final_prompt_fragments=_dedupe_fragments(required_positive),
+        required_negative_prompt_fragments=_dedupe_fragments(required_negative),
+    )
+
+
+def _style_fragments(value: str) -> list[str]:
+    normalized = str(value or "").replace("；", ",").replace(";", ",")
+    return [" ".join(part.split()) for part in normalized.split(",") if part.strip()]
+
+
+def _dedupe_fragments(values: Sequence[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = " ".join(str(value or "").split())
+        key = normalized.casefold()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        result.append(normalized)
+    return result
+
+
+def _visible_text_policy(
+    text_rendering: Mapping[str, Any] | None,
+    *,
+    prompt_language: PromptLanguage,
+) -> VisibleTextPolicy:
+    settings = build_text_rendering_settings(text_rendering)
+    if not settings.image_text.suppress_embedded_text:
+        return VisibleTextPolicy()
+    if prompt_language == CHINESE_PROMPT_LANGUAGE:
+        canonical_positive = "画面中禁止出现任何可见文字、标题、水印或乱码"
+        canonical_negative = "文字，水印，标题，乱码"
+    else:
+        canonical_positive = (
+            "no visible text, no title, no watermark, no garbled text"
+        )
+        canonical_negative = "text, watermark, title, garbled text"
+    image_text_request = (
+        dict(text_rendering.get("image_text") or {})
+        if isinstance(text_rendering, Mapping)
+        else {}
+    )
+    custom_positive = str(image_text_request.get("positive_prompt") or "").strip()
+    custom_negative = str(image_text_request.get("negative_prompt") or "").strip()
+    return VisibleTextPolicy(
+        suppress_visible_text=True,
+        required_positive_prompt_fragment=(
+            f"{custom_positive}；{canonical_positive}"
+            if custom_positive and canonical_positive not in custom_positive
+            else custom_positive or canonical_positive
+        ),
+        required_negative_prompt_fragment=(
+            f"{custom_negative}，{canonical_negative}"
+            if custom_negative and canonical_negative not in custom_negative
+            else custom_negative or canonical_negative
+        ),
+    )
+
+
+def _series_visual_signature_request_audit(
+    request: SeriesVisualSignatureRequest,
+) -> dict[str, Any]:
+    """Persist request shape and presence flags without retaining user text."""
+
+    return {
+        "schema_version": "visual_anchor_request_audit.v2",
+        "enabled": request.enabled,
+        "pipeline_version": request.pipeline_version,
+        "profile_id": request.profile_id,
+        "asset_bible_id": request.asset_bible_id,
+        "role": request.role.value,
+        "role_was_explicit": request.role_was_explicit,
+        "contains_user_hint": bool(request.user_hint),
+        "contains_generation_world_hint": bool(request.generation_world_hint),
+        "compatibility_option_keys": sorted(
+            str(key) for key in request.compatibility_options
+        ),
+    }
+
+
+def _render_two_stage_prompt(frame_result: Any) -> RenderedMediaPrompt:
+    fusion = frame_result.fusion_stage_output
+    request = frame_result.generation_request
+    negative_prompt = request.final_negative_prompt or None
+    identity_condition = (
+        "唯一身份实例使用已绑定首次工作流的真实参考资源保持身份"
+        if request.identity_conditioning_mode == "reference_image"
+        else "唯一身份实例使用身份档案的名称、核心识别特征和禁止变化项保持身份"
+    )
+    contract = FinalVisualPromptContract(
+        scene=request.final_positive_prompt,
+        composition=fusion.selected_fusion_method,
+        style_assignment="融合结果服从用户选择的全局风格、材质、光照和空间关系",
+        character_layer_style=identity_condition,
+        world_layer_style=fusion.spatial_contact_and_lighting_relation,
+        integration_priority="先保护真正主体与全部文案事实，再保持唯一视觉锚点和场景协调",
+        negative_rules=(request.final_negative_prompt,)
+        if request.final_negative_prompt
+        else (),
+        metadata={
+            "visual_anchor_two_stage": frame_result.model_dump(mode="json"),
+        },
+        version="visual_anchor_two_stage_contract.v3",
+    )
+    return RenderedMediaPrompt(
+        prompt=request.final_positive_prompt,
+        negative_prompt=negative_prompt,
+        prompt_contract=contract,
+        renderer_id="visual_anchor_two_stage_renderer",
+        renderer_version="v3",
+        metadata={
+            "visual_anchor_two_stage": frame_result.model_dump(mode="json"),
+            "generation_request": request.model_dump(mode="json"),
+        },
+    )
 
 
 def _workflow_supports_reference_image(
@@ -632,51 +870,6 @@ def _mapping_projection(
     }
 
 
-def _base_negative_prompts(
-    *,
-    batch: StyledImagePromptBatch,
-    frame_count: int,
-) -> tuple[str | None, ...]:
-    rendered = tuple(batch.rendered_prompts or ())
-    if rendered:
-        if len(rendered) != frame_count:
-            raise ValueError(
-                "rendered prompt count must match frame count before visual signature projection"
-            )
-        return tuple(item.negative_prompt for item in rendered)
-    return tuple(batch.negative_prompt for _ in range(frame_count))
-
-
-def _projection_base_prompts(
-    *,
-    batch: StyledImagePromptBatch,
-    frame_ids: Sequence[str],
-    briefs: Mapping[str, Mapping[str, Any]],
-) -> tuple[str, ...]:
-    rendered_prompts = tuple(str(prompt or "").strip() for prompt in batch.prompts)
-    if len(rendered_prompts) != len(frame_ids):
-        raise ValueError(
-            "rendered prompt count must match frame count before visual signature projection"
-        )
-    if not briefs:
-        return rendered_prompts
-
-    result: list[str] = []
-    for frame_id in frame_ids:
-        brief = briefs.get(frame_id)
-        if brief is None:
-            raise ValueError(
-                f"base visual brief is missing for projection frame {frame_id}"
-            )
-        base_prompt = str(brief.get("base_image_prompt") or "").strip()
-        if not base_prompt:
-            raise ValueError(
-                f"base visual brief for frame {frame_id} must include base_image_prompt"
-            )
-        result.append(base_prompt)
-    return tuple(result)
-
-
 def _project_rendered_prompts(
     rendered_prompts: Sequence[RenderedMediaPrompt],
     projection_frames: Sequence[Any],
@@ -742,37 +935,6 @@ def _project_rendered_prompts(
             )
         )
     return result
-
-
-def _projection_negative_prompt(
-    projection_frames: Sequence[Any],
-    rendered_prompts: Sequence[RenderedMediaPrompt],
-) -> str | None:
-    if rendered_prompts:
-        values = [
-            item.negative_prompt
-            for item in rendered_prompts
-            if item.negative_prompt
-        ]
-    else:
-        values = [
-            frame.bundle.negative_prompt
-            for frame in projection_frames
-            if frame.bundle.negative_prompt
-        ]
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        for part in str(value).split(","):
-            text = " ".join(part.strip().split())
-            if not text:
-                continue
-            key = text.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            result.append(text)
-    return ", ".join(result) or None
 
 
 def _merge_visual_story_context_patch(

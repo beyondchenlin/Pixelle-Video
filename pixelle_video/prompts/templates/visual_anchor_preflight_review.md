@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_preflight_review
-version: visual_anchor_preflight_review.v2
+version: visual_anchor_preflight_review.v3
 stage: visual_anchor_preflight_review
 purpose: 在首次生图前审查事实、身份、单实例、连续性和提示词纯净度
 output_contract: PreflightReviewOutput
@@ -11,16 +11,17 @@ output_contract: PreflightReviewOutput
 {input_json}
 
 逐项审查：
-1. 原文中的受保护人物、数量、时代、地点、物品、动作、关系、事件和主题全部保留；每项事实在纯内容提示词和最终正向提示词中都有真实证据，且身份没有替代、反转、遮挡或删除任何事实。纯内容提示词存在偏差时，content_stage_deviations 必须完整记录且最终画面已经按原文纠正。
+1. 原文中的受保护人物、数量、时代、地点、物品、动作、关系、事件和主题全部保留；每项事实在纯内容提示词和最终正向提示词中都有真实证据。primary_subject 是真正主要主体，不是 visual_goal 或分镜占位句；它必须存在于最终正向提示词，且身份没有替代、反转、遮挡、挤出或删除主要主体及任何事实。纯内容提示词存在偏差时，content_stage_deviations 必须完整记录且最终画面已经按原文纠正。
 2. 增删替换和重组仅发生于非核心内容，没有因为少改构图而产生生硬融合，也没有为身份改变文案核心。
-3. 结合身份名称、全部核心识别特征和禁止变化项判断最终画面是否明确包含足以认出同一身份的特征；不能只出现身份名称。identity_trait_checks 必须逐项覆盖全部核心特征，每条证据必须真实存在于最终正向提示词。真实身份参考条件必须完整、可用且声明绑定到首次图片工作流节点。
+3. 结合身份名称、全部核心识别特征和禁止变化项判断最终画面是否明确包含足以认出同一身份的特征；不能只出现身份名称。identity_trait_checks 必须逐项覆盖全部核心特征，每条证据必须真实存在于最终正向提示词。identity_conditioning_mode 必须匹配 workflow_identity_condition_summary：文生图工作流使用文字身份档案，参考图工作流使用完整、可用且声明绑定到首次图片工作流节点的真实参考条件。
 4. 只有一种表现形态和一个实例，single_instance_prompt_evidence 必须真实存在于最终正向提示词并明确表达全画面只有一个该身份实例；没有实体、贴画、图案、摆件、雕塑、屏幕、镜像、倒影或背景复制，也没有其他元素继承身份特征。
    原文主体与该身份是同一对象时，必须已经合并为同一个实例。
 5. 不使用数值面积或固定位置判定；只检查身份可识别、内容主体受保护、空间关系合理。
 6. 透视、光照、阴影、材质、景深、支撑、接触、附着和遮挡中的适用项成立，无水印、界面角标、悬浮贴图或后贴效果。
 7. 连续镜头正确继承既有决定；未继承时存在真实场景变化依据。
-8. unselected_candidate_summaries 只存在于结构化审计记录；正向和负向提示词都没有泄漏任何未选摘要、候选表达、互斥分析、内部规划字段、规则、分析或审查语言，且正向提示词清晰连贯可生成。
-9. 严肃题材没有戏谑或稀释事实；抽象和信息结构没有重复身份；载体不会自然复制身份。无法同时满足事实、身份、单实例和自然融合时必须判定失败。
+8. target_visual_style 的每一个正向和负向风格片段都被最终提示词逐字保留；全局风格没有因融合重写而丢失。当 visible_text_policy 要求抑制画内文字时，正向和负向文字禁止片段都完整存在。
+9. unselected_candidate_summaries 只存在于结构化审计记录；正向和负向提示词都没有泄漏任何未选摘要、候选表达、互斥分析、内部规划字段、规则、分析或审查语言，且正向提示词清晰连贯可生成。
+10. 严肃题材没有戏谑或稀释事实；抽象和信息结构没有重复身份；载体不会自然复制身份。无法同时满足事实、主体、风格、身份、单实例和自然融合时必须判定失败。
 
 任一项失败时 decision 输出 fail，failures 逐项写明证据，两个 allowed 字段都留空。全部通过时 decision 输出 pass，failures 为空，allowed_final_positive_prompt 必须逐字复制输入的 final_positive_prompt；仅当 negative_prompt_supported 为 true 时，allowed_final_negative_prompt 才逐字复制输入的 final_negative_prompt，否则留空。
 
