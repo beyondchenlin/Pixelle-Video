@@ -90,6 +90,14 @@ def validate_visual_anchor_first_generation_binding(
         == request.workflow_version_sha256,
         "workflow version differs from request",
     )
+    if request.identity_conditioning_mode == "text_profile":
+        return _validate_text_profile_first_generation_binding(
+            request=request,
+            task_root=task_root,
+            binding_audit_path=binding_audit_path,
+            reference_binding_trace=reference_binding_trace,
+            failures=failures,
+        )
     require(
         isinstance(reference_binding_trace, Mapping),
         "reference binding trace is missing",
@@ -102,6 +110,8 @@ def validate_visual_anchor_first_generation_binding(
         "reference injection was not fail-closed",
     )
     condition = request.identity_reference_condition
+    if condition is None:
+        raise ValueError("reference-image generation request has no reference condition")
     summary = binding.get("summary")
     summary = dict(summary) if isinstance(summary, Mapping) else {}
     param_names = summary.get("param_names")
@@ -193,6 +203,7 @@ def validate_visual_anchor_first_generation_binding(
             "identity_core_traits": list(request.identity_core_traits),
             "identity_resource_version": request.identity_resource_version,
             "identity_content_sha256": request.identity_content_sha256,
+            "identity_conditioning_mode": request.identity_conditioning_mode,
             "reference_condition": condition.model_dump(mode="json"),
             "workflow_key": request.workflow_key,
             "workflow_version_sha256": request.workflow_version_sha256,
@@ -249,6 +260,7 @@ def validate_visual_anchor_first_generation_binding(
         "identity_core_traits": list(request.identity_core_traits),
         "identity_resource_version": request.identity_resource_version,
         "identity_content_sha256": request.identity_content_sha256,
+        "identity_conditioning_mode": request.identity_conditioning_mode,
         "reference_condition": condition.model_dump(mode="json"),
         "workflow_key": request.workflow_key,
         "workflow_version_sha256": request.workflow_version_sha256,
@@ -271,6 +283,110 @@ def validate_visual_anchor_first_generation_binding(
         require_new=True,
     )
     return audit
+
+
+def _validate_text_profile_first_generation_binding(
+    *,
+    request: VisualAnchorImageGenerationRequest,
+    task_root: Path,
+    binding_audit_path: Path,
+    reference_binding_trace: Mapping[str, Any] | None,
+    failures: list[str],
+) -> dict[str, Any]:
+    binding = dict(reference_binding_trace or {})
+    if binding.get("status") == "injected":
+        failures.append("text-profile workflow unexpectedly injected a reference image")
+    if binding.get("injection_mode") == "required":
+        failures.append("text-profile workflow unexpectedly required reference injection")
+
+    audit = _first_generation_binding_audit_payload(
+        request=request,
+        status="failed" if failures else "ready_to_submit",
+        failure_codes=failures,
+        actual_binding={
+            "injection_mode": binding.get("injection_mode"),
+            "status": binding.get("status") or "not_injected",
+            "param_names": [],
+            "asset_sha256": None,
+            "workflow_asset_relative_path": None,
+        },
+    )
+    _write_binding_audit(
+        task_root,
+        request.frame_id,
+        audit,
+        require_new=True,
+    )
+    if failures:
+        raise ValueError(
+            "visual-anchor first generation binding rejected: "
+            + "; ".join(failures)
+        )
+    if not binding_audit_path.is_file():
+        raise ValueError("visual-anchor binding audit was not persisted")
+    return audit
+
+
+def _first_generation_binding_audit_payload(
+    *,
+    request: VisualAnchorImageGenerationRequest,
+    status: str,
+    failure_codes: list[str],
+    actual_binding: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload = {
+        "schema_version": "visual_anchor_first_generation_binding_audit.v3",
+        "request_version": request.request_version,
+        "recorded_at_utc": datetime.now(UTC).isoformat(),
+        "status": status,
+        "task_id": request.task_id,
+        "frame_id": request.frame_id,
+        "generation_attempt": 1,
+        "random_seed": request.random_seed,
+        "target_visual_anchor_instance_count": 1,
+        "selected_fusion_method": request.selected_fusion_method,
+        "final_manifestation": request.final_manifestation,
+        "protected_fact_checks": [
+            check.model_dump(mode="json") for check in request.protected_fact_checks
+        ],
+        "primary_subject_name": request.primary_subject_name,
+        "primary_subject_preserved": request.primary_subject_preserved,
+        "primary_subject_final_prompt_evidence": (
+            request.primary_subject_final_prompt_evidence
+        ),
+        "visual_anchor_replaces_primary_subject": (
+            request.visual_anchor_replaces_primary_subject
+        ),
+        "identity_trait_checks": [
+            check.model_dump(mode="json") for check in request.identity_trait_checks
+        ],
+        "single_instance_prompt_evidence": request.single_instance_prompt_evidence,
+        "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
+        "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
+        "prompt_versions": {
+            "content_stage": request.content_stage_prompt_version,
+            "fusion_stage": request.fusion_stage_prompt_version,
+            "preflight_review": request.preflight_review_prompt_version,
+        },
+        "identity_profile_id": request.identity_profile_id,
+        "identity_display_name": request.identity_display_name,
+        "identity_core_traits": list(request.identity_core_traits),
+        "identity_resource_version": request.identity_resource_version,
+        "identity_content_sha256": request.identity_content_sha256,
+        "identity_conditioning_mode": request.identity_conditioning_mode,
+        "reference_condition": None,
+        "target_visual_style": request.target_visual_style.model_dump(mode="json"),
+        "visible_text_policy": request.visible_text_policy.model_dump(mode="json"),
+        "workflow_key": request.workflow_key,
+        "workflow_version_sha256": request.workflow_version_sha256,
+        "expected_execution": request.expected_execution.model_dump(mode="json"),
+        "preflight_review_decision": request.preflight_review_decision,
+        "actual_binding": dict(actual_binding),
+    }
+    if failure_codes:
+        payload["failure_reason"] = "; ".join(failure_codes)
+        payload["failure_codes"] = list(failure_codes)
+    return payload
 
 
 async def verify_visual_anchor_executed_workflow_binding(
@@ -335,6 +451,15 @@ async def _verify_visual_anchor_executed_workflow_binding(
     base_url = str(comfyui_url or "").strip().rstrip("/")
     if not base_url.startswith(("http://", "https://")):
         raise ValueError("visual-anchor workflow has no valid local ComfyUI URL")
+    if request.identity_conditioning_mode == "text_profile":
+        return await _verify_text_profile_executed_workflow_binding(
+            request=request,
+            pre_submit_audit=pre_submit_audit,
+            workflow_result=workflow_result,
+            base_url=base_url,
+            prompt_id=prompt_id,
+            task_root=task_root,
+        )
 
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -366,6 +491,8 @@ async def _verify_visual_anchor_executed_workflow_binding(
             prompt_id=prompt_id,
         )
         condition = request.identity_reference_condition
+        if condition is None:
+            raise ValueError("reference-image execution has no reference condition")
         source_node = _workflow_node(workflow, condition.workflow_node_id)
         conditioner_node = _workflow_node(workflow, condition.conditioning_node_id)
         sampler_node = _workflow_node(workflow, condition.sampler_node_id)
@@ -599,6 +726,153 @@ async def _verify_visual_anchor_executed_workflow_binding(
     return audit
 
 
+async def _verify_text_profile_executed_workflow_binding(
+    *,
+    request: VisualAnchorImageGenerationRequest,
+    pre_submit_audit: Mapping[str, Any],
+    workflow_result: Any,
+    base_url: str,
+    prompt_id: str,
+    task_root: Path,
+) -> dict[str, Any]:
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        (
+            generated_output_sha256,
+            generated_output_reference,
+            generated_output_payload,
+        ) = await _download_first_generated_image(
+            session=session,
+            base_url=base_url,
+            workflow_result=workflow_result,
+        )
+        generated_output_artifact = _persist_first_generated_output(
+            task_root=task_root,
+            frame_id=request.frame_id,
+            filename=generated_output_reference["filename"],
+            payload=generated_output_payload,
+            expected_sha256=generated_output_sha256,
+        )
+        history_url = f"{base_url}/history/{quote(prompt_id, safe='')}"
+        async with session.get(history_url) as response:
+            if response.status != 200:
+                raise ValueError(
+                    "visual-anchor could not read the executed ComfyUI history"
+                )
+            history_payload = await response.json()
+
+    workflow, execution_status = _executed_workflow(
+        history_payload,
+        prompt_id=prompt_id,
+    )
+    if _actual_parameter(workflow, "prompt") != request.final_positive_prompt:
+        raise ValueError("executed ComfyUI positive prompt differs from the request")
+    if request.negative_prompt_supported and (
+        _actual_parameter(workflow, "negative_prompt")
+        != request.final_negative_prompt
+    ):
+        raise ValueError("executed ComfyUI negative prompt differs from the request")
+
+    sampler_node_id, sampler_node = _single_image_sampler(workflow)
+    sampler_inputs = _node_inputs(sampler_node)
+    if sampler_inputs.get("seed") != request.random_seed:
+        raise ValueError("executed ComfyUI random seed differs from the request")
+    actual_width = _positive_actual_parameter(workflow, "width")
+    actual_height = _positive_actual_parameter(workflow, "height")
+    sampler_config = {
+        key: value
+        for key, value in sampler_inputs.items()
+        if key
+        in {
+            "seed",
+            "steps",
+            "cfg",
+            "sampler_name",
+            "scheduler",
+            "denoise",
+        }
+    }
+    model_files = _actual_model_files(workflow)
+    expected_execution = request.expected_execution
+    expected_sampler_config = {
+        "seed": request.random_seed,
+        "steps": expected_execution.steps,
+        "cfg": expected_execution.cfg,
+        "sampler_name": expected_execution.sampler_name,
+        "scheduler": expected_execution.scheduler,
+        "denoise": expected_execution.denoise,
+    }
+    if actual_width != expected_execution.width:
+        raise ValueError(
+            "executed ComfyUI width differs from the registered execution contract"
+        )
+    if actual_height != expected_execution.height:
+        raise ValueError(
+            "executed ComfyUI height differs from the registered execution contract"
+        )
+    if model_files != expected_execution.model_files:
+        raise ValueError(
+            "executed ComfyUI model files differ from the registered execution contract"
+        )
+    if sampler_config != expected_sampler_config:
+        raise ValueError(
+            "executed ComfyUI sampler configuration differs from the registered execution contract"
+        )
+    if _reference_conditioner_count(workflow) != 0:
+        raise ValueError(
+            "text-profile visual-anchor workflow unexpectedly used reference conditioning"
+        )
+
+    execution_config = {
+        "workflow_key": request.workflow_key,
+        "workflow_version_sha256": request.workflow_version_sha256,
+        "width": actual_width,
+        "height": actual_height,
+        "model_files": model_files,
+        "sampler": sampler_config,
+        "identity_conditioning": {
+            "mode": "text_profile",
+            "reference_input_count": 0,
+        },
+    }
+    audit = dict(pre_submit_audit)
+    audit.update(
+        {
+            "status": "passed",
+            "recorded_at_utc": datetime.now(UTC).isoformat(),
+            "actual_execution": {
+                "comfyui_prompt_id": prompt_id,
+                "execution_status": execution_status,
+                "identity_conditioning_mode": "text_profile",
+                "reference_conditioning_input_count": 0,
+                "sampler_node_id": sampler_node_id,
+                "sampler_node_class_type": str(
+                    sampler_node.get("class_type") or ""
+                ),
+                "random_seed": request.random_seed,
+                "width": actual_width,
+                "height": actual_height,
+                "model_files": model_files,
+                "sampler_config": sampler_config,
+                "execution_config_sha256": _canonical_json_sha256(
+                    execution_config
+                ),
+                "generated_output_sha256": generated_output_sha256,
+                "generated_output_reference": generated_output_reference,
+                "generated_output_artifact": generated_output_artifact,
+                "positive_prompt_sha256": _text_sha256(
+                    request.final_positive_prompt
+                ),
+                "negative_prompt_sha256": _text_sha256(
+                    request.final_negative_prompt
+                ),
+            },
+        }
+    )
+    _write_binding_audit(task_root, request.frame_id, audit)
+    return audit
+
+
 def record_visual_anchor_first_generation_failure(
     *,
     request_payload: Mapping[str, Any],
@@ -684,6 +958,28 @@ def _node_inputs(node: Mapping[str, Any]) -> Mapping[str, Any]:
     if not isinstance(inputs, Mapping):
         raise ValueError("executed ComfyUI node has no input mapping")
     return inputs
+
+
+def _single_image_sampler(
+    workflow: Mapping[str, Any],
+) -> tuple[str, Mapping[str, Any]]:
+    sampler_classes = {
+        "KSampler",
+        "KSamplerAdvanced",
+        "SamplerCustom",
+        "SamplerCustomAdvanced",
+    }
+    samplers = [
+        (str(node_id), raw_node)
+        for node_id, raw_node in workflow.items()
+        if isinstance(raw_node, Mapping)
+        and str(raw_node.get("class_type") or "") in sampler_classes
+    ]
+    if len(samplers) != 1:
+        raise ValueError(
+            "executed ComfyUI workflow must contain exactly one image sampler"
+        )
+    return samplers[0]
 
 
 def _require_node_class(

@@ -241,6 +241,50 @@ def _validate_single_pass_z_image_signature_batch(
     if len(rendered) != len(prompt_plan_bundle.prompt_plans):
         raise ValueError("single-pass Z-Image prompt-plan coverage mismatch")
     snapshot = dict(batch.planning_snapshot or {})
+    generation_requests = {
+        str(frame_id): dict(payload)
+        for frame_id, payload in dict(
+            snapshot.get("visual_anchor_generation_request_by_frame") or {}
+        ).items()
+        if isinstance(payload, Mapping)
+    }
+    if generation_requests:
+        if len(generation_requests) != len(prompt_plan_bundle.prompt_plans):
+            raise ValueError("two-stage visual-anchor request coverage mismatch")
+        for rendered_prompt, prompt_plan in zip(
+            rendered,
+            prompt_plan_bundle.prompt_plans,
+        ):
+            request = generation_requests.get(prompt_plan.frame_id)
+            if request is None:
+                raise ValueError("two-stage visual-anchor request frame mismatch")
+            if (
+                rendered_prompt.prompt
+                != request.get("final_positive_prompt")
+                or (rendered_prompt.negative_prompt or "")
+                != str(request.get("final_negative_prompt") or "")
+                or prompt_plan.final_prompt
+                != request.get("final_positive_prompt")
+                or (prompt_plan.final_negative_prompt or "")
+                != str(request.get("final_negative_prompt") or "")
+            ):
+                raise ValueError(
+                    "two-stage visual-anchor final prompt lineage is inconsistent"
+                )
+        snapshot["visual_anchor_final_prompt_lineage"] = {
+            "schema_version": "visual_anchor_final_prompt_lineage.v1",
+            "validated": True,
+            "source": "passed_preflight_generation_request",
+            "frame_count": len(generation_requests),
+        }
+        return StyledImagePromptBatch(
+            prompts=list(batch.prompts),
+            negative_prompt=batch.negative_prompt,
+            resolved_style=batch.resolved_style,
+            planning_snapshot=snapshot,
+            prompt_plan_bundle=prompt_plan_bundle,
+            rendered_prompts=list(rendered),
+        )
     traces = {
         str(frame_id): dict(trace)
         for frame_id, trace in dict(
@@ -799,14 +843,14 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.visual_anchor_reference_conditioning_enabled
         )
         content_planning_ip_profile = (
-            None if visual_anchor_reference_conditioning_enabled else ip_profile
+            None if series_visual_signature_request.enabled else ip_profile
         )
         article_concretization_plans = build_article_concretization_plans(
             storyboard_plan=ctx.storyboard_plan,
             params=ctx.params,
             series_visual_signature_profile_id=(
                 None
-                if visual_anchor_reference_conditioning_enabled
+                if series_visual_signature_request.enabled
                 else getattr(
                     ip_profile,
                     "series_visual_signature_profile_id",
@@ -823,12 +867,15 @@ class StandardPipeline(LinearVideoPipeline):
         visual_story_context = None
         if series_visual_signature_request.enabled:
             ctx.observability["visual_anchor_visual_planning"] = {
-                "schema_version": "visual_anchor_visual_planning.v1",
+                "schema_version": "visual_anchor_visual_planning.v2",
                 "route_model_call_count": 0,
                 "frame_planning_model_call_count": 0,
-                "prompt_model_call_count": 1,
-                "prompt_retry_enabled": False,
-                "prompt_review_model_call_count": 0,
+                "prompt_chain": (
+                    "content_stage_then_fusion_rewrite_then_preflight_review"
+                ),
+                "minimum_prompt_model_calls_per_frame": 3,
+                "image_generation_attempts_per_frame": 1,
+                "post_generation_model_validation_enabled": False,
             }
         elif bool(ctx.params.get("visual_story_engine_enabled", True)):
             route_trace_collector = LLMTraceCollector(self._llm_trace_recorder(ctx))
@@ -922,8 +969,9 @@ class StandardPipeline(LinearVideoPipeline):
                 policy=text_rendering_result.overlay_policy,
             )
             registered_random_seeds: dict[str, int] = {}
-            if visual_anchor_reference_conditioning_enabled:
-                ctx.params["reference_image_workflow_injection_mode"] = "required"
+            if series_visual_signature_request.enabled:
+                if visual_anchor_reference_conditioning_enabled:
+                    ctx.params["reference_image_workflow_injection_mode"] = "required"
                 registered_random_seeds = resolve_registered_random_seeds(
                     storyboard_plan=ctx.storyboard_plan,
                     task_id=ctx.task_id or "",
@@ -1487,36 +1535,27 @@ class StandardPipeline(LinearVideoPipeline):
         audit = VisualAnchorRenderedOutputAudit(task_dir=ctx.task_dir)
         ctx.media_generation_max_attempts = 1
         policy = {
-            "schema_version": "visual_anchor_rendered_output_policy.v1",
+            "schema_version": "visual_anchor_rendered_output_policy.v2",
             "mode": "required",
             "max_generation_attempts": 1,
-            "post_generation_role": "integrity_audit_and_manual_visual_acceptance",
+            "post_generation_role": "technical_execution_integrity_only",
+            "semantic_quality_judgment_enabled": False,
+            "vision_model_call_enabled": False,
             "prompt_repair_enabled": False,
+            "regeneration_enabled": False,
             "seed_replacement_enabled": False,
             "fixed_size_or_position_rule": False,
             "deterministic_checks": [
                 "generated_image_hash",
-                "registered_reference_hash",
+                "identity_conditioning_mode",
                 "task_frame_seed_binding",
                 "prompt_hashes",
                 "prompt_versions",
-                "identity_profile_and_reference_versions",
+                "identity_profile_and_optional_reference_versions",
                 "workflow_key_and_version",
-                "first_request_reference_binding_provenance",
+                "first_request_workflow_binding_provenance",
                 "single_generation_attempt",
                 "passed_preflight_review",
-            ],
-            "manual_visual_acceptance_status": "required",
-            "manual_visual_acceptance_checks": [
-                "protected_facts",
-                "identity_present",
-                "identity_instance_count_one",
-                "identity_traits_recognizable",
-                "perspective_lighting_material",
-                "support_contact_occlusion",
-                "no_sticker_floating_or_penetration",
-                "size_and_position_fit_current_composition",
-                "continuous_scene_consistency",
             ],
         }
         snapshot = dict(ctx.planning_snapshot or {})
@@ -1691,6 +1730,9 @@ class StandardPipeline(LinearVideoPipeline):
                 dict(
                     (ctx.planning_snapshot or {}).get(
                         "identity_reference_workflow_inspection"
+                    )
+                    or (ctx.planning_snapshot or {}).get(
+                        "image_workflow_inspection"
                     )
                     or {}
                 ),
@@ -3099,11 +3141,6 @@ class StandardPipeline(LinearVideoPipeline):
             raise ValueError(
                 "the selected reference-image workflow requires a real reference image"
             )
-        if has_reference_asset and not reference_conditioning_enabled:
-            raise ValueError(
-                "the selected text-only workflow cannot accept a reference image"
-            )
-
         ctx.visual_anchor_reference_conditioning_enabled = (
             reference_conditioning_enabled
         )
@@ -3127,10 +3164,15 @@ class StandardPipeline(LinearVideoPipeline):
             await self._load_series_visual_signature_profile(ctx)
         )
         ctx.observability["visual_anchor_preflight"] = {
-            "schema_version": "visual_anchor_preflight.v1",
+            "schema_version": "visual_anchor_preflight.v2",
             "status": "passed",
             "model_call_count": 0,
             "template_type": "image",
+            "identity_conditioning_mode": (
+                "reference_image"
+                if reference_conditioning_enabled
+                else "text_profile"
+            ),
             "reference_conditioning_enabled": reference_conditioning_enabled,
             "workflow_inspected": workflow_info is not None,
             "profile_id": ip_contract.series_visual_signature_profile_id,

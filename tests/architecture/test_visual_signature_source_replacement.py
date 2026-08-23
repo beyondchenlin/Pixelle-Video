@@ -213,11 +213,13 @@ def test_canonical_composer_persists_capability_specific_signature_observability
     assert "series_visual_signature_profile_v45" not in assigned_snapshot_keys
     assert "series_visual_signature_request_audit" in assigned_snapshot_keys
     assert "series_visual_signature_profile_ref" in assigned_snapshot_keys
-    assert "series_visual_signature_projection_audit" in assigned_snapshot_keys
-    assert "visual_anchor_single_pass_prompt_policy" in assigned_snapshot_keys
-    assert "visual_anchor_two_stage" not in assigned_snapshot_keys
-    assert "visual_anchor_generation_request_by_frame" not in assigned_snapshot_keys
+    assert "series_visual_signature_projection_audit" not in assigned_snapshot_keys
+    assert "visual_anchor_single_pass_prompt_policy" not in assigned_snapshot_keys
+    assert "visual_anchor_two_stage" in assigned_snapshot_keys
+    assert "visual_anchor_generation_request_by_frame" in assigned_snapshot_keys
+    assert "visual_anchor_two_stage_prompt_policy" in assigned_snapshot_keys
     assert "identity_reference_workflow_inspection" in assigned_snapshot_keys
+    assert "image_workflow_inspection" in assigned_snapshot_keys
 
 
 def test_legacy_image_prompt_composer_is_adapter_not_second_prompt_runtime() -> None:

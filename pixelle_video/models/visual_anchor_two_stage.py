@@ -5,10 +5,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v2"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v2"
-PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v2"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v2"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v3"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v3"
+PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v3"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
 
 ReviewDecision = Literal["pass", "fail"]
 
@@ -17,8 +17,6 @@ _FORBIDDEN_IMAGE_PROMPT_TERMS = (
     "知识产权角色",
     "受保护事实",
     "融合方案",
-    "必须",
-    "禁止",
     "候选方案",
     "未选方案",
     "分析过程",
@@ -85,6 +83,22 @@ _SINGLE_INSTANCE_PROMPT_TERMS = (
     "only one",
     "a single",
 )
+_PLACEHOLDER_SUBJECT_PATTERNS = (
+    re.compile(r"表达.*第?[一二三四五六七八九十0-9]+个?分镜", re.IGNORECASE),
+    re.compile(r"第?[一二三四五六七八九十0-9]+个?分镜段落", re.IGNORECASE),
+    re.compile(r"visuali[sz]e\s+(?:the\s+)?(?:frame|segment)", re.IGNORECASE),
+    re.compile(r"show\s+(?:the\s+)?(?:frame|segment)", re.IGNORECASE),
+)
+
+
+def _contains_required_prompt_fragment_contract(prompt: str, required: str) -> bool:
+    normalized_prompt = " ".join(str(prompt or "").split()).casefold()
+    fragments = [
+        " ".join(fragment.split()).casefold()
+        for fragment in re.split(r"[,，;；]+", str(required or ""))
+        if " ".join(fragment.split())
+    ]
+    return bool(fragments) and all(fragment in normalized_prompt for fragment in fragments)
 
 
 def _contains_forbidden_term(value: str, term: str) -> bool:
@@ -118,6 +132,93 @@ def _text_list(values: list[str], field_name: str) -> list[str]:
     return result
 
 
+def _concrete_subject_text(value: object, field_name: str) -> str:
+    text = _text(value, field_name)
+    if any(pattern.search(text) for pattern in _PLACEHOLDER_SUBJECT_PATTERNS):
+        raise ValueError(f"{field_name} cannot use a storyboard placeholder")
+    return text
+
+
+class TargetVisualStyle(BaseModel):
+    """The single global style contract shared by both prompt stages."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    description: str
+    required_final_prompt_fragments: list[str] = Field(default_factory=list)
+    required_negative_prompt_fragments: list[str] = Field(default_factory=list)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _validate_description(cls, value: object) -> str:
+        return _text(value, "description")
+
+    @field_validator(
+        "required_final_prompt_fragments",
+        "required_negative_prompt_fragments",
+    )
+    @classmethod
+    def _validate_fragments(cls, value: list[str], info) -> list[str]:
+        return _text_list(value, info.field_name)
+
+
+class VisibleTextPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    suppress_visible_text: bool = False
+    required_positive_prompt_fragment: str = ""
+    required_negative_prompt_fragment: str = ""
+
+    @model_validator(mode="after")
+    def _validate_policy(self) -> "VisibleTextPolicy":
+        positive = " ".join(self.required_positive_prompt_fragment.split())
+        negative = " ".join(self.required_negative_prompt_fragment.split())
+        object.__setattr__(self, "required_positive_prompt_fragment", positive)
+        object.__setattr__(self, "required_negative_prompt_fragment", negative)
+        if self.suppress_visible_text and (not positive or not negative):
+            raise ValueError(
+                "visible-text suppression requires positive and negative prompt fragments"
+            )
+        if not self.suppress_visible_text and (positive or negative):
+            raise ValueError(
+                "visible-text prompt fragments require suppression to be enabled"
+            )
+        return self
+
+
+class ContentSubject(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    subject_id: str
+    role: Literal["primary", "secondary"]
+    name: str
+    identity: str
+    quantity: int = Field(gt=0)
+    action: str
+    source_evidence: str = Field(
+        description="从原始分镜文案或文章背景中逐字复制的最短连续片段"
+    )
+    pure_content_prompt_evidence: str = Field(
+        description=(
+            "从 pure_content_prompt 中逐字复制的最短连续片段；优先只复制主体名称，"
+            "不得跨过其他词语拼接名称、身份和动作"
+        )
+    )
+
+    @field_validator(
+        "subject_id",
+        "name",
+        "identity",
+        "action",
+        "source_evidence",
+        "pure_content_prompt_evidence",
+        mode="before",
+    )
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _concrete_subject_text(value, info.field_name)
+
+
 class ProtectedFact(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -138,8 +239,15 @@ class ProtectedFact(BaseModel):
         "other",
     ]
     statement: str
-    source_evidence: str
-    pure_content_prompt_evidence: str
+    source_evidence: str = Field(
+        description="从原始分镜文案或文章背景中逐字复制的最短连续片段"
+    )
+    pure_content_prompt_evidence: str = Field(
+        description=(
+            "从 pure_content_prompt 中逐字复制、足以证明事实存在的最短连续片段；"
+            "不得改写或跨过其他词语拼接"
+        )
+    )
 
     @field_validator(
         "fact_id",
@@ -150,7 +258,7 @@ class ProtectedFact(BaseModel):
     )
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
-        return _text(value, info.field_name)
+        return _concrete_subject_text(value, info.field_name)
 
 
 class ContentStageInput(BaseModel):
@@ -163,14 +271,14 @@ class ContentStageInput(BaseModel):
     article_context: str
     previous_frame_summary: str
     next_frame_summary: str
-    target_visual_style: str
+    target_visual_style: TargetVisualStyle
     target_image_prompt_language: str
     prompt_version: Literal[CONTENT_STAGE_PROMPT_VERSION] = CONTENT_STAGE_PROMPT_VERSION
 
     @field_validator("*", mode="before")
     @classmethod
     def _validate_text(cls, value: object, info):
-        if info.field_name == "prompt_version":
+        if info.field_name in {"prompt_version", "target_visual_style"}:
             return value
         return _text(value, info.field_name)
 
@@ -180,6 +288,8 @@ class ContentStageOutput(BaseModel):
 
     core_claim: str
     protected_facts: list[ProtectedFact] = Field(min_length=1)
+    primary_subject: ContentSubject
+    secondary_subjects: list[ContentSubject] = Field(default_factory=list)
     adjustable_non_core_content: list[str] = Field(default_factory=list)
     pure_content_prompt: str
     self_check: ReviewDecision
@@ -200,6 +310,16 @@ class ContentStageOutput(BaseModel):
         fact_ids = [fact.fact_id for fact in self.protected_facts]
         if len(set(fact_ids)) != len(fact_ids):
             raise ValueError("protected fact ids must be unique")
+        if self.primary_subject.role != "primary":
+            raise ValueError("primary_subject must have the primary role")
+        if any(subject.role != "secondary" for subject in self.secondary_subjects):
+            raise ValueError("secondary_subjects must all have the secondary role")
+        subject_ids = [
+            self.primary_subject.subject_id,
+            *(subject.subject_id for subject in self.secondary_subjects),
+        ]
+        if len(set(subject_ids)) != len(subject_ids):
+            raise ValueError("content subject ids must be unique")
         if self.self_check == "pass" and self.self_check_failures:
             raise ValueError("a passed content-stage result cannot contain failures")
         if self.self_check == "fail" and not self.self_check_failures:
@@ -215,7 +335,7 @@ class VisualAnchorIdentityProfile(BaseModel):
     core_identity_traits: list[str] = Field(min_length=1)
     supporting_identity_traits: list[str] = Field(default_factory=list)
     forbidden_traits: list[str] = Field(default_factory=list)
-    source_asset_ids: list[str] = Field(min_length=1)
+    source_asset_ids: list[str] = Field(default_factory=list)
     identity_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     identity_resource_version: str
 
@@ -378,18 +498,23 @@ class FusionStageInput(BaseModel):
     original_storyboard_text: str
     content_stage_output: ContentStageOutput
     identity_profile: VisualAnchorIdentityProfile
-    identity_reference_condition: IdentityReferenceCondition
+    identity_conditioning_mode: Literal["text_profile", "reference_image"]
+    identity_reference_condition: IdentityReferenceCondition | None = None
+    workflow_identity_condition_summary: str
     continuous_scene_context: ContinuousSceneContext
-    target_visual_style: str
+    target_visual_style: TargetVisualStyle
+    visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
     target_image_prompt_language: str
+    required_single_instance_prompt_fragment: str
     review_feedback: list[str] = Field(default_factory=list)
     prompt_version: Literal[FUSION_STAGE_PROMPT_VERSION] = FUSION_STAGE_PROMPT_VERSION
 
     @field_validator(
         "frame_id",
         "original_storyboard_text",
-        "target_visual_style",
+        "workflow_identity_condition_summary",
         "target_image_prompt_language",
+        "required_single_instance_prompt_fragment",
         mode="before",
     )
     @classmethod
@@ -405,12 +530,21 @@ class FusionStageInput(BaseModel):
     def _require_passed_content(self) -> "FusionStageInput":
         if self.content_stage_output.self_check != "pass":
             raise ValueError("content stage must pass before fusion")
-        if (
-            self.identity_reference_condition.resource_version
-            not in self.identity_profile.source_asset_ids
-        ):
+        if self.identity_conditioning_mode == "reference_image":
+            if self.identity_reference_condition is None:
+                raise ValueError(
+                    "reference-image conditioning requires a real reference condition"
+                )
+            if (
+                self.identity_reference_condition.resource_version
+                not in self.identity_profile.source_asset_ids
+            ):
+                raise ValueError(
+                    "identity profile must be explicitly bound to the real reference resource"
+                )
+        elif self.identity_reference_condition is not None:
             raise ValueError(
-                "identity profile must be explicitly bound to the real reference resource"
+                "text-profile conditioning cannot include a reference-image condition"
             )
         return self
 
@@ -420,7 +554,9 @@ class ProtectedFactCheck(BaseModel):
 
     fact_id: str
     preserved: bool
-    final_image_evidence: str
+    final_image_evidence: str = Field(
+        description="从 final_positive_prompt 中逐字复制的最短连续事实证据"
+    )
 
     @field_validator("fact_id", "final_image_evidence", mode="before")
     @classmethod
@@ -433,7 +569,12 @@ class IdentityTraitCheck(BaseModel):
 
     trait: str
     preserved: bool
-    final_prompt_evidence: str
+    final_prompt_evidence: str = Field(
+        description=(
+            "从 final_positive_prompt 中逐字复制、实际描述该身份特征的最短连续片段；"
+            "不得跨过其他词语拼接"
+        )
+    )
 
     @field_validator("trait", "final_prompt_evidence", mode="before")
     @classmethod
@@ -463,11 +604,24 @@ class FusionStageOutput(BaseModel):
     content_stage_deviations: list[str] = Field(default_factory=list)
     non_core_reconstruction_summary: list[str] = Field(min_length=1)
     protected_fact_checks: list[ProtectedFactCheck] = Field(min_length=1)
+    primary_subject_preserved: bool
+    primary_subject_final_prompt_evidence: str = Field(
+        description=(
+            "必须逐字等于 content_stage_output.primary_subject.name；该名称也必须逐字"
+            "存在于 final_positive_prompt"
+        )
+    )
+    visual_anchor_replaces_primary_subject: Literal[False]
     identity_trait_checks: list[IdentityTraitCheck] = Field(min_length=1)
     final_manifestation: str
     target_visual_anchor_instance_count: Literal[1]
     other_scene_elements_inherit_identity_features: Literal[False]
-    single_instance_prompt_evidence: str
+    single_instance_prompt_evidence: str = Field(
+        description=(
+            "从 final_positive_prompt 中逐字复制、明确表示全画面只有一个身份实例的"
+            "连续片段，例如“画面中只有一只斑点狗”"
+        )
+    )
     spatial_contact_and_lighting_relation: str
     inherited_existing_fusion_decision: bool
     continuity_change_reason: str
@@ -480,6 +634,7 @@ class FusionStageOutput(BaseModel):
         "selected_fusion_method",
         "final_manifestation",
         "single_instance_prompt_evidence",
+        "primary_subject_final_prompt_evidence",
         "spatial_contact_and_lighting_relation",
         "continuity_change_reason",
         "final_positive_prompt",
@@ -534,8 +689,11 @@ class PreflightReviewInput(BaseModel):
     original_storyboard_text: str
     content_stage_output: ContentStageOutput
     identity_profile: VisualAnchorIdentityProfile
-    identity_reference_condition: IdentityReferenceCondition
+    identity_conditioning_mode: Literal["text_profile", "reference_image"]
+    identity_reference_condition: IdentityReferenceCondition | None = None
     continuous_scene_context: ContinuousSceneContext
+    target_visual_style: TargetVisualStyle
+    visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
     fusion_stage_output: FusionStageOutput
     negative_prompt_supported: bool
     prompt_version: Literal[PREFLIGHT_REVIEW_PROMPT_VERSION] = PREFLIGHT_REVIEW_PROMPT_VERSION
@@ -551,12 +709,21 @@ class PreflightReviewInput(BaseModel):
             raise ValueError("preflight review requires a passed content stage")
         if self.fusion_stage_output.self_check != "pass":
             raise ValueError("preflight review requires a passed fusion stage")
-        if (
-            self.identity_reference_condition.resource_version
-            not in self.identity_profile.source_asset_ids
-        ):
+        if self.identity_conditioning_mode == "reference_image":
+            if self.identity_reference_condition is None:
+                raise ValueError(
+                    "preflight reference-image mode requires a real reference condition"
+                )
+            if (
+                self.identity_reference_condition.resource_version
+                not in self.identity_profile.source_asset_ids
+            ):
+                raise ValueError(
+                    "preflight identity profile must remain bound to the real reference resource"
+                )
+        elif self.identity_reference_condition is not None:
             raise ValueError(
-                "preflight identity profile must remain bound to the real reference resource"
+                "preflight text-profile mode cannot include a reference condition"
             )
         return self
 
@@ -631,6 +798,10 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     selected_fusion_method: str
     final_manifestation: str
     protected_fact_checks: list[ProtectedFactCheck] = Field(min_length=1)
+    primary_subject_name: str
+    primary_subject_preserved: Literal[True]
+    primary_subject_final_prompt_evidence: str
+    visual_anchor_replaces_primary_subject: Literal[False]
     identity_trait_checks: list[IdentityTraitCheck] = Field(min_length=1)
     single_instance_prompt_evidence: str
     final_positive_prompt: str
@@ -640,11 +811,15 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     identity_core_traits: list[str] = Field(min_length=1)
     identity_resource_version: str
     identity_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    identity_reference_condition: IdentityReferenceCondition
+    identity_conditioning_mode: Literal["text_profile", "reference_image"]
+    identity_reference_condition: IdentityReferenceCondition | None = None
+    target_visual_style: TargetVisualStyle
+    visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
     content_stage_prompt_version: Literal[CONTENT_STAGE_PROMPT_VERSION]
     fusion_stage_prompt_version: Literal[FUSION_STAGE_PROMPT_VERSION]
     preflight_review_prompt_version: Literal[PREFLIGHT_REVIEW_PROMPT_VERSION]
     preflight_review_decision: Literal["pass"]
+    negative_prompt_supported: bool
     workflow_key: str
     workflow_version_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     expected_execution: ImageWorkflowExecutionContract
@@ -655,6 +830,8 @@ class VisualAnchorImageGenerationRequest(BaseModel):
         "selected_fusion_method",
         "final_manifestation",
         "single_instance_prompt_evidence",
+        "primary_subject_name",
+        "primary_subject_final_prompt_evidence",
         "final_positive_prompt",
         "identity_profile_id",
         "identity_display_name",
@@ -722,8 +899,12 @@ class VisualAnchorImageGenerationRequest(BaseModel):
                     "image generation request cannot drop a core identity trait"
                 )
             evidence = " ".join(check.final_prompt_evidence.split()).casefold()
+            normalized_trait = " ".join(check.trait.split()).casefold()
             if (
-                evidence == normalized_identity_name
+                (
+                    evidence == normalized_identity_name
+                    and normalized_trait != normalized_identity_name
+                )
                 or evidence not in normalized_positive
             ):
                 raise ValueError(
@@ -751,13 +932,61 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             raise ValueError(
                 "image generation request single-instance evidence must identify the selected identity"
             )
-        expected_reference_version = (
-            f"reference-image:{self.identity_reference_condition.asset_sha256}"
-        )
-        if self.identity_reference_condition.resource_version != expected_reference_version:
+        primary_evidence = " ".join(
+            self.primary_subject_final_prompt_evidence.split()
+        ).casefold()
+        if not primary_evidence or primary_evidence not in normalized_positive:
             raise ValueError(
-                "identity reference resource version must match its immutable digest"
+                "primary-subject evidence must be present in the image prompt"
             )
+        if self.identity_conditioning_mode == "reference_image":
+            if self.identity_reference_condition is None:
+                raise ValueError(
+                    "reference-image generation requires a real reference condition"
+                )
+            expected_reference_version = (
+                f"reference-image:{self.identity_reference_condition.asset_sha256}"
+            )
+            if (
+                self.identity_reference_condition.resource_version
+                != expected_reference_version
+            ):
+                raise ValueError(
+                    "identity reference resource version must match its immutable digest"
+                )
+        elif self.identity_reference_condition is not None:
+            raise ValueError(
+                "text-profile generation cannot include a reference-image condition"
+            )
+        for fragment in self.target_visual_style.required_final_prompt_fragments:
+            if fragment.casefold() not in normalized_positive:
+                raise ValueError(
+                    "image generation prompt dropped a required global style fragment"
+                )
+        normalized_negative = " ".join(self.final_negative_prompt.split()).casefold()
+        if self.negative_prompt_supported:
+            for fragment in self.target_visual_style.required_negative_prompt_fragments:
+                if fragment.casefold() not in normalized_negative:
+                    raise ValueError(
+                        "image generation prompt dropped a required negative style fragment"
+                    )
+        if self.visible_text_policy.suppress_visible_text:
+            if (
+                not _contains_required_prompt_fragment_contract(
+                    normalized_positive,
+                    self.visible_text_policy.required_positive_prompt_fragment,
+                )
+                or (
+                    self.negative_prompt_supported
+                    and not _contains_required_prompt_fragment_contract(
+                        normalized_negative,
+                        self.visible_text_policy.required_negative_prompt_fragment,
+                    )
+                )
+            ):
+                raise ValueError(
+                    "image generation prompt dropped visible-text suppression"
+                )
         return self
 
 
@@ -815,6 +1044,13 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             != self.preflight_review_input.identity_profile
         ):
             raise ValueError("identity profile must remain identical across later stages")
+        if (
+            self.fusion_stage_input.identity_conditioning_mode
+            != self.preflight_review_input.identity_conditioning_mode
+            or self.fusion_stage_input.identity_conditioning_mode
+            != self.generation_request.identity_conditioning_mode
+        ):
+            raise ValueError("identity conditioning mode must remain identical")
         reference_condition = self.fusion_stage_input.identity_reference_condition
         if (
             reference_condition
@@ -860,6 +1096,14 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             != self.fusion_stage_output.identity_trait_checks
             or self.generation_request.single_instance_prompt_evidence
             != self.fusion_stage_output.single_instance_prompt_evidence
+            or self.generation_request.primary_subject_name
+            != self.content_stage_output.primary_subject.name
+            or self.generation_request.primary_subject_preserved
+            != self.fusion_stage_output.primary_subject_preserved
+            or self.generation_request.primary_subject_final_prompt_evidence
+            != self.fusion_stage_output.primary_subject_final_prompt_evidence
+            or self.generation_request.visual_anchor_replaces_primary_subject
+            != self.fusion_stage_output.visual_anchor_replaces_primary_subject
         ):
             raise ValueError(
                 "generation request must preserve the selected fusion, fact, identity, and single-instance evidence"
@@ -876,4 +1120,17 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             != identity.identity_content_sha256
         ):
             raise ValueError("generation identity version must match the fusion input")
+        if (
+            self.fusion_stage_input.target_visual_style
+            != self.preflight_review_input.target_visual_style
+            or self.fusion_stage_input.target_visual_style
+            != self.generation_request.target_visual_style
+            or self.fusion_stage_input.visible_text_policy
+            != self.preflight_review_input.visible_text_policy
+            or self.fusion_stage_input.visible_text_policy
+            != self.generation_request.visible_text_policy
+        ):
+            raise ValueError(
+                "style and visible-text policies must remain identical across later stages"
+            )
         return self

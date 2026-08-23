@@ -22,6 +22,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
     PreflightReviewOutput,
+    TargetVisualStyle,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
 )
@@ -31,6 +32,7 @@ from pixelle_video.services.visual_anchor_generation_binding import (
 )
 from pixelle_video.services.visual_anchor_reference_condition import (
     inspect_identity_reference_workflow,
+    inspect_image_workflow,
 )
 from pixelle_video.services.visual_anchor_reference_workflow import (
     resolve_visual_anchor_reference_workflow_key,
@@ -112,8 +114,7 @@ def test_identity_profile_binds_the_real_reference_when_profile_has_no_asset_ids
     )
 
     assert identity.source_asset_ids == ["reference-image:" + "a" * 64]
-    with pytest.raises(VisualAnchorTwoStageError, match="no source assets"):
-        identity_profile_from_snapshot(snapshot)
+    assert identity_profile_from_snapshot(snapshot).source_asset_ids == []
 
 
 def _identity():
@@ -179,6 +180,9 @@ def test_identity_reference_contract_requires_exact_first_sampling_path():
 
 
 def _content(frame_id, source_text):
+    is_continuation = source_text.startswith("两人继续")
+    primary_name = "两位创作者" if is_continuation else "乔布斯和沃兹尼亚克"
+    primary_source_evidence = "两人" if is_continuation else "乔布斯和沃兹尼亚克"
     return ContentStageOutput(
         core_claim="两位创作者在车库制作电脑",
         protected_facts=[
@@ -188,6 +192,28 @@ def _content(frame_id, source_text):
                 "statement": source_text,
                 "source_evidence": source_text,
                 "pure_content_prompt_evidence": "车库内，两位创作者围绕工作台制作电脑",
+            }
+        ],
+        primary_subject={
+            "subject_id": f"{frame_id}-subject-primary",
+            "role": "primary",
+            "name": primary_name,
+            "identity": "正在车库创业并制作电脑的两位创作者",
+            "quantity": 2,
+            "action": "围绕工作台制作并测试电脑",
+            "source_evidence": primary_source_evidence,
+            "pure_content_prompt_evidence": "两位创作者",
+        },
+        secondary_subjects=[
+            {
+                "subject_id": f"{frame_id}-subject-computer",
+                "role": "secondary",
+                "name": "电脑",
+                "identity": "车库工作台上的技术产品",
+                "quantity": 1,
+                "action": "正在被组装或测试",
+                "source_evidence": "电脑",
+                "pure_content_prompt_evidence": "电脑",
             }
         ],
         adjustable_non_core_content=["工作台非核心工具", "局部照明"],
@@ -203,11 +229,23 @@ def _fusion(
     inherited=False,
     positive=None,
     fact_ids=None,
-    fact_evidence="乔布斯和沃兹尼亚克在工作台组装电脑",
+    fact_evidence=None,
     identity_evidence=("圆形白色脸", "蓝色短耳"),
     single_instance_evidence="画面中只有一只小皮",
 ):
     ids = fact_ids or [f"{frame_id}-fact-1"]
+    continuing = frame_id == "frame-b"
+    primary_name = "两位创作者" if continuing else "乔布斯和沃兹尼亚克"
+    resolved_fact_evidence = fact_evidence or (
+        "两位创作者在工作台测试电脑"
+        if continuing
+        else "乔布斯和沃兹尼亚克在工作台组装电脑"
+    )
+    default_positive = (
+        "车库内，两位创作者在工作台测试电脑。画面中只有一只小皮，它拥有圆形白色脸和蓝色短耳，以单一实体站在工作台旁，所有人物共享真实透视、暖色光照与自然接触阴影。"
+        if continuing
+        else "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。画面中只有一只小皮，它拥有圆形白色脸和蓝色短耳，以单一实体站在工作台旁，所有人物共享真实透视、暖色光照与自然接触阴影。"
+    )
     return FusionStageOutput(
         selected_fusion_method="让小皮作为参与工作台场景的唯一实体，与两人共享现场光照",
         unselected_candidate_summaries=[
@@ -222,10 +260,13 @@ def _fusion(
             {
                 "fact_id": fact_id,
                 "preserved": True,
-                "final_image_evidence": fact_evidence,
+                "final_image_evidence": resolved_fact_evidence,
             }
             for fact_id in ids
         ],
+        primary_subject_preserved=True,
+        primary_subject_final_prompt_evidence=primary_name,
+        visual_anchor_replaces_primary_subject=False,
         identity_trait_checks=[
             {
                 "trait": trait,
@@ -248,8 +289,7 @@ def _fusion(
             if inherited
             else "当前是连续场景首镜"
         ),
-        final_positive_prompt=positive
-        or "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。画面中只有一只小皮，它拥有圆形白色脸和蓝色短耳，以单一实体站在工作台旁，所有人物共享真实透视、暖色光照与自然接触阴影。",
+        final_positive_prompt=positive or default_positive,
         final_negative_prompt="重复的小皮，副本，镜像，倒影，悬浮，贴纸边缘，穿模，严重遮挡",
         self_check="pass",
         self_check_failures=[],
@@ -531,11 +571,11 @@ async def test_preflight_allows_semantically_equivalent_identity_wording():
     fusion = _fusion(
         "frame-a",
         positive=(
-            "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。画面中只有一只名叫小皮的小动物，"
-            "它拥有雪白圆脸与湛蓝短耳，自然站在工作台旁并共享暖色光影。"
+            "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。画面中只有一只小皮，"
+            "这只小动物拥有雪白圆脸与湛蓝短耳，自然站在工作台旁并共享暖色光影。"
         ),
         identity_evidence=("雪白圆脸", "湛蓝短耳"),
-        single_instance_evidence="画面中只有一只名叫小皮的小动物",
+        single_instance_evidence="画面中只有一只小皮",
     )
     result, _ = await _run(_plan(), fusion_outputs=[fusion])
 
@@ -760,6 +800,47 @@ def test_actual_workflow_reference_input_reaches_first_image_sampler():
     assert inspection.condition.sampler_node_class_type == "KSampler"
 
 
+def test_actual_text_workflow_exposes_registered_seed_before_any_model_call():
+    project_root = Path(__file__).resolve().parents[2]
+    workflow_path = project_root / "workflows/selfhost/image_z_image_turbo_gguf.json"
+
+    inspection = inspect_image_workflow(
+        workflow_info={
+            "source": "selfhost",
+            "path": str(workflow_path),
+            "key": "selfhost/image_z_image_turbo_gguf.json",
+        },
+        project_root=project_root,
+    )
+
+    assert inspection.sampler_defaults["steps"] == 5
+    workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
+    assert "$seed.seed!" in workflow["3"]["_meta"]["title"]
+
+
+def test_text_workflow_without_fixed_seed_mapping_fails_before_model_call(tmp_path):
+    project_root = Path(__file__).resolve().parents[2]
+    source_path = project_root / "workflows/selfhost/image_z_image_turbo_gguf.json"
+    payload = json.loads(source_path.read_text(encoding="utf-8"))
+    payload["3"]["_meta"]["title"] = "KSampler"
+    workflow_path = tmp_path / "workflows/selfhost/invalid_text_workflow.json"
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="fixed seed"):
+        inspect_image_workflow(
+            workflow_info={
+                "source": "selfhost",
+                "path": str(workflow_path),
+                "key": "selfhost/invalid_text_workflow.json",
+            },
+            project_root=tmp_path,
+        )
+
+
 @pytest.mark.parametrize(
     ("node_id", "input_name", "value"),
     [
@@ -906,6 +987,10 @@ def test_first_generation_binding_validates_actual_task_local_reference(tmp_path
                 "final_image_evidence": "车库工作台",
             }
         ],
+        primary_subject_name="乔布斯和沃兹尼亚克",
+        primary_subject_preserved=True,
+        primary_subject_final_prompt_evidence="乔布斯和沃兹尼亚克",
+        visual_anchor_replaces_primary_subject=False,
         identity_trait_checks=[
             {
                 "trait": "圆形白色脸",
@@ -920,7 +1005,8 @@ def test_first_generation_binding_validates_actual_task_local_reference(tmp_path
         ],
         single_instance_prompt_evidence="画面中只有一只小皮",
         final_positive_prompt=(
-            "车库工作台旁，画面中只有一只小皮，拥有圆形白色脸和蓝色短耳。"
+            "乔布斯和沃兹尼亚克在车库工作台组装电脑，"
+            "画面中只有一只小皮，拥有圆形白色脸和蓝色短耳。"
         ),
         final_negative_prompt="",
         identity_profile_id="profile-pixelle",
@@ -928,11 +1014,14 @@ def test_first_generation_binding_validates_actual_task_local_reference(tmp_path
         identity_core_traits=["圆形白色脸", "蓝色短耳"],
         identity_resource_version="identity-v1",
         identity_content_sha256="b" * 64,
+        identity_conditioning_mode="reference_image",
         identity_reference_condition=_reference(asset_sha256=reference_sha256),
+        target_visual_style=TargetVisualStyle(description="真实电影感"),
         content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
         fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
         preflight_review_prompt_version=PREFLIGHT_REVIEW_PROMPT_VERSION,
         preflight_review_decision="pass",
+        negative_prompt_supported=False,
         workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
         workflow_version_sha256="c" * 64,
         expected_execution=_execution(),

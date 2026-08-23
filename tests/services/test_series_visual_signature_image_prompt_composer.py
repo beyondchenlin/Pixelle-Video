@@ -519,10 +519,11 @@ async def test_request_audit_never_persists_user_or_world_hint_text(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_default_text_to_image_visual_anchor_uses_text_projection_without_reference(
+async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_without_reference(
     monkeypatch,
 ) -> None:
     captured_generation = {}
+    captured_two_stage = {}
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured_generation.update(kwargs)
@@ -534,35 +535,111 @@ async def test_default_text_to_image_visual_anchor_uses_text_projection_without_
         fake_generate_styled_image_prompt_batch,
     )
 
+    class _GenerationRequest:
+        final_positive_prompt = (
+            "A worker operates an assembly machine while exactly one Dalmatian "
+            "with black spots observes from a natural side position."
+        )
+        final_negative_prompt = "duplicate Dalmatian, text, watermark"
+        identity_conditioning_mode = "text_profile"
+
+        def model_dump(self, *, mode=None):
+            return {
+                "frame_id": "frame-1",
+                "final_positive_prompt": self.final_positive_prompt,
+                "final_negative_prompt": self.final_negative_prompt,
+                "identity_conditioning_mode": self.identity_conditioning_mode,
+            }
+
+    class _FrameResult:
+        frame_id = "frame-1"
+        generation_request = _GenerationRequest()
+        fusion_stage_output = SimpleNamespace(
+            selected_fusion_method="natural scene-side observation",
+            spatial_contact_and_lighting_relation=(
+                "shared perspective, lighting, material, and floor contact"
+            ),
+        )
+
+        def model_dump(self, *, mode=None):
+            return {
+                "frame_id": self.frame_id,
+                "generation_request": self.generation_request.model_dump(mode=mode),
+            }
+
+    class _TwoStageResult:
+        frames = (_FrameResult(),)
+
+        def to_dict(self):
+            return {
+                "schema_version": "visual_anchor_two_stage_batch.v3",
+                "frames": [self.frames[0].model_dump(mode="json")],
+            }
+
+    class _TwoStageService:
+        async def run_batch(self, **kwargs):
+            captured_two_stage.update(kwargs)
+            return _TwoStageResult()
+
+    class _MediaService:
+        def _resolve_workflow(self, *, workflow=None, workflow_domain=None):
+            project_root = composer_module.Path(__file__).resolve().parents[2]
+            return {
+                "source": "selfhost",
+                "path": str(
+                    project_root
+                    / "workflows/selfhost/image_z_image_turbo_gguf.json"
+                ),
+                "key": "selfhost/image_z_image_turbo_gguf.json",
+            }
+
+    monkeypatch.setattr(
+        composer_module,
+        "VisualAnchorTwoStageService",
+        _TwoStageService,
+    )
+    monkeypatch.setattr(
+        composer_module,
+        "build_prompt_plan_bundle",
+        lambda **kwargs: SimpleNamespace(
+            storyboard_plan_id="plan-text-profile",
+            prompt_plans=[],
+            image_prompt_drafts=[],
+        ),
+    )
+
     result = await VisualPromptComposer().compose(
         llm_service=None,
         storyboard_plan=_storyboard_plan(),
         image_config={},
         ip_profile=_ip_profile(),
         series_visual_signature_request=_enabled_request(),
+        media_service=_MediaService(),
+        workflow="selfhost/image_z_image_turbo_gguf.json",
+        task_id="task-text-profile",
+        random_seeds_by_frame={"frame-1": 101},
+        media_width=768,
+        media_height=768,
+        visual_anchor_reference_conditioning_enabled=False,
     )
 
-    assert captured_generation["series_visual_signature_enabled"] is False
-    assert captured_generation["max_retries"] == 1
-    assert captured_generation["batch_size"] == 1
-    assert captured_generation["max_concurrency"] == 1
-    assert captured_generation["visual_anchor_preparation_enabled"] is True
-    assert captured_generation["literal_style_resolution"] is True
+    assert captured_generation == {}
+    assert captured_two_stage["identity_conditioning_mode"] == "text_profile"
+    assert captured_two_stage["identity_reference_condition"] is None
+    assert captured_two_stage["identity_profile"].display_name == "Dalmatian"
     assert "Dalmatian" in result.prompts[0]
     assert "black spots" in result.prompts[0]
-    assert "series_visual_signature_projection_audit" in result.planning_snapshot
-    assert result.planning_snapshot["visual_anchor_single_pass_prompt_policy"] == {
-        "schema_version": "visual_anchor_single_pass_prompt_policy.v1",
-        "visual_model_call_count": 1,
-        "model_retry_enabled": False,
-        "model_review_enabled": False,
+    assert "visual_anchor_two_stage" in result.planning_snapshot
+    assert result.planning_snapshot["visual_anchor_two_stage_prompt_policy"] == {
+        "schema_version": "visual_anchor_two_stage_prompt_policy.v3",
+        "prompt_chain": "content_stage_then_fusion_rewrite_then_preflight_review",
+        "image_generation_attempts_per_frame": 1,
         "post_generation_model_validation_enabled": False,
-        "reference_conditioning_enabled": False,
+        "post_generation_prompt_repair_enabled": False,
+        "post_generation_regeneration_enabled": False,
+        "identity_conditioning_mode": "text_profile",
     }
-    assert result.planning_snapshot["series_visual_signature_contract_by_frame"][
-        "frame-1"
-    ]["remaining_repair_attempts"] == 0
-    assert "visual_anchor_two_stage" not in result.planning_snapshot
+    assert "base_image_prompt" not in str(result.planning_snapshot)
 
 
 @pytest.mark.asyncio

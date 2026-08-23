@@ -381,7 +381,7 @@ async def test_composer_passes_generation_world_hint_to_styled_batch(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkeypatch):
+async def test_composer_does_not_call_legacy_base_generator_for_visual_anchor(monkeypatch):
     captured = {}
     plan = _plan()
     profile = _ip_profile()
@@ -410,28 +410,21 @@ async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkey
         fake_generate_styled_image_prompt_batch,
     )
 
-    result = await ImagePromptComposer().compose(
-        llm_service=object(),
-        storyboard_plan=plan,
-        image_config={},
-        series_visual_signature_enabled=True,
-        ip_profile=profile,
-        scene_casts_by_frame=scene_casts_by_frame,
-    )
+    with pytest.raises(ValueError, match="requires the media service"):
+        await ImagePromptComposer().compose(
+            llm_service=object(),
+            storyboard_plan=plan,
+            image_config={},
+            series_visual_signature_enabled=True,
+            ip_profile=profile,
+            scene_casts_by_frame=scene_casts_by_frame,
+        )
 
-    assert captured["storyboard_plan"] == plan
-    assert captured["series_visual_signature_enabled"] is False
-    assert captured["ip_profile"] is None
-    assert captured["scene_casts_by_frame"] is None
-    assert "ip_scene_description" not in captured["prompt_contexts"].frame_contexts[0]
-    assert "Zhengding guide" in result.prompts[0]
-    assert result.planning_snapshot["visual_anchor_single_pass_prompt_policy"][
-        "visual_model_call_count"
-    ] == 1
+    assert captured == {}
 
 
 @pytest.mark.asyncio
-async def test_composer_rejects_series_visual_signature_enabled_prompt_count_mismatch(monkeypatch):
+async def test_composer_rejects_visual_anchor_without_two_stage_execution_prerequisites(monkeypatch):
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         return _styled_batch(prompts=["prompt one"])
 
@@ -440,7 +433,7 @@ async def test_composer_rejects_series_visual_signature_enabled_prompt_count_mis
         fake_generate_styled_image_prompt_batch,
     )
 
-    with pytest.raises(ValueError, match="visual prompt count must match storyboard frame count"):
+    with pytest.raises(ValueError, match="requires the media service"):
         await ImagePromptComposer().compose(
             llm_service=object(),
             storyboard_plan=_plan(),

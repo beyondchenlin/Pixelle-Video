@@ -52,15 +52,18 @@ def test_visual_anchor_two_stage_writes_every_stage_and_generation_request(tmp_p
     ctx.task_dir = str(tmp_path)
     ctx.planning_snapshot = {
         "visual_anchor_two_stage": {
-            "schema_version": "visual_anchor_two_stage_batch.v2",
+            "schema_version": "visual_anchor_two_stage_batch.v3",
             "prompt_versions": {
-                "content_stage": "visual_anchor_content_stage.v2",
-                "fusion_stage": "visual_anchor_fusion_stage.v2",
-                "preflight_review": "visual_anchor_preflight_review.v2",
+                "content_stage": "visual_anchor_content_stage.v3",
+                "fusion_stage": "visual_anchor_fusion_stage.v3",
+                "preflight_review": "visual_anchor_preflight_review.v3",
             },
             "frames": [frame],
         },
-        "identity_reference_workflow_inspection": {"workflow_key": "z-reference"},
+        "image_workflow_inspection": {
+            "workflow_key": "selfhost/image_z_image_turbo_gguf.json",
+            "identity_conditioning_mode": "text_profile",
+        },
         "visual_anchor_generation_request_by_frame": {
             "frame-a": frame["generation_request"]
         },
@@ -88,3 +91,12 @@ def test_visual_anchor_two_stage_writes_every_stage_and_generation_request(tmp_p
         ).read_text(encoding="utf-8")
     )
     assert generation_request["random_seed"] == 2026082201
+    workflow_inspection = json.loads(
+        (tmp_path / record["artifacts"]["workflow_inspection"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert workflow_inspection == {
+        "workflow_key": "selfhost/image_z_image_turbo_gguf.json",
+        "identity_conditioning_mode": "text_profile",
+    }

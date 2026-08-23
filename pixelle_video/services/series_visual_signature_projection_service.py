@@ -575,7 +575,7 @@ def _required_subjects(
     if isinstance(secondary, Sequence) and not isinstance(secondary, (str, bytes)):
         inferred.extend(secondary)
     if inferred:
-        sources.append(("auditable_visual_carrier", inferred))
+        sources.append(("storyboard_subject", inferred))
 
     subjects: list[Any] = []
     subject_sources: list[str] = []
@@ -593,23 +593,6 @@ def _required_subjects(
         )
         for source_name, values in sources
     ]
-    if not any(candidates for _, candidates in source_candidates):
-        visual_carrier = _first_text(
-            frame_context.get("visual_goal"),
-            frame_context.get("prompt_intent"),
-        )
-        if visual_carrier:
-            source_candidates.append(
-                (
-                    "auditable_visual_carrier",
-                    build_subject_anchors(
-                        frame_id=frame_id,
-                        values=(visual_carrier,),
-                        evidence_source="auditable_visual_carrier",
-                    ),
-                )
-            )
-
     for source_name, candidates in source_candidates:
         for candidate in candidates:
             existing_index = selected_by_id.get(candidate.subject_id)
@@ -658,7 +641,7 @@ def _required_subjects(
                 "user_frame_override",
                 "frame_article_evidence",
                 "article_level_evidence",
-                "auditable_visual_carrier",
+                "storyboard_subject",
             ],
             "selected": [
                 {"subject_id": subject.subject_id, "source": source}
