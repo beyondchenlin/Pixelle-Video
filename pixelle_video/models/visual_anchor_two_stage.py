@@ -5,7 +5,7 @@ from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v8"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v9"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v5"
 PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v4"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
@@ -13,6 +13,7 @@ ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v5",
     "visual_anchor_content_stage.v6",
     "visual_anchor_content_stage.v7",
+    "visual_anchor_content_stage.v8",
     CONTENT_STAGE_PROMPT_VERSION,
 ]
 FusionStagePromptVersion = Literal[
@@ -263,6 +264,46 @@ class ContentFact(BaseModel):
         return _concrete_subject_text(value, info.field_name)
 
 
+_FLATTENED_CONTENT_FACT_FIELDS = (
+    "category",
+    "statement",
+    "source_evidence",
+    "pure_content_prompt_evidence",
+)
+
+
+def _decode_flattened_content_facts(value: object) -> object:
+    """Decode only complete key-value fact groups emitted by JSON-mode LLMs."""
+
+    if not isinstance(value, list) or not value:
+        return value
+    if not all(isinstance(item, str) for item in value):
+        return value
+    if len(value) % len(_FLATTENED_CONTENT_FACT_FIELDS) != 0:
+        return value
+
+    decoded: list[dict[str, str]] = []
+    group_size = len(_FLATTENED_CONTENT_FACT_FIELDS)
+    for offset in range(0, len(value), group_size):
+        group = value[offset : offset + group_size]
+        fact: dict[str, str] = {}
+        for item in group:
+            field_name, separator, field_value = item.partition(":")
+            normalized_field_name = field_name.strip()
+            if (
+                not separator
+                or normalized_field_name not in _FLATTENED_CONTENT_FACT_FIELDS
+                or normalized_field_name in fact
+                or not field_value.strip()
+            ):
+                return value
+            fact[normalized_field_name] = field_value.strip()
+        if set(fact) != set(_FLATTENED_CONTENT_FACT_FIELDS):
+            return value
+        decoded.append(fact)
+    return decoded
+
+
 class ContentStageSubject(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -282,8 +323,16 @@ class ContentStageSubject(BaseModel):
     )
     protected_facts: list[ContentFact] = Field(
         min_length=1,
-        description="直接描述该主体且必须由后续阶段保留的事实",
+        description=(
+            "直接描述该主体且必须由后续阶段保留的事实对象数组；"
+            "每项必须是 ContentFact 对象，不能是字符串"
+        ),
     )
+
+    @field_validator("protected_facts", mode="before")
+    @classmethod
+    def _decode_protected_facts(cls, value: object) -> object:
+        return _decode_flattened_content_facts(value)
 
     @field_validator(
         "name",
@@ -306,7 +355,12 @@ class ContentStageModelOutput(BaseModel):
     core_claim: str
     primary_subject: ContentStageSubject
     secondary_subjects: list[ContentStageSubject] = Field(default_factory=list)
-    scene_facts: list[ContentFact] = Field(default_factory=list)
+    scene_facts: list[ContentFact] = Field(
+        default_factory=list,
+        description=(
+            "跨主体或全场景事实对象数组；每项必须是 ContentFact 对象，不能是字符串"
+        ),
+    )
     adjustable_non_core_content: list[str] = Field(default_factory=list)
     pure_content_prompt: str
     self_check: ReviewDecision
@@ -316,6 +370,11 @@ class ContentStageModelOutput(BaseModel):
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
+
+    @field_validator("scene_facts", mode="before")
+    @classmethod
+    def _decode_scene_facts(cls, value: object) -> object:
+        return _decode_flattened_content_facts(value)
 
     @field_validator("adjustable_non_core_content", "self_check_failures")
     @classmethod
