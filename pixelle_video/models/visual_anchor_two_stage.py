@@ -5,7 +5,7 @@ from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v9"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v10"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v5"
 PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v4"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
@@ -14,6 +14,7 @@ ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v6",
     "visual_anchor_content_stage.v7",
     "visual_anchor_content_stage.v8",
+    "visual_anchor_content_stage.v9",
     CONTENT_STAGE_PROMPT_VERSION,
 ]
 FusionStagePromptVersion = Literal[
@@ -191,6 +192,17 @@ def _concrete_subject_text(value: object, field_name: str) -> str:
     return text
 
 
+def _optional_concrete_subject_text(value: object, field_name: str) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    text = " ".join(value.split())
+    if text and any(pattern.search(text) for pattern in _PLACEHOLDER_SUBJECT_PATTERNS):
+        raise ValueError(f"{field_name} cannot use a storyboard placeholder")
+    return text
+
+
 class TargetVisualStyle(BaseModel):
     """The single global style contract shared by both prompt stages."""
 
@@ -304,6 +316,113 @@ def _decode_flattened_content_facts(value: object) -> object:
     return decoded
 
 
+def _decode_subject_fact_statements(
+    subject: object,
+    *,
+    core_claim: object,
+    pure_content_prompt: object,
+) -> object:
+    """Materialize fact objects from bare statements using subject-local evidence."""
+
+    if not isinstance(subject, dict):
+        return subject
+    facts = subject.get("protected_facts")
+    if not isinstance(facts, list) or not facts or not all(
+        isinstance(item, str) for item in facts
+    ):
+        return subject
+
+    keyed_facts = _decode_flattened_content_facts(facts)
+    if keyed_facts is not facts:
+        return {**subject, "protected_facts": keyed_facts}
+
+    for item in facts:
+        field_name, separator, _ = item.partition(":")
+        if separator and field_name.strip() in _FLATTENED_CONTENT_FACT_FIELDS:
+            return subject
+
+    category = subject.get("category")
+    source_fallback = subject.get("source_evidence")
+    prompt_fallback = subject.get("pure_content_prompt_evidence")
+    if (
+        category not in get_args(ContentSubjectCategory)
+        or not isinstance(source_fallback, str)
+        or not source_fallback.strip()
+        or not isinstance(prompt_fallback, str)
+        or not prompt_fallback.strip()
+    ):
+        return subject
+
+    normalized_core_claim = (
+        " ".join(core_claim.split()) if isinstance(core_claim, str) else ""
+    )
+    normalized_prompt = (
+        " ".join(pure_content_prompt.split())
+        if isinstance(pure_content_prompt, str)
+        else ""
+    )
+    decoded: list[dict[str, str]] = []
+    for item in facts:
+        statement = " ".join(item.split())
+        if not statement:
+            return subject
+        decoded.append(
+            {
+                "category": category,
+                "statement": statement,
+                "source_evidence": (
+                    statement if statement in normalized_core_claim else source_fallback
+                ),
+                "pure_content_prompt_evidence": (
+                    statement if statement in normalized_prompt else prompt_fallback
+                ),
+            }
+        )
+    return {**subject, "protected_facts": decoded}
+
+
+def _use_exact_prompt_evidence(value: object, pure_content_prompt: object) -> object:
+    """Prefer an existing exact prompt excerpt when the claimed excerpt is inexact."""
+
+    if not isinstance(value, dict) or not isinstance(pure_content_prompt, str):
+        return value
+    normalized_prompt = " ".join(pure_content_prompt.split())
+    current_evidence = value.get("pure_content_prompt_evidence")
+    if (
+        isinstance(current_evidence, str)
+        and current_evidence.strip()
+        and " ".join(current_evidence.split()) in normalized_prompt
+    ):
+        return value
+    for field_name in ("statement", "source_evidence"):
+        candidate = value.get(field_name)
+        if (
+            isinstance(candidate, str)
+            and candidate.strip()
+            and " ".join(candidate.split()) in normalized_prompt
+        ):
+            return {**value, "pure_content_prompt_evidence": candidate}
+    return value
+
+
+def _normalize_subject_prompt_evidence(
+    subject: object,
+    pure_content_prompt: object,
+) -> object:
+    if not isinstance(subject, dict):
+        return subject
+    normalized_subject = _use_exact_prompt_evidence(subject, pure_content_prompt)
+    facts = normalized_subject.get("protected_facts")
+    if not isinstance(facts, list):
+        return normalized_subject
+    return {
+        **normalized_subject,
+        "protected_facts": [
+            _use_exact_prompt_evidence(fact, pure_content_prompt) for fact in facts
+        ],
+    }
+
+
 class ContentStageSubject(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -337,7 +456,6 @@ class ContentStageSubject(BaseModel):
     @field_validator(
         "name",
         "identity",
-        "action",
         "source_evidence",
         "pure_content_prompt_evidence",
         mode="before",
@@ -345,6 +463,11 @@ class ContentStageSubject(BaseModel):
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
         return _concrete_subject_text(value, info.field_name)
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _validate_action(cls, value: object) -> str:
+        return _optional_concrete_subject_text(value, "action")
 
 
 class ContentStageModelOutput(BaseModel):
@@ -365,6 +488,47 @@ class ContentStageModelOutput(BaseModel):
     pure_content_prompt: str
     self_check: ReviewDecision
     self_check_failures: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _decode_subject_facts(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        core_claim = value.get("core_claim")
+        pure_content_prompt = value.get("pure_content_prompt")
+        primary_subject = _decode_subject_fact_statements(
+            value.get("primary_subject"),
+            core_claim=core_claim,
+            pure_content_prompt=pure_content_prompt,
+        )
+        primary_subject = _normalize_subject_prompt_evidence(
+            primary_subject,
+            pure_content_prompt,
+        )
+        secondary_subjects = value.get("secondary_subjects")
+        if isinstance(secondary_subjects, list):
+            secondary_subjects = [
+                _normalize_subject_prompt_evidence(
+                    _decode_subject_fact_statements(
+                        subject,
+                        core_claim=core_claim,
+                        pure_content_prompt=pure_content_prompt,
+                    ),
+                    pure_content_prompt,
+                )
+                for subject in secondary_subjects
+            ]
+        decoded_value = {**value, "primary_subject": primary_subject}
+        if "secondary_subjects" in value:
+            decoded_value["secondary_subjects"] = secondary_subjects
+        scene_facts = value.get("scene_facts")
+        if isinstance(scene_facts, list):
+            scene_facts = _decode_flattened_content_facts(scene_facts)
+            decoded_value["scene_facts"] = [
+                _use_exact_prompt_evidence(fact, pure_content_prompt)
+                for fact in scene_facts
+            ]
+        return decoded_value
 
     @field_validator("core_claim", "pure_content_prompt", mode="before")
     @classmethod
@@ -416,7 +580,6 @@ class ContentSubject(BaseModel):
         "subject_id",
         "name",
         "identity",
-        "action",
         "source_evidence",
         "pure_content_prompt_evidence",
         mode="before",
@@ -424,6 +587,11 @@ class ContentSubject(BaseModel):
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
         return _concrete_subject_text(value, info.field_name)
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _validate_action(cls, value: object) -> str:
+        return _optional_concrete_subject_text(value, "action")
 
 
 class ProtectedFact(ContentFact):
