@@ -900,6 +900,66 @@ async def test_content_stage_accepts_recorded_bare_fact_and_empty_action_respons
     )
 
 
+@pytest.mark.asyncio
+async def test_content_stage_assigns_recorded_scene_fact_to_subject_when_nested_fact_is_null():
+    source_text = "乔布斯的一生，就是一部传奇。"
+    stage_input = ContentStageInput(
+        frame_id="frame-browser-null-fact",
+        original_storyboard_text=source_text,
+        article_context=source_text,
+        previous_frame_summary="首镜，无前一镜",
+        next_frame_summary="末镜，无后一镜",
+        target_visual_style=TargetVisualStyle(description="简约单色线稿"),
+        target_image_prompt_language="中文",
+    )
+    recorded_response = {
+        "core_claim": source_text,
+        "primary_subject": {
+            "category": "person",
+            "name": "乔布斯",
+            "identity": "乔布斯",
+            "quantity": 1,
+            "action": "",
+            "source_evidence": "乔布斯",
+            "pure_content_prompt_evidence": "乔布斯",
+            "protected_facts": [None],
+        },
+        "secondary_subjects": [],
+        "scene_facts": [
+            {
+                "category": "theme",
+                "statement": "乔布斯的一生是一部传奇",
+                "source_evidence": source_text,
+                "pure_content_prompt_evidence": "乔布斯的一生是一部传奇",
+            }
+        ],
+        "adjustable_non_core_content": [],
+        "pure_content_prompt": (
+            "乔布斯的一生是一部传奇, minimal line art, elegant contour drawing, "
+            "lots of negative space, subtle emotional tone, clean monochrome illustration"
+        ),
+        "self_check": "pass",
+        "self_check_failures": [],
+    }
+    llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
+
+    output = await VisualAnchorTwoStageService()._run_content_stage(
+        llm_service=llm,
+        stage_input=stage_input,
+        trace_context=None,
+        trace_recorder=None,
+    )
+
+    assert len(llm.calls) == 1
+    assert output.primary_subject.action == ""
+    assert [fact.statement for fact in output.protected_facts] == [
+        "乔布斯的一生是一部传奇"
+    ]
+    assert output.protected_facts[0].subject_ids == [
+        "frame-browser-null-fact-subject-primary"
+    ]
+
+
 @pytest.mark.parametrize(
     "flattened_facts",
     [

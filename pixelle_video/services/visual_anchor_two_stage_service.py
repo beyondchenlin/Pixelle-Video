@@ -945,7 +945,36 @@ def _materialize_content_stage_output(
             subject_ids=[subject_id],
         )
 
-    append_facts(facts=model_output.scene_facts, subject_ids=[])
+    subject_fact_refs = [
+        (primary_subject_id, model_output.primary_subject),
+        *[
+            (f"{frame_id}-subject-secondary-{subject_index}", subject)
+            for subject_index, subject in enumerate(
+                model_output.secondary_subjects,
+                start=1,
+            )
+        ],
+    ]
+    for fact in model_output.scene_facts:
+        fact_text = _normalized_text(
+            "\n".join(
+                [
+                    fact.statement,
+                    fact.source_evidence,
+                    fact.pure_content_prompt_evidence,
+                ]
+            )
+        ).casefold()
+        matching_subject_ids = [
+            subject_id
+            for subject_id, subject in subject_fact_refs
+            if any(
+                _normalized_text(alias).casefold() in fact_text
+                for alias in {subject.name, subject.identity}
+                if _normalized_text(alias)
+            )
+        ]
+        append_facts(facts=[fact], subject_ids=matching_subject_ids)
     return ContentStageOutput(
         core_claim=model_output.core_claim,
         protected_facts=protected_facts,
