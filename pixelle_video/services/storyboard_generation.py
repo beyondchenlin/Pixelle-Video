@@ -180,6 +180,8 @@ def _smart_storyboard_auto_max_scene_count(
 def _coalesce_segments_to_count(
     segments: list[tuple[str, int, int]],
     max_scene_count: int,
+    *,
+    source_text: str,
 ) -> list[tuple[str, int, int]]:
     if max_scene_count <= 0 or len(segments) <= max_scene_count:
         return segments
@@ -192,11 +194,13 @@ def _coalesce_segments_to_count(
         group = segments[start_index:end_index]
         if not group:
             continue
+        source_start = group[0][1]
+        source_end = group[-1][2]
         grouped.append(
             (
-                "".join(segment[0] for segment in group),
-                group[0][1],
-                group[-1][2],
+                source_text[source_start:source_end],
+                source_start,
+                source_end,
             )
         )
     return grouped
@@ -370,6 +374,7 @@ class StoryboardGenerationService:
             fallback_segments = _coalesce_segments_to_count(
                 _sentence_segments(normalized_source),
                 max_scene_count,
+                source_text=normalized_source,
             )
             return self._plan_from_segments(
                 mode="smart",
