@@ -892,6 +892,71 @@ def test_content_model_preserves_ambiguous_equal_length_prompt_fragments():
         _validate_content_stage_output(stage_input, materialized)
 
 
+@pytest.mark.asyncio
+async def test_content_stage_canonicalizes_unambiguous_pronoun_subject_name():
+    source_text = (
+        "这种执着让他一次次突破创新。"
+        "但成功路上也有挫折，他也曾被自己创立的公司开除。"
+    )
+    stage_input = ContentStageInput(
+        frame_id="frame-pronoun-subject",
+        original_storyboard_text=source_text,
+        article_context=f"乔布斯的人生就像一部传奇电影。{source_text}",
+        previous_frame_summary="乔布斯重视用户体验",
+        next_frame_summary="乔布斯创办了皮克斯",
+        target_visual_style=TargetVisualStyle(description="简约单色线稿"),
+        target_image_prompt_language="中文",
+    )
+    recorded_response = {
+        "core_claim": source_text,
+        "primary_subject": {
+            "category": "person",
+            "name": "他",
+            "identity": "乔布斯",
+            "quantity": 1,
+            "action": "",
+            "source_evidence": "他",
+            "pure_content_prompt_evidence": "乔布斯",
+        },
+        "secondary_subjects": [],
+        "scene_facts": [],
+        "adjustable_non_core_content": ["背景环境"],
+        "pure_content_prompt": "乔布斯站在公司的门口，显得沮丧和失落",
+    }
+    llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
+
+    output = await VisualAnchorTwoStageService()._run_content_stage(
+        llm_service=llm,
+        stage_input=stage_input,
+        trace_context=None,
+        trace_recorder=None,
+    )
+
+    assert len(llm.calls) == 1
+    assert output.primary_subject.name == "乔布斯"
+    assert output.protected_facts[0].statement == "乔布斯"
+    assert output.protected_facts[0].source_evidence == "他"
+    assert output.protected_facts[0].pure_content_prompt_evidence == "乔布斯"
+
+
+def test_content_model_preserves_pronoun_when_identity_and_evidence_differ():
+    payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
+        mode="json"
+    )
+    payload["primary_subject"].update(
+        {
+            "name": "他",
+            "identity": "苹果公司的创始人",
+            "source_evidence": "乔布斯",
+            "pure_content_prompt_evidence": "两位创作者",
+        }
+    )
+
+    output = ContentStageModelOutput.model_validate(payload)
+
+    assert output.primary_subject.name == "他"
+
+
 def test_content_model_output_rejects_generated_identifier_fields():
     payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
         mode="json"
