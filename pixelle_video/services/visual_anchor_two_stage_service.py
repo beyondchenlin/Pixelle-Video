@@ -523,7 +523,7 @@ class VisualAnchorTwoStageService:
                 frame_id=frame.frame_id,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
-                temperature=0.7,
+                temperature=0.0,
                 call_audit=fusion_call_audit,
             )
             fusion_output = _normalize_fusion_protected_fact_evidence(
@@ -704,7 +704,7 @@ class VisualAnchorTwoStageService:
                 frame_id=stage_input.frame_id,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
-                temperature=0.5,
+                temperature=0.0,
                 call_audit=resolved_call_audit,
             )
         except Exception as exc:

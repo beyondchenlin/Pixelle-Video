@@ -386,6 +386,17 @@ async def test_positive_only_workflow_requires_an_empty_negative_prompt():
 
 
 @pytest.mark.asyncio
+async def test_contract_bound_stages_use_zero_temperature():
+    _, llm = await _run(_plan())
+
+    assert [call["kwargs"]["temperature"] for call in llm.calls] == [
+        0.0,
+        0.0,
+        0.0,
+    ]
+
+
+@pytest.mark.asyncio
 async def test_terminal_stage_events_report_each_real_call_zero_retries_and_latency():
     events = []
 
