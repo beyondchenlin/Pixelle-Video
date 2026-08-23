@@ -1433,12 +1433,18 @@ def _promote_local_single_instance_clause(
         return prompt
 
     candidates: list[tuple[int, int, str]] = []
-    for local_term, global_term in (
-        ("有一个", "只有一个"),
-        ("有一只", "只有一只"),
-        ("有一名", "只有一名"),
+    for local_term, global_term, blocked_prefix_characters in (
+        ("有一个", "只有一个", "只仅唯"),
+        ("有一只", "只有一只", "只仅唯"),
+        ("有一名", "只有一名", "只仅唯"),
+        ("一个", "只有一个", "只有仅唯另每各第多少任"),
+        ("一只", "只有一只", "只有仅唯另每各第多少任"),
+        ("一名", "只有一名", "只有仅唯另每各第多少任"),
     ):
-        pattern = rf"(?<![只仅唯]){re.escape(local_term)}"
+        pattern = (
+            rf"(?<![{re.escape(blocked_prefix_characters)}])"
+            rf"{re.escape(local_term)}"
+        )
         for term_match in re.finditer(pattern, prompt):
             clause_start = max(
                 prompt.rfind(delimiter, 0, term_match.start())

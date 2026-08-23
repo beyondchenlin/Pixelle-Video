@@ -1508,6 +1508,77 @@ async def test_recorded_local_instance_clause_is_promoted_to_global_uniqueness()
 
 
 @pytest.mark.asyncio
+async def test_recorded_bare_instance_clause_is_promoted_to_global_uniqueness():
+    positive = (
+        "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。"
+        "一只拥有圆形白色脸和蓝色短耳的小皮安静地坐在工作台旁。"
+    )
+    expected_positive = positive.replace("一只", "只有一只", 1)
+    expected_evidence = "只有一只拥有圆形白色脸和蓝色短耳的小皮"
+    fusion = _fusion(
+        "frame-a",
+        positive=positive,
+        single_instance_evidence="画面中只有一只小皮",
+    )
+    normalized_fusion = fusion.model_copy(
+        update={
+            "final_positive_prompt": expected_positive,
+            "single_instance_prompt_evidence": expected_evidence,
+        }
+    )
+
+    result, llm = await _run(
+        _plan(),
+        fusion_outputs=[fusion],
+        review_outputs=[_review(normalized_fusion)],
+    )
+
+    frame = result.frames[0]
+    assert frame.generation_request.final_positive_prompt == expected_positive
+    assert frame.generation_request.single_instance_prompt_evidence == (
+        expected_evidence
+    )
+    assert len(llm.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_bare_instance_phrases_are_not_promoted():
+    fusion = _fusion(
+        "frame-a",
+        positive=(
+            "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。"
+            "一只拥有圆形白色脸和蓝色短耳的小皮站在左侧，"
+            "一只拥有圆形白色脸和蓝色短耳的小皮站在右侧。"
+        ),
+        single_instance_evidence="画面中只有一只小皮",
+    )
+
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="single-instance evidence is not present",
+    ):
+        await _run(_plan(), fusion_outputs=[fusion])
+
+
+@pytest.mark.asyncio
+async def test_relative_bare_instance_phrase_is_not_promoted():
+    fusion = _fusion(
+        "frame-a",
+        positive=(
+            "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。"
+            "另一只拥有圆形白色脸和蓝色短耳的小皮站在工作台旁。"
+        ),
+        single_instance_evidence="画面中只有一只小皮",
+    )
+
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="single-instance evidence is not present",
+    ):
+        await _run(_plan(), fusion_outputs=[fusion])
+
+
+@pytest.mark.asyncio
 async def test_multiple_local_instance_clauses_are_not_promoted():
     fusion = _fusion(
         "frame-a",
