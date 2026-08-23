@@ -91,9 +91,15 @@ _SINGLE_INSTANCE_TERMS = (
 _SINGLE_INSTANCE_CLAUSE_DELIMITERS = ",，;；。.!！?？\n"
 _SINGLE_INSTANCE_NEGATION_SUFFIXES = (
     "不",
+    "没",
+    "没有",
+    "不止",
+    "不只",
+    "不只是",
     "并非",
     "不是",
     "并不是",
+    "并不止",
     "未",
     "并未",
     "not",
@@ -1391,7 +1397,22 @@ def _normalize_fusion_single_instance_evidence(
         stage_input.identity_profile.display_name,
     )
     if extracted_evidence is None:
-        return output
+        promoted_positive = _promote_local_single_instance_clause(
+            normalized_positive,
+            stage_input.identity_profile.display_name,
+        )
+        if promoted_positive == normalized_positive:
+            return output
+        normalized_positive = promoted_positive
+        extracted_evidence = _extract_single_instance_prompt_evidence(
+            normalized_positive,
+            stage_input.identity_profile.display_name,
+        )
+        if extracted_evidence is None:
+            return output
+        output = output.model_copy(
+            update={"final_positive_prompt": normalized_positive}
+        )
     if (
         normalized_evidence.casefold() in normalized_positive.casefold()
         and extracted_evidence.casefold() in normalized_evidence.casefold()
@@ -1400,6 +1421,55 @@ def _normalize_fusion_single_instance_evidence(
     return output.model_copy(
         update={"single_instance_prompt_evidence": extracted_evidence}
     )
+
+
+def _promote_local_single_instance_clause(
+    final_positive_prompt: str,
+    identity_display_name: str,
+) -> str:
+    prompt = _normalized_text(final_positive_prompt)
+    identity = _normalized_text(identity_display_name)
+    if not prompt or not identity:
+        return prompt
+
+    candidates: list[tuple[int, int, str]] = []
+    for local_term, global_term in (
+        ("有一个", "只有一个"),
+        ("有一只", "只有一只"),
+        ("有一名", "只有一名"),
+    ):
+        pattern = rf"(?<![只仅唯]){re.escape(local_term)}"
+        for term_match in re.finditer(pattern, prompt):
+            clause_start = max(
+                prompt.rfind(delimiter, 0, term_match.start())
+                for delimiter in _SINGLE_INSTANCE_CLAUSE_DELIMITERS
+            ) + 1
+            prefix = prompt[clause_start : term_match.start()].strip().casefold()
+            if any(
+                prefix.endswith(suffix.casefold())
+                for suffix in _SINGLE_INSTANCE_NEGATION_SUFFIXES
+            ):
+                continue
+            identity_match = re.search(
+                re.escape(identity),
+                prompt[term_match.end() :],
+                flags=re.IGNORECASE,
+            )
+            if identity_match is None:
+                continue
+            identity_start = term_match.end() + identity_match.start()
+            between = prompt[term_match.end() : identity_start]
+            if any(
+                delimiter in between
+                for delimiter in _SINGLE_INSTANCE_CLAUSE_DELIMITERS
+            ):
+                continue
+            candidates.append((term_match.start(), term_match.end(), global_term))
+
+    if len(candidates) != 1:
+        return prompt
+    start, end, replacement = candidates[0]
+    return f"{prompt[:start]}{replacement}{prompt[end:]}"
 
 
 def _normalize_fusion_protected_fact_evidence(
