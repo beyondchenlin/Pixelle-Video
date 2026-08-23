@@ -132,7 +132,7 @@ def render_series_visual_signature_controls(
         "series_visual_signature_llm_prompt_assembly_enabled": llm_prompt_assembly_enabled,
         "mandatory_content_bound_anchor": True,
         "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
-        "series_visual_signature_output_validation_mode": "required",
+        "series_visual_signature_output_validation_mode": "off",
         "series_visual_signature_output_max_attempts": 1,
         **presentation_payload,
     }

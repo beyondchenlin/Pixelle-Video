@@ -65,9 +65,6 @@ from pixelle_video.models.render_package import (
     TextTrack,
     VisualClip,
 )
-from pixelle_video.models.series_visual_signature_presentation import (
-    SeriesVisualSignaturePresentationPolicy,
-)
 from pixelle_video.models.series_visual_signature_request import SeriesVisualSignatureRequest
 from pixelle_video.models.size_contract import (
     GenerationSizeContract,
@@ -95,7 +92,6 @@ from pixelle_video.pipelines.comfyui_session import (
 from pixelle_video.pipelines.linear import (
     LinearVideoPipeline,
     PipelineContext,
-    resolve_vision_llm_config,
 )
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.platform_context import resolve_project_id, resolve_workspace_id
@@ -123,9 +119,6 @@ from pixelle_video.services.llm_trace_refs import (
     llm_trace_refs_from_records,
     merge_llm_trace_refs,
 )
-from pixelle_video.services.mandatory_visual_anchor_prompt_repair import (
-    MandatoryVisualAnchorPromptRepairService,
-)
 from pixelle_video.services.media_geometry_resolver import MediaGeometryResolver
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
 from pixelle_video.services.omnivoice_longform_blocks import build_omnivoice_longform_block_plan
@@ -149,12 +142,6 @@ from pixelle_video.services.render_capability_resolver import (
 from pixelle_video.services.script_generation import ScriptGenerationService
 from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
     validate_series_visual_signature_profile_snapshot,
-)
-from pixelle_video.services.series_visual_signature_rendered_output_gate import (
-    SeriesVisualSignatureRenderedOutputGate,
-    SeriesVisualSignatureRenderedOutputGateError,
-    resolve_rendered_output_max_attempts,
-    resolve_rendered_output_validation_mode,
 )
 from pixelle_video.services.storyboard_generation import StoryboardGenerationService
 from pixelle_video.services.storyboard_workbench_artifact_bridge import (
@@ -250,19 +237,19 @@ def _workflow_supports_reference_image(
     ).supports_reference_image
 
 
-def _project_legacy_standard_z_image_signature_batch(
+def _validate_single_pass_z_image_signature_batch(
     batch: StyledImagePromptBatch,
 ) -> StyledImagePromptBatch:
-    """Keep the retired three-attempt signature route compatible and isolated."""
+    """Validate final prompt lineage before the only image-generation request."""
 
     rendered = tuple(batch.rendered_prompts or ())
     prompt_plan_bundle = batch.prompt_plan_bundle
     if not rendered or prompt_plan_bundle is None:
         raise ValueError(
-            "legacy Z-Image visual signature requires rendered prompts and a prompt plan"
+            "single-pass Z-Image visual signature requires rendered prompts and a prompt plan"
         )
     if len(rendered) != len(prompt_plan_bundle.prompt_plans):
-        raise ValueError("legacy Z-Image prompt-plan coverage mismatch")
+        raise ValueError("single-pass Z-Image prompt-plan coverage mismatch")
     snapshot = dict(batch.planning_snapshot or {})
     traces = {
         str(frame_id): dict(trace)
@@ -286,10 +273,10 @@ def _project_legacy_standard_z_image_signature_batch(
         if payload["prompt"] != prompt_plan.final_prompt or payload[
             "negative_prompt"
         ] != (prompt_plan.final_negative_prompt or ""):
-            raise ValueError("legacy Z-Image prompt lineage is inconsistent")
+            raise ValueError("single-pass Z-Image prompt lineage is inconsistent")
         trace = traces.get(prompt_plan.frame_id)
         if trace is None:
-            raise ValueError("legacy Z-Image trace coverage mismatch")
+            raise ValueError("single-pass Z-Image trace coverage mismatch")
         trace["adapter"] = {
             "provider": "z_image",
             "validated": True,
@@ -1022,7 +1009,7 @@ class StandardPipeline(LinearVideoPipeline):
                 and media_type == "image"
                 and _targets_z_image_workflow(ctx.params.get("media_workflow"))
             ):
-                styled_batch = _project_legacy_standard_z_image_signature_batch(
+                styled_batch = _validate_single_pass_z_image_signature_batch(
                     styled_batch
                 )
             ctx.image_prompts = styled_batch.prompts
@@ -1206,7 +1193,7 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.storyboard.frames.append(frame)
 
         self._write_final_prompt_trace_artifact(ctx)
-        self._configure_series_visual_signature_output_gate(
+        self._configure_series_visual_signature_single_pass_policy(
             ctx,
             media_type=template_type,
         )
@@ -1343,7 +1330,7 @@ class StandardPipeline(LinearVideoPipeline):
             }
 
 
-    def _configure_series_visual_signature_output_gate(
+    def _configure_series_visual_signature_single_pass_policy(
         self,
         ctx: PipelineContext,
         *,
@@ -1368,76 +1355,29 @@ class StandardPipeline(LinearVideoPipeline):
         if not traces or media_type != "image" or not ctx.task_dir:
             return
 
-        presentation_policy = SeriesVisualSignaturePresentationPolicy.from_mapping(
-            ctx.params
-        )
-        mode = resolve_rendered_output_validation_mode(
-            ctx.params,
-            strict_signature_enforcement=presentation_policy.strict,
-        )
-        max_attempts = resolve_rendered_output_max_attempts(ctx.params)
-        policy_audit = {
-            "schema_version": "series_visual_signature_rendered_output_policy.v1",
-            "mode": mode,
-            "max_generation_attempts": max_attempts,
-            "media_type": "image",
-            "checks": [
-                "identity_instance_count",
-                "largest_identity_area_ratio",
-                "identity_traits_visible",
-                "identity_is_primary_focus",
-                "required_subjects_visible",
-                "anchor_action_matches",
-                "interaction_target_visible",
-                "content_claim_preserved",
-                "anchor_replaced_required_subject",
-                "support_contact_occlusion",
-                "lighting_perspective",
-                "anatomy_duplicates_sticker_text",
-            ],
-        }
-        snapshot["series_visual_signature_rendered_output_policy"] = policy_audit
-        ctx.planning_snapshot = snapshot
-        if ctx.storyboard is not None:
-            ctx.storyboard.planning_snapshot = dict(
-                ctx.storyboard.planning_snapshot or {}
-            )
-            ctx.storyboard.planning_snapshot[
-                "series_visual_signature_rendered_output_policy"
-            ] = policy_audit
-        if mode == "off":
-            return
-
-        gate = SeriesVisualSignatureRenderedOutputGate(
-            vision_config=resolve_vision_llm_config(getattr(self.core, "config", None)),
-            mode=mode,
-            task_dir=ctx.task_dir,
-            max_generation_attempts=max_attempts,
-        )
         if ctx.storyboard is None:
             raise ValueError(
-                "rendered-output validation requires an initialized storyboard"
+                "single-pass prompt validation requires an initialized storyboard"
             )
         runtime_frame_ids = tuple(
             str(frame.frame_id or "").strip() for frame in ctx.storyboard.frames
         )
         if any(not frame_id for frame_id in runtime_frame_ids):
             raise ValueError(
-                "rendered-output validation requires a stable frame_id on every runtime frame"
+                "single-pass prompt validation requires a stable frame_id on every runtime frame"
             )
         if len(set(runtime_frame_ids)) != len(runtime_frame_ids):
             raise ValueError(
-                "rendered-output validation requires unique runtime frame ids"
+                "single-pass prompt validation requires unique runtime frame ids"
             )
         if set(traces) != set(runtime_frame_ids):
             raise ValueError(
-                "rendered-output validation trace coverage must exactly match runtime frame ids"
+                "single-pass prompt validation trace coverage must exactly match runtime frame ids"
             )
 
         runtime_frames_by_id = {
             str(frame.frame_id): frame for frame in ctx.storyboard.frames
         }
-        frame_contracts: dict[str, FinalVisualPromptContractV46] = {}
         for frame_id in runtime_frame_ids:
             trace = traces[frame_id]
             runtime_frame = runtime_frames_by_id[frame_id]
@@ -1445,7 +1385,7 @@ class StandardPipeline(LinearVideoPipeline):
                 runtime_frame.image_prompt or ""
             ):
                 raise ValueError(
-                    "rendered-output validation trace prompt must match the runtime frame prompt"
+                    "single-pass prompt validation trace prompt must match the runtime frame prompt"
                 )
             effective_negative_prompt = (
                 runtime_frame.negative_prompt
@@ -1454,13 +1394,13 @@ class StandardPipeline(LinearVideoPipeline):
             )
             if str(trace.get("final_negative_prompt") or "") != effective_negative_prompt:
                 raise ValueError(
-                    "rendered-output validation trace negative prompt must match the runtime frame prompt"
+                    "single-pass prompt validation trace negative prompt must match the runtime frame prompt"
                 )
 
             contract_payload = trace.get("contract")
             if not isinstance(contract_payload, Mapping):
                 raise ValueError(
-                    "rendered-output validation requires a complete frame contract"
+                    "single-pass prompt validation requires a complete frame contract"
                 )
             contract = read_final_visual_prompt_contract(
                 contract_payload,
@@ -1468,16 +1408,16 @@ class StandardPipeline(LinearVideoPipeline):
             )
             if not isinstance(contract, FinalVisualPromptContractV46):
                 raise ValueError(
-                    "rendered-output validation requires a V4.6 frame contract"
+                    "single-pass prompt validation requires a V4.6 frame contract"
                 )
             if contract.frame_id != frame_id:
                 raise ValueError(
-                    "rendered-output validation trace key must match contract frame_id"
+                    "single-pass prompt validation trace key must match contract frame_id"
                 )
             signature = contract.series_visual_signature
             if not signature.enabled or signature.profile is None:
                 raise ValueError(
-                    "rendered-output validation requires an enabled visual identity contract"
+                    "single-pass prompt validation requires an enabled visual identity contract"
                 )
             validated_profile = validate_series_visual_signature_profile_snapshot(
                 signature.profile
@@ -1486,100 +1426,44 @@ class StandardPipeline(LinearVideoPipeline):
                 validated_profile.identity_content_sha256
             ):
                 raise ValueError(
-                    "rendered-output validation identity hash must match the frame contract"
+                    "single-pass prompt validation identity hash must match the frame contract"
                 )
             if trace.get("contract_content_sha256") != contract.contract_content_sha256:
                 raise ValueError(
-                    "rendered-output validation contract hash must match the frame contract"
+                    "single-pass prompt validation contract hash must match the frame contract"
                 )
             if trace.get("contract_version") != contract.contract_version:
                 raise ValueError(
-                    "rendered-output validation contract version must match the frame contract"
+                    "single-pass prompt validation contract version must match the frame contract"
                 )
-            frame_contracts[frame_id] = contract
 
-        gate.assert_availability_policy()
-        ctx.runtime_resources.append(gate)
-        ctx.media_generation_max_attempts = gate.max_generation_attempts
-        trace_recorder = (
-            self._llm_trace_recorder(ctx) if not gate.unavailable_reason else None
+        policy_audit = {
+            "schema_version": "series_visual_signature_single_pass_policy.v1",
+            "mode": "pre_generation_only",
+            "max_generation_attempts": 1,
+            "media_type": "image",
+            "post_generation_vision_validation_enabled": False,
+            "prompt_repair_enabled": False,
+            "pre_generation_checks": [
+                "stable_unique_frame_ids",
+                "complete_trace_coverage",
+                "positive_and_negative_prompt_lineage",
+                "final_visual_prompt_contract_v4_6",
+                "visual_identity_contract_integrity",
+            ],
+        }
+        snapshot["series_visual_signature_single_pass_policy"] = policy_audit
+        ctx.planning_snapshot = snapshot
+        ctx.params["series_visual_signature_output_max_attempts"] = 1
+        ctx.params["series_visual_signature_output_validation_mode"] = "off"
+        ctx.media_generation_max_attempts = 1
+        ctx.generated_media_validator = None
+        ctx.storyboard.planning_snapshot = dict(
+            ctx.storyboard.planning_snapshot or {}
         )
-
-        async def validate_generated_frame(
-            frame: StoryboardFrame,
-            generation_attempt: int,
-        ) -> bool:
-            frame_id = str(frame.frame_id or "").strip()
-            contract = frame_contracts.get(frame_id)
-            if contract is None:
-                raise ValueError(
-                    "rendered-output validation received an unknown runtime frame_id"
-                )
-            if not frame.image_path:
-                raise ValueError(
-                    "rendered-output validation requires a generated image path"
-                )
-            signature = contract.series_visual_signature
-            if signature.profile is None:
-                raise ValueError(
-                    "rendered-output validation requires a visual identity profile"
-                )
-            try:
-                result = await gate.evaluate(
-                    image_path=frame.image_path,
-                    frame_id=frame_id,
-                    generation_attempt=generation_attempt,
-                    profile=signature.profile,
-                    max_area_ratio=signature.max_area_ratio,
-                    mandatory_contract=contract.mandatory_anchor_contract,
-                    trace_context=(
-                        self._llm_trace_context(
-                            ctx,
-                            operation="series_visual_signature_rendered_output_validation",
-                            stage="rendered_output_gate",
-                            frame_id=frame_id,
-                            metadata={"generation_attempt": generation_attempt},
-                        )
-                        if trace_recorder is not None
-                        else None
-                    ),
-                    trace_recorder=trace_recorder,
-                )
-            except SeriesVisualSignatureRenderedOutputGateError as exc:
-                if exc.result is not None:
-                    self._record_series_visual_signature_output_audit(
-                        ctx,
-                        frame_id=frame_id,
-                        result=exc.result.to_dict(),
-                    )
-                raise
-            self._record_series_visual_signature_output_audit(
-                ctx,
-                frame_id=frame_id,
-                result=result.to_dict(),
-            )
-            if result.passed:
-                return True
-            if generation_attempt + 1 < gate.max_generation_attempts:
-                repair = MandatoryVisualAnchorPromptRepairService().repair(
-                    contract=contract,
-                    failure_codes=result.failure_codes,
-                    repair_pass=generation_attempt + 1,
-                    base_negative_prompt=(
-                        frame.negative_prompt or ctx.media_negative_prompt
-                    ),
-                )
-                frame_contracts[frame_id] = repair.contract
-                frame.image_prompt = repair.bundle.positive_prompt
-                frame.negative_prompt = repair.bundle.negative_prompt
-                self._record_series_visual_signature_repair_audit(
-                    ctx,
-                    frame_id=frame_id,
-                    repair=repair.audit_dict(),
-                )
-            return False
-
-        ctx.generated_media_validator = validate_generated_frame
+        ctx.storyboard.planning_snapshot[
+            "series_visual_signature_single_pass_policy"
+        ] = policy_audit
 
     def _configure_visual_anchor_two_stage_output_audit(
         self,
@@ -1717,91 +1601,6 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.storyboard.planning_snapshot[
                 "visual_anchor_rendered_output_audit_by_frame"
             ] = audits
-
-    @staticmethod
-    def _record_series_visual_signature_output_audit(
-        ctx: PipelineContext,
-        *,
-        frame_id: str,
-        result: Mapping[str, Any],
-    ) -> None:
-        snapshot = dict(ctx.planning_snapshot or {})
-        audits = {
-            str(key): dict(value)
-            for key, value in dict(
-                snapshot.get(
-                    "series_visual_signature_rendered_output_audit_by_frame"
-                )
-                or {}
-            ).items()
-            if isinstance(value, Mapping)
-        }
-        frame_audit = dict(audits.get(frame_id) or {})
-        attempts = list(frame_audit.get("attempts") or [])
-        attempts.append(dict(result))
-        frame_audit.update(
-            {
-                "frame_id": frame_id,
-                "attempts": attempts,
-                "attempt_count": len(attempts),
-                "final_status": result.get("status"),
-                "accepted": result.get("status") == "passed",
-                "user_status": (
-                    "passed"
-                    if result.get("status") == "passed"
-                    else (
-                        "auto_repairing"
-                        if int(result.get("generation_attempt") or 0) < 2
-                        and result.get("status") == "failed"
-                        else "failed"
-                    )
-                ),
-                "remaining_repair_attempts": max(
-                    0,
-                    2 - int(result.get("generation_attempt") or 0),
-                ),
-            }
-        )
-        audits[frame_id] = frame_audit
-        snapshot["series_visual_signature_rendered_output_audit_by_frame"] = audits
-        ctx.planning_snapshot = snapshot
-        ctx.observability[
-            "series_visual_signature_rendered_output_audit_by_frame"
-        ] = audits
-        if ctx.storyboard is not None:
-            ctx.storyboard.planning_snapshot = dict(
-                ctx.storyboard.planning_snapshot or {}
-            )
-            ctx.storyboard.planning_snapshot[
-                "series_visual_signature_rendered_output_audit_by_frame"
-            ] = audits
-
-    @staticmethod
-    def _record_series_visual_signature_repair_audit(
-        ctx: PipelineContext,
-        *,
-        frame_id: str,
-        repair: Mapping[str, Any],
-    ) -> None:
-        snapshot = dict(ctx.planning_snapshot or {})
-        repairs = {
-            str(key): list(value)
-            for key, value in dict(
-                snapshot.get("mandatory_visual_anchor_repairs_by_frame") or {}
-            ).items()
-            if isinstance(value, list)
-        }
-        repairs.setdefault(frame_id, []).append(dict(repair))
-        snapshot["mandatory_visual_anchor_repairs_by_frame"] = repairs
-        ctx.planning_snapshot = snapshot
-        ctx.observability["mandatory_visual_anchor_repairs_by_frame"] = repairs
-        if ctx.storyboard is not None:
-            ctx.storyboard.planning_snapshot = dict(
-                ctx.storyboard.planning_snapshot or {}
-            )
-            ctx.storyboard.planning_snapshot[
-                "mandatory_visual_anchor_repairs_by_frame"
-            ] = repairs
 
     def _write_series_visual_signature_trace_artifacts(self, ctx: PipelineContext) -> None:
         if not ctx.task_dir or not ctx.planning_snapshot:

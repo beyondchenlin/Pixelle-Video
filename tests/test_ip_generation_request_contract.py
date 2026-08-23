@@ -83,7 +83,7 @@ def test_build_formal_payload_drops_helper_and_removed_fields():
         "series_visual_signature_llm_prompt_assembly_enabled": False,
         "mandatory_content_bound_anchor": True,
         "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
-        "series_visual_signature_output_validation_mode": "required",
+        "series_visual_signature_output_validation_mode": "off",
         "series_visual_signature_output_max_attempts": 1,
         "effective_series_visual_signature_mode": "auto",
     }
@@ -113,7 +113,7 @@ def test_enabled_ip_omits_blank_ids_but_preserves_world_hint():
         "series_visual_signature_llm_prompt_assembly_enabled": False,
         "mandatory_content_bound_anchor": True,
         "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
-        "series_visual_signature_output_validation_mode": "required",
+        "series_visual_signature_output_validation_mode": "off",
         "series_visual_signature_output_max_attempts": 1,
         "effective_series_visual_signature_mode": "auto",
         "generation_world_hint": "request world",

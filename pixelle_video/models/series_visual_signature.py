@@ -247,21 +247,22 @@ class SeriesVisualSignatureRequest:
                 raise ValueError(
                     "enabled series visual signature requires an auto or content-bound presentation mode"
                 )
-            output_max_attempts = data.get(
+            requested_output_max_attempts = data.get(
                 "series_visual_signature_output_max_attempts"
             )
-            if output_max_attempts is None:
-                output_max_attempts = 3
+            if requested_output_max_attempts is None:
+                requested_output_max_attempts = 3
             if (
-                isinstance(output_max_attempts, bool)
-                or not isinstance(output_max_attempts, int)
-                or output_max_attempts not in {1, 3}
+                isinstance(requested_output_max_attempts, bool)
+                or not isinstance(requested_output_max_attempts, int)
+                or requested_output_max_attempts not in {1, 3}
             ):
                 raise ValueError(
-                    "enabled series visual signature requires 1 or 3 output attempts"
+                    "enabled series visual signature output attempts must be 1 or legacy 3"
                 )
-            if output_max_attempts == 1:
-                two_stage_required_values = {
+            output_max_attempts = 1
+            if requested_output_max_attempts == 1:
+                single_pass_required_values = {
                     "series_visual_signature_expression_mode": "auto",
                     "series_visual_signature_structure_mode": "auto",
                     "series_visual_signature_participation_mode": "auto",
@@ -270,7 +271,7 @@ class SeriesVisualSignatureRequest:
                     "series_visual_signature_presentation_mode": "auto",
                     "series_visual_signature_llm_prompt_assembly_enabled": False,
                 }
-                for field_name, required_value in two_stage_required_values.items():
+                for field_name, required_value in single_pass_required_values.items():
                     supplied = data.get(field_name)
                     if isinstance(required_value, bool):
                         supplied = _bool_value(supplied, field_name)
@@ -278,15 +279,24 @@ class SeriesVisualSignatureRequest:
                         supplied = str(supplied or "").strip()
                     if supplied != required_value:
                         raise ValueError(
-                            "enabled two-stage visual anchor requires "
+                            "enabled single-pass visual anchor requires "
                             f"{field_name}={required_value}"
                         )
+            validation_mode = data.get(
+                "series_visual_signature_output_validation_mode"
+            )
+            if validation_mode is not None and str(validation_mode).strip().lower() not in {
+                "off",
+                "required",
+            }:
+                raise ValueError(
+                    "enabled series visual signature output validation mode is invalid"
+                )
             required_values = {
                 "series_visual_signature_enforcement": "strict",
                 "series_visual_signature_fallback_enabled": False,
                 "series_visual_signature_fallback_mode": "disabled",
                 "series_visual_signature_min_visibility": "clear",
-                "series_visual_signature_output_validation_mode": "required",
             }
             for field_name, required_value in required_values.items():
                 supplied = data.get(field_name)
@@ -308,6 +318,7 @@ class SeriesVisualSignatureRequest:
                     "mandatory_content_bound_anchor": True,
                     "series_visual_signature_contract_version": contract_version,
                     **required_values,
+                    "series_visual_signature_output_validation_mode": "off",
                     "series_visual_signature_presentation_mode": presentation_mode,
                     "series_visual_signature_output_max_attempts": output_max_attempts,
                 }

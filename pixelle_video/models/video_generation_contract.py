@@ -158,8 +158,8 @@ class IPControlsContract:
     series_visual_signature_llm_prompt_assembly_enabled: bool = False
     mandatory_content_bound_anchor: bool = False
     series_visual_signature_contract_version: str | None = None
-    series_visual_signature_output_validation_mode: str = "required"
-    series_visual_signature_output_max_attempts: int = 3
+    series_visual_signature_output_validation_mode: str = "off"
+    series_visual_signature_output_max_attempts: int = 1
 
     @classmethod
     def from_mapping(cls, params: Mapping[str, Any] | None) -> "IPControlsContract":

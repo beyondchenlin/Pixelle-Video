@@ -53,8 +53,8 @@ def test_series_visual_signature_controls_accepts_v4_fields():
         "series_visual_signature_llm_prompt_assembly_enabled": False,
         "mandatory_content_bound_anchor": True,
         "series_visual_signature_contract_version": "final_visual_prompt_contract.v4_6",
-        "series_visual_signature_output_validation_mode": "required",
-        "series_visual_signature_output_max_attempts": 3,
+        "series_visual_signature_output_validation_mode": "off",
+        "series_visual_signature_output_max_attempts": 1,
         "series_visual_signature_presentation_mode": "content_bound_mandatory_ip",
         "series_visual_signature_enforcement": "strict",
         "series_visual_signature_fallback_enabled": False,
@@ -184,8 +184,22 @@ def test_canonical_request_materializes_mandatory_v46_policy() -> None:
     )
     assert payload["series_visual_signature_enforcement"] == "strict"
     assert payload["series_visual_signature_fallback_enabled"] is False
-    assert payload["series_visual_signature_output_validation_mode"] == "required"
-    assert payload["series_visual_signature_output_max_attempts"] == 3
+    assert payload["series_visual_signature_output_validation_mode"] == "off"
+    assert payload["series_visual_signature_output_max_attempts"] == 1
+
+
+def test_legacy_output_retry_controls_normalize_to_single_pass() -> None:
+    request = SeriesVisualSignatureRequest.from_mapping(
+        _enabled_params(
+            series_visual_signature_output_validation_mode="required",
+            series_visual_signature_output_max_attempts=3,
+        )
+    )
+
+    payload = request.to_generation_dict()
+
+    assert payload["series_visual_signature_output_validation_mode"] == "off"
+    assert payload["series_visual_signature_output_max_attempts"] == 1
 
 
 def test_normalize_standard_video_generation_params_preserves_v4_fields():
@@ -200,8 +214,8 @@ def test_normalize_standard_video_generation_params_preserves_v4_fields():
     assert normalized["series_visual_signature_llm_prompt_assembly_enabled"] is False
     assert normalized["mandatory_content_bound_anchor"] is True
     assert normalized["series_visual_signature_contract_version"] == "final_visual_prompt_contract.v4_6"
-    assert normalized["series_visual_signature_output_validation_mode"] == "required"
-    assert normalized["series_visual_signature_output_max_attempts"] == 3
+    assert normalized["series_visual_signature_output_validation_mode"] == "off"
+    assert normalized["series_visual_signature_output_max_attempts"] == 1
     assert normalized["series_visual_signature_presentation_mode"] == "content_bound_mandatory_ip"
     assert normalized["series_visual_signature_enforcement"] == "strict"
     assert normalized["series_visual_signature_fallback_enabled"] is False

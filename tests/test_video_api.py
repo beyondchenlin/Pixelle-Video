@@ -416,6 +416,7 @@ def test_build_video_generation_params_copies_series_visual_signature_controls()
     assert params["series_visual_signature_structure_mode"] == "auto"
     assert params["series_visual_signature_participation_mode"] == "auto"
     assert params["series_visual_signature_presentation_mode"] == "auto"
+    assert params["series_visual_signature_output_validation_mode"] == "off"
     assert params["series_visual_signature_output_max_attempts"] == 1
 
 

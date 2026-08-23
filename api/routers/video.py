@@ -185,7 +185,7 @@ def build_video_generation_params(
                 "series_visual_signature_contract_version": (
                     "final_visual_prompt_contract.v4_6"
                 ),
-                "series_visual_signature_output_validation_mode": "required",
+                "series_visual_signature_output_validation_mode": "off",
                 "series_visual_signature_output_max_attempts": 1,
             }
         )

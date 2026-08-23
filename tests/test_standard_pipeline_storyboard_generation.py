@@ -26,9 +26,6 @@ from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureProjectionService,
 )
-from pixelle_video.services.series_visual_signature_rendered_output_gate import (
-    SeriesVisualSignatureRenderedOutputGateError,
-)
 from pixelle_video.utils.template_util import get_template_orientation
 
 
@@ -350,7 +347,7 @@ def test_write_series_signature_trace_artifact_preserves_complete_v46_record(
     assert prompt_path.read_text(encoding="utf-8") == "exact positive prompt"
 
 
-def test_standard_pipeline_fails_closed_when_output_inspection_is_unavailable(
+def test_standard_pipeline_uses_single_pass_without_output_inspection(
     tmp_path,
 ) -> None:
     plan = _plan()
@@ -360,7 +357,13 @@ def test_standard_pipeline_fails_closed_when_output_inspection_is_unavailable(
         display_name="Dalmatian",
         core_identity_traits=("black spots", "black sunglasses"),
     )
-    ctx = PipelineContext(input_text="Scene.", params={})
+    ctx = PipelineContext(
+        input_text="Scene.",
+        params={
+            "series_visual_signature_output_validation_mode": "required",
+            "series_visual_signature_output_max_attempts": 1,
+        },
+    )
     ctx.task_id = "task-output-gate"
     ctx.task_dir = str(tmp_path)
     ctx.storyboard_plan = plan
@@ -386,19 +389,21 @@ def test_standard_pipeline_fails_closed_when_output_inspection_is_unavailable(
         }
     }
 
-    pipeline = StandardPipeline(
-        _DummyCore(config={"vision_llm": {"enabled": False}})
+    pipeline = StandardPipeline(_DummyCore(config={"vision_llm": {"enabled": False}}))
+    pipeline._configure_series_visual_signature_single_pass_policy(
+        ctx,
+        media_type="image",
     )
-    with pytest.raises(
-        SeriesVisualSignatureRenderedOutputGateError,
-        match="vision_llm_disabled",
-    ):
-        pipeline._configure_series_visual_signature_output_gate(
-            ctx,
-            media_type="image",
-        )
 
     assert ctx.generated_media_validator is None
+    assert ctx.media_generation_max_attempts == 1
+    assert ctx.runtime_resources == []
+    assert ctx.params["series_visual_signature_output_validation_mode"] == "off"
+    assert ctx.params["series_visual_signature_output_max_attempts"] == 1
+    policy = ctx.planning_snapshot["series_visual_signature_single_pass_policy"]
+    assert policy["mode"] == "pre_generation_only"
+    assert policy["post_generation_vision_validation_enabled"] is False
+    assert policy["prompt_repair_enabled"] is False
 
 
 def test_output_validation_rejects_missing_runtime_frame_identity_before_media(
@@ -431,7 +436,7 @@ def test_output_validation_rejects_missing_runtime_frame_identity_before_media(
     }
 
     with pytest.raises(ValueError, match="stable frame_id"):
-        StandardPipeline(_DummyCore())._configure_series_visual_signature_output_gate(
+        StandardPipeline(_DummyCore())._configure_series_visual_signature_single_pass_policy(
             ctx,
             media_type="image",
         )
@@ -473,7 +478,7 @@ def test_output_validation_rejects_contract_identity_mismatch_before_media(
     }
 
     with pytest.raises(ValueError, match="trace key must match contract frame_id"):
-        StandardPipeline(_DummyCore())._configure_series_visual_signature_output_gate(
+        StandardPipeline(_DummyCore())._configure_series_visual_signature_single_pass_policy(
             ctx,
             media_type="image",
         )
@@ -513,13 +518,13 @@ def test_output_validation_rejects_prompt_lineage_drift_before_media(tmp_path) -
     }
 
     with pytest.raises(ValueError, match="trace prompt must match"):
-        StandardPipeline(_DummyCore())._configure_series_visual_signature_output_gate(
+        StandardPipeline(_DummyCore())._configure_series_visual_signature_single_pass_policy(
             ctx,
             media_type="image",
         )
 
 
-def test_strict_signature_output_validation_fails_before_media_without_vision(
+def test_strict_signature_single_pass_does_not_require_vision_model(
     tmp_path,
 ) -> None:
     plan = _plan()
@@ -558,16 +563,15 @@ def test_strict_signature_output_validation_fails_before_media_without_vision(
         }
     }
 
-    with pytest.raises(
-        SeriesVisualSignatureRenderedOutputGateError,
-        match="vision_llm_disabled",
-    ):
-        StandardPipeline(
-            _DummyCore(config={"vision_llm": {"enabled": False}})
-        )._configure_series_visual_signature_output_gate(
-            ctx,
-            media_type="image",
-        )
+    StandardPipeline(
+        _DummyCore(config={"vision_llm": {"enabled": False}})
+    )._configure_series_visual_signature_single_pass_policy(
+        ctx,
+        media_type="image",
+    )
+
+    assert ctx.generated_media_validator is None
+    assert ctx.media_generation_max_attempts == 1
 
 
 @pytest.mark.asyncio
@@ -832,7 +836,7 @@ async def test_default_z_image_visual_anchor_keeps_text_workflow_without_referen
     )
     monkeypatch.setattr(
         standard_module,
-        "_project_legacy_standard_z_image_signature_batch",
+        "_validate_single_pass_z_image_signature_batch",
         lambda batch: batch,
     )
 

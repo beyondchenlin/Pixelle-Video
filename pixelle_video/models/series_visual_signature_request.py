@@ -83,8 +83,8 @@ class SeriesVisualSignatureControlsContract:
     llm_prompt_assembly_enabled: bool = False
     mandatory_content_bound_anchor: bool = False
     contract_version: str | None = None
-    output_validation_mode: str = "required"
-    output_max_attempts: int = 3
+    output_validation_mode: str = "off"
+    output_max_attempts: int = 1
     explicit_fields: tuple[str, ...] = ()
     source_mapping: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
@@ -154,12 +154,8 @@ class SeriesVisualSignatureControlsContract:
                 if enabled
                 else None
             ),
-            output_validation_mode="required",
-            output_max_attempts=(
-                1
-                if mapping.get("series_visual_signature_output_max_attempts") == 1
-                else 3
-            ),
+            output_validation_mode="off",
+            output_max_attempts=1,
             explicit_fields=explicit_fields,
             source_mapping=mapping,
         )
@@ -249,16 +245,19 @@ def _validate_mandatory_anchor_control_values(mapping: Mapping[str, Any]) -> Non
             "enabled series visual signature requires final visual prompt contract V4.6"
         )
     validation_mode = mapping.get("series_visual_signature_output_validation_mode")
-    if validation_mode is not None and str(validation_mode).strip().lower() != "required":
+    if validation_mode is not None and str(validation_mode).strip().lower() not in {
+        "off",
+        "required",
+    }:
         raise ValueError(
-            "enabled series visual signature requires rendered-output validation"
+            "enabled series visual signature output validation mode is invalid"
         )
     attempts = mapping.get("series_visual_signature_output_max_attempts")
     if attempts is not None and (
         type(attempts) is not int or attempts not in {1, 3}
     ):
         raise ValueError(
-            "enabled series visual signature requires 1 or 3 output attempts"
+            "enabled series visual signature output attempts must be 1 or legacy 3"
         )
 
 

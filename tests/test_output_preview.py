@@ -324,7 +324,7 @@ def test_build_single_generation_request_includes_series_visual_signature_contro
     assert request["series_visual_signature_contract_version"] == (
         "final_visual_prompt_contract.v4_6"
     )
-    assert request["series_visual_signature_output_validation_mode"] == "required"
+    assert request["series_visual_signature_output_validation_mode"] == "off"
     assert request["series_visual_signature_output_max_attempts"] == 1
 
     normalized = normalize_standard_video_generation_params(request)
