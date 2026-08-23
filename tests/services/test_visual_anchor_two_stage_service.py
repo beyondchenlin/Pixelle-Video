@@ -859,9 +859,10 @@ async def test_content_stage_accepts_unique_longest_delimited_prompt_evidence():
     assert output.protected_facts[-1].pure_content_prompt_evidence == "科技巨头"
 
 
-def test_content_model_preserves_ambiguous_equal_length_prompt_fragments():
-    plan = _plan()
-    payload = _content("frame-a", plan.frames[0].source_text).model_dump(mode="json")
+def test_content_model_drops_ambiguous_unrendered_scene_fact():
+    payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
+        mode="json"
+    )
     payload["pure_content_prompt"] += "乔布斯与工作台"
     payload["scene_facts"] = [
         {
@@ -874,22 +875,62 @@ def test_content_model_preserves_ambiguous_equal_length_prompt_fragments():
 
     output = ContentStageModelOutput.model_validate(payload)
 
-    assert output.scene_facts[0].pure_content_prompt_evidence == "乔布斯，工作台"
-    materialized = _materialize_content_stage_output(
-        frame_id="frame-a",
-        model_output=output,
+    assert output.scene_facts == []
+
+
+@pytest.mark.asyncio
+async def test_content_stage_drops_abstract_fact_not_rendered_as_exact_prompt_text():
+    source_text = (
+        "乔布斯，一个名字就能让人想起很多故事。"
+        "他的生活就像一部电影，充满了起起伏伏。"
     )
     stage_input = ContentStageInput(
-        frame_id="frame-a",
-        original_storyboard_text=plan.frames[0].source_text,
-        article_context=plan.source_text,
+        frame_id="frame-abstract-theme",
+        original_storyboard_text=source_text,
+        article_context=source_text,
         previous_frame_summary="首镜，无前一镜",
         next_frame_summary="末镜，无后一镜",
-        target_visual_style=TargetVisualStyle(description="真实电影感"),
+        target_visual_style=TargetVisualStyle(description="简约单色线稿"),
         target_image_prompt_language="中文",
     )
-    with pytest.raises(VisualAnchorTwoStageError, match="fact_prompt_evidence_invalid"):
-        _validate_content_stage_output(stage_input, materialized)
+    recorded_response = {
+        "core_claim": "乔布斯的生活充满了起起伏伏。",
+        "primary_subject": {
+            "category": "person",
+            "name": "乔布斯",
+            "identity": "科技界的传奇人物",
+            "quantity": 1,
+            "action": "",
+            "source_evidence": "乔布斯",
+            "pure_content_prompt_evidence": "乔布斯",
+        },
+        "secondary_subjects": [],
+        "scene_facts": [
+            {
+                "category": "theme",
+                "statement": "生活充满了起起伏伏",
+                "source_evidence": "他的生活就像一部电影，充满了起起伏伏",
+                "pure_content_prompt_evidence": "生活充满了起起伏伏",
+            }
+        ],
+        "adjustable_non_core_content": ["背景环境", "光照", "镜头角度"],
+        "pure_content_prompt": (
+            "乔布斯站在一个简洁的空间中，周围有大量空白区域，"
+            "表达他生活中的起伏变化"
+        ),
+    }
+    llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
+
+    output = await VisualAnchorTwoStageService()._run_content_stage(
+        llm_service=llm,
+        stage_input=stage_input,
+        trace_context=None,
+        trace_recorder=None,
+    )
+
+    assert len(llm.calls) == 1
+    assert len(output.protected_facts) == 1
+    assert output.protected_facts[0].statement == "乔布斯"
 
 
 @pytest.mark.asyncio
@@ -971,6 +1012,7 @@ def test_content_model_output_decodes_complete_flattened_fact_object():
     payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
         mode="json"
     )
+    payload["pure_content_prompt"] += "乔布斯的一生是一部传奇"
     payload["primary_subject"]["protected_facts"] = [
         "category: person",
         "statement: 乔布斯站立",
