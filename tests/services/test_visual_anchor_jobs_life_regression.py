@@ -342,6 +342,8 @@ def test_fusion_template_requires_exact_single_instance_and_trait_evidence():
     assert "必须先完成 final_positive_prompt" in template
     assert "required_single_instance_prompt_fragment" in template
     assert "不能写不存在的“一只斑点狗”" in template
+    assert "protected_facts[].pure_content_prompt_evidence 原样放入" in template
+    assert "不要先改写事实再尝试回填一个不存在的证据句" in template
 
 
 def test_preflight_template_keeps_primary_subject_and_visual_anchor_roles_distinct():
