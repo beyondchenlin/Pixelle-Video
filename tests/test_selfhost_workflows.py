@@ -453,7 +453,8 @@ def test_image_z_image_turbo_gguf_workflow_is_parseable():
         "height",
         "seed",
     }
-    assert metadata.params["seed"].required is True
+    assert metadata.params["seed"].required is False
+    assert metadata.params["seed"].default == 0
     mappings = {
         mapping.param_name: (mapping.node_id, mapping.input_field, mapping.need_upload)
         for mapping in metadata.mapping_info.param_mappings
@@ -477,6 +478,8 @@ def test_image_z_image_turbo_gguf_reference_workflow_is_parseable():
     }
     assert metadata.params["reference_image"].required is True
     assert metadata.params["reference_image"].need_upload is True
+    assert metadata.params["seed"].required is True
+    assert metadata.params["seed"].default is None
     mappings = {
         mapping.param_name: (mapping.node_id, mapping.input_field, mapping.need_upload)
         for mapping in metadata.mapping_info.param_mappings

@@ -9,6 +9,7 @@
   - `negative_prompt`：必填，负向提示词，并由独立文本编码节点送入采样器负向条件
   - `width`：可选，默认 `768`
   - `height`：可选，默认 `768`
+  - `seed`：可选，缺省占位值为 `0`；普通生成会在提交前把 `0` 替换为随机种子，视觉锚点生成可传入固定随机种子覆盖占位值
 - 默认采样参数：
   - 默认采样步数：`5`
   - 采样器：`euler`
@@ -234,7 +235,7 @@ rg -n "UnetLoaderGGUF|CLIPLoaderGGUF|easy int|VAEDecode" "workflows/selfhost/ima
 .venv\Scripts\python.exe -m pytest tests/test_selfhost_workflows.py -k z_image_turbo_gguf -v
 ```
 
-该检查必须同时确认 `prompt`、`negative_prompt`、`width` 和 `height` 四个参数，并确认采样器负向输入连接到 `negative_prompt` 对应的独立 `CLIPTextEncode` 节点，不能连接 `ConditioningZeroOut`。
+该检查必须同时确认 `prompt`、`negative_prompt`、`width`、`height` 和可选的 `seed` 五个参数，确认 `seed` 缺省占位值为 `0` 且执行组件会在提交前将其替换为随机种子，并确认采样器负向输入连接到 `negative_prompt` 对应的独立 `CLIPTextEncode` 节点，不能连接 `ConditioningZeroOut`。
 
 ### 8.5 检查 ComfyUI 前端是否已经包含 GGUF 分类映射
 
@@ -297,12 +298,14 @@ Get-Item `
 - `image_z_image_turbo.json`：BF16 / NVFP4 版，主模型放在 `ComfyUI/models/diffusion_models/`
 - `image_z_image_turbo_gguf.json`：GGUF 版，主模型放在 `ComfyUI/models/unet/`
 
-它们的输入接口保持一致，都是：
+它们的核心输入接口保持一致，都是：
 
 - `prompt`
 - `negative_prompt`
 - `width`
 - `height`
+
+`image_z_image_turbo_gguf.json` 另外暴露可选的 `seed` 参数：普通生成缺省时由执行组件把占位值 `0` 替换为随机种子，视觉锚点生成传入固定随机种子时直接覆盖该占位值。
 
 ### 10.2 为什么这里还是用 `ae.safetensors`？
 
