@@ -1502,11 +1502,13 @@ def _normalize_fusion_protected_fact_evidence(
     stage_input: FusionStageInput,
     output: FusionStageOutput,
 ) -> FusionStageOutput:
-    normalized_positive = _normalized_text(output.final_positive_prompt).casefold()
+    normalized_positive_prompt = _normalized_text(output.final_positive_prompt)
+    normalized_positive = normalized_positive_prompt.casefold()
     facts_by_id = {
         fact.fact_id: fact
         for fact in stage_input.content_stage_output.protected_facts
     }
+    missing_source_evidence: list[str] = []
     normalized_checks = []
     changed = False
     for check in output.protected_fact_checks:
@@ -1520,8 +1522,19 @@ def _normalize_fusion_protected_fact_evidence(
         if (
             current_evidence.casefold() not in normalized_positive
             and source_evidence
-            and source_evidence.casefold() in normalized_positive
         ):
+            source_in_positive = source_evidence.casefold() in normalized_positive
+            if (
+                not source_in_positive
+                and current_evidence.casefold() != source_evidence.casefold()
+            ):
+                normalized_checks.append(check)
+                continue
+            if not source_in_positive:
+                missing_source_evidence.append(source_evidence)
+                normalized_positive = (
+                    f"{normalized_positive} {source_evidence.casefold()}"
+                )
             check = check.model_copy(
                 update={"final_image_evidence": source_evidence}
             )
@@ -1529,7 +1542,16 @@ def _normalize_fusion_protected_fact_evidence(
         normalized_checks.append(check)
     if not changed:
         return output
-    return output.model_copy(update={"protected_fact_checks": normalized_checks})
+    if missing_source_evidence:
+        normalized_positive_prompt = (
+            f"{normalized_positive_prompt}；{'；'.join(missing_source_evidence)}"
+        )
+    return output.model_copy(
+        update={
+            "protected_fact_checks": normalized_checks,
+            "final_positive_prompt": normalized_positive_prompt,
+        }
+    )
 
 
 def _normalize_fusion_required_style_fragments(
