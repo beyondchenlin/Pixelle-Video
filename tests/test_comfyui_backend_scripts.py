@@ -2251,6 +2251,71 @@ def test_start_backend_preserves_supervisor_arguments_with_spaces(
         kill_fake_comfyui_processes(comfyui_root)
 
 
+def test_start_backend_stops_service_when_lifetime_owner_exits(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_listening_main_py(comfyui_root)
+    runtime_dir = tmp_path / "runtime"
+    logs_dir = tmp_path / "logs"
+    port = reserve_free_port()
+    owner = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        cwd=REPO_ROOT,
+    )
+
+    try:
+        start = run_powershell(
+            SCRIPT_DIR / "start_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-LogsDir",
+            logs_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+            "-ReadyTimeoutSeconds",
+            "8",
+            "-LifetimeOwnerPid",
+            str(owner.pid),
+        )
+        assert start.returncode == 0, start.stderr
+        payload = json.loads(start.stdout)
+        assert payload["started"] is True
+        wait_for_port(port)
+
+        owner.terminate()
+        owner.wait(timeout=10)
+
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    pass
+            except OSError:
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError("backend remained alive after its lifetime owner exited")
+
+        wait_for_process_exit(int(payload["launched_pid"]))
+    finally:
+        if owner.poll() is None:
+            owner.kill()
+            owner.wait(timeout=10)
+        kill_fake_comfyui_processes(comfyui_root)
+
+
 def test_stop_backend_terminates_owned_service_descendants(tmp_path: Path) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     write_fake_reexec_with_worker_main_py(comfyui_root)

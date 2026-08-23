@@ -978,6 +978,7 @@ async def test_start_command_includes_typed_resource_contract(monkeypatch):
             resource_policy="memory_safe",
             minimum_free_commit_gb=12.5,
         ),
+        lifetime_owner_pid=4321,
     )
 
     captured = {}
@@ -1002,6 +1003,8 @@ async def test_start_command_includes_typed_resource_contract(monkeypatch):
     assert captured["extra_args"] == [
         "-ReadyTimeoutSeconds",
         "90",
+        "-LifetimeOwnerPid",
+        "4321",
     ]
 
 

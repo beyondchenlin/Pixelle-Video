@@ -54,7 +54,7 @@ async def shutdown_pixelle_video() -> None:
     global _pixelle_video_instance, _platform_dependencies
     if _pixelle_video_instance:
         logger.info("Shutting down Pixelle-Video...")
-        await _pixelle_video_instance.cleanup()
+        await _pixelle_video_instance.shutdown()
         _pixelle_video_instance = None
     _platform_dependencies = None
 

@@ -11,6 +11,8 @@ param(
     [string]$LogsDir = '',
     [string]$HostAddress = '',
     [int]$Port = 0,
+    [ValidateRange(0, 2147483647)]
+    [int]$LifetimeOwnerPid = 0,
     [ValidateSet('', 'auto', 'memory_safe', 'performance')]
     [string]$ResourcePolicy = '',
     [double]$MinimumFreeCommitGB = -1,
@@ -178,6 +180,8 @@ try {
         $config.AllowedCustomNodeFoldersBase64,
         '-AcceleratorMutexName',
         $config.AcceleratorMutexName,
+        '-LifetimeOwnerPid',
+        [string]$LifetimeOwnerPid,
         '-Port',
         [string]$config.Port
     )

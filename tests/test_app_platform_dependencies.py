@@ -8,6 +8,40 @@ from fastapi import FastAPI
 from api.config import APIConfig
 
 
+@pytest.mark.asyncio
+async def test_api_shutdown_uses_full_core_shutdown(monkeypatch):
+    import api.dependencies as dependencies_module
+
+    events = []
+
+    class Core:
+        async def shutdown(self):
+            events.append("core_shutdown")
+
+        async def cleanup(self):
+            raise AssertionError("API shutdown must stop managed backends")
+
+    from pixelle_video.services.frame_html import HTMLFrameGenerator
+
+    monkeypatch.setattr(
+        HTMLFrameGenerator,
+        "close_browser",
+        lambda: _record_async(events, "browser_close"),
+    )
+    dependencies_module._pixelle_video_instance = Core()
+    dependencies_module._platform_dependencies = object()
+
+    await dependencies_module.shutdown_pixelle_video()
+
+    assert events == ["core_shutdown", "browser_close"]
+    assert dependencies_module._pixelle_video_instance is None
+    assert dependencies_module._platform_dependencies is None
+
+
+async def _record_async(events, value):
+    events.append(value)
+
+
 def test_api_config_defaults_use_non_comfyui_local_port():
     config = APIConfig()
 

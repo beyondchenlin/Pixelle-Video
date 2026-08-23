@@ -57,7 +57,7 @@ _LOCAL_PLATFORM_LOCK = threading.Lock()
 async def _cleanup_pixelle_video_session(session_key: str):
     state = _PIXELLE_VIDEO_SESSIONS.get(session_key)
     if state is not None and state.pixelle_video is not None:
-        await state.pixelle_video.cleanup()
+        await state.pixelle_video.shutdown()
     _PIXELLE_VIDEO_SESSIONS.pop(session_key, None)
 
 
@@ -148,7 +148,7 @@ def get_or_create_local_platform_dependencies():
                 raise
 
         async def releaser(core):
-            await core.cleanup()
+            await core.shutdown()
 
         register_video_generation_executor(
             _LOCAL_TASK_EXECUTOR_REGISTRY,
@@ -220,7 +220,7 @@ def get_pixelle_video():
         need_recreate = True
         logger.info("Configuration changed, recreating PixelleVideoCore instance")
         try:
-            run_async(state.pixelle_video.cleanup())
+            run_async(state.pixelle_video.shutdown())
         except Exception as e:
             logger.warning(f"Failed to cleanup old PixelleVideoCore: {e}")
 

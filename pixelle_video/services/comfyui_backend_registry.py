@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -84,6 +85,7 @@ class ComfyUIBackendRegistry:
             profile=profile,
             management_mode=self.config.backend_management_mode,
             maintenance_client=self.maintenance_client(normalized_role),
+            lifetime_owner_pid=os.getpid(),
         )
 
     def managed_backend(self, role: str) -> ComfyUIBackendController | None:

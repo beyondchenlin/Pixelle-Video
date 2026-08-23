@@ -1819,6 +1819,21 @@ class PixelleVideoCore:
                 self._comfykit_by_backend.clear()
                 self._comfykit_config_hash_by_backend.clear()
 
+    async def shutdown(self) -> None:
+        """Stop every owned local backend before releasing in-process resources."""
+        try:
+            await self._stop_idle_managed_comfyui_backends(
+                reason="core-shutdown",
+                include_all_configured=True,
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to stop owned ComfyUI backends during core shutdown: "
+                f"error_type={type(exc).__name__}"
+            )
+        finally:
+            await self.cleanup()
+
     def _generation_resource_release_options(self) -> dict[str, bool]:
         self.config = config_manager.config.to_dict()
         runtime_config = self.config.get("runtime", {})
@@ -2085,8 +2100,18 @@ class PixelleVideoCore:
                         f"context='{context}', error='{exc}'"
                     )
 
-    async def _stop_idle_managed_comfyui_backends(self, *, reason: str) -> list[str]:
-        candidate_roles = tuple(self._recent_local_comfyui_backend_roles.keys())
+    async def _stop_idle_managed_comfyui_backends(
+        self,
+        *,
+        reason: str,
+        include_all_configured: bool = False,
+    ) -> list[str]:
+        registry = None
+        if include_all_configured:
+            registry = self._get_comfyui_backend_registry()
+            candidate_roles = tuple(registry.config.backends.keys())
+        else:
+            candidate_roles = tuple(self._recent_local_comfyui_backend_roles.keys())
         if not candidate_roles:
             logger.debug(
                 "Skipping managed ComfyUI backend cleanup; no local backend was used "
@@ -2094,7 +2119,8 @@ class PixelleVideoCore:
             )
             return []
 
-        registry = self._get_comfyui_backend_registry()
+        if registry is None:
+            registry = self._get_comfyui_backend_registry()
         stopped_roles: list[str] = []
         processed_roles: set[str] = set()
         errors: list[str] = []
