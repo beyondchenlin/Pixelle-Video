@@ -4,7 +4,8 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Any, get_args
 
 from pydantic import ValidationError
@@ -195,6 +196,30 @@ class ContentStageContractError(VisualAnchorTwoStageError):
         super().__init__(
             f"content stage contract validation failed [{code_summary}]: {details}"
         )
+
+
+@dataclass(slots=True)
+class _SinglePassStageCallAudit:
+    """Enforce and report the one-call, zero-retry stage invariant."""
+
+    stage: str
+    frame_id: str
+    llm_call_count: int = 0
+    started_at: float = field(default_factory=lambda: perf_counter())
+
+    def record_llm_call(self) -> None:
+        if self.llm_call_count != 0:
+            raise VisualAnchorTwoStageError(
+                f"{self.stage} attempted more than one model call for {self.frame_id}"
+            )
+        self.llm_call_count = 1
+
+    def terminal_event_fields(self) -> dict[str, int]:
+        return {
+            "llm_call_count": self.llm_call_count,
+            "retry_count": 0,
+            "latency_ms": max(0, int((perf_counter() - self.started_at) * 1000)),
+        }
 
 
 @dataclass(frozen=True)
@@ -394,12 +419,17 @@ class VisualAnchorTwoStageService:
             frame_id=frame.frame_id,
             status="running",
         )
+        content_call_audit = _SinglePassStageCallAudit(
+            stage="visual_anchor_content_stage",
+            frame_id=frame.frame_id,
+        )
         try:
             content_output = await self._run_content_stage(
                 llm_service=llm_service,
                 stage_input=content_input,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
+                call_audit=content_call_audit,
             )
         except Exception:
             _emit_stage(
@@ -408,6 +438,7 @@ class VisualAnchorTwoStageService:
                 event="fail",
                 frame_id=frame.frame_id,
                 status="failed",
+                **content_call_audit.terminal_event_fields(),
             )
             raise
         _emit_stage(
@@ -416,6 +447,7 @@ class VisualAnchorTwoStageService:
             event="end",
             frame_id=frame.frame_id,
             status="completed",
+            **content_call_audit.terminal_event_fields(),
         )
 
         continuity_context = ContinuousSceneContext(
@@ -473,17 +505,21 @@ class VisualAnchorTwoStageService:
             frame_id=frame.frame_id,
             status="running",
         )
+        fusion_call_audit = _SinglePassStageCallAudit(
+            stage="visual_anchor_fusion_stage",
+            frame_id=frame.frame_id,
+        )
         try:
             fusion_output = await self._call_structured(
                 llm_service=llm_service,
                 prompt_id="visual_anchor_fusion_stage",
                 stage_input=fusion_input,
                 response_type=FusionStageOutput,
-                attempt=1,
                 frame_id=frame.frame_id,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
                 temperature=0.7,
+                call_audit=fusion_call_audit,
             )
         except Exception:
             _emit_stage(
@@ -492,6 +528,7 @@ class VisualAnchorTwoStageService:
                 event="fail",
                 frame_id=frame.frame_id,
                 status="failed",
+                **fusion_call_audit.terminal_event_fields(),
             )
             raise
         try:
@@ -503,6 +540,7 @@ class VisualAnchorTwoStageService:
                 event="fail",
                 frame_id=frame.frame_id,
                 status="rejected",
+                **fusion_call_audit.terminal_event_fields(),
             )
             raise
         _emit_stage(
@@ -511,6 +549,7 @@ class VisualAnchorTwoStageService:
             event="end",
             frame_id=frame.frame_id,
             status="completed",
+            **fusion_call_audit.terminal_event_fields(),
         )
 
         review_input = PreflightReviewInput(
@@ -533,17 +572,21 @@ class VisualAnchorTwoStageService:
             frame_id=frame.frame_id,
             status="running",
         )
+        review_call_audit = _SinglePassStageCallAudit(
+            stage="visual_anchor_preflight_review",
+            frame_id=frame.frame_id,
+        )
         try:
             review_output = await self._call_structured(
                 llm_service=llm_service,
                 prompt_id="visual_anchor_preflight_review",
                 stage_input=review_input,
                 response_type=PreflightReviewOutput,
-                attempt=1,
                 frame_id=frame.frame_id,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
                 temperature=0.0,
+                call_audit=review_call_audit,
             )
             review_passed = _preflight_review_passes(review_input, review_output)
         except Exception:
@@ -553,6 +596,7 @@ class VisualAnchorTwoStageService:
                 event="fail",
                 frame_id=frame.frame_id,
                 status="failed",
+                **review_call_audit.terminal_event_fields(),
             )
             raise
         if not review_passed:
@@ -562,6 +606,7 @@ class VisualAnchorTwoStageService:
                 event="fail",
                 frame_id=frame.frame_id,
                 status="rejected",
+                **review_call_audit.terminal_event_fields(),
             )
             evidence = "; ".join(review_output.failures)
             raise VisualAnchorTwoStageError(
@@ -573,6 +618,7 @@ class VisualAnchorTwoStageService:
             event="end",
             frame_id=frame.frame_id,
             status="passed",
+            **review_call_audit.terminal_event_fields(),
         )
 
         generation_request = VisualAnchorImageGenerationRequest(
@@ -630,18 +676,23 @@ class VisualAnchorTwoStageService:
         stage_input: ContentStageInput,
         trace_context: LLMTraceContext | None,
         trace_recorder,
+        call_audit: _SinglePassStageCallAudit | None = None,
     ) -> ContentStageOutput:
+        resolved_call_audit = call_audit or _SinglePassStageCallAudit(
+            stage="visual_anchor_content_stage",
+            frame_id=stage_input.frame_id,
+        )
         try:
             output = await self._call_structured(
                 llm_service=llm_service,
                 prompt_id="visual_anchor_content_stage",
                 stage_input=stage_input,
                 response_type=ContentStageOutput,
-                attempt=1,
                 frame_id=stage_input.frame_id,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
                 temperature=0.5,
+                call_audit=resolved_call_audit,
             )
         except Exception as exc:
             if _is_content_stage_output_contract_error(exc):
@@ -657,24 +708,25 @@ class VisualAnchorTwoStageService:
         prompt_id: str,
         stage_input: Any,
         response_type,
-        attempt: int,
         frame_id: str,
         trace_context: LLMTraceContext | None,
         trace_recorder,
         temperature: float,
+        call_audit: _SinglePassStageCallAudit,
     ):
         rendered = _render_stage_prompt(prompt_id, stage_input)
         call_trace_context = (
             trace_context_with_prompt_template(
                 trace_context,
                 rendered_prompt=rendered,
-                attempt=attempt,
+                attempt=1,
                 stage=rendered.stage,
                 frame_id=frame_id,
             )
             if trace_context is not None
             else None
         )
+        call_audit.record_llm_call()
         response = await llm_service(
             prompt=rendered.text,
             response_type=response_type,

@@ -331,6 +331,7 @@ async def _run(
     target_visual_style="真实电影感",
     negative_prompt_supported=False,
     llm=None,
+    stage_callback=None,
 ):
     if llm is None:
         contents = content_outputs or [
@@ -364,6 +365,7 @@ async def _run(
         expected_execution=_execution(),
         random_seeds_by_frame={frame.frame_id: 101 + i for i, frame in enumerate(plan.frames)},
         negative_prompt_supported=negative_prompt_supported,
+        stage_callback=stage_callback,
     )
     return result, llm
 
@@ -378,6 +380,59 @@ async def test_positive_only_workflow_requires_an_empty_negative_prompt():
     assert frame.preflight_review_output.allowed_final_negative_prompt == ""
     assert frame.generation_request.final_negative_prompt == ""
     assert len(llm.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_terminal_stage_events_report_each_real_call_zero_retries_and_latency():
+    events = []
+
+    _, llm = await _run(_plan(), stage_callback=events.append)
+
+    terminal_events = [
+        event for event in events if event["event"] in {"end", "fail"}
+    ]
+    assert [event["stage"] for event in terminal_events] == [
+        "visual_anchor_content_stage",
+        "visual_anchor_fusion_stage",
+        "visual_anchor_preflight_review",
+    ]
+    assert len(llm.calls) == 3
+    assert all(event["llm_call_count"] == 1 for event in terminal_events)
+    assert all(event["retry_count"] == 0 for event in terminal_events)
+    assert all(event["latency_ms"] >= 0 for event in terminal_events)
+
+
+@pytest.mark.asyncio
+async def test_failed_content_stage_event_reports_the_call_without_a_retry():
+    plan = _plan()
+    invalid = _content("frame-a", plan.frames[0].source_text)
+    invalid = ContentStageOutput.model_validate(
+        {
+            **invalid.model_dump(mode="json"),
+            "protected_facts": [
+                {
+                    **invalid.protected_facts[0].model_dump(mode="json"),
+                    "source_evidence": "原文中不存在的证据",
+                },
+                invalid.protected_facts[1].model_dump(mode="json"),
+            ],
+        }
+    )
+    events = []
+
+    with pytest.raises(VisualAnchorTwoStageError, match="fact_source_evidence_invalid"):
+        await _run(
+            plan,
+            content_outputs=[invalid],
+            stage_callback=events.append,
+        )
+
+    fail_events = [event for event in events if event["event"] == "fail"]
+    assert len(fail_events) == 1
+    assert fail_events[0]["stage"] == "visual_anchor_content_stage"
+    assert fail_events[0]["llm_call_count"] == 1
+    assert fail_events[0]["retry_count"] == 0
+    assert fail_events[0]["latency_ms"] >= 0
 
 
 @pytest.mark.asyncio
@@ -711,6 +766,20 @@ def test_content_fact_normalizes_unambiguous_subject_reference_shapes(
     assert ProtectedFact.model_json_schema()["properties"]["subject_ids"]["type"] == (
         "array"
     )
+    assert "subject_ids" in ProtectedFact.model_json_schema()["required"]
+
+
+def test_content_fact_requires_an_explicit_subject_reference_array():
+    with pytest.raises(ValidationError, match="subject_ids"):
+        ProtectedFact.model_validate(
+            {
+                "fact_id": "frame-a-fact-person",
+                "category": "person",
+                "statement": "乔布斯和沃兹尼亚克在车库制作电脑",
+                "source_evidence": "乔布斯和沃兹尼亚克",
+                "pure_content_prompt_evidence": "两位创作者",
+            }
+        )
 
 
 def test_content_stage_accepts_scalar_subject_ids_from_every_protected_fact():
@@ -790,21 +859,27 @@ async def test_json_encoded_subject_ids_complete_pipeline_in_exactly_three_model
 
 
 @pytest.mark.asyncio
-async def test_previous_prompt_versions_and_retry_audit_remain_readable():
+@pytest.mark.parametrize(
+    ("content_prompt_version", "fusion_prompt_version"),
+    [
+        ("visual_anchor_content_stage.v5", "visual_anchor_fusion_stage.v4"),
+        ("visual_anchor_content_stage.v6", "visual_anchor_fusion_stage.v5"),
+    ],
+)
+async def test_previous_prompt_versions_and_retry_audit_remain_readable(
+    content_prompt_version,
+    fusion_prompt_version,
+):
     result, _ = await _run(_plan())
     payload = result.frames[0].model_dump(mode="json")
-    payload["content_stage_input"]["prompt_version"] = (
-        "visual_anchor_content_stage.v5"
-    )
-    payload["fusion_stage_input"]["prompt_version"] = (
-        "visual_anchor_fusion_stage.v4"
-    )
+    payload["content_stage_input"]["prompt_version"] = content_prompt_version
+    payload["fusion_stage_input"]["prompt_version"] = fusion_prompt_version
     payload["fusion_stage_input"]["review_feedback"] = ["旧版审计反馈"]
     payload["generation_request"]["content_stage_prompt_version"] = (
-        "visual_anchor_content_stage.v5"
+        content_prompt_version
     )
     payload["generation_request"]["fusion_stage_prompt_version"] = (
-        "visual_anchor_fusion_stage.v4"
+        fusion_prompt_version
     )
     payload["content_attempt_count"] = 2
     payload["content_retry_validation_codes"] = ["schema_contract_invalid"]
