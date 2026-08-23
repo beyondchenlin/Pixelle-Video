@@ -328,9 +328,15 @@ def test_content_template_requires_exact_shortest_prompt_evidence():
         / "pixelle_video/prompts/templates/visual_anchor_content_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "先完成 pure_content_prompt，再填写所有 pure_content_prompt_evidence" in template
+    assert (
+        "先完成 pure_content_prompt，再填写主体与 scene_facts 的所有 "
+        "pure_content_prompt_evidence"
+    ) in template
     assert "主体证据优先只复制 pure_content_prompt 中的主体名称" in template
     assert "甲的证据应为“甲”" in template
+    assert "主体存在事实由服务端根据主体证据生成" in template
+    assert "不要输出 protected_facts" in template
+    assert "不要输出 self_check 或 self_check_failures" in template
 
 
 def test_fusion_template_requires_exact_single_instance_and_trait_evidence():
