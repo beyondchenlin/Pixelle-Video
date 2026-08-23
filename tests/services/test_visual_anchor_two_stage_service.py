@@ -792,6 +792,106 @@ async def test_content_stage_materializes_subject_fact_from_simplified_response(
     assert output.protected_facts[0].pure_content_prompt_evidence == "乔布斯"
 
 
+@pytest.mark.asyncio
+async def test_content_stage_accepts_unique_longest_delimited_prompt_evidence():
+    source_text = (
+        "乔布斯，这个名字你肯定不陌生。"
+        "他不只是苹果公司的创始人之一，更是改变世界的科技巨头。"
+    )
+    stage_input = ContentStageInput(
+        frame_id="frame-delimited-prompt-evidence",
+        original_storyboard_text=source_text,
+        article_context=source_text,
+        previous_frame_summary="首镜，无前一镜",
+        next_frame_summary="末镜，无后一镜",
+        target_visual_style=TargetVisualStyle(description="简约单色线稿"),
+        target_image_prompt_language="中文",
+    )
+    recorded_response = {
+        "core_claim": "乔布斯是苹果公司的创始人之一，也是改变世界的科技巨头。",
+        "primary_subject": {
+            "category": "person",
+            "name": "乔布斯",
+            "identity": "苹果公司的创始人之一，改变世界的科技巨头",
+            "quantity": 1,
+            "action": "",
+            "source_evidence": (
+                "乔布斯，这个名字你肯定不陌生。"
+                "他不只是苹果公司的创始人之一，更是改变世界的科技巨头。"
+            ),
+            "pure_content_prompt_evidence": "乔布斯",
+        },
+        "secondary_subjects": [],
+        "scene_facts": [
+            {
+                "category": "theme",
+                "statement": "画面表达了乔布斯作为科技巨擘的形象",
+                "source_evidence": (
+                    "他不只是苹果公司的创始人之一，"
+                    "更是改变世界的科技巨头。"
+                ),
+                "pure_content_prompt_evidence": "乔布斯，科技巨头",
+            }
+        ],
+        "adjustable_non_core_content": [
+            "背景环境",
+            "非核心人物",
+            "光照效果",
+            "镜头角度",
+        ],
+        "pure_content_prompt": (
+            "乔布斯站在简约的背景下，极简线条艺术，优雅轮廓描绘，"
+            "大量留白空间，微妙的情感色调，干净的单色插图，"
+            "表达出他是改变世界的科技巨头。"
+        ),
+    }
+    llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
+
+    output = await VisualAnchorTwoStageService()._run_content_stage(
+        llm_service=llm,
+        stage_input=stage_input,
+        trace_context=None,
+        trace_recorder=None,
+    )
+
+    assert len(llm.calls) == 1
+    assert output.protected_facts[-1].statement == "画面表达了乔布斯作为科技巨擘的形象"
+    assert output.protected_facts[-1].pure_content_prompt_evidence == "科技巨头"
+
+
+def test_content_model_preserves_ambiguous_equal_length_prompt_fragments():
+    plan = _plan()
+    payload = _content("frame-a", plan.frames[0].source_text).model_dump(mode="json")
+    payload["pure_content_prompt"] += "乔布斯与工作台"
+    payload["scene_facts"] = [
+        {
+            "category": "theme",
+            "statement": "表达创业伙伴关系",
+            "source_evidence": "乔布斯和沃兹尼亚克",
+            "pure_content_prompt_evidence": "乔布斯，工作台",
+        }
+    ]
+
+    output = ContentStageModelOutput.model_validate(payload)
+
+    assert output.scene_facts[0].pure_content_prompt_evidence == "乔布斯，工作台"
+    materialized = _materialize_content_stage_output(
+        frame_id="frame-a",
+        model_output=output,
+    )
+    stage_input = ContentStageInput(
+        frame_id="frame-a",
+        original_storyboard_text=plan.frames[0].source_text,
+        article_context=plan.source_text,
+        previous_frame_summary="首镜，无前一镜",
+        next_frame_summary="末镜，无后一镜",
+        target_visual_style=TargetVisualStyle(description="真实电影感"),
+        target_image_prompt_language="中文",
+    )
+    with pytest.raises(VisualAnchorTwoStageError, match="fact_prompt_evidence_invalid"):
+        _validate_content_stage_output(stage_input, materialized)
+
+
 def test_content_model_output_rejects_generated_identifier_fields():
     payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
         mode="json"
