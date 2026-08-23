@@ -1343,6 +1343,30 @@ async def test_negated_single_instance_clause_is_not_accepted_as_evidence():
 
 
 @pytest.mark.asyncio
+async def test_recorded_protected_fact_evidence_uses_exact_content_evidence():
+    base = _fusion("frame-a")
+    fusion = base.model_copy(
+        update={
+            "protected_fact_checks": [
+                base.protected_fact_checks[0],
+                base.protected_fact_checks[1].model_copy(
+                    update={"final_image_evidence": "两位创作者制作电脑"}
+                ),
+            ]
+        }
+    )
+
+    result, llm = await _run(_plan(), fusion_outputs=[fusion])
+
+    fact_checks = result.frames[0].fusion_stage_output.protected_fact_checks
+    assert [check.final_image_evidence for check in fact_checks] == [
+        "乔布斯和沃兹尼亚克在工作台组装电脑",
+        "电脑",
+    ]
+    assert len(llm.calls) == 3
+
+
+@pytest.mark.asyncio
 async def test_generation_request_contains_only_one_instance_and_clean_prompt():
     result, _ = await _run(_plan())
     request = result.frames[0].generation_request
@@ -1370,6 +1394,11 @@ async def test_final_prompt_evidence_must_be_real_distinct_prompt_text():
     invalid_fusions = [
         _fusion(
             "frame-a",
+            positive=(
+                "车库内，两位创作者在工作台组装设备。画面中只有一只小皮，"
+                "它拥有圆形白色脸和蓝色短耳，以单一实体站在工作台旁，"
+                "所有人物共享真实透视、暖色光照与自然接触阴影。"
+            ),
             fact_evidence="最终正向提示词中不存在的事实证据",
         ),
         _fusion(
