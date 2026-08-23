@@ -337,6 +337,9 @@ def test_content_template_requires_exact_shortest_prompt_evidence():
     assert "主体存在事实由服务端根据主体证据生成" in template
     assert "不要输出 protected_facts" in template
     assert "不要输出 self_check 或 self_check_failures" in template
+    assert "抽象事实若已转换成可见结果、隐喻或氛围" in template
+    assert "零散名词不能单独证明动作、因果或关系事实" in template
+    assert "直接不输出对应 scene_facts 项" in template
 
 
 def test_fusion_template_requires_exact_single_instance_and_trait_evidence():
