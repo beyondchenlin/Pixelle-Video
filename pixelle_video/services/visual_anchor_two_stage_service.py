@@ -526,6 +526,10 @@ class VisualAnchorTwoStageService:
                 temperature=0.7,
                 call_audit=fusion_call_audit,
             )
+            fusion_output = _normalize_fusion_protected_fact_evidence(
+                fusion_input,
+                fusion_output,
+            )
             fusion_output = _normalize_fusion_single_instance_evidence(
                 fusion_input,
                 fusion_output,
@@ -1396,6 +1400,40 @@ def _normalize_fusion_single_instance_evidence(
     return output.model_copy(
         update={"single_instance_prompt_evidence": extracted_evidence}
     )
+
+
+def _normalize_fusion_protected_fact_evidence(
+    stage_input: FusionStageInput,
+    output: FusionStageOutput,
+) -> FusionStageOutput:
+    normalized_positive = _normalized_text(output.final_positive_prompt).casefold()
+    facts_by_id = {
+        fact.fact_id: fact
+        for fact in stage_input.content_stage_output.protected_facts
+    }
+    normalized_checks = []
+    changed = False
+    for check in output.protected_fact_checks:
+        current_evidence = _normalized_text(check.final_image_evidence)
+        fact = facts_by_id.get(check.fact_id)
+        source_evidence = (
+            _normalized_text(fact.pure_content_prompt_evidence)
+            if fact is not None
+            else ""
+        )
+        if (
+            current_evidence.casefold() not in normalized_positive
+            and source_evidence
+            and source_evidence.casefold() in normalized_positive
+        ):
+            check = check.model_copy(
+                update={"final_image_evidence": source_evidence}
+            )
+            changed = True
+        normalized_checks.append(check)
+    if not changed:
+        return output
+    return output.model_copy(update={"protected_fact_checks": normalized_checks})
 
 
 def _extract_single_instance_prompt_evidence(
