@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v7"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v8"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v5"
 PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v4"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
 ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v5",
     "visual_anchor_content_stage.v6",
+    "visual_anchor_content_stage.v7",
     CONTENT_STAGE_PROMPT_VERSION,
 ]
 FusionStagePromptVersion = Literal[
@@ -28,6 +28,21 @@ ContentSubjectCategory = Literal[
     "product",
     "place",
     "event",
+]
+ProtectedFactCategory = Literal[
+    "person",
+    "animal",
+    "object",
+    "product",
+    "place",
+    "era",
+    "quantity",
+    "action",
+    "causality",
+    "spatial_relation",
+    "event",
+    "theme",
+    "other",
 ]
 ContentStageValidationCode = Literal[
     "schema_contract_invalid",
@@ -222,7 +237,103 @@ class VisibleTextPolicy(BaseModel):
         return self
 
 
+class ContentFact(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    category: ProtectedFactCategory
+    statement: str
+    source_evidence: str = Field(
+        description="从原始分镜文案或文章背景中逐字复制的最短连续片段"
+    )
+    pure_content_prompt_evidence: str = Field(
+        description=(
+            "从 pure_content_prompt 中逐字复制、足以证明事实存在的最短连续片段；"
+            "不得改写或跨过其他词语拼接"
+        )
+    )
+
+    @field_validator(
+        "statement",
+        "source_evidence",
+        "pure_content_prompt_evidence",
+        mode="before",
+    )
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _concrete_subject_text(value, info.field_name)
+
+
+class ContentStageSubject(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    category: ContentSubjectCategory
+    name: str
+    identity: str
+    quantity: int = Field(gt=0)
+    action: str
+    source_evidence: str = Field(
+        description="从原始分镜文案或文章背景中逐字复制的最短连续片段"
+    )
+    pure_content_prompt_evidence: str = Field(
+        description=(
+            "从 pure_content_prompt 中逐字复制的最短连续片段；优先只复制主体名称，"
+            "不得跨过其他词语拼接名称、身份和动作"
+        )
+    )
+    protected_facts: list[ContentFact] = Field(
+        min_length=1,
+        description="直接描述该主体且必须由后续阶段保留的事实",
+    )
+
+    @field_validator(
+        "name",
+        "identity",
+        "action",
+        "source_evidence",
+        "pure_content_prompt_evidence",
+        mode="before",
+    )
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _concrete_subject_text(value, info.field_name)
+
+
+class ContentStageModelOutput(BaseModel):
+    """Identifier-free response contract for the content-stage model call."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    core_claim: str
+    primary_subject: ContentStageSubject
+    secondary_subjects: list[ContentStageSubject] = Field(default_factory=list)
+    scene_facts: list[ContentFact] = Field(default_factory=list)
+    adjustable_non_core_content: list[str] = Field(default_factory=list)
+    pure_content_prompt: str
+    self_check: ReviewDecision
+    self_check_failures: list[str] = Field(default_factory=list)
+
+    @field_validator("core_claim", "pure_content_prompt", mode="before")
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _text(value, info.field_name)
+
+    @field_validator("adjustable_non_core_content", "self_check_failures")
+    @classmethod
+    def _validate_list(cls, value: list[str], info) -> list[str]:
+        return _text_list(value, info.field_name)
+
+    @model_validator(mode="after")
+    def _validate_result(self) -> "ContentStageModelOutput":
+        if self.self_check == "pass" and self.self_check_failures:
+            raise ValueError("a passed content-stage result cannot contain failures")
+        if self.self_check == "fail" and not self.self_check_failures:
+            raise ValueError("a failed content-stage result must contain failures")
+        return self
+
+
 class ContentSubject(BaseModel):
+    """Server-owned subject contract used after deterministic materialization."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     subject_id: str
@@ -256,76 +367,16 @@ class ContentSubject(BaseModel):
         return _concrete_subject_text(value, info.field_name)
 
 
-class ProtectedFact(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+class ProtectedFact(ContentFact):
+    """Server-owned fact contract with deterministic internal identifiers."""
 
     fact_id: str
-    category: Literal[
-        "person",
-        "animal",
-        "object",
-        "product",
-        "place",
-        "era",
-        "quantity",
-        "action",
-        "causality",
-        "spatial_relation",
-        "event",
-        "theme",
-        "other",
-    ]
-    subject_ids: list[str] = Field(
-        description=(
-            "直接受该事实保护的主体编号数组；无关联主体使用 []，"
-            "单个主体也必须使用仅含一个字符串的数组"
-        ),
-    )
-    statement: str
-    source_evidence: str = Field(
-        description="从原始分镜文案或文章背景中逐字复制的最短连续片段"
-    )
-    pure_content_prompt_evidence: str = Field(
-        description=(
-            "从 pure_content_prompt 中逐字复制、足以证明事实存在的最短连续片段；"
-            "不得改写或跨过其他词语拼接"
-        )
-    )
+    subject_ids: list[str]
 
-    @field_validator(
-        "fact_id",
-        "statement",
-        "source_evidence",
-        "pure_content_prompt_evidence",
-        mode="before",
-    )
+    @field_validator("fact_id", mode="before")
     @classmethod
-    def _validate_text(cls, value: object, info) -> str:
-        return _concrete_subject_text(value, info.field_name)
-
-    @field_validator("subject_ids", mode="before")
-    @classmethod
-    def _normalize_subject_ids(cls, value: object) -> object:
-        """Normalize unambiguous subject-reference shapes at the response boundary.
-
-        The generated JSON schema remains array-only. Some providers still serialize that
-        array as a JSON string. Decode only strings with a complete array envelope and
-        preserve every other opaque scalar reference for backward compatibility.
-        """
-        if not isinstance(value, str):
-            return value
-
-        candidate = value.strip()
-        if not (candidate.startswith("[") and candidate.endswith("]")):
-            return [value]
-
-        try:
-            decoded = json.loads(candidate)
-        except json.JSONDecodeError as exc:
-            raise ValueError("subject_ids JSON array string is malformed") from exc
-        if not isinstance(decoded, list):
-            raise ValueError("subject_ids JSON string must encode an array")
-        return decoded
+    def _validate_fact_id(cls, value: object) -> str:
+        return _concrete_subject_text(value, "fact_id")
 
     @field_validator("subject_ids")
     @classmethod

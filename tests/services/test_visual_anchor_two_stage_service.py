@@ -17,13 +17,13 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FUSION_STAGE_PROMPT_VERSION,
     PREFLIGHT_REVIEW_PROMPT_VERSION,
     ContentStageInput,
+    ContentStageModelOutput,
     ContentStageOutput,
     FusionStageInput,
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
     PreflightReviewOutput,
-    ProtectedFact,
     TargetVisualStyle,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
@@ -43,6 +43,7 @@ from pixelle_video.services.visual_anchor_reference_workflow import (
 from pixelle_video.services.visual_anchor_two_stage_service import (
     VisualAnchorTwoStageError,
     VisualAnchorTwoStageService,
+    _materialize_content_stage_output,
     _validate_content_stage_output,
     identity_profile_from_snapshot,
     resolve_registered_random_seeds,
@@ -182,33 +183,13 @@ def test_identity_reference_contract_requires_exact_first_sampling_path():
         IdentityReferenceCondition.model_validate(payload)
 
 
-def _content(frame_id, source_text):
+def _content(_frame_id, source_text):
     is_continuation = source_text.startswith("两人继续")
     primary_name = "两位创作者" if is_continuation else "乔布斯和沃兹尼亚克"
     primary_source_evidence = "两人" if is_continuation else "乔布斯和沃兹尼亚克"
-    return ContentStageOutput(
+    return ContentStageModelOutput(
         core_claim="两位创作者在车库制作电脑",
-        protected_facts=[
-            {
-                "fact_id": f"{frame_id}-fact-1",
-                "category": "person",
-                "subject_ids": [f"{frame_id}-subject-primary"],
-                "statement": "两位创作者在车库制作电脑",
-                "source_evidence": primary_source_evidence,
-                "pure_content_prompt_evidence": "两位创作者",
-            },
-            {
-                "fact_id": f"{frame_id}-fact-2",
-                "category": "product",
-                "subject_ids": [f"{frame_id}-subject-computer"],
-                "statement": "电脑是被制作或测试的产品",
-                "source_evidence": "电脑",
-                "pure_content_prompt_evidence": "电脑",
-            },
-        ],
         primary_subject={
-            "subject_id": f"{frame_id}-subject-primary",
-            "role": "primary",
             "category": "person",
             "name": primary_name,
             "identity": "正在车库创业并制作电脑的两位创作者",
@@ -216,11 +197,17 @@ def _content(frame_id, source_text):
             "action": "围绕工作台制作并测试电脑",
             "source_evidence": primary_source_evidence,
             "pure_content_prompt_evidence": "两位创作者",
+            "protected_facts": [
+                {
+                    "category": "person",
+                    "statement": "两位创作者在车库制作电脑",
+                    "source_evidence": primary_source_evidence,
+                    "pure_content_prompt_evidence": "两位创作者",
+                }
+            ],
         },
         secondary_subjects=[
             {
-                "subject_id": f"{frame_id}-subject-computer",
-                "role": "secondary",
                 "category": "product",
                 "name": "电脑",
                 "identity": "车库工作台上的技术产品",
@@ -228,12 +215,28 @@ def _content(frame_id, source_text):
                 "action": "正在被组装或测试",
                 "source_evidence": "电脑",
                 "pure_content_prompt_evidence": "电脑",
+                "protected_facts": [
+                    {
+                        "category": "product",
+                        "statement": "电脑是被制作或测试的产品",
+                        "source_evidence": "电脑",
+                        "pure_content_prompt_evidence": "电脑",
+                    }
+                ],
             }
         ],
+        scene_facts=[],
         adjustable_non_core_content=["工作台非核心工具", "局部照明"],
         pure_content_prompt="车库内，两位创作者围绕工作台制作电脑，暖色灯光和真实材质。",
         self_check="pass",
         self_check_failures=[],
+    )
+
+
+def _materialized_content(frame_id, source_text):
+    return _materialize_content_stage_output(
+        frame_id=frame_id,
+        model_output=_content(frame_id, source_text),
     )
 
 
@@ -347,7 +350,7 @@ async def _run(
         ]
         llm = _QueuedLLM(
             {
-                ContentStageOutput: contents,
+                ContentStageModelOutput: contents,
                 FusionStageOutput: fusions,
                 PreflightReviewOutput: reviews,
             }
@@ -406,18 +409,11 @@ async def test_terminal_stage_events_report_each_real_call_zero_retries_and_late
 async def test_failed_content_stage_event_reports_the_call_without_a_retry():
     plan = _plan()
     invalid = _content("frame-a", plan.frames[0].source_text)
-    invalid = ContentStageOutput.model_validate(
-        {
-            **invalid.model_dump(mode="json"),
-            "protected_facts": [
-                {
-                    **invalid.protected_facts[0].model_dump(mode="json"),
-                    "source_evidence": "原文中不存在的证据",
-                },
-                invalid.protected_facts[1].model_dump(mode="json"),
-            ],
-        }
-    )
+    invalid_payload = invalid.model_dump(mode="json")
+    invalid_payload["primary_subject"]["protected_facts"][0][
+        "source_evidence"
+    ] = "原文中不存在的证据"
+    invalid = ContentStageModelOutput.model_validate(invalid_payload)
     events = []
 
     with pytest.raises(VisualAnchorTwoStageError, match="fact_source_evidence_invalid"):
@@ -477,7 +473,7 @@ async def test_content_stage_call_has_no_identity_or_reference_inputs():
     result, llm = await _run(_plan())
 
     first_call = llm.calls[0]
-    assert first_call["response_type"] is ContentStageOutput
+    assert first_call["response_type"] is ContentStageModelOutput
     assert "小皮" not in first_call["prompt"]
     assert "圆形白色脸" not in first_call["prompt"]
     assert "a" * 64 not in first_call["prompt"]
@@ -516,7 +512,9 @@ async def test_content_stage_rejects_identity_bearing_style_before_any_model_cal
     plan = _plan()
     llm = _QueuedLLM(
         {
-            ContentStageOutput: [_content("frame-a", plan.frames[0].source_text)],
+            ContentStageModelOutput: [
+                _content("frame-a", plan.frames[0].source_text)
+            ],
             FusionStageOutput: [_fusion("frame-a")],
             PreflightReviewOutput: [_review(_fusion("frame-a"))],
         }
@@ -548,22 +546,14 @@ async def test_content_stage_rejects_identity_bearing_style_before_any_model_cal
 async def test_content_stage_contract_failure_stops_after_one_model_call():
     plan = _plan()
     invalid = _content("frame-a", plan.frames[0].source_text)
-    invalid = ContentStageOutput(
-        **{
-            **invalid.model_dump(),
-            "protected_facts": [
-                {
-                    "fact_id": "frame-a-fact-1",
-                    "category": "event",
-                    "subject_ids": [],
-                    "statement": plan.frames[0].source_text,
-                    "source_evidence": "原文中不存在的证据",
-                    "pure_content_prompt_evidence": "车库内",
-                },
-                invalid.protected_facts[1].model_dump(mode="json"),
-            ],
-        }
-    )
+    invalid_payload = invalid.model_dump(mode="json")
+    invalid_payload["primary_subject"]["protected_facts"][0] = {
+        "category": "event",
+        "statement": plan.frames[0].source_text,
+        "source_evidence": "原文中不存在的证据",
+        "pure_content_prompt_evidence": "车库内",
+    }
+    invalid = ContentStageModelOutput.model_validate(invalid_payload)
 
     stage_input = ContentStageInput(
         frame_id="frame-a",
@@ -576,7 +566,7 @@ async def test_content_stage_contract_failure_stops_after_one_model_call():
     )
     llm = _QueuedLLM(
         {
-            ContentStageOutput: [
+            ContentStageModelOutput: [
                 invalid,
                 _content("frame-a", plan.frames[0].source_text),
             ]
@@ -595,21 +585,17 @@ async def test_content_stage_contract_failure_stops_after_one_model_call():
 
 
 @pytest.mark.asyncio
-async def test_content_stage_missing_visible_fact_stops_after_one_model_call():
+async def test_person_subject_accepts_an_action_fact_in_one_model_call():
     plan = _plan()
-    invalid = _content("frame-a", plan.frames[0].source_text)
-    invalid = ContentStageOutput.model_validate(
-        {
-            **invalid.model_dump(mode="json"),
-            "protected_facts": [
-                {
-                    **invalid.protected_facts[0].model_dump(mode="json"),
-                    "category": "action",
-                },
-                invalid.protected_facts[1].model_dump(mode="json"),
-            ],
-        }
-    )
+    model_output = _content("frame-a", plan.frames[0].source_text)
+    model_payload = model_output.model_dump(mode="json")
+    model_payload["primary_subject"]["protected_facts"][0] = {
+        "category": "action",
+        "statement": "组装一台电脑",
+        "source_evidence": "组装一台电脑",
+        "pure_content_prompt_evidence": "制作电脑",
+    }
+    model_output = ContentStageModelOutput.model_validate(model_payload)
 
     stage_input = ContentStageInput(
         frame_id="frame-a",
@@ -622,29 +608,31 @@ async def test_content_stage_missing_visible_fact_stops_after_one_model_call():
     )
     llm = _QueuedLLM(
         {
-            ContentStageOutput: [
-                invalid,
+            ContentStageModelOutput: [
+                model_output,
                 _content("frame-a", plan.frames[0].source_text),
             ]
         }
     )
 
-    with pytest.raises(VisualAnchorTwoStageError, match="subject_fact_missing"):
-        await VisualAnchorTwoStageService()._run_content_stage(
-            llm_service=llm,
-            stage_input=stage_input,
-            trace_context=None,
-            trace_recorder=None,
-        )
+    output = await VisualAnchorTwoStageService()._run_content_stage(
+        llm_service=llm,
+        stage_input=stage_input,
+        trace_context=None,
+        trace_recorder=None,
+    )
 
     assert len(llm.calls) == 1
+    assert output.protected_facts[0].category == "action"
+    assert output.protected_facts[0].subject_ids == [
+        output.primary_subject.subject_id
+    ]
     assert "服务端校验结果" not in llm.calls[0]["prompt"]
 
 
 @pytest.mark.asyncio
 async def test_generic_people_regression_passes_in_one_model_call():
     source_text = "真正拉开差距的，是那些不断尝试、永不放弃的人。"
-    subject_id = "frame-generic-subject-primary"
     stage_input = ContentStageInput(
         frame_id="frame-generic",
         original_storyboard_text=source_text,
@@ -657,8 +645,6 @@ async def test_generic_people_regression_passes_in_one_model_call():
     common_output = {
         "core_claim": "坚持尝试的人持续向前",
         "primary_subject": {
-            "subject_id": subject_id,
-            "role": "primary",
             "category": "person",
             "name": "那些不断尝试、永不放弃的人",
             "identity": "原文泛指的坚持尝试者",
@@ -666,29 +652,24 @@ async def test_generic_people_regression_passes_in_one_model_call():
             "action": "持续尝试并向前迈步",
             "source_evidence": "那些不断尝试、永不放弃的人",
             "pure_content_prompt_evidence": "一位坚持尝试的人",
-        },
-        "secondary_subjects": [],
-        "adjustable_non_core_content": ["道路环境", "自然光照"],
-        "pure_content_prompt": "一位坚持尝试的人在长路上持续迈步，真实电影感。",
-        "self_check": "pass",
-        "self_check_failures": [],
-    }
-    valid_output = ContentStageOutput.model_validate(
-        {
-            **common_output,
             "protected_facts": [
                 {
-                    "fact_id": "frame-generic-fact-person",
                     "category": "person",
-                    "subject_ids": [subject_id],
                     "statement": "那些不断尝试、永不放弃的人",
                     "source_evidence": "那些不断尝试、永不放弃的人",
                     "pure_content_prompt_evidence": "一位坚持尝试的人",
                 }
             ],
-        }
-    )
-    llm = _QueuedLLM({ContentStageOutput: [valid_output]})
+        },
+        "secondary_subjects": [],
+        "scene_facts": [],
+        "adjustable_non_core_content": ["道路环境", "自然光照"],
+        "pure_content_prompt": "一位坚持尝试的人在长路上持续迈步，真实电影感。",
+        "self_check": "pass",
+        "self_check_failures": [],
+    }
+    valid_output = ContentStageModelOutput.model_validate(common_output)
+    llm = _QueuedLLM({ContentStageModelOutput: [valid_output]})
 
     output = await VisualAnchorTwoStageService()._run_content_stage(
         llm_service=llm,
@@ -697,7 +678,8 @@ async def test_generic_people_regression_passes_in_one_model_call():
         trace_recorder=None,
     )
 
-    assert output == valid_output
+    assert output.primary_subject.subject_id == "frame-generic-subject-primary"
+    assert output.protected_facts[0].fact_id == "frame-generic-fact-1"
     assert len(llm.calls) == 1
     assert "person" in llm.calls[0]["prompt"]
 
@@ -717,7 +699,7 @@ async def test_content_stage_schema_failure_stops_after_one_model_call():
     )
     llm = _QueuedLLM(
         {
-            ContentStageOutput: [
+            ContentStageModelOutput: [
                 {"core_claim": "缺少其他必填字段"},
                 _content("frame-a", source_text),
             ]
@@ -735,127 +717,41 @@ async def test_content_stage_schema_failure_stops_after_one_model_call():
     assert len(llm.calls) == 1
 
 
-@pytest.mark.parametrize(
-    ("raw_subject_ids", "expected_subject_ids"),
-    [
-        (" frame-a-subject-primary ", ["frame-a-subject-primary"]),
-        ('["frame-a-subject-primary"]', ["frame-a-subject-primary"]),
-        (
-            '["frame-a-subject-primary", "frame-a-subject-secondary"]',
-            ["frame-a-subject-primary", "frame-a-subject-secondary"],
-        ),
-        ("[]", []),
-    ],
-)
-def test_content_fact_normalizes_unambiguous_subject_reference_shapes(
-    raw_subject_ids,
-    expected_subject_ids,
-):
-    fact = ProtectedFact.model_validate(
-        {
-            "fact_id": "frame-a-fact-person",
-            "category": "person",
-            "subject_ids": raw_subject_ids,
-            "statement": "乔布斯和沃兹尼亚克在车库制作电脑",
-            "source_evidence": "乔布斯和沃兹尼亚克",
-            "pure_content_prompt_evidence": "两位创作者",
-        }
+def test_content_model_schema_contains_no_generated_identifier_fields():
+    schema_json = json.dumps(
+        ContentStageModelOutput.model_json_schema(),
+        ensure_ascii=False,
     )
 
-    assert fact.subject_ids == expected_subject_ids
-    assert ProtectedFact.model_json_schema()["properties"]["subject_ids"]["type"] == (
-        "array"
-    )
-    assert "subject_ids" in ProtectedFact.model_json_schema()["required"]
+    assert '"subject_id"' not in schema_json
+    assert '"subject_ids"' not in schema_json
+    assert '"fact_id"' not in schema_json
 
 
-def test_content_fact_requires_an_explicit_subject_reference_array():
-    with pytest.raises(ValidationError, match="subject_ids"):
-        ProtectedFact.model_validate(
-            {
-                "fact_id": "frame-a-fact-person",
-                "category": "person",
-                "statement": "乔布斯和沃兹尼亚克在车库制作电脑",
-                "source_evidence": "乔布斯和沃兹尼亚克",
-                "pure_content_prompt_evidence": "两位创作者",
-            }
-        )
-
-
-def test_content_stage_accepts_scalar_subject_ids_from_every_protected_fact():
-    plan = _plan()
-    stage_input = ContentStageInput(
-        frame_id="frame-a",
-        original_storyboard_text=plan.frames[0].source_text,
-        article_context=plan.source_text,
-        previous_frame_summary="首镜，无前一镜",
-        next_frame_summary="末镜，无后一镜",
-        target_visual_style=TargetVisualStyle(description="真实电影感"),
-        target_image_prompt_language="中文",
-    )
-    raw_output = _content("frame-a", plan.frames[0].source_text).model_dump(
+def test_content_model_output_rejects_generated_identifier_fields():
+    payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
         mode="json"
     )
-    expected_subject_ids = []
-    for fact in raw_output["protected_facts"]:
-        subject_id = fact["subject_ids"][0]
-        expected_subject_ids.append(subject_id)
-        fact["subject_ids"] = subject_id
+    payload["primary_subject"]["subject_id"] = "model-generated-subject"
 
-    output = ContentStageOutput.model_validate(raw_output)
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        ContentStageModelOutput.model_validate(payload)
 
+
+def test_server_materializes_deterministic_internal_identifiers():
+    plan = _plan()
+    output = _materialized_content("frame-a", plan.frames[0].source_text)
+
+    assert output.primary_subject.subject_id == "frame-a-subject-primary"
+    assert output.secondary_subjects[0].subject_id == "frame-a-subject-secondary-1"
+    assert [fact.fact_id for fact in output.protected_facts] == [
+        "frame-a-fact-1",
+        "frame-a-fact-2",
+    ]
     assert [fact.subject_ids for fact in output.protected_facts] == [
-        [subject_id] for subject_id in expected_subject_ids
+        ["frame-a-subject-primary"],
+        ["frame-a-subject-secondary-1"],
     ]
-    _validate_content_stage_output(stage_input, output)
-
-
-@pytest.mark.asyncio
-async def test_scalar_subject_ids_complete_the_pipeline_in_exactly_three_model_calls():
-    plan = _plan()
-    raw_output = _content("frame-a", plan.frames[0].source_text).model_dump(
-        mode="json"
-    )
-    for fact in raw_output["protected_facts"]:
-        fact["subject_ids"] = fact["subject_ids"][0]
-
-    result, llm = await _run(plan, content_outputs=[raw_output])
-
-    assert [call["response_type"] for call in llm.calls] == [
-        ContentStageOutput,
-        FusionStageOutput,
-        PreflightReviewOutput,
-    ]
-    assert all(
-        len(fact.subject_ids) == 1
-        for fact in result.frames[0].content_stage_output.protected_facts
-    )
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v5"
-
-
-@pytest.mark.asyncio
-async def test_json_encoded_subject_ids_complete_pipeline_in_exactly_three_model_calls():
-    plan = _plan()
-    raw_output = _content("frame-a", plan.frames[0].source_text).model_dump(
-        mode="json"
-    )
-    for fact in raw_output["protected_facts"]:
-        fact["subject_ids"] = json.dumps(
-            fact["subject_ids"],
-            ensure_ascii=False,
-        )
-
-    result, llm = await _run(plan, content_outputs=[raw_output])
-
-    assert [call["response_type"] for call in llm.calls] == [
-        ContentStageOutput,
-        FusionStageOutput,
-        PreflightReviewOutput,
-    ]
-    assert all(
-        len(fact.subject_ids) == 1
-        for fact in result.frames[0].content_stage_output.protected_facts
-    )
 
 
 @pytest.mark.asyncio
@@ -864,6 +760,7 @@ async def test_json_encoded_subject_ids_complete_pipeline_in_exactly_three_model
     [
         ("visual_anchor_content_stage.v5", "visual_anchor_fusion_stage.v4"),
         ("visual_anchor_content_stage.v6", "visual_anchor_fusion_stage.v5"),
+        ("visual_anchor_content_stage.v7", "visual_anchor_fusion_stage.v5"),
     ],
 )
 async def test_previous_prompt_versions_and_retry_audit_remain_readable(
@@ -890,63 +787,6 @@ async def test_previous_prompt_versions_and_retry_audit_remain_readable(
     assert restored.model_dump(mode="json") == payload
 
 
-@pytest.mark.parametrize(
-    "invalid_subject_ids",
-    [
-        "   ",
-        42,
-        {"id": "subject-a"},
-        "[subject-a]",
-        '["subject-a", 42]',
-        '[["subject-a"]]',
-    ],
-)
-def test_content_fact_rejects_ambiguous_or_empty_subject_reference_shapes(
-    invalid_subject_ids,
-):
-    with pytest.raises(ValidationError):
-        ProtectedFact.model_validate(
-            {
-                "fact_id": "frame-a-fact-person",
-                "category": "person",
-                "subject_ids": invalid_subject_ids,
-                "statement": "乔布斯和沃兹尼亚克在车库制作电脑",
-                "source_evidence": "乔布斯和沃兹尼亚克",
-                "pure_content_prompt_evidence": "两位创作者",
-            }
-        )
-
-
-def test_content_fact_does_not_split_delimited_scalar_subject_references():
-    fact = ProtectedFact.model_validate(
-        {
-            "fact_id": "frame-a-fact-person",
-            "category": "person",
-            "subject_ids": "subject-a,subject-b",
-            "statement": "两位创作者",
-            "source_evidence": "乔布斯和沃兹尼亚克",
-            "pure_content_prompt_evidence": "两位创作者",
-        }
-    )
-
-    assert fact.subject_ids == ["subject-a,subject-b"]
-
-
-def test_content_fact_preserves_opaque_scalar_reference_with_unpaired_bracket():
-    fact = ProtectedFact.model_validate(
-        {
-            "fact_id": "frame-a-fact-person",
-            "category": "person",
-            "subject_ids": "[subject-a",
-            "statement": "两位创作者",
-            "source_evidence": "乔布斯和沃兹尼亚克",
-            "pure_content_prompt_evidence": "两位创作者",
-        }
-    )
-
-    assert fact.subject_ids == ["[subject-a"]
-
-
 def test_content_stage_input_rejects_callers_forging_server_validation_feedback():
     plan = _plan()
     payload = {
@@ -964,7 +804,7 @@ def test_content_stage_input_rejects_callers_forging_server_validation_feedback(
         ContentStageInput.model_validate(payload)
 
 
-def test_content_fact_link_requires_matching_subject_evidence_not_only_an_id():
+def test_internal_content_fact_rejects_a_missing_server_owned_subject():
     plan = _plan()
     stage_input = ContentStageInput(
         frame_id="frame-a",
@@ -975,15 +815,14 @@ def test_content_fact_link_requires_matching_subject_evidence_not_only_an_id():
         target_visual_style=TargetVisualStyle(description="真实电影感"),
         target_image_prompt_language="中文",
     )
-    output = _content("frame-a", plan.frames[0].source_text)
-    mismatched_output = ContentStageOutput.model_validate(
+    output = _materialized_content("frame-a", plan.frames[0].source_text)
+    invalid_output = ContentStageOutput.model_validate(
         {
             **output.model_dump(mode="json"),
             "protected_facts": [
                 {
                     **output.protected_facts[0].model_dump(mode="json"),
-                    "source_evidence": "电脑",
-                    "pure_content_prompt_evidence": "电脑",
+                    "subject_ids": ["frame-a-subject-missing"],
                 },
                 output.protected_facts[1].model_dump(mode="json"),
             ],
@@ -992,9 +831,9 @@ def test_content_fact_link_requires_matching_subject_evidence_not_only_an_id():
 
     with pytest.raises(
         VisualAnchorTwoStageError,
-        match="fact_subject_evidence_mismatch",
+        match="fact_subject_reference_invalid",
     ):
-        _validate_content_stage_output(stage_input, mismatched_output)
+        _validate_content_stage_output(stage_input, invalid_output)
 
 
 def test_content_stage_rejects_server_validation_metadata_leaking_into_content():
@@ -1008,7 +847,7 @@ def test_content_stage_rejects_server_validation_metadata_leaking_into_content()
         target_visual_style=TargetVisualStyle(description="真实电影感"),
         target_image_prompt_language="中文",
     )
-    output = _content("frame-a", plan.frames[0].source_text)
+    output = _materialized_content("frame-a", plan.frames[0].source_text)
     leaked_output = ContentStageOutput.model_validate(
         {
             **output.model_dump(mode="json"),
@@ -1027,18 +866,11 @@ def test_content_stage_rejects_server_validation_metadata_leaking_into_content()
 async def test_content_stage_cannot_omit_a_protected_fact_from_the_pure_prompt():
     plan = _plan()
     invalid = _content("frame-a", plan.frames[0].source_text)
-    invalid = ContentStageOutput.model_validate(
-        {
-            **invalid.model_dump(mode="json"),
-            "protected_facts": [
-                {
-                    **invalid.protected_facts[0].model_dump(mode="json"),
-                    "pure_content_prompt_evidence": "纯内容提示词中不存在的证据",
-                },
-                invalid.protected_facts[1].model_dump(mode="json"),
-            ],
-        }
-    )
+    invalid_payload = invalid.model_dump(mode="json")
+    invalid_payload["primary_subject"]["protected_facts"][0][
+        "pure_content_prompt_evidence"
+    ] = "纯内容提示词中不存在的证据"
+    invalid = ContentStageModelOutput.model_validate(invalid_payload)
 
     with pytest.raises(VisualAnchorTwoStageError, match="fact_prompt_evidence_invalid"):
         await _run(
@@ -1069,22 +901,16 @@ async def test_fusion_stage_receives_every_required_input():
 async def test_fusion_must_preserve_every_protected_fact():
     plan = _plan()
     content = _content("frame-a", plan.frames[0].source_text)
-    content = ContentStageOutput(
-        **{
-            **content.model_dump(),
-            "protected_facts": [
-                *[fact.model_dump() for fact in content.protected_facts],
-                {
-                    "fact_id": "frame-a-fact-3",
-                    "category": "place",
-                    "subject_ids": [],
-                    "statement": "地点是车库",
-                    "source_evidence": "车库",
-                    "pure_content_prompt_evidence": "车库内",
-                },
-            ],
+    content_payload = content.model_dump(mode="json")
+    content_payload["scene_facts"] = [
+        {
+            "category": "place",
+            "statement": "地点是车库",
+            "source_evidence": "车库",
+            "pure_content_prompt_evidence": "车库内",
         }
-    )
+    ]
+    content = ContentStageModelOutput.model_validate(content_payload)
     with pytest.raises(VisualAnchorTwoStageError, match="exactly cover"):
         await _run(
             plan,
@@ -1126,7 +952,7 @@ async def test_missing_identity_semantics_stop_before_preflight_without_retry():
     complete = _fusion("frame-a")
     llm = _QueuedLLM(
         {
-            ContentStageOutput: [content],
+            ContentStageModelOutput: [content],
             FusionStageOutput: [incomplete, complete],
             PreflightReviewOutput: [_review(complete)],
         }
@@ -1136,7 +962,7 @@ async def test_missing_identity_semantics_stop_before_preflight_without_retry():
         await _run(plan, llm=llm)
 
     assert [call["response_type"] for call in llm.calls] == [
-        ContentStageOutput,
+        ContentStageModelOutput,
         FusionStageOutput,
     ]
 
@@ -1253,7 +1079,7 @@ async def test_failed_preflight_stops_without_reexecuting_fusion():
     )
     llm = _QueuedLLM(
         {
-            ContentStageOutput: [content],
+            ContentStageModelOutput: [content],
             FusionStageOutput: [fusion, fusion],
             PreflightReviewOutput: [failed_review, _review(fusion)],
         }
@@ -1263,7 +1089,7 @@ async def test_failed_preflight_stops_without_reexecuting_fusion():
         await _run(plan, llm=llm)
 
     assert [call["response_type"] for call in llm.calls] == [
-        ContentStageOutput,
+        ContentStageModelOutput,
         FusionStageOutput,
         PreflightReviewOutput,
     ]
@@ -1280,7 +1106,7 @@ async def test_invalid_fusion_stops_without_a_second_fusion_call():
     valid_fusion = _fusion("frame-a")
     llm = _QueuedLLM(
         {
-            ContentStageOutput: [content],
+            ContentStageModelOutput: [content],
             FusionStageOutput: [invalid_fusion, valid_fusion],
             PreflightReviewOutput: [_review(valid_fusion)],
         }
@@ -1290,7 +1116,7 @@ async def test_invalid_fusion_stops_without_a_second_fusion_call():
         await _run(plan, llm=llm)
 
     assert [call["response_type"] for call in llm.calls] == [
-        ContentStageOutput,
+        ContentStageModelOutput,
         FusionStageOutput,
     ]
 
@@ -1302,7 +1128,7 @@ def test_missing_reference_condition_fails_before_fusion():
             {
                 "frame_id": "frame-a",
                 "original_storyboard_text": plan.frames[0].source_text,
-                "content_stage_output": _content(
+                "content_stage_output": _materialized_content(
                     "frame-a", plan.frames[0].source_text
                 ).model_dump(),
                 "identity_profile": _identity().model_dump(),

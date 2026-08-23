@@ -22,6 +22,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FUSION_STAGE_PROMPT_VERSION,
     PREFLIGHT_REVIEW_PROMPT_VERSION,
     ContentStageInput,
+    ContentStageModelOutput,
     ContentStageOutput,
     ContentStageValidationCode,
     ContinuousSceneContext,
@@ -154,23 +155,15 @@ _CONTINUITY_CHANGE_TRIGGER_TERMS = (
     "narrative",
     "story",
 )
-_CONCRETE_CONTENT_CATEGORIES = {
-    "person",
-    "animal",
-    "object",
-    "product",
-    "place",
-    "event",
-}
 _CONTENT_STAGE_VALIDATION_MESSAGES: dict[ContentStageValidationCode, str] = {
     "schema_contract_invalid": "输出缺少字段、字段类型错误或违反结构合同",
     "self_check_failed": "输出自检未通过",
     "subject_source_evidence_invalid": "主体的原文证据不是输入中的连续原文",
     "subject_prompt_evidence_invalid": "主体没有真实出现在纯内容提示词中",
     "concrete_fact_missing": "输出没有具体可见事实",
-    "fact_subject_reference_invalid": "事实引用了不存在或类别不一致的主体",
+    "fact_subject_reference_invalid": "事实引用了不存在的主体",
     "fact_subject_evidence_mismatch": "事实证据与所引用主体的证据不对应",
-    "subject_fact_missing": "主体没有同类别的受保护事实",
+    "subject_fact_missing": "主体没有由服务端关联的受保护事实",
     "fact_source_evidence_invalid": "事实的原文证据不是输入中的连续原文",
     "fact_prompt_evidence_invalid": "事实没有真实出现在纯内容提示词中",
     "identity_isolation_failed": "内容阶段混入了视觉锚点身份或预留信息",
@@ -683,11 +676,11 @@ class VisualAnchorTwoStageService:
             frame_id=stage_input.frame_id,
         )
         try:
-            output = await self._call_structured(
+            model_output = await self._call_structured(
                 llm_service=llm_service,
                 prompt_id="visual_anchor_content_stage",
                 stage_input=stage_input,
-                response_type=ContentStageOutput,
+                response_type=ContentStageModelOutput,
                 frame_id=stage_input.frame_id,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
@@ -698,6 +691,10 @@ class VisualAnchorTwoStageService:
             if _is_content_stage_output_contract_error(exc):
                 raise ContentStageContractError(("schema_contract_invalid",)) from exc
             raise
+        output = _materialize_content_stage_output(
+            frame_id=stage_input.frame_id,
+            model_output=model_output,
+        )
         _validate_content_stage_output(stage_input, output)
         return output
 
@@ -830,12 +827,6 @@ def _validate_content_stage_output(
         ).casefold()
         if prompt_evidence not in normalized_pure_prompt:
             validation_codes.append("subject_prompt_evidence_invalid")
-    if not any(
-        fact.category in _CONCRETE_CONTENT_CATEGORIES
-        for fact in output.protected_facts
-    ):
-        validation_codes.append("concrete_fact_missing")
-
     subjects_by_id = {subject.subject_id: subject for subject in subjects}
     matched_subject_ids: set[str] = set()
     for fact in output.protected_facts:
@@ -844,23 +835,8 @@ def _validate_content_stage_output(
             fact.pure_content_prompt_evidence
         ).casefold()
         for subject_id in fact.subject_ids:
-            subject = subjects_by_id.get(subject_id)
-            if subject is None or subject.category != fact.category:
+            if subject_id not in subjects_by_id:
                 validation_codes.append("fact_subject_reference_invalid")
-                continue
-            if not (
-                _evidence_fragments_overlap(
-                    fact_source_evidence,
-                    _normalized_text(subject.source_evidence).casefold(),
-                )
-                and _evidence_fragments_overlap(
-                    fact_prompt_evidence,
-                    _normalized_text(
-                        subject.pure_content_prompt_evidence
-                    ).casefold(),
-                )
-            ):
-                validation_codes.append("fact_subject_evidence_mismatch")
                 continue
             matched_subject_ids.add(subject_id)
         if fact_source_evidence not in normalized_source:
@@ -912,6 +888,74 @@ def _validate_content_stage_output(
 
     if validation_codes:
         raise ContentStageContractError(validation_codes)
+
+
+def _materialize_content_stage_output(
+    *,
+    frame_id: str,
+    model_output: ContentStageModelOutput,
+) -> ContentStageOutput:
+    """Assign server-owned identifiers after the model response has been validated."""
+
+    protected_facts: list[dict[str, Any]] = []
+
+    def append_facts(*, facts, subject_ids: list[str]) -> None:
+        for fact in facts:
+            fact_index = len(protected_facts) + 1
+            protected_facts.append(
+                {
+                    **fact.model_dump(mode="json"),
+                    "fact_id": f"{frame_id}-fact-{fact_index}",
+                    "subject_ids": subject_ids,
+                }
+            )
+
+    primary_subject_id = f"{frame_id}-subject-primary"
+    primary_subject = {
+        **model_output.primary_subject.model_dump(
+            mode="json",
+            exclude={"protected_facts"},
+        ),
+        "subject_id": primary_subject_id,
+        "role": "primary",
+    }
+    append_facts(
+        facts=model_output.primary_subject.protected_facts,
+        subject_ids=[primary_subject_id],
+    )
+
+    secondary_subjects: list[dict[str, Any]] = []
+    for subject_index, subject in enumerate(
+        model_output.secondary_subjects,
+        start=1,
+    ):
+        subject_id = f"{frame_id}-subject-secondary-{subject_index}"
+        secondary_subjects.append(
+            {
+                **subject.model_dump(
+                    mode="json",
+                    exclude={"protected_facts"},
+                ),
+                "subject_id": subject_id,
+                "role": "secondary",
+            }
+        )
+        append_facts(
+            facts=subject.protected_facts,
+            subject_ids=[subject_id],
+        )
+
+    append_facts(facts=model_output.scene_facts, subject_ids=[])
+    return ContentStageOutput(
+        core_claim=model_output.core_claim,
+        protected_facts=protected_facts,
+        primary_subject=primary_subject,
+        secondary_subjects=secondary_subjects,
+        adjustable_non_core_content=model_output.adjustable_non_core_content,
+        pure_content_prompt=model_output.pure_content_prompt,
+        self_check=model_output.self_check,
+        self_check_failures=model_output.self_check_failures,
+    )
 
 
 def _validate_content_stage_identity_isolation(
@@ -1251,10 +1295,6 @@ def _continuous_fusion_decision(output: FusionStageOutput) -> str:
 
 def _normalized_text(value: object) -> str:
     return " ".join(str(value or "").split())
-
-
-def _evidence_fragments_overlap(left: str, right: str) -> bool:
-    return bool(left and right and (left in right or right in left))
 
 
 def _contains_required_prompt_fragment_contract(prompt: str, required: str) -> bool:
