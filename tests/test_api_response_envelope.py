@@ -1,10 +1,10 @@
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
 from pydantic import BaseModel, field_validator
 
 from api.schemas.responses import install_exception_handlers, success_envelope
+from tests.support.test_client import create_test_client
 
 
 class DemoPayload(BaseModel):
@@ -41,7 +41,7 @@ def build_test_app() -> FastAPI:
 
 
 def test_http_exception_uses_error_envelope():
-    client = TestClient(build_test_app())
+    client = create_test_client(build_test_app())
 
     response = client.get("/missing")
 
@@ -54,7 +54,7 @@ def test_http_exception_uses_error_envelope():
 
 
 def test_missing_field_validation_uses_validation_error_envelope():
-    client = TestClient(build_test_app())
+    client = create_test_client(build_test_app())
 
     response = client.post("/payload", json={})
 
@@ -67,7 +67,7 @@ def test_missing_field_validation_uses_validation_error_envelope():
 
 
 def test_field_validator_value_error_details_are_json_safe():
-    client = TestClient(build_test_app())
+    client = create_test_client(build_test_app())
 
     response = client.post("/payload", json={"name": "bad"})
 
@@ -88,7 +88,7 @@ def test_success_envelope_omits_data_when_none():
 
 
 def test_unknown_path_uses_error_envelope():
-    client = TestClient(build_test_app())
+    client = create_test_client(build_test_app())
 
     response = client.get("/unknown")
 
@@ -99,7 +99,7 @@ def test_unknown_path_uses_error_envelope():
 
 
 def test_wrong_method_uses_error_envelope():
-    client = TestClient(build_test_app())
+    client = create_test_client(build_test_app())
 
     response = client.get("/payload")
 
@@ -110,7 +110,7 @@ def test_wrong_method_uses_error_envelope():
 
 
 def test_non_string_http_exception_detail_is_json_safe():
-    client = TestClient(build_test_app())
+    client = create_test_client(build_test_app())
 
     response = client.get("/json-detail")
 

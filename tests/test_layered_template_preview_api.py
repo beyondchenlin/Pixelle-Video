@@ -1,8 +1,8 @@
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from api.routers.layered_template_preview import router
 from pixelle_video.services.layered_template_service import LayeredTemplatePreviewFrameResult
+from tests.support.test_client import create_test_client
 
 
 def test_preview_frame_api_returns_storage_key(monkeypatch):
@@ -30,7 +30,7 @@ def test_preview_frame_api_returns_storage_key(monkeypatch):
     app = FastAPI()
     app.state.artifact_object_store = injected_object_store
     app.include_router(router)
-    client = TestClient(app)
+    client = create_test_client(app)
 
     response = client.post(
         "/layered-templates/preview-frame",
@@ -84,7 +84,7 @@ def test_preview_frame_api_requires_injected_object_store(monkeypatch):
 
     app = FastAPI()
     app.include_router(router)
-    client = TestClient(app, raise_server_exceptions=False)
+    client = create_test_client(app, raise_server_exceptions=False)
 
     response = client.post(
         "/layered-templates/preview-frame",

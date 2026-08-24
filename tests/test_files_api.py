@@ -11,6 +11,7 @@ from api.routers import files as files_router_module
 from api.routers.files import get_file
 from api.routers.files import router as files_router
 from api.runtime_context import build_api_runtime_context
+from tests.support.test_client import create_test_client
 
 
 @pytest.fixture(autouse=True)
@@ -187,7 +188,7 @@ async def test_get_file_allows_data_asset_prefixes(monkeypatch, tmp_path, relati
 def _files_client() -> TestClient:
     app = FastAPI()
     app.include_router(files_router)
-    return TestClient(app)
+    return create_test_client(app)
 
 
 def test_video_cover_endpoint_creates_and_reuses_small_preview(monkeypatch, tmp_path):

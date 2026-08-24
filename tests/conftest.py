@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.test_client import close_test_clients
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -64,6 +66,14 @@ _install_optional_dependency_stubs()
 repo_root_path = str(REPO_ROOT)
 if sys.path[0] != repo_root_path:
     sys.path.insert(0, repo_root_path)
+
+
+@pytest.fixture(autouse=True)
+def _close_registered_test_clients():
+    try:
+        yield
+    finally:
+        close_test_clients()
 
 
 @pytest.hookimpl(tryfirst=True)

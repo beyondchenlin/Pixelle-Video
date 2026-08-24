@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api.schemas.asset_bible import PromptPlanProjectionPromptPlanResponse
+from tests.support.test_client import create_test_client
 
 
 @dataclass
@@ -192,7 +193,7 @@ def _client(
     if stale_repository is not None:
         app.state.stale_mark_repository = stale_repository
     app.include_router(asset_bible_router)
-    return TestClient(app)
+    return create_test_client(app)
 
 
 def _asset_bible_payload(**overrides) -> dict[str, Any]:

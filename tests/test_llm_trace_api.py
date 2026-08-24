@@ -1,7 +1,7 @@
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from api.routers.llm_trace import router as llm_trace_router
+from tests.support.test_client import create_test_client
 
 
 class FakeTraceRepository:
@@ -63,7 +63,7 @@ def _client(
         app.state.raw_payload_store = raw_payload_store
     app.state.local_debug_enabled = local_debug_enabled
     app.include_router(llm_trace_router)
-    return TestClient(app, client=(client_host, 50000))
+    return create_test_client(app, client=(client_host, 50000))
 
 
 def _trace():
