@@ -5,8 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v18"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v16"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v19"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v17"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v7"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
