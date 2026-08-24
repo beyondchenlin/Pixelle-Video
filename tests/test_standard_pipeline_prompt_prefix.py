@@ -11,6 +11,7 @@ from pixelle_video.models.style_resolution import (
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
+from tests.support.visual_story import DeterministicFrameVisualPlanLLM
 
 
 class _FakeMedia:
@@ -21,7 +22,7 @@ class _FakeMedia:
 class _DummyCore:
     def __init__(self, config: dict):
         self.config = config
-        self.llm = object()
+        self.llm = DeterministicFrameVisualPlanLLM()
         self.tts = None
         self.media = _FakeMedia()
         self.video = None

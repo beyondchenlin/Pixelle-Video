@@ -27,6 +27,7 @@ from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureProjectionService,
 )
 from pixelle_video.utils.template_util import get_template_orientation
+from tests.support.visual_story import DeterministicFrameVisualPlanLLM
 
 
 class _FakeRawPayloadStore:
@@ -60,34 +61,10 @@ class _FakeTraceRepository:
         return stored
 
 
-class _DeterministicFramePlanLLM:
-    async def __call__(self, **kwargs):
-        prompt = str(kwargs.get("prompt") or "")
-        marker = "Current batch payload:\n"
-        if marker not in prompt:
-            raise RuntimeError("route analysis is outside this test double")
-        payload_text = prompt.split(marker, 1)[1].split("\n\nTask:", 1)[0]
-        frame_contexts = json.loads(payload_text)["frame_contexts"]
-        return {
-            "frame_visual_plans": [
-                {
-                    "frame_id": frame["frame_id"],
-                    "frame_index": frame["frame_index"],
-                    "source_text": frame.get("source_text") or "source",
-                    "local_claim": frame.get("visual_goal") or "claim",
-                    "visual_task": "show the local claim",
-                    "visual_logic": "apply the selected content route",
-                    "required_subjects": [frame.get("visual_goal") or "subject"],
-                }
-                for frame in frame_contexts
-            ]
-        }
-
-
 class _DummyCore:
     def __init__(self, config=None):
         self.config = config or {"comfyui": {"image": {}, "video": {}}}
-        self.llm = _DeterministicFramePlanLLM()
+        self.llm = DeterministicFrameVisualPlanLLM()
         self.tts = None
         self.media = object()
         self.video = None
