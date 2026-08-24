@@ -11,7 +11,6 @@ from pixelle_video.services.storyboard_workbench import (
     FrameImageRegenerationTaskRequest,
     StoryboardImageCandidate,
 )
-from tests.support.test_client import create_test_client
 
 
 @dataclass
@@ -197,7 +196,7 @@ def _client(
     if task_submitter is not None:
         app.state.storyboard_workbench_task_submitter = task_submitter
     app.include_router(storyboard_workbench_router)
-    return create_test_client(app)
+    return TestClient(app)
 
 
 def _state_store() -> FakeWorkbenchStateStore:

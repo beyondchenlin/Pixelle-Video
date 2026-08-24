@@ -1,8 +1,8 @@
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from api.routers.text_rendering_preview import router
 from pixelle_video.services.text_rendering_preview import TextRenderingPreviewFrameResult
-from tests.support.test_client import create_test_client
 
 
 def test_text_rendering_preview_frame_api_returns_public_artifact_contract(monkeypatch):
@@ -30,7 +30,7 @@ def test_text_rendering_preview_frame_api_returns_public_artifact_contract(monke
     app = FastAPI()
     app.state.artifact_object_store = injected_object_store
     app.include_router(router)
-    client = create_test_client(app)
+    client = TestClient(app)
 
     response = client.post(
         "/text-rendering/preview-frame",
@@ -94,7 +94,7 @@ def test_text_rendering_preview_frame_api_preserves_legacy_anchor_input(monkeypa
     app = FastAPI()
     app.state.artifact_object_store = object()
     app.include_router(router)
-    client = create_test_client(app)
+    client = TestClient(app)
 
     response = client.post(
         "/text-rendering/preview-frame",
@@ -136,7 +136,7 @@ def test_text_rendering_preview_frame_requires_injected_object_store(monkeypatch
 
     app = FastAPI()
     app.include_router(router)
-    client = create_test_client(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post(
         "/text-rendering/preview-frame",
@@ -170,7 +170,7 @@ def test_text_rendering_preview_frame_rejects_public_preview_media_url(monkeypat
 
     app = FastAPI()
     app.include_router(router)
-    client = create_test_client(app)
+    client = TestClient(app)
 
     response = client.post(
         "/text-rendering/preview-frame",
@@ -203,7 +203,7 @@ def test_text_rendering_preview_frame_rejects_unbounded_dimensions_and_fps(monke
 
     app = FastAPI()
     app.include_router(router)
-    client = create_test_client(app)
+    client = TestClient(app)
 
     response = client.post(
         "/text-rendering/preview-frame",
@@ -241,7 +241,7 @@ def test_text_rendering_preview_frame_rejects_invalid_template_id_before_service
 
     app = FastAPI()
     app.include_router(router)
-    client = create_test_client(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=False)
 
     for template_id in ("../image_default", "missing_template", "image_default/../../x"):
         response = client.post(
@@ -281,7 +281,7 @@ def test_text_rendering_preview_frame_rejects_invalid_workspace_id_before_servic
 
     app = FastAPI()
     app.include_router(router)
-    client = create_test_client(app)
+    client = TestClient(app)
 
     for workspace_id in ("../bad", "ws/bad"):
         response = client.post(
@@ -321,7 +321,7 @@ def test_text_rendering_preview_frame_rejects_invalid_media_placement_with_4xx(
 
     app = FastAPI()
     app.include_router(router)
-    client = create_test_client(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post(
         "/text-rendering/preview-frame",
@@ -345,7 +345,7 @@ def test_text_rendering_preview_frame_maps_cross_workspace_key_to_4xx():
     app = FastAPI()
     app.state.artifact_object_store = object()
     app.include_router(router)
-    client = create_test_client(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post(
         "/text-rendering/preview-frame",
@@ -367,7 +367,7 @@ def test_text_rendering_preview_frame_maps_malformed_storage_key_to_4xx():
     app = FastAPI()
     app.state.artifact_object_store = object()
     app.include_router(router)
-    client = create_test_client(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post(
         "/text-rendering/preview-frame",

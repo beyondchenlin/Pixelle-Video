@@ -9,7 +9,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pixelle_video.services.asset_bible_preset_registry import AssetBiblePresetRegistry
-from tests.support.test_client import create_test_client
 
 
 @dataclass
@@ -49,7 +48,7 @@ def _client(
     if repository is not None:
         app.state.asset_bible_repository = repository
     app.include_router(asset_bible_presets_router, prefix="/api")
-    return create_test_client(app)
+    return TestClient(app)
 
 
 def _registry(tmp_path: Path) -> AssetBiblePresetRegistry:

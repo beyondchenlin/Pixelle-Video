@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api.dependencies import get_pixelle_video
@@ -23,7 +24,6 @@ from api.schemas.video import StoryboardFrameOverride as VideoStoryboardFrameOve
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
-from tests.support.test_client import create_test_client
 
 
 class _FakePixelleVideo:
@@ -250,7 +250,7 @@ def test_image_prompt_endpoint_rejects_raw_api_boundary_fields(field_name: str, 
     app = FastAPI()
     app.dependency_overrides[get_pixelle_video] = lambda: _FakePixelleVideo()
     app.include_router(content_router)
-    client = create_test_client(app)
+    client = TestClient(app)
 
     response = client.post(
         "/content/image-prompt",

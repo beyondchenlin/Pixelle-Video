@@ -5,7 +5,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pixelle_video.models.stale_dependency import DependencyEdge, StaleMark
-from tests.support.test_client import create_test_client
 
 
 @dataclass
@@ -75,7 +74,7 @@ def _client(
     if stale_repository is not None:
         app.state.stale_mark_repository = stale_repository
     app.include_router(router)
-    return create_test_client(app)
+    return TestClient(app)
 
 
 def test_target_stale_api_returns_readable_stale_summary():
