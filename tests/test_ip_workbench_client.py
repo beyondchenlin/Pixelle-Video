@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
+
+from tests.support.async_runner import run_coroutine_in_isolated_thread
 
 
 def test_http_ip_workbench_client_wraps_asset_bible_helpers():
@@ -124,7 +125,7 @@ def test_inprocess_ip_workbench_client_uses_local_services_without_http():
 
     client = InProcessStoryboardIPWorkbenchClient(
         pixelle_video=core,
-        async_runner=asyncio.run,
+        async_runner=run_coroutine_in_isolated_thread,
     )
 
     assert client.list_asset_bibles(

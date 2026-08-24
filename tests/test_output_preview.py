@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import unquote
@@ -13,6 +12,7 @@ from pixelle_video.models.video_generation_contract import (
     ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
     normalize_standard_video_generation_params,
 )
+from tests.support.async_runner import run_coroutine_in_isolated_thread
 from web.components import output_preview
 from web.components.prompt_generation_performance import (
     LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM,
@@ -1714,7 +1714,7 @@ def test_render_layout_preview_workbench_section_refreshes_real_preview_frame(mo
         lambda **_kwargs: {"action": "refresh_preview_frame"},
     )
     monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
-    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(output_preview, "run_async", run_coroutine_in_isolated_thread)
     monkeypatch.setattr(
         output_preview,
         "st",
@@ -1783,7 +1783,7 @@ def test_render_layout_preview_workbench_section_refresh_uses_local_object_store
         lambda **_kwargs: {"action": "refresh_preview_frame"},
     )
     monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
-    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(output_preview, "run_async", run_coroutine_in_isolated_thread)
     monkeypatch.setattr(
         output_preview,
         "st",
@@ -1943,7 +1943,7 @@ def test_render_layout_preview_workbench_section_does_not_save_template_when_thu
         lambda **_kwargs: {"action": "save_template"},
     )
     monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
-    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(output_preview, "run_async", run_coroutine_in_isolated_thread)
     errors = []
     monkeypatch.setattr(
         output_preview,
@@ -2088,7 +2088,7 @@ def test_render_layout_preview_workbench_section_saves_user_template_and_marks_r
         lambda **_kwargs: {"action": "save_template"},
     )
     monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
-    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(output_preview, "run_async", run_coroutine_in_isolated_thread)
     monkeypatch.setattr(
         output_preview,
         "st",

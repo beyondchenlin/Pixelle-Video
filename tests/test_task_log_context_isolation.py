@@ -1,5 +1,6 @@
 import asyncio
 
+import pytest
 from loguru import logger
 
 from pixelle_video.utils.logging_util import attach_task_log_sinks
@@ -22,11 +23,12 @@ async def _run_parallel_writes(task_a_dir, task_b_dir):
     )
 
 
-def test_parallel_task_log_sessions_do_not_cross_write(tmp_path):
+@pytest.mark.asyncio
+async def test_parallel_task_log_sessions_do_not_cross_write(tmp_path):
     task_a_dir = tmp_path / "task-a"
     task_b_dir = tmp_path / "task-b"
 
-    asyncio.run(_run_parallel_writes(task_a_dir, task_b_dir))
+    await _run_parallel_writes(task_a_dir, task_b_dir)
 
     task_a_runtime = (task_a_dir / "logs" / "runtime.jsonl").read_text(encoding="utf-8")
     task_b_runtime = (task_b_dir / "logs" / "runtime.jsonl").read_text(encoding="utf-8")

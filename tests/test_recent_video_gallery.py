@@ -1,9 +1,9 @@
-import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+from tests.support.async_runner import run_coroutine_in_isolated_thread
 from web.components import recent_video_gallery as gallery
 
 
@@ -136,7 +136,7 @@ def test_fetch_recent_history_video_items_scans_pages_until_limit(tmp_path):
 
     items = gallery.fetch_recent_history_video_items(
         FakePixelleVideo(),
-        runner=lambda awaitable: asyncio.run(awaitable),
+        runner=run_coroutine_in_isolated_thread,
         file_exists=lambda value: Path(value).exists(),
     )
 

@@ -1,4 +1,3 @@
-import asyncio
 import inspect
 import json
 import os
@@ -8,6 +7,7 @@ import pytest
 
 from pixelle_video.config import prompt_prefix_library
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
+from tests.support.async_runner import run_coroutine_in_isolated_thread
 from web.components import style_config
 from web.utils.preview_media import PreviewMediaData
 from web.utils.prompt_prefix_ui import (
@@ -1185,7 +1185,7 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
             return type("MediaResult", (), {"url": "preview.png"})()
 
     monkeypatch.setattr(style_config, "generate_styled_image_prompt_batch", fake_generate_styled_image_prompt_batch)
-    monkeypatch.setattr(style_config, "run_async", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(style_config, "run_async", run_coroutine_in_isolated_thread)
     monkeypatch.setattr(
         style_config,
         "get_runtime_path",
@@ -1254,7 +1254,7 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
             return type("MediaResult", (), {"url": "preview.mp4"})()
 
     monkeypatch.setattr(style_config, "generate_styled_image_prompt_batch", fake_generate_styled_image_prompt_batch)
-    monkeypatch.setattr(style_config, "run_async", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(style_config, "run_async", run_coroutine_in_isolated_thread)
     monkeypatch.setattr(
         style_config,
         "get_runtime_path",
@@ -1311,7 +1311,7 @@ def test_generate_single_style_preview_persists_prompt_trace_when_media_fails(mo
             raise RuntimeError("media failed")
 
     monkeypatch.setattr(style_config, "generate_styled_image_prompt_batch", fake_generate_styled_image_prompt_batch)
-    monkeypatch.setattr(style_config, "run_async", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(style_config, "run_async", run_coroutine_in_isolated_thread)
     monkeypatch.setattr(
         style_config,
         "get_runtime_path",

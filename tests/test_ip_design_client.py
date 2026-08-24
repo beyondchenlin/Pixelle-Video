@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any
+
+from tests.support.async_runner import run_coroutine_in_isolated_thread
 
 
 def test_http_ip_design_client_wraps_asset_bible_helpers():
@@ -159,7 +160,10 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
 
     repository = AssetRepository()
     core = type("Core", (), {"asset_bible_repository": repository})()
-    client = InProcessIPDesignClient(pixelle_video=core, async_runner=asyncio.run)
+    client = InProcessIPDesignClient(
+        pixelle_video=core,
+        async_runner=run_coroutine_in_isolated_thread,
+    )
 
     saved_asset = client.save_asset_bible(
         workspace_id="workspace_1",
@@ -285,7 +289,10 @@ def test_inprocess_ip_design_client_save_marks_imported_asset_bible_customized()
 
     repository = AssetRepository()
     core = type("Core", (), {"asset_bible_repository": repository})()
-    client = InProcessIPDesignClient(pixelle_video=core, async_runner=asyncio.run)
+    client = InProcessIPDesignClient(
+        pixelle_video=core,
+        async_runner=run_coroutine_in_isolated_thread,
+    )
 
     response = client.save_asset_bible(
         workspace_id="workspace_1",
@@ -373,7 +380,10 @@ def test_inprocess_ip_design_client_imports_builtin_asset_bible_without_leaking_
             "asset_bible_preset_registry": PresetRegistry(),
         },
     )()
-    client = InProcessIPDesignClient(pixelle_video=core, async_runner=asyncio.run)
+    client = InProcessIPDesignClient(
+        pixelle_video=core,
+        async_runner=run_coroutine_in_isolated_thread,
+    )
 
     preset_resp = client.list_asset_bible_presets()
     assert len(preset_resp.presets) == 1
@@ -427,7 +437,10 @@ def test_inprocess_ip_design_client_import_rejects_invalid_public_ids():
             "asset_bible_preset_registry": PresetRegistry(),
         },
     )()
-    client = InProcessIPDesignClient(pixelle_video=core, async_runner=asyncio.run)
+    client = InProcessIPDesignClient(
+        pixelle_video=core,
+        async_runner=run_coroutine_in_isolated_thread,
+    )
 
     try:
         client.import_asset_bible_preset(

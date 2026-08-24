@@ -1,15 +1,33 @@
 import asyncio
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 from types import SimpleNamespace
 
 import pytest
 from loguru import logger
 
+from tests.support.async_runner import run_coroutine_in_isolated_thread
 from web.state import async_runtime
 from web.state import session as session_state
 from web.state.async_runtime import shutdown_all_async_runtimes
 from web.utils.async_helpers import run_async
+
+
+def test_isolated_test_runner_preserves_calling_thread_event_loop():
+    def verify_loop_ownership() -> int:
+        calling_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(calling_loop)
+        try:
+            result = run_coroutine_in_isolated_thread(asyncio.sleep(0, result=42))
+            assert asyncio.get_event_loop() is calling_loop
+            return result
+        finally:
+            asyncio.set_event_loop(None)
+            calling_loop.close()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(verify_loop_ownership).result() == 42
 
 
 def test_run_async_reuses_the_same_event_loop_across_calls():
