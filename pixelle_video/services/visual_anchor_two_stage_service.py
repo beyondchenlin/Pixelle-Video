@@ -247,6 +247,7 @@ class VisualAnchorTwoStageService:
 
         scene_ids = _continuous_scene_ids(storyboard_plan.frames)
         decisions_by_scene: dict[str, FusionStagePromptPassthrough] = {}
+        series_fusion_history: list[str] = []
         results: list[VisualAnchorTwoStageFrameResult] = []
         for index, frame in enumerate(storyboard_plan.frames):
             frame_result = await self._run_frame(
@@ -256,6 +257,7 @@ class VisualAnchorTwoStageService:
                 frame_index=index,
                 scene_id=scene_ids[index],
                 existing_fusion_decision=decisions_by_scene.get(scene_ids[index]),
+                series_fusion_history=list(series_fusion_history[-3:]),
                 identity_profile=identity_profile,
                 identity_reference_condition=identity_reference_condition,
                 identity_conditioning_mode=resolved_identity_conditioning_mode,
@@ -274,6 +276,7 @@ class VisualAnchorTwoStageService:
                 stage_callback=stage_callback,
             )
             decisions_by_scene[scene_ids[index]] = frame_result.fusion_stage_output
+            series_fusion_history.append(frame_result.fusion_stage_output.raw_prompt)
             results.append(frame_result)
         return VisualAnchorTwoStageBatchResult(frames=tuple(results))
 
@@ -286,6 +289,7 @@ class VisualAnchorTwoStageService:
         frame_index: int,
         scene_id: str,
         existing_fusion_decision: FusionStagePromptPassthrough | None,
+        series_fusion_history: list[str],
         identity_profile: VisualAnchorIdentityProfile,
         identity_reference_condition: IdentityReferenceCondition | None,
         identity_conditioning_mode: str,
@@ -383,6 +387,7 @@ class VisualAnchorTwoStageService:
             identity_reference_condition=identity_reference_condition,
             workflow_identity_condition_summary=workflow_identity_condition_summary,
             continuous_scene_context=continuity_context,
+            series_fusion_history=series_fusion_history,
             target_visual_style=target_visual_style,
             visible_text_policy=visible_text_policy,
             negative_prompt_supported=negative_prompt_supported,

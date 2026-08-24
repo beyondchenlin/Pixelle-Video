@@ -5,8 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v19"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v18"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v20"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v19"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v7"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
@@ -31,6 +31,7 @@ HistoricalContentStagePromptVersion = Literal[
 ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v15",
     "visual_anchor_content_stage.v16",
+    "visual_anchor_content_stage.v19",
     CONTENT_STAGE_PROMPT_VERSION
 ]
 FusionStagePromptVersion = Literal[
@@ -46,6 +47,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v13",
     "visual_anchor_fusion_stage.v14",
     "visual_anchor_fusion_stage.v17",
+    "visual_anchor_fusion_stage.v18",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 
@@ -529,6 +531,7 @@ class LegacyContentStageInputV15(_ContentStageInputCommon):
     prompt_version: Literal[
         "visual_anchor_content_stage.v15",
         "visual_anchor_content_stage.v16",
+        "visual_anchor_content_stage.v19",
     ]
 
 
@@ -735,6 +738,7 @@ class FusionStageInput(BaseModel):
     identity_reference_condition: IdentityReferenceCondition | None = None
     workflow_identity_condition_summary: str
     continuous_scene_context: ContinuousSceneContext
+    series_fusion_history: list[str] = Field(default_factory=list, max_length=3)
     target_visual_style: TargetVisualStyle
     visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
     negative_prompt_supported: bool
