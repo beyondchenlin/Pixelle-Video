@@ -32,8 +32,10 @@ class ImagePromptDraft:
     prompt_text: str
     source_trace_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    preserve_prompt_verbatim: bool = False
 
     def __post_init__(self) -> None:
+        _require_bool("preserve_prompt_verbatim", self.preserve_prompt_verbatim)
         object.__setattr__(
             self,
             "image_prompt_draft_id",
@@ -45,12 +47,18 @@ class ImagePromptDraft:
             _require_non_empty("storyboard_plan_id", self.storyboard_plan_id),
         )
         object.__setattr__(self, "frame_id", _require_non_empty("frame_id", self.frame_id))
-        object.__setattr__(self, "prompt_text", _require_non_empty("prompt_text", self.prompt_text))
+        object.__setattr__(
+            self,
+            "prompt_text",
+            _verbatim_prompt(self.prompt_text)
+            if self.preserve_prompt_verbatim
+            else _require_non_empty("prompt_text", self.prompt_text),
+        )
         object.__setattr__(self, "source_trace_id", _optional_str(self.source_trace_id))
         object.__setattr__(self, "metadata", _deep_freeze_mapping(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "image_prompt_draft_id": self.image_prompt_draft_id,
             "storyboard_plan_id": self.storyboard_plan_id,
             "frame_id": self.frame_id,
@@ -58,6 +66,9 @@ class ImagePromptDraft:
             "source_trace_id": self.source_trace_id,
             "metadata": _json_safe_copy(self.metadata),
         }
+        if self.preserve_prompt_verbatim:
+            payload["preserve_prompt_verbatim"] = True
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ImagePromptDraft":
@@ -70,6 +81,9 @@ class ImagePromptDraft:
             prompt_text=payload.get("prompt_text", ""),
             source_trace_id=payload.get("source_trace_id"),
             metadata=payload.get("metadata") or {},
+            preserve_prompt_verbatim=(
+                payload.get("preserve_prompt_verbatim") is True
+            ),
         )
 
 
@@ -91,8 +105,10 @@ class PromptPlan:
     identity_content_sha256: str | None = None
     contract_content_sha256: str | None = None
     contract_version: str | None = None
+    preserve_prompt_verbatim: bool = False
 
     def __post_init__(self) -> None:
+        _require_bool("preserve_prompt_verbatim", self.preserve_prompt_verbatim)
         object.__setattr__(self, "prompt_plan_id", _require_non_empty("prompt_plan_id", self.prompt_plan_id))
         object.__setattr__(
             self,
@@ -105,8 +121,20 @@ class PromptPlan:
             "image_prompt_draft_id",
             _require_non_empty("image_prompt_draft_id", self.image_prompt_draft_id),
         )
-        object.__setattr__(self, "prompt_sections", _freeze_prompt_sections(self.prompt_sections))
-        object.__setattr__(self, "final_prompt", _require_non_empty("final_prompt", self.final_prompt))
+        object.__setattr__(
+            self,
+            "prompt_sections",
+            _freeze_prompt_sections_verbatim(self.prompt_sections)
+            if self.preserve_prompt_verbatim
+            else _freeze_prompt_sections(self.prompt_sections),
+        )
+        object.__setattr__(
+            self,
+            "final_prompt",
+            _verbatim_prompt(self.final_prompt)
+            if self.preserve_prompt_verbatim
+            else _require_non_empty("final_prompt", self.final_prompt),
+        )
         object.__setattr__(
             self,
             "final_negative_prompt",
@@ -147,7 +175,7 @@ class PromptPlan:
         object.__setattr__(self, "metadata", _deep_freeze_mapping(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "prompt_plan_id": self.prompt_plan_id,
             "storyboard_plan_id": self.storyboard_plan_id,
             "frame_id": self.frame_id,
@@ -165,6 +193,9 @@ class PromptPlan:
             "style_id": self.style_id,
             "metadata": _json_safe_copy(self.metadata),
         }
+        if self.preserve_prompt_verbatim:
+            payload["preserve_prompt_verbatim"] = True
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "PromptPlan":
@@ -187,6 +218,9 @@ class PromptPlan:
             prop_ids=tuple(payload.get("prop_ids") or ()),
             style_id=payload.get("style_id"),
             metadata=payload.get("metadata") or {},
+            preserve_prompt_verbatim=(
+                payload.get("preserve_prompt_verbatim") is True
+            ),
         )
 
 
@@ -200,11 +234,19 @@ class PromptProjection:
     prop_ids: tuple[str, ...] = ()
     style_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    preserve_prompt_verbatim: bool = False
 
     def __post_init__(self) -> None:
+        _require_bool("preserve_prompt_verbatim", self.preserve_prompt_verbatim)
         object.__setattr__(self, "prompt_plan_id", _public_reference_id("prompt_plan_id", self.prompt_plan_id))
         object.__setattr__(self, "frame_id", _public_reference_id("frame_id", self.frame_id))
-        object.__setattr__(self, "final_prompt", _require_non_empty("final_prompt", self.final_prompt))
+        object.__setattr__(
+            self,
+            "final_prompt",
+            _verbatim_prompt(self.final_prompt)
+            if self.preserve_prompt_verbatim
+            else _require_non_empty("final_prompt", self.final_prompt),
+        )
         object.__setattr__(self, "character_ids", _normalize_public_id_tuple("character_ids", self.character_ids))
         object.__setattr__(self, "scene_id", _optional_public_reference_id("scene_id", self.scene_id))
         object.__setattr__(self, "prop_ids", _normalize_public_id_tuple("prop_ids", self.prop_ids))
@@ -227,10 +269,11 @@ class PromptProjection:
             prop_ids=prompt_plan.prop_ids,
             style_id=prompt_plan.style_id,
             metadata=metadata or {},
+            preserve_prompt_verbatim=prompt_plan.preserve_prompt_verbatim,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "prompt_plan_id": self.prompt_plan_id,
             "frame_id": self.frame_id,
             "final_prompt": self.final_prompt,
@@ -240,6 +283,9 @@ class PromptProjection:
             "style_id": self.style_id,
             "metadata": _json_safe_copy(self.metadata),
         }
+        if self.preserve_prompt_verbatim:
+            payload["preserve_prompt_verbatim"] = True
+        return payload
 
 
 @dataclass(frozen=True)
@@ -318,6 +364,18 @@ def _require_non_empty(field_name: str, value: Any) -> str:
     return value.strip()
 
 
+def _require_bool(field_name: str, value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a boolean")
+    return value
+
+
+def _verbatim_prompt(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("verbatim prompts must be strings")
+    return value
+
+
 def _optional_str(value: Any) -> str | None:
     if value is None:
         return None
@@ -356,6 +414,18 @@ def _freeze_prompt_sections(value: Mapping[str, str]) -> Mapping[str, str]:
         normalized_key = _require_non_empty("prompt_sections key", key)
         normalized[normalized_key] = _require_non_empty(f"prompt_sections.{normalized_key}", item)
     return MappingProxyType(normalized)
+
+
+def _freeze_prompt_sections_verbatim(
+    value: Mapping[str, str],
+) -> Mapping[str, str]:
+    if not isinstance(value, Mapping) or not value:
+        raise ValueError("prompt_sections must be a non-empty mapping")
+    preserved = {}
+    for key, item in value.items():
+        normalized_key = _require_non_empty("prompt_sections key", key)
+        preserved[normalized_key] = _verbatim_prompt(item)
+    return MappingProxyType(preserved)
 
 
 def _normalize_id_tuple(field_name: str, value: tuple[str, ...]) -> tuple[str, ...]:

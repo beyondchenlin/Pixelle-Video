@@ -15,29 +15,22 @@ from pixelle_video.models.llm_interaction_trace import (
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
-    CONTENT_PROMPT_ASSEMBLY_VERSION,
     CONTENT_STAGE_PROMPT_VERSION,
-    FUSION_PROMPT_ASSEMBLY_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
+    RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION,
+    RAW_FUSION_PROMPT_PASSTHROUGH_VERSION,
     ContentStageInput,
-    ContentStageModelOutput,
-    ContentStageOutput,
     ContinuousSceneContext,
     FusionStageInput,
-    FusionStageModelOutput,
-    FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
+    RawContentStageOutput,
+    RawFusionStageOutput,
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
-    assemble_content_stage_prompt,
-    assemble_fusion_negative_prompt,
-    assemble_fusion_positive_prompt,
-    assemble_identity_prompt_clause,
-    prompt_assembly_trace_from_fusion_output,
 )
 from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
 from pixelle_video.utils.logging_util import emit_stage_event
@@ -81,7 +74,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v6",
+            "schema_version": "visual_anchor_two_stage_batch.v7",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -253,7 +246,7 @@ class VisualAnchorTwoStageService:
         }
 
         scene_ids = _continuous_scene_ids(storyboard_plan.frames)
-        decisions_by_scene: dict[str, FusionStageOutput] = {}
+        decisions_by_scene: dict[str, RawFusionStageOutput] = {}
         results: list[VisualAnchorTwoStageFrameResult] = []
         for index, frame in enumerate(storyboard_plan.frames):
             frame_result = await self._run_frame(
@@ -292,7 +285,7 @@ class VisualAnchorTwoStageService:
         frame: StoryboardPlanFrame,
         frame_index: int,
         scene_id: str,
-        existing_fusion_decision: FusionStageOutput | None,
+        existing_fusion_decision: RawFusionStageOutput | None,
         identity_profile: VisualAnchorIdentityProfile,
         identity_reference_condition: IdentityReferenceCondition | None,
         identity_conditioning_mode: str,
@@ -375,45 +368,9 @@ class VisualAnchorTwoStageService:
             next_frame_summary=next_summary,
             continuity_anchors=list(frame.continuity_anchors),
             existing_fusion_decision=(
-                "已有融合决策见下列结构化字段"
+                existing_fusion_decision.final_positive_prompt
                 if existing_fusion_decision is not None
-                else None
-            )
-            or "无既有融合决策（当前连续场景首镜或独立镜头）",
-            existing_selected_fusion_method=(
-                existing_fusion_decision.selected_fusion_method
-                if existing_fusion_decision is not None
-                else None
-            ),
-            existing_final_manifestation=(
-                existing_fusion_decision.final_manifestation
-                if existing_fusion_decision is not None
-                else None
-            ),
-            existing_identity_prompt_clause=(
-                existing_fusion_decision.identity_prompt_clause
-                if existing_fusion_decision is not None
-                else None
-            ),
-            existing_relative_scale_and_visual_weight=(
-                existing_fusion_decision.relative_scale_and_visual_weight
-                if existing_fusion_decision is not None
-                else None
-            ),
-            existing_support_carrier_and_material_relation=(
-                existing_fusion_decision.support_carrier_and_material_relation
-                if existing_fusion_decision is not None
-                else None
-            ),
-            existing_visual_identity_scene_interaction=(
-                existing_fusion_decision.visual_identity_scene_interaction
-                if existing_fusion_decision is not None
-                else None
-            ),
-            existing_spatial_contact_and_lighting_relation=(
-                existing_fusion_decision.spatial_contact_and_lighting_relation
-                if existing_fusion_decision is not None
-                else None
+                else "无既有融合结果（当前连续场景首镜或独立镜头）"
             ),
         )
 
@@ -473,11 +430,9 @@ class VisualAnchorTwoStageService:
             task_id=task_id,
             frame_id=frame.frame_id,
             random_seed=random_seed,
-            selected_fusion_method=fusion_output.selected_fusion_method,
-            final_manifestation=fusion_output.final_manifestation,
-            prompt_assembly_trace=prompt_assembly_trace_from_fusion_output(
-                fusion_output
-            ),
+            selected_fusion_method="",
+            final_manifestation="",
+            prompt_assembly_trace=None,
             final_positive_prompt=fusion_output.final_positive_prompt,
             final_negative_prompt=fusion_output.final_negative_prompt,
             identity_profile_id=identity_profile.profile_id,
@@ -515,16 +470,15 @@ class VisualAnchorTwoStageService:
         trace_context: LLMTraceContext | None,
         trace_recorder,
         call_audit: _SinglePassStageCallAudit | None = None,
-    ) -> ContentStageOutput:
+    ) -> RawContentStageOutput:
         resolved_call_audit = call_audit or _SinglePassStageCallAudit(
             stage="visual_anchor_content_stage",
             frame_id=stage_input.frame_id,
         )
-        model_output = await self._call_structured(
+        raw_prompt = await self._call_text(
             llm_service=llm_service,
             prompt_id="visual_anchor_content_stage",
             stage_input=stage_input,
-            response_type=ContentStageModelOutput,
             frame_id=stage_input.frame_id,
             trace_context=trace_context,
             trace_recorder=trace_recorder,
@@ -532,16 +486,10 @@ class VisualAnchorTwoStageService:
             max_tokens=4096,
             call_audit=resolved_call_audit,
         )
-        output = ContentStageOutput.model_validate(
-            {
-                **model_output.model_dump(mode="json"),
-                "prompt_assembly_version": CONTENT_PROMPT_ASSEMBLY_VERSION,
-                "pure_content_prompt": assemble_content_stage_prompt(
-                    model_output,
-                ),
-            }
+        return RawContentStageOutput(
+            prompt_assembly_version=RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION,
+            pure_content_prompt=raw_prompt,
         )
-        return output
 
     async def _run_fusion_stage(
         self,
@@ -551,12 +499,11 @@ class VisualAnchorTwoStageService:
         trace_context: LLMTraceContext | None,
         trace_recorder,
         call_audit: _SinglePassStageCallAudit,
-    ) -> FusionStageOutput:
-        model_output = await self._call_structured(
+    ) -> RawFusionStageOutput:
+        raw_prompt = await self._call_text(
             llm_service=llm_service,
             prompt_id="visual_anchor_fusion_stage",
             stage_input=stage_input,
-            response_type=FusionStageModelOutput,
             frame_id=stage_input.frame_id,
             trace_context=trace_context,
             trace_recorder=trace_recorder,
@@ -564,55 +511,19 @@ class VisualAnchorTwoStageService:
             max_tokens=4096,
             call_audit=call_audit,
         )
-        if (
-            not stage_input.negative_prompt_supported
-            and model_output.scene_negative_prompt
-        ):
-            raise VisualAnchorTwoStageError(
-                "scene_negative_prompt must be empty when the workflow has no negative prompt"
-            )
-        identity_prompt_clause = assemble_identity_prompt_clause(
-            model_output,
-            identity_profile=stage_input.identity_profile,
-            target_image_prompt_language=stage_input.target_image_prompt_language,
-        )
-        final_positive_prompt = assemble_fusion_positive_prompt(
-            model_output,
-            content_stage_output=stage_input.content_stage_output,
-            identity_prompt_clause=identity_prompt_clause,
-            identity_profile=stage_input.identity_profile,
-            target_visual_style=stage_input.target_visual_style,
-            visible_text_policy=stage_input.visible_text_policy,
-            negative_prompt_supported=stage_input.negative_prompt_supported,
-            target_image_prompt_language=stage_input.target_image_prompt_language,
-        )
-        final_negative_prompt = assemble_fusion_negative_prompt(
-            model_output,
-            identity_profile=stage_input.identity_profile,
-            target_visual_style=stage_input.target_visual_style,
-            visible_text_policy=stage_input.visible_text_policy,
-            negative_prompt_supported=stage_input.negative_prompt_supported,
-        )
-        return FusionStageOutput.model_validate(
-            {
-                **model_output.model_dump(mode="json"),
-                "prompt_assembly_version": FUSION_PROMPT_ASSEMBLY_VERSION,
-                "base_content_prompt": (
-                    stage_input.content_stage_output.pure_content_prompt
-                ),
-                "identity_prompt_clause": identity_prompt_clause,
-                "final_positive_prompt": final_positive_prompt,
-                "final_negative_prompt": final_negative_prompt,
-            }
+        return RawFusionStageOutput(
+            prompt_assembly_version=RAW_FUSION_PROMPT_PASSTHROUGH_VERSION,
+            base_content_prompt=stage_input.content_stage_output.pure_content_prompt,
+            final_positive_prompt=raw_prompt,
+            final_negative_prompt="",
         )
 
     @staticmethod
-    async def _call_structured(
+    async def _call_text(
         *,
         llm_service,
         prompt_id: str,
         stage_input: Any,
-        response_type,
         frame_id: str,
         trace_context: LLMTraceContext | None,
         trace_recorder,
@@ -635,14 +546,14 @@ class VisualAnchorTwoStageService:
         call_audit.record_llm_call()
         response = await llm_service(
             prompt=rendered.text,
-            response_type=response_type,
+            response_type=None,
             temperature=temperature,
             max_tokens=max_tokens,
             trace_context=call_trace_context,
             trace_recorder=trace_recorder,
             single_request=True,
         )
-        return response if isinstance(response, response_type) else response_type.model_validate(response)
+        return response
 
 
 def _render_stage_prompt(

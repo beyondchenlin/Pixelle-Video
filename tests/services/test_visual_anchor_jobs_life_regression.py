@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -61,7 +62,19 @@ class _QueuedLLM:
                 "kwargs": kwargs,
             }
         )
-        return self.responses[response_type].pop(0)
+        queue_key = response_type
+        if queue_key is None and queue_key not in self.responses:
+            queue_key = (
+                FusionStageModelOutput
+                if "视觉融合导演" in prompt
+                else ContentStageModelOutput
+            )
+        response = self.responses[queue_key].pop(0)
+        if isinstance(response, str):
+            return response
+        if hasattr(response, "model_dump_json"):
+            return response.model_dump_json()
+        return json.dumps(response, ensure_ascii=False)
 
 
 def _jobs_plan() -> StoryboardPlan:
@@ -363,8 +376,9 @@ def test_fusion_template_allows_required_style_and_text_prohibitions():
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "确定性加入唯一的身份子句、视觉风格和文字策略" in template
-    assert "不输出候选、比较过程、证明、自检或审查字段" in template
+    assert "将 target_visual_style、visible_text_policy" in template
+    assert "只输出最终图片提示词原文" in template
+    assert "不要输出结构化数据" in template
 
 
 def test_content_template_requests_no_proof_or_self_check_fields():
@@ -373,22 +387,14 @@ def test_content_template_requests_no_proof_or_self_check_fields():
         / "pixelle_video/prompts/templates/visual_anchor_content_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "每项只包含 category 和 statement" in template
-    for required_planning_field in (
+    assert "只输出最终纯内容图片提示词原文" in template
+    assert "不要输出结构化数据" in template
+    for removed_field in (
         "shot_purpose",
         "renderable_story_beats",
         "decisive_moment",
         "content_subject_interaction",
         "composition_plan",
-        "shot_scale_and_camera",
-        "foreground",
-        "midground",
-        "background",
-        "visual_focus",
-        "adjacent_shot_distinction",
-    ):
-        assert required_planning_field in template
-    for removed_field in (
         "source_evidence",
         "pure_content_prompt_evidence",
         "protected_facts",
@@ -404,8 +410,11 @@ def test_fusion_template_requests_only_final_result_fields():
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "直接给出唯一的最终融合结果" in template
+    assert "直接写出一段能够送入图片模型的最终图片提示词" in template
+    assert "只输出最终图片提示词原文" in template
     for removed_field in (
+        "selected_fusion_method",
+        "final_manifestation",
         "protected_fact_checks",
         "identity_trait_checks",
         "single_instance_prompt_evidence",
@@ -421,13 +430,12 @@ def test_fusion_template_keeps_subject_facts_fixed_while_opening_manifestation()
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "是画面主旨与事实边界",
-        "可以为视觉身份新增任何不改变主旨的背景细节、道具、服装细节",
-        "不为任何表现方式设置默认优先级",
-        "任何能够在当前场景中真实成立的单一表现方式都合法",
-        "如果现有构图没有自然载体或互动关系，可以新增不改变主旨的道具",
+        "保留原始分镜和纯内容提示词中的人物、身份、数量",
+        "可以使用任何不改变主旨的方式融合视觉身份",
+        "不为任何方式设置默认优先级",
+        "可以新增不改变主旨的服装、道具、非核心人物",
         "不得因为独立实体最容易生成",
-        "独立场景必须根据当前画面重新判断",
+        "可以根据当前画面重新选择",
     ):
         assert required_rule in template
 
@@ -439,24 +447,23 @@ def test_fusion_template_explicitly_allows_material_and_interactive_forms():
     ).read_text(encoding="utf-8")
 
     for manifestation in (
-        "服装图形",
+        "服装印刷",
         "材质纹样",
         "互动角色",
-        "印刷",
         "刺绣",
         "压印",
         "雕刻",
     ):
         assert manifestation in template
     assert "整幅画只出现一个可识别的视觉身份实例" in template
-    for required_fusion_field in (
+    for removed_fusion_field in (
         "identity_prompt_clause",
         "relative_scale_and_visual_weight",
         "support_carrier_and_material_relation",
         "visual_identity_scene_interaction",
     ):
-        assert required_fusion_field in template
-    assert "服务端会按" in template
+        assert removed_fusion_field not in template
+    assert "服务端会按" not in template
 
 
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
@@ -630,12 +637,13 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
     content_calls = [
         call
         for call in llm.calls
-        if call["response_type"] is ContentStageModelOutput
+        if "你是一名分镜导演" in call["prompt"]
     ]
     fusion_calls = [
-        call for call in llm.calls if call["response_type"] is FusionStageModelOutput
+        call for call in llm.calls if "你是一名视觉融合导演" in call["prompt"]
     ]
     assert len(content_calls) == len(fusion_calls) == len(plan.frames)
+    assert all(call["response_type"] is None for call in llm.calls)
     for call in content_calls:
         assert "斑点狗" not in call["prompt"]
         assert "黑色墨镜" not in call["prompt"]
@@ -648,54 +656,25 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
         assert '"negative_prompt_supported": false' in call["prompt"]
 
-    expected_primary_subjects = (
-        "乔布斯和沃兹尼亚克",
-        "乔布斯",
-        "乔布斯和苹果团队",
-        "年轻人",
-    )
-    for frame_result, expected_primary in zip(
+    expected_contents = _content_outputs(plan)
+    expected_fusions = _fusion_outputs(expected_contents)
+    for frame_result, expected_content, expected_fusion in zip(
         result.frames,
-        expected_primary_subjects,
+        expected_contents,
+        expected_fusions,
     ):
         content = frame_result.content_stage_output
         request = frame_result.generation_request
-        assert content.primary_subject.name == expected_primary
-        assert content.scene_facts
-        assert "表达乔布斯人生第" not in content.primary_subject.name
-        assert expected_primary in request.final_positive_prompt
-        assert content.shot_purpose
-        assert content.renderable_story_beats
-        assert content.decisive_moment
-        assert content.content_subject_interaction
-        assert content.composition_plan.visual_focus
-        assert content.adjacent_shot_distinction
+        assert content.pure_content_prompt == expected_content.model_dump_json()
+        assert (
+            frame_result.fusion_stage_output.final_positive_prompt
+            == expected_fusion.model_dump_json()
+        )
+        assert request.final_positive_prompt == expected_fusion.model_dump_json()
         assert request.identity_conditioning_mode == "text_profile"
         assert request.identity_reference_condition is None
-        assert (
-            frame_result.fusion_stage_output.identity_prompt_clause
-            in request.final_positive_prompt
-        )
-        assert frame_result.fusion_stage_output.relative_scale_and_visual_weight
-        assert frame_result.fusion_stage_output.support_carrier_and_material_relation
-        assert frame_result.fusion_stage_output.visual_identity_scene_interaction
-        assert _NO_TEXT_POSITIVE in request.final_positive_prompt
         assert request.final_negative_prompt == ""
-        for fragment in _STYLE_POSITIVE:
-            assert fragment in request.final_positive_prompt
-        for forbidden_fixed_rule in (
-            "大尺寸",
-            "居中",
-            "固定位置",
-            "画面占比",
-            "左上角",
-            "右下角",
-        ):
-            assert forbidden_fixed_rule not in request.final_positive_prompt
-
-    assert [
-        frame.fusion_stage_output.selected_fusion_method for frame in result.frames
-    ] == ["服装刺绣", "讲台金属压印", "产品展示摆件", "背包织物贴章"]
+        assert request.prompt_assembly_trace is None
 
     composer_source = inspect.getsource(VisualPromptComposer.compose)
     assert "base_image_prompt" not in composer_source

@@ -8,7 +8,7 @@ from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 from pixelle_video.models.article_concretization import ArticleConcretizationPlan
 from pixelle_video.models.final_visual_prompt_contract import (
     V44_TRACE_METADATA_KEYS,
-    FinalVisualPromptContract,
+    RawModelPromptContract,
     RenderedMediaPrompt,
     join_rendered_negative_prompts,
 )
@@ -497,10 +497,10 @@ class VisualPromptComposer:
                 for item in two_stage_result.frames
             }
             planning_snapshot["visual_anchor_two_stage_prompt_policy"] = {
-                "schema_version": "visual_anchor_two_stage_prompt_policy.v4",
-                "prompt_chain": "content_stage_then_fusion_rewrite",
+                "schema_version": "visual_anchor_two_stage_prompt_policy.v5",
+                "prompt_chain": "content_raw_response_then_fusion_raw_response",
                 "image_generation_attempts_per_frame": 1,
-                "post_generation_model_validation_enabled": False,
+                "post_generation_local_content_validation_enabled": False,
                 "post_generation_prompt_repair_enabled": False,
                 "post_generation_regeneration_enabled": False,
                 "identity_conditioning_mode": identity_conditioning_mode,
@@ -801,28 +801,14 @@ def _series_visual_signature_request_audit(
 
 
 def _render_two_stage_prompt(frame_result: Any) -> RenderedMediaPrompt:
-    fusion = frame_result.fusion_stage_output
     request = frame_result.generation_request
     negative_prompt = request.final_negative_prompt or None
-    identity_condition = (
-        "融合阶段使用首次工作流已绑定的真实参考资源表达身份"
-        if request.identity_conditioning_mode == "reference_image"
-        else "融合阶段使用身份档案的名称、核心识别特征和禁止变化项表达身份"
-    )
-    contract = FinalVisualPromptContract(
-        scene=request.final_positive_prompt,
-        composition=fusion.selected_fusion_method,
-        style_assignment="融合结果服从用户选择的全局风格、材质、光照和空间关系",
-        character_layer_style=identity_condition,
-        world_layer_style=fusion.spatial_contact_and_lighting_relation,
-        integration_priority="由融合阶段综合处理内容主体、文案事实、身份元素和场景协调",
-        negative_rules=(request.final_negative_prompt,)
-        if request.final_negative_prompt
-        else (),
+    contract = RawModelPromptContract(
+        raw_prompt=request.final_positive_prompt,
         metadata={
             "visual_anchor_two_stage": frame_result.model_dump(mode="json"),
         },
-        version="visual_anchor_two_stage_contract.v3",
+        version="visual_anchor_two_stage_raw_prompt_contract.v1",
     )
     return RenderedMediaPrompt(
         prompt=request.final_positive_prompt,
@@ -834,6 +820,7 @@ def _render_two_stage_prompt(frame_result: Any) -> RenderedMediaPrompt:
             "visual_anchor_two_stage": frame_result.model_dump(mode="json"),
             "generation_request": request.model_dump(mode="json"),
         },
+        preserve_prompt_verbatim=True,
     )
 
 

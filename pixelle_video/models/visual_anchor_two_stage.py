@@ -5,11 +5,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v15"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v13"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v6"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v16"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v14"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v7"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
+RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
+RAW_FUSION_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_fusion_raw_passthrough.v1"
 _PLANNING_TEXT_MAX_LENGTH = 1200
 _PROMPT_TEXT_MAX_LENGTH = 12000
 HistoricalContentStagePromptVersion = Literal[
@@ -25,6 +27,7 @@ HistoricalContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v14",
 ]
 ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
+    "visual_anchor_content_stage.v15",
     CONTENT_STAGE_PROMPT_VERSION
 ]
 FusionStagePromptVersion = Literal[
@@ -37,6 +40,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v10",
     "visual_anchor_fusion_stage.v11",
     "visual_anchor_fusion_stage.v12",
+    "visual_anchor_fusion_stage.v13",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 
@@ -422,7 +426,7 @@ class ContentStageModelOutput(_ContentStageCommonOutput):
 
 
 class ContentStageOutput(ContentStageModelOutput):
-    """Persisted current result with a deterministic server-assembled prompt."""
+    """Historical v15 result with a deterministic server-assembled prompt."""
 
     prompt_assembly_version: Literal[CONTENT_PROMPT_ASSEMBLY_VERSION]
     pure_content_prompt: str = Field(max_length=_PROMPT_TEXT_MAX_LENGTH)
@@ -433,8 +437,20 @@ class ContentStageOutput(ContentStageModelOutput):
         return _text(value, "pure_content_prompt")
 
 
+class RawContentStageOutput(BaseModel):
+    """Current content-stage result: the model response is retained verbatim."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    prompt_assembly_version: Literal[RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION]
+    pure_content_prompt: str
+
+
 ReadableContentStageOutput = (
-    ContentStageOutput | LegacyContentStageOutputV14 | LegacyContentStageOutput
+    RawContentStageOutput
+    | ContentStageOutput
+    | LegacyContentStageOutputV14
+    | LegacyContentStageOutput
 )
 
 class _ContentStageInputCommon(BaseModel):
@@ -470,7 +486,15 @@ class ContentStageInput(_ContentStageInputCommon):
     prompt_version: Literal[CONTENT_STAGE_PROMPT_VERSION] = CONTENT_STAGE_PROMPT_VERSION
 
 
-ReadableContentStageInput = ContentStageInput | LegacyContentStageInput
+class LegacyContentStageInputV15(_ContentStageInputCommon):
+    """Historical v15 style-neutral input retained for persisted artifacts."""
+
+    prompt_version: Literal["visual_anchor_content_stage.v15"]
+
+
+ReadableContentStageInput = (
+    ContentStageInput | LegacyContentStageInputV15 | LegacyContentStageInput
+)
 
 
 class VisualAnchorIdentityProfile(BaseModel):
@@ -601,7 +625,6 @@ class ContinuousSceneContext(BaseModel):
         "scene_id",
         "previous_frame_summary",
         "next_frame_summary",
-        "existing_fusion_decision",
         mode="before",
     )
     @classmethod
@@ -826,7 +849,7 @@ class LegacyFusionStageOutputV12(_FusionStageCommonOutput):
 
 
 class FusionStageModelOutput(_FusionStageCommonOutput):
-    """Current model response: one manifestation decision plus prompt insertion context."""
+    """Historical v13 structured model response."""
 
     selected_fusion_method: str = Field(max_length=_PLANNING_TEXT_MAX_LENGTH)
     final_manifestation: str = Field(max_length=_PLANNING_TEXT_MAX_LENGTH)
@@ -862,7 +885,7 @@ class FusionStageModelOutput(_FusionStageCommonOutput):
 
 
 class FusionStageOutput(FusionStageModelOutput):
-    """Persisted current result with deterministic identity and prompt assembly."""
+    """Historical v13 result with deterministic server prompt assembly."""
 
     prompt_assembly_version: Literal[FUSION_PROMPT_ASSEMBLY_VERSION]
     base_content_prompt: str = Field(max_length=_PROMPT_TEXT_MAX_LENGTH)
@@ -894,8 +917,22 @@ class FusionStageOutput(FusionStageModelOutput):
         return self
 
 
+class RawFusionStageOutput(BaseModel):
+    """Current fusion-stage result: the model response is the image prompt."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    prompt_assembly_version: Literal[RAW_FUSION_PROMPT_PASSTHROUGH_VERSION]
+    base_content_prompt: str
+    final_positive_prompt: str
+    final_negative_prompt: str = ""
+
+
 ReadableFusionStageOutput = (
-    FusionStageOutput | LegacyFusionStageOutputV12 | LegacyFusionStageOutput
+    RawFusionStageOutput
+    | FusionStageOutput
+    | LegacyFusionStageOutputV12
+    | LegacyFusionStageOutput
 )
 
 class ImageWorkflowExecutionContract(BaseModel):
@@ -1011,6 +1048,7 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             "visual_anchor_generation_request.v3",
             "visual_anchor_generation_request.v4",
             "visual_anchor_generation_request.v5",
+            "visual_anchor_generation_request.v6",
         }:
             normalized["request_version"] = GENERATION_REQUEST_VERSION
         return normalized
@@ -1018,9 +1056,6 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     @field_validator(
         "task_id",
         "frame_id",
-        "selected_fusion_method",
-        "final_manifestation",
-        "final_positive_prompt",
         "identity_profile_id",
         "identity_display_name",
         "identity_resource_version",
@@ -1031,12 +1066,17 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     def _validate_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
 
-    @field_validator("final_negative_prompt", mode="before")
+    @field_validator("selected_fusion_method", "final_manifestation", mode="before")
     @classmethod
-    def _validate_optional_negative_prompt(cls, value: object) -> str:
+    def _preserve_optional_model_metadata(cls, value: object, info) -> str:
+        return _optional_text(value, info.field_name)
+
+    @field_validator("final_positive_prompt", "final_negative_prompt", mode="before")
+    @classmethod
+    def _preserve_model_prompt_verbatim(cls, value: object, info) -> str:
         if not isinstance(value, str):
-            raise ValueError("final_negative_prompt must be a string")
-        return " ".join(value.split())
+            raise ValueError(f"{info.field_name} must be a string")
+        return value
 
     @field_validator("identity_core_traits")
     @classmethod
@@ -1059,81 +1099,26 @@ class VisualAnchorImageGenerationRequest(BaseModel):
         return _text(value, "target_image_prompt_language")
 
     @model_validator(mode="after")
-    def _validate_prompt_assembly_trace(self) -> "VisualAnchorImageGenerationRequest":
-        if self.fusion_stage_prompt_version == FUSION_STAGE_PROMPT_VERSION:
-            if self.prompt_assembly_trace is None:
-                raise ValueError(
-                    "current fusion prompt version requires prompt_assembly_trace"
-                )
-            if self.target_image_prompt_language is None:
-                raise ValueError(
-                    "current fusion prompt version requires target_image_prompt_language"
-                )
-            self._validate_current_prompt_assembly()
-        if (
-            self.prompt_assembly_trace is not None
-            and self.prompt_assembly_trace.identity_prompt_clause
-            not in self.final_positive_prompt
-        ):
+    def _validate_non_content_resource_wiring(
+        self,
+    ) -> "VisualAnchorImageGenerationRequest":
+        expected_identity_version = (
+            f"identity:{self.identity_profile_id}:{self.identity_content_sha256}"
+        )
+        if self.identity_resource_version != expected_identity_version:
             raise ValueError(
-                "generation request prompt must contain its identity prompt clause"
+                "identity resource version must match the identity id and digest"
+            )
+        if self.identity_conditioning_mode == "reference_image":
+            if self.identity_reference_condition is None:
+                raise ValueError(
+                    "reference-image generation requires a reference condition"
+                )
+        elif self.identity_reference_condition is not None:
+            raise ValueError(
+                "text-profile generation cannot include a reference condition"
             )
         return self
-
-    def _validate_current_prompt_assembly(self) -> None:
-        trace = self.prompt_assembly_trace
-        language = self.target_image_prompt_language
-        if trace is None or language is None:
-            raise ValueError("current prompt assembly metadata is incomplete")
-        expected_identity_clause = assemble_identity_prompt_clause_from_fields(
-            final_manifestation=self.final_manifestation,
-            identity_display_name=self.identity_display_name,
-            identity_core_traits=self.identity_core_traits,
-            relative_scale_and_visual_weight=(
-                trace.relative_scale_and_visual_weight
-            ),
-            support_carrier_and_material_relation=(
-                trace.support_carrier_and_material_relation
-            ),
-            visual_identity_scene_interaction=(
-                trace.visual_identity_scene_interaction
-            ),
-            spatial_contact_and_lighting_relation=(
-                trace.spatial_contact_and_lighting_relation
-            ),
-            target_image_prompt_language=language,
-        )
-        if trace.identity_prompt_clause != expected_identity_clause:
-            raise ValueError(
-                "generation request identity clause differs from its assembly trace"
-            )
-        expected_positive_prompt = assemble_positive_prompt_from_trace(
-            trace,
-            identity_forbidden_traits=self.identity_forbidden_traits,
-            target_visual_style=self.target_visual_style,
-            visible_text_policy=self.visible_text_policy,
-            negative_prompt_supported=self.negative_prompt_supported,
-            target_image_prompt_language=language,
-        )
-        expected_negative_prompt = assemble_negative_prompt_from_trace(
-            trace,
-            identity_forbidden_traits=self.identity_forbidden_traits,
-            target_visual_style=self.target_visual_style,
-            visible_text_policy=self.visible_text_policy,
-            negative_prompt_supported=self.negative_prompt_supported,
-        )
-        if len(expected_positive_prompt) > _PROMPT_TEXT_MAX_LENGTH:
-            raise ValueError("generation request positive prompt exceeds current limit")
-        if len(expected_negative_prompt) > _PROMPT_TEXT_MAX_LENGTH:
-            raise ValueError("generation request negative prompt exceeds current limit")
-        if self.final_positive_prompt != expected_positive_prompt:
-            raise ValueError(
-                "generation request positive prompt differs from its assembly trace"
-            )
-        if self.final_negative_prompt != expected_negative_prompt:
-            raise ValueError(
-                "generation request negative prompt differs from its assembly trace"
-            )
 
 
 def _join_prompt_fragments(values: list[str]) -> str:
@@ -1436,243 +1421,3 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     @classmethod
     def _validate_frame_id(cls, value: object) -> str:
         return _text(value, "frame_id")
-
-    @model_validator(mode="after")
-    def _validate_cross_stage_contract(self) -> "VisualAnchorTwoStageFrameResult":
-        frame_ids = {
-            self.frame_id,
-            self.content_stage_input.frame_id,
-            self.fusion_stage_input.frame_id,
-            self.generation_request.frame_id,
-        }
-        if len(frame_ids) != 1:
-            raise ValueError("all visual-anchor stages must use the same frame id")
-        original_texts = {
-            self.content_stage_input.original_storyboard_text,
-            self.fusion_stage_input.original_storyboard_text,
-        }
-        if len(original_texts) != 1:
-            raise ValueError(
-                "all visual-anchor stages must preserve the exact storyboard text"
-            )
-        if (
-            self.generation_request.content_stage_prompt_version
-            != self.content_stage_input.prompt_version
-            or self.generation_request.fusion_stage_prompt_version
-            != self.fusion_stage_input.prompt_version
-        ):
-            raise ValueError(
-                "generation request prompt versions must match their stage inputs"
-            )
-        content_version = self.content_stage_input.prompt_version
-        if content_version == CONTENT_STAGE_PROMPT_VERSION:
-            if not isinstance(self.content_stage_output, ContentStageOutput):
-                raise ValueError(
-                    "current content prompt version requires current assembled output"
-                )
-            expected_content_prompt = assemble_content_stage_prompt(
-                self.content_stage_output,
-            )
-            if self.content_stage_output.pure_content_prompt != expected_content_prompt:
-                raise ValueError(
-                    "content prompt differs from deterministic planning assembly"
-                )
-        elif content_version == "visual_anchor_content_stage.v14":
-            if not isinstance(self.content_stage_output, LegacyContentStageOutputV14):
-                raise ValueError("v14 content prompt requires its historical output shape")
-        elif not isinstance(self.content_stage_output, LegacyContentStageOutput):
-            raise ValueError("historical content prompt requires its historical output shape")
-
-        fusion_version = self.fusion_stage_input.prompt_version
-        if fusion_version == FUSION_STAGE_PROMPT_VERSION:
-            if not isinstance(self.fusion_stage_output, FusionStageOutput):
-                raise ValueError(
-                    "current fusion prompt version requires current assembled output"
-                )
-            identity_clause = assemble_identity_prompt_clause(
-                self.fusion_stage_output,
-                identity_profile=self.fusion_stage_input.identity_profile,
-                target_image_prompt_language=(
-                    self.fusion_stage_input.target_image_prompt_language
-                ),
-            )
-            expected_positive_prompt = assemble_fusion_positive_prompt(
-                self.fusion_stage_output,
-                content_stage_output=self.content_stage_output,
-                identity_prompt_clause=identity_clause,
-                identity_profile=self.fusion_stage_input.identity_profile,
-                target_visual_style=self.fusion_stage_input.target_visual_style,
-                visible_text_policy=self.fusion_stage_input.visible_text_policy,
-                negative_prompt_supported=(
-                    self.fusion_stage_input.negative_prompt_supported
-                ),
-                target_image_prompt_language=(
-                    self.fusion_stage_input.target_image_prompt_language
-                ),
-            )
-            expected_negative_prompt = assemble_fusion_negative_prompt(
-                self.fusion_stage_output,
-                identity_profile=self.fusion_stage_input.identity_profile,
-                target_visual_style=self.fusion_stage_input.target_visual_style,
-                visible_text_policy=self.fusion_stage_input.visible_text_policy,
-                negative_prompt_supported=(
-                    self.fusion_stage_input.negative_prompt_supported
-                ),
-            )
-            if self.fusion_stage_output.identity_prompt_clause != identity_clause:
-                raise ValueError(
-                    "identity prompt clause differs from deterministic manifestation assembly"
-                )
-            if (
-                self.fusion_stage_output.base_content_prompt
-                != self.content_stage_output.pure_content_prompt
-            ):
-                raise ValueError(
-                    "fusion output must preserve the exact assembled content prompt"
-                )
-            if (
-                self.fusion_stage_output.final_positive_prompt
-                != expected_positive_prompt
-                or self.fusion_stage_output.final_negative_prompt
-                != expected_negative_prompt
-            ):
-                raise ValueError(
-                    "fusion prompts differ from deterministic prompt assembly"
-                )
-            self._validate_current_continuity_contract()
-        elif fusion_version == "visual_anchor_fusion_stage.v12":
-            if not isinstance(self.fusion_stage_output, LegacyFusionStageOutputV12):
-                raise ValueError("v12 fusion prompt requires its historical output shape")
-        elif not isinstance(self.fusion_stage_output, LegacyFusionStageOutput):
-            raise ValueError("historical fusion prompt requires its historical output shape")
-        if self.fusion_stage_input.content_stage_output != self.content_stage_output:
-            raise ValueError("fusion input must contain the exact content-stage output")
-        if (
-            self.fusion_stage_input.identity_conditioning_mode
-            != self.generation_request.identity_conditioning_mode
-        ):
-            raise ValueError("identity conditioning mode must remain identical")
-        reference_condition = self.fusion_stage_input.identity_reference_condition
-        if (
-            reference_condition
-            != self.generation_request.identity_reference_condition
-        ):
-            raise ValueError("identity reference condition must remain identical")
-        if (
-            self.fusion_stage_output.final_positive_prompt
-            != self.generation_request.final_positive_prompt
-            or self.fusion_stage_output.final_negative_prompt
-            != self.generation_request.final_negative_prompt
-        ):
-            raise ValueError("generation prompts must exactly match fusion output")
-        if (
-            self.generation_request.selected_fusion_method
-            != self.fusion_stage_output.selected_fusion_method
-            or self.generation_request.final_manifestation
-            != self.fusion_stage_output.final_manifestation
-        ):
-            raise ValueError(
-                "generation request must preserve the selected fusion result"
-            )
-        if isinstance(self.fusion_stage_output, FusionStageOutput):
-            expected_trace = prompt_assembly_trace_from_fusion_output(
-                self.fusion_stage_output
-            )
-            if self.generation_request.prompt_assembly_trace != expected_trace:
-                raise ValueError(
-                    "generation request must preserve the exact prompt assembly trace"
-                )
-        identity = self.fusion_stage_input.identity_profile
-        if (
-            self.generation_request.identity_profile_id != identity.profile_id
-            or self.generation_request.identity_display_name != identity.display_name
-            or self.generation_request.identity_core_traits
-            != identity.core_identity_traits
-            or self.generation_request.identity_resource_version
-            != identity.identity_resource_version
-            or self.generation_request.identity_content_sha256
-            != identity.identity_content_sha256
-        ):
-            raise ValueError("generation identity version must match the fusion input")
-        if fusion_version == FUSION_STAGE_PROMPT_VERSION:
-            if (
-                self.generation_request.identity_forbidden_traits
-                != identity.forbidden_traits
-            ):
-                raise ValueError(
-                    "generation forbidden identity traits must match the fusion input"
-                )
-            if (
-                self.generation_request.target_image_prompt_language
-                != self.fusion_stage_input.target_image_prompt_language
-            ):
-                raise ValueError("generation prompt language must match the fusion input")
-        if (
-            self.fusion_stage_input.target_visual_style
-            != self.generation_request.target_visual_style
-            or self.fusion_stage_input.visible_text_policy
-            != self.generation_request.visible_text_policy
-        ):
-            raise ValueError(
-                "style and visible-text policies must remain identical across later stages"
-            )
-        return self
-
-    def _validate_current_continuity_contract(self) -> None:
-        output = self.fusion_stage_output
-        if not isinstance(output, FusionStageOutput):
-            raise ValueError("current continuity validation requires current output")
-        context = self.fusion_stage_input.continuous_scene_context
-        has_existing = context.existing_selected_fusion_method is not None
-        current_existing_fields = (
-            context.existing_identity_prompt_clause,
-            context.existing_relative_scale_and_visual_weight,
-            context.existing_support_carrier_and_material_relation,
-            context.existing_visual_identity_scene_interaction,
-        )
-        if has_existing and any(value is None for value in current_existing_fields):
-            raise ValueError(
-                "current fusion continuity requires the complete previous decision"
-            )
-        if not has_existing:
-            if output.inherited_existing_fusion_decision:
-                raise ValueError("first or independent frame cannot inherit a decision")
-            if output.continuity_change_reason:
-                raise ValueError(
-                    "continuity_change_reason must be empty without an existing decision"
-                )
-            return
-        if output.inherited_existing_fusion_decision:
-            if output.continuity_change_reason:
-                raise ValueError(
-                    "directly inherited decisions cannot include a change reason"
-                )
-            inherited_pairs = (
-                (output.selected_fusion_method, context.existing_selected_fusion_method),
-                (output.final_manifestation, context.existing_final_manifestation),
-                (output.identity_prompt_clause, context.existing_identity_prompt_clause),
-                (
-                    output.relative_scale_and_visual_weight,
-                    context.existing_relative_scale_and_visual_weight,
-                ),
-                (
-                    output.support_carrier_and_material_relation,
-                    context.existing_support_carrier_and_material_relation,
-                ),
-                (
-                    output.visual_identity_scene_interaction,
-                    context.existing_visual_identity_scene_interaction,
-                ),
-                (
-                    output.spatial_contact_and_lighting_relation,
-                    context.existing_spatial_contact_and_lighting_relation,
-                ),
-            )
-            if any(current != previous for current, previous in inherited_pairs):
-                raise ValueError(
-                    "directly inherited fusion decision must match every previous field"
-                )
-        elif not output.continuity_change_reason:
-            raise ValueError(
-                "changing an existing fusion decision requires continuity_change_reason"
-            )

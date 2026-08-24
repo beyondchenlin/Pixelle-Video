@@ -537,8 +537,8 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
 
     class _GenerationRequest:
         final_positive_prompt = (
-            "A worker operates an assembly machine while exactly one Dalmatian "
-            "with black spots observes from a natural side position."
+            "\n  A worker operates an assembly machine while exactly one Dalmatian "
+            "with black spots observes from a natural side position.  \n"
         )
         final_negative_prompt = ""
         identity_conditioning_mode = "text_profile"
@@ -554,12 +554,7 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
     class _FrameResult:
         frame_id = "frame-1"
         generation_request = _GenerationRequest()
-        fusion_stage_output = SimpleNamespace(
-            selected_fusion_method="natural scene-side observation",
-            spatial_contact_and_lighting_relation=(
-                "shared perspective, lighting, material, and floor contact"
-            ),
-        )
+        fusion_stage_output = SimpleNamespace()
 
         def model_dump(self, *, mode=None):
             return {
@@ -572,7 +567,7 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
 
         def to_dict(self):
             return {
-                "schema_version": "visual_anchor_two_stage_batch.v6",
+                "schema_version": "visual_anchor_two_stage_batch.v7",
                 "frames": [self.frames[0].model_dump(mode="json")],
             }
 
@@ -628,15 +623,16 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
     assert captured_two_stage["identity_reference_condition"] is None
     assert captured_two_stage["negative_prompt_supported"] is False
     assert captured_two_stage["identity_profile"].display_name == "Dalmatian"
+    assert result.prompts[0] == _GenerationRequest.final_positive_prompt
     assert "Dalmatian" in result.prompts[0]
     assert "black spots" in result.prompts[0]
     assert result.negative_prompt is None
     assert "visual_anchor_two_stage" in result.planning_snapshot
     assert result.planning_snapshot["visual_anchor_two_stage_prompt_policy"] == {
-        "schema_version": "visual_anchor_two_stage_prompt_policy.v4",
-        "prompt_chain": "content_stage_then_fusion_rewrite",
+        "schema_version": "visual_anchor_two_stage_prompt_policy.v5",
+        "prompt_chain": "content_raw_response_then_fusion_raw_response",
         "image_generation_attempts_per_frame": 1,
-        "post_generation_model_validation_enabled": False,
+        "post_generation_local_content_validation_enabled": False,
         "post_generation_prompt_repair_enabled": False,
         "post_generation_regeneration_enabled": False,
         "identity_conditioning_mode": "text_profile",
