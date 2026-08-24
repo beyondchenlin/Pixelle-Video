@@ -366,14 +366,14 @@ class VisualPromptComposer:
                 )
             if media_service is None:
                 raise ValueError(
-                    "visual-anchor two-stage fusion requires the media service"
+                    "visual-anchor three-stage generation requires the media service"
                 )
             resolved_task_id = str(
                 task_id or getattr(trace_context, "task_id", "") or ""
             ).strip()
             if not resolved_task_id:
                 raise ValueError(
-                    "visual-anchor two-stage fusion requires a task id"
+                    "visual-anchor three-stage generation requires a task id"
                 )
             registered_seeds = dict(random_seeds_by_frame or {})
             if set(registered_seeds) != {
@@ -503,8 +503,12 @@ class VisualPromptComposer:
                 for item in two_stage_result.frames
             }
             planning_snapshot["visual_anchor_two_stage_prompt_policy"] = {
-                "schema_version": "visual_anchor_two_stage_prompt_policy.v6",
-                "prompt_chain": "content_raw_response_then_fusion_raw_response",
+                "schema_version": "visual_anchor_two_stage_prompt_policy.v7",
+                "prompt_chain": (
+                    "content_raw_response_then_fusion_draft_then_"
+                    "finalization_raw_response"
+                ),
+                "model_calls_per_frame": 3,
                 "image_generation_attempts_per_frame": 1,
                 "model_output_passthrough_enabled": True,
                 "post_generation_local_validation_enabled": False,
@@ -824,14 +828,14 @@ def _render_two_stage_prompt(frame_result: Any) -> RenderedMediaPrompt:
     frame_payload = frame_result.model_dump(mode="json")
     contract = RawModelPromptContract(
         raw_prompt=request.final_positive_prompt,
-        version="visual_anchor_two_stage_raw_prompt_contract.v1",
+        version="visual_anchor_three_stage_raw_prompt_contract.v1",
     )
     return RenderedMediaPrompt(
         prompt=request.final_positive_prompt,
         negative_prompt=negative_prompt,
         prompt_contract=contract,
-        renderer_id="visual_anchor_two_stage_renderer",
-        renderer_version="v3",
+        renderer_id="visual_anchor_three_stage_renderer",
+        renderer_version="v1",
         metadata={
             "visual_anchor_two_stage": frame_payload,
         },

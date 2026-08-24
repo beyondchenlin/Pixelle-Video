@@ -12,6 +12,7 @@ from pixelle_video.models.storyboard import StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
     ContentStageModelOutput,
+    FinalizationStagePromptPassthrough,
     FusionStageModelOutput,
     ImageWorkflowExecutionContract,
     TargetVisualStyle,
@@ -54,6 +55,7 @@ class _QueuedLLM:
             for response_type, values in responses.items()
         }
         self.calls = []
+        self.last_fusion_response = ""
 
     async def __call__(self, *, prompt, response_type, **kwargs):
         self.calls.append(
@@ -65,17 +67,27 @@ class _QueuedLLM:
         )
         queue_key = response_type
         if queue_key is None and queue_key not in self.responses:
-            queue_key = (
-                FusionStageModelOutput
-                if "视觉融合导演" in prompt
-                else ContentStageModelOutput
-            )
+            if "最终生图提示词审查重写导演" in prompt:
+                queue_key = FinalizationStagePromptPassthrough
+            elif "视觉融合导演" in prompt:
+                queue_key = FusionStageModelOutput
+            else:
+                queue_key = ContentStageModelOutput
+        if (
+            queue_key is FinalizationStagePromptPassthrough
+            and queue_key not in self.responses
+        ):
+            return self.last_fusion_response
         response = self.responses[queue_key].pop(0)
         if isinstance(response, str):
-            return response
-        if hasattr(response, "model_dump_json"):
-            return response.model_dump_json()
-        return json.dumps(response, ensure_ascii=False)
+            rendered = response
+        elif hasattr(response, "model_dump_json"):
+            rendered = response.model_dump_json()
+        else:
+            rendered = json.dumps(response, ensure_ascii=False)
+        if queue_key is FusionStageModelOutput:
+            self.last_fusion_response = rendered
+        return rendered
 
 
 def _jobs_plan() -> StoryboardPlan:
@@ -418,7 +430,7 @@ def test_fusion_template_allows_required_style_and_text_prohibitions():
 
     assert "target_visual_style.required_final_prompt_fragments" in template
     assert "visible_text_policy.suppress_visible_text" in template
-    assert "只输出最终图片提示词原文" in template
+    assert "只输出完整融合提示词草稿原文" in template
     assert "不要输出结构化数据" in template
 
 
@@ -471,14 +483,14 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
         assert required_rule in template
 
 
-def test_fusion_template_requests_only_final_result_fields():
+def test_fusion_template_requests_only_raw_draft_text():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "直接写出一段能够送入图片模型的最终图片提示词" in template
-    assert "只输出最终图片提示词原文" in template
+    assert "直接写出一段完整的融合提示词草稿" in template
+    assert "只输出完整融合提示词草稿原文" in template
     for removed_field in (
         "selected_fusion_method",
         "final_manifestation",
@@ -506,12 +518,11 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "静坐、站立、观看或陪伴的被动实体是最后选择",
         "这是选择顺序，不是禁用清单",
         "关键叙事物品可以承载视觉身份",
-        "series_fusion_history 是此前画面的原始最终提示词",
-        "continuous_scene_context.existing_fusion_decision 的连续性要求优先于系列差异化",
+        "本阶段不承担跨独立镜头的历史查重",
+        "同一连续场景优先参考 continuous_scene_context.existing_fusion_decision 保持既有表现形态和空间关系",
         "不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子",
-        "最终提示词第一句先确立 target_visual_style 的目标媒介与画风",
         "所有人物（包括名人及其面部）、服装、道具、环境和视觉身份",
-        "写出最终提示词前，在内部确认",
+        "草稿第一句先确立 target_visual_style 的目标媒介与画风",
     ):
         assert required_rule in template
 
@@ -567,6 +578,47 @@ def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
     ):
         assert removed_fusion_field not in template
     assert "服务端会按" not in template
+
+
+def test_finalization_template_repairs_current_facts_without_copying_history():
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates/visual_anchor_finalization_stage.md"
+    ).read_text(encoding="utf-8")
+
+    for required_rule in (
+        "original_storyboard_text 为当前画面的事实硬边界",
+        "直接恢复当前分镜事实",
+        "不得把历史提示词里的事件、人物动作、背景或道具搬进本镜",
+        "series_final_prompt_history 是此前画面的最终提示词，只用于识别重复",
+        "绝对不是可复制的写作模板",
+        "重复使用墙上挂画、装饰画、同一服装位置、同一道具、同一被动陪伴实体或同构构图",
+        "continuous_scene_context.existing_fusion_decision 的连续性为先",
+    ):
+        assert required_rule in template
+
+
+def test_finalization_template_unifies_style_and_keeps_positive_scene_choices():
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates/visual_anchor_finalization_stage.md"
+    ).read_text(encoding="utf-8")
+
+    for required_rule in (
+        "关键叙事物品可以承载视觉身份",
+        "该顺序不是禁用清单",
+        "每个人物、名人面部与身体、服装、道具、环境和视觉身份",
+        "二维线描插画造型、简化明暗和非照片质感",
+        "代码不会解析、判断或修复你的结果",
+        "只输出审查重写后的最终图片提示词原文",
+    ):
+        assert required_rule in template
+    for forbidden_output in (
+        "输出通过结论",
+        "输出失败结论",
+        "服务端会检查",
+    ):
+        assert forbidden_output not in template
 
 
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
@@ -733,10 +785,10 @@ async def _run_jobs_sample():
 
 
 @pytest.mark.asyncio
-async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_policy():
+async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_policy():
     plan, result, llm = await _run_jobs_sample()
 
-    assert len(llm.calls) == len(plan.frames) * 2
+    assert len(llm.calls) == len(plan.frames) * 3
     content_calls = [
         call
         for call in llm.calls
@@ -745,7 +797,17 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
     fusion_calls = [
         call for call in llm.calls if "你是一名视觉融合导演" in call["prompt"]
     ]
-    assert len(content_calls) == len(fusion_calls) == len(plan.frames)
+    finalization_calls = [
+        call
+        for call in llm.calls
+        if "你是一名最终生图提示词审查重写导演" in call["prompt"]
+    ]
+    assert (
+        len(content_calls)
+        == len(fusion_calls)
+        == len(finalization_calls)
+        == len(plan.frames)
+    )
     assert all(call["response_type"] is None for call in llm.calls)
     for call in content_calls:
         assert "斑点狗" not in call["prompt"]
@@ -758,6 +820,11 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
         assert '"target_visual_style"' in call["prompt"]
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
         assert '"negative_prompt_supported": false' in call["prompt"]
+        assert '"series_fusion_history": []' in call["prompt"]
+    for call in finalization_calls:
+        assert '"fusion_stage_input"' in call["prompt"]
+        assert '"fusion_stage_output"' in call["prompt"]
+        assert '"series_final_prompt_history"' in call["prompt"]
 
     expected_contents = _content_outputs(plan)
     expected_fusions = _fusion_outputs(expected_contents)

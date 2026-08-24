@@ -17,11 +17,15 @@ from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanF
 from pixelle_video.models.visual_anchor_two_stage import (
     CONTENT_PROMPT_PASSTHROUGH_VERSION,
     CONTENT_STAGE_PROMPT_VERSION,
+    FINALIZATION_PROMPT_PASSTHROUGH_VERSION,
+    FINALIZATION_STAGE_PROMPT_VERSION,
     FUSION_PROMPT_PASSTHROUGH_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
     ContentStageInput,
     ContentStagePromptPassthrough,
     ContinuousSceneContext,
+    FinalizationStageInput,
+    FinalizationStagePromptPassthrough,
     FusionStageInput,
     FusionStagePromptPassthrough,
     IdentityReferenceCondition,
@@ -74,10 +78,11 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v8",
+            "schema_version": "visual_anchor_two_stage_batch.v9",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
+                "finalization_stage": FINALIZATION_STAGE_PROMPT_VERSION,
             },
             "frames": [frame.model_dump(mode="json") for frame in self.frames],
         }
@@ -109,7 +114,7 @@ def identity_profile_from_snapshot(
 
 
 class VisualAnchorTwoStageService:
-    """Content and fusion calls before exactly one image request."""
+    """Three fixed text-model stages before exactly one image request."""
 
     async def run_batch(
         self,
@@ -246,8 +251,8 @@ class VisualAnchorTwoStageService:
         }
 
         scene_ids = _continuous_scene_ids(storyboard_plan.frames)
-        decisions_by_scene: dict[str, FusionStagePromptPassthrough] = {}
-        series_fusion_history: list[str] = []
+        decisions_by_scene: dict[str, FinalizationStagePromptPassthrough] = {}
+        series_final_prompt_history: list[str] = []
         results: list[VisualAnchorTwoStageFrameResult] = []
         for index, frame in enumerate(storyboard_plan.frames):
             frame_result = await self._run_frame(
@@ -257,7 +262,7 @@ class VisualAnchorTwoStageService:
                 frame_index=index,
                 scene_id=scene_ids[index],
                 existing_fusion_decision=decisions_by_scene.get(scene_ids[index]),
-                series_fusion_history=list(series_fusion_history[-3:]),
+                series_final_prompt_history=list(series_final_prompt_history[-3:]),
                 identity_profile=identity_profile,
                 identity_reference_condition=identity_reference_condition,
                 identity_conditioning_mode=resolved_identity_conditioning_mode,
@@ -275,8 +280,13 @@ class VisualAnchorTwoStageService:
                 trace_recorder=trace_recorder,
                 stage_callback=stage_callback,
             )
-            decisions_by_scene[scene_ids[index]] = frame_result.fusion_stage_output
-            series_fusion_history.append(frame_result.fusion_stage_output.raw_prompt)
+            finalization_output = frame_result.finalization_stage_output
+            if finalization_output is None:
+                raise VisualAnchorTwoStageError(
+                    "current runtime did not produce a finalization response"
+                )
+            decisions_by_scene[scene_ids[index]] = finalization_output
+            series_final_prompt_history.append(finalization_output.raw_prompt)
             results.append(frame_result)
         return VisualAnchorTwoStageBatchResult(frames=tuple(results))
 
@@ -288,8 +298,8 @@ class VisualAnchorTwoStageService:
         frame: StoryboardPlanFrame,
         frame_index: int,
         scene_id: str,
-        existing_fusion_decision: FusionStagePromptPassthrough | None,
-        series_fusion_history: list[str],
+        existing_fusion_decision: FinalizationStagePromptPassthrough | None,
+        series_final_prompt_history: list[str],
         identity_profile: VisualAnchorIdentityProfile,
         identity_reference_condition: IdentityReferenceCondition | None,
         identity_conditioning_mode: str,
@@ -387,7 +397,7 @@ class VisualAnchorTwoStageService:
             identity_reference_condition=identity_reference_condition,
             workflow_identity_condition_summary=workflow_identity_condition_summary,
             continuous_scene_context=continuity_context,
-            series_fusion_history=series_fusion_history,
+            series_fusion_history=[],
             target_visual_style=target_visual_style,
             visible_text_policy=visible_text_policy,
             negative_prompt_supported=negative_prompt_supported,
@@ -431,6 +441,51 @@ class VisualAnchorTwoStageService:
             **fusion_call_audit.terminal_event_fields(),
         )
 
+        finalization_input = FinalizationStageInput(
+            frame_id=frame.frame_id,
+            original_storyboard_text=frame.source_text,
+            fusion_stage_input=fusion_input,
+            fusion_stage_output=fusion_output,
+            series_final_prompt_history=series_final_prompt_history,
+        )
+        _emit_stage(
+            stage_callback,
+            stage="visual_anchor_finalization_stage",
+            event="start",
+            frame_id=frame.frame_id,
+            status="running",
+        )
+        finalization_call_audit = _SinglePassStageCallAudit(
+            stage="visual_anchor_finalization_stage",
+            frame_id=frame.frame_id,
+        )
+        try:
+            finalization_output = await self._run_finalization_stage(
+                llm_service=llm_service,
+                stage_input=finalization_input,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                call_audit=finalization_call_audit,
+            )
+        except Exception:
+            _emit_stage(
+                stage_callback,
+                stage="visual_anchor_finalization_stage",
+                event="fail",
+                frame_id=frame.frame_id,
+                status="failed",
+                **finalization_call_audit.terminal_event_fields(),
+            )
+            raise
+        _emit_stage(
+            stage_callback,
+            stage="visual_anchor_finalization_stage",
+            event="end",
+            frame_id=frame.frame_id,
+            status="completed",
+            **finalization_call_audit.terminal_event_fields(),
+        )
+
         generation_request = VisualAnchorImageGenerationRequest(
             task_id=task_id,
             frame_id=frame.frame_id,
@@ -438,7 +493,7 @@ class VisualAnchorTwoStageService:
             selected_fusion_method="",
             final_manifestation="",
             prompt_assembly_trace=None,
-            final_positive_prompt=fusion_output.raw_prompt,
+            final_positive_prompt=finalization_output.raw_prompt,
             final_negative_prompt="",
             identity_profile_id=identity_profile.profile_id,
             identity_display_name=identity_profile.display_name,
@@ -452,6 +507,7 @@ class VisualAnchorTwoStageService:
             visible_text_policy=visible_text_policy,
             content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
             fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
+            finalization_stage_prompt_version=FINALIZATION_STAGE_PROMPT_VERSION,
             negative_prompt_supported=negative_prompt_supported,
             target_image_prompt_language=target_image_prompt_language,
             workflow_key=workflow_key,
@@ -464,6 +520,8 @@ class VisualAnchorTwoStageService:
             content_stage_output=content_output,
             fusion_stage_input=fusion_input,
             fusion_stage_output=fusion_output,
+            finalization_stage_input=finalization_input,
+            finalization_stage_output=finalization_output,
             generation_request=generation_request,
         )
 
@@ -518,6 +576,31 @@ class VisualAnchorTwoStageService:
         )
         return FusionStagePromptPassthrough(
             passthrough_version=FUSION_PROMPT_PASSTHROUGH_VERSION,
+            raw_prompt=raw_prompt,
+        )
+
+    async def _run_finalization_stage(
+        self,
+        *,
+        llm_service,
+        stage_input: FinalizationStageInput,
+        trace_context: LLMTraceContext | None,
+        trace_recorder,
+        call_audit: _SinglePassStageCallAudit,
+    ) -> FinalizationStagePromptPassthrough:
+        raw_prompt = await self._call_text(
+            llm_service=llm_service,
+            prompt_id="visual_anchor_finalization_stage",
+            stage_input=stage_input,
+            frame_id=stage_input.frame_id,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+            temperature=0.0,
+            max_tokens=4096,
+            call_audit=call_audit,
+        )
+        return FinalizationStagePromptPassthrough(
+            passthrough_version=FINALIZATION_PROMPT_PASSTHROUGH_VERSION,
             raw_prompt=raw_prompt,
         )
 
@@ -580,6 +663,7 @@ def _render_stage_prompt(
     expected_version = {
         "visual_anchor_content_stage": CONTENT_STAGE_PROMPT_VERSION,
         "visual_anchor_fusion_stage": FUSION_STAGE_PROMPT_VERSION,
+        "visual_anchor_finalization_stage": FINALIZATION_STAGE_PROMPT_VERSION,
     }[prompt_id]
     if rendered.version != expected_version:
         raise VisualAnchorTwoStageError(

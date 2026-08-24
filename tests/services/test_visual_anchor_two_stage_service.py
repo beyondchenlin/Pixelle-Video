@@ -11,6 +11,8 @@ from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanF
 from pixelle_video.models.visual_anchor_two_stage import (
     CONTENT_PROMPT_ASSEMBLY_VERSION,
     CONTENT_PROMPT_PASSTHROUGH_VERSION,
+    FINALIZATION_PROMPT_PASSTHROUGH_VERSION,
+    FINALIZATION_STAGE_PROMPT_VERSION,
     FUSION_PROMPT_ASSEMBLY_VERSION,
     FUSION_PROMPT_PASSTHROUGH_VERSION,
     RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -19,6 +21,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     ContentStageModelOutput,
     ContentStageOutput,
     ContentSubject,
+    FinalizationStagePromptPassthrough,
     FusionStageModelOutput,
     FusionStageOutput,
     IdentityReferenceCondition,
@@ -63,6 +66,7 @@ class _QueuedLLM:
             response_type: list(items) for response_type, items in responses.items()
         }
         self.calls = []
+        self.last_fusion_response = ""
 
     async def __call__(self, *, prompt, response_type, **kwargs):
         self.calls.append(
@@ -70,17 +74,29 @@ class _QueuedLLM:
         )
         queue_key = response_type
         if queue_key is None and queue_key not in self.responses:
-            queue_key = (
-                FusionStageModelOutput
-                if "视觉融合导演" in prompt
-                else ContentStageModelOutput
-            )
+            if "最终生图提示词审查重写导演" in prompt:
+                queue_key = FinalizationStagePromptPassthrough
+            elif "视觉融合导演" in prompt:
+                queue_key = FusionStageModelOutput
+            else:
+                queue_key = ContentStageModelOutput
+        if (
+            queue_key is FinalizationStagePromptPassthrough
+            and queue_key not in self.responses
+        ):
+            return self.last_fusion_response
         response = self.responses[queue_key].pop(0)
+        if isinstance(response, Exception):
+            raise response
         if isinstance(response, str):
-            return response
-        if hasattr(response, "model_dump_json"):
-            return response.model_dump_json()
-        return json.dumps(response, ensure_ascii=False)
+            rendered = response
+        elif hasattr(response, "model_dump_json"):
+            rendered = response.model_dump_json()
+        else:
+            rendered = json.dumps(response, ensure_ascii=False)
+        if queue_key is FusionStageModelOutput:
+            self.last_fusion_response = rendered
+        return rendered
 
 
 def _plan(*, continuous=False):
@@ -278,6 +294,7 @@ async def _run(
     plan,
     *,
     fusions=None,
+    finalizations=None,
     stage_callback=None,
     identity_conditioning_mode="reference_image",
 ):
@@ -286,13 +303,18 @@ async def _run(
         for frame in plan.frames
     ]
     fusion_outputs = fusions or [
-        f"原始最终图片提示词::{frame.frame_id}::{frame.source_text}"
+        f"原始融合草稿::{frame.frame_id}::{frame.source_text}"
+        for frame in plan.frames
+    ]
+    finalization_outputs = finalizations or [
+        f"原始审查重写后的最终图片提示词::{frame.frame_id}::{frame.source_text}"
         for frame in plan.frames
     ]
     llm = _QueuedLLM(
         {
             ContentStageModelOutput: contents,
             FusionStageModelOutput: fusion_outputs,
+            FinalizationStagePromptPassthrough: finalization_outputs,
         }
     )
     result = await _run_service(
@@ -437,10 +459,10 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 
 
 @pytest.mark.asyncio
-async def test_raw_fusion_response_flows_directly_to_generation():
+async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v8"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v9"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -450,12 +472,22 @@ async def test_raw_fusion_response_flows_directly_to_generation():
         "passthrough_version": FUSION_PROMPT_PASSTHROUGH_VERSION,
         "raw_prompt": frame.fusion_stage_output.raw_prompt,
     }
+    assert frame.finalization_stage_output.model_dump(mode="json") == {
+        "passthrough_version": FINALIZATION_PROMPT_PASSTHROUGH_VERSION,
+        "raw_prompt": frame.finalization_stage_output.raw_prompt,
+    }
     assert frame.generation_request.final_positive_prompt == (
-        "原始最终图片提示词::frame-a::乔布斯和沃兹尼亚克在车库组装一台电脑。"
+        "原始审查重写后的最终图片提示词::frame-a::乔布斯和沃兹尼亚克在车库组装一台电脑。"
+    )
+    assert frame.finalization_stage_input.fusion_stage_input == frame.fusion_stage_input
+    assert frame.finalization_stage_input.fusion_stage_output == frame.fusion_stage_output
+    assert (
+        frame.generation_request.finalization_stage_prompt_version
+        == FINALIZATION_STAGE_PROMPT_VERSION
     )
     assert frame.generation_request.prompt_assembly_trace is None
     assert frame.generation_request.final_negative_prompt == ""
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3
     assert all(call["response_type"] is None for call in llm.calls)
     assert all(call["kwargs"]["temperature"] == 0.0 for call in llm.calls)
     assert all(call["kwargs"]["max_tokens"] == 4096 for call in llm.calls)
@@ -473,8 +505,10 @@ async def test_stage_prompts_apply_requirements_only_before_generation():
     assert "真实电影感" not in content.pure_content_prompt
     assert "真实电影感" not in llm.calls[0]["prompt"]
     assert "真实电影感" in llm.calls[1]["prompt"]
+    assert "真实电影感" in llm.calls[2]["prompt"]
     assert "只输出最终纯内容图片提示词原文" in llm.calls[0]["prompt"]
-    assert "只输出最终图片提示词原文" in llm.calls[1]["prompt"]
+    assert "只输出完整融合提示词草稿原文" in llm.calls[1]["prompt"]
+    assert "只输出审查重写后的最终图片提示词原文" in llm.calls[2]["prompt"]
 
 
 @pytest.mark.asyncio
@@ -589,30 +623,36 @@ async def test_content_response_with_empty_layers_is_forwarded_unchanged():
 @pytest.mark.asyncio
 async def test_arbitrary_fusion_text_is_forwarded_verbatim():
     raw_fusion = "\n  标题也保留  \n```任意内容```\n候选一、候选二\n "
-    result, _ = await _run(_plan(), fusions=[raw_fusion])
+    raw_final = "\n  第三轮最终原文，保留空白。  \n"
+    result, _ = await _run(
+        _plan(), fusions=[raw_fusion], finalizations=[raw_final]
+    )
 
     assert result.frames[0].fusion_stage_output.final_positive_prompt == raw_fusion
-    assert result.frames[0].generation_request.final_positive_prompt == raw_fusion
+    assert result.frames[0].generation_request.final_positive_prompt == raw_final
     restored = VisualAnchorTwoStageFrameResult.model_validate(
         result.frames[0].model_dump(mode="json")
     )
-    assert restored.generation_request.final_positive_prompt == raw_fusion
+    assert restored.generation_request.final_positive_prompt == raw_final
 
 
 @pytest.mark.asyncio
 async def test_blank_fusion_text_is_forwarded_verbatim():
     raw_fusion = "   \n"
-    result, _ = await _run(_plan(), fusions=[raw_fusion])
+    raw_final = " \n"
+    result, _ = await _run(
+        _plan(), fusions=[raw_fusion], finalizations=[raw_final]
+    )
 
     frame = result.frames[0]
     assert frame.fusion_stage_output.final_positive_prompt == raw_fusion
-    assert frame.generation_request.final_positive_prompt == raw_fusion
-    assert _render_two_stage_prompt(frame).prompt == raw_fusion
+    assert frame.generation_request.final_positive_prompt == raw_final
+    assert _render_two_stage_prompt(frame).prompt == raw_final
 
 
 @pytest.mark.asyncio
 async def test_empty_content_and_blank_fusion_are_both_forwarded_verbatim():
-    llm = _QueuedLLM({None: ["", "\n"]})
+    llm = _QueuedLLM({None: ["", "\n", " \n"]})
 
     result = await _run_service(_plan(), llm)
 
@@ -620,14 +660,18 @@ async def test_empty_content_and_blank_fusion_are_both_forwarded_verbatim():
     assert frame.content_stage_output.raw_prompt == ""
     assert frame.fusion_stage_input.content_stage_output.raw_prompt == ""
     assert frame.fusion_stage_output.raw_prompt == "\n"
-    assert frame.generation_request.final_positive_prompt == "\n"
+    assert frame.finalization_stage_output.raw_prompt == " \n"
+    assert frame.generation_request.final_positive_prompt == " \n"
 
 
 @pytest.mark.asyncio
 async def test_raw_fusion_response_remains_verbatim_through_prompt_plan():
     raw_fusion = "\n  模型原始最终提示词，保留所有空白。  \n"
+    raw_final = "\n  第三轮原始最终提示词，保留所有空白。  \n"
     plan = _plan()
-    result, _ = await _run(plan, fusions=[raw_fusion])
+    result, _ = await _run(
+        plan, fusions=[raw_fusion], finalizations=[raw_final]
+    )
 
     rendered = _render_two_stage_prompt(result.frames[0])
     bundle = build_prompt_plan_bundle(
@@ -635,15 +679,15 @@ async def test_raw_fusion_response_remains_verbatim_through_prompt_plan():
         rendered_prompts=(rendered,),
     )
 
-    assert rendered.prompt == raw_fusion
+    assert rendered.prompt == raw_final
     assert rendered.prompt_contract.metadata == {}
     assert "generation_request" not in rendered.metadata
-    assert bundle.image_prompt_drafts[0].prompt_text == raw_fusion
-    assert bundle.prompt_plans[0].final_prompt == raw_fusion
-    assert bundle.prompt_plans[0].prompt_sections["scene"] == raw_fusion
+    assert bundle.image_prompt_drafts[0].prompt_text == raw_final
+    assert bundle.prompt_plans[0].final_prompt == raw_final
+    assert bundle.prompt_plans[0].prompt_sections["scene"] == raw_final
     restored_plan = PromptPlan.from_dict(bundle.prompt_plans[0].to_dict())
     assert restored_plan.preserve_prompt_verbatim is True
-    assert restored_plan.final_prompt == raw_fusion
+    assert restored_plan.final_prompt == raw_final
 
 
 @pytest.mark.asyncio
@@ -655,9 +699,13 @@ async def test_generation_request_has_no_post_generation_assembly_trace():
 @pytest.mark.asyncio
 async def test_fusion_model_may_rewrite_any_content_without_local_rejection():
     rewritten = "模型完全重写后的最终图片提示词"
-    result, _ = await _run(_plan(), fusions=[rewritten])
+    finalized = "第三轮完成事实修复后的最终图片提示词"
+    result, _ = await _run(
+        _plan(), fusions=[rewritten], finalizations=[finalized]
+    )
 
-    assert result.frames[0].generation_request.final_positive_prompt == rewritten
+    assert result.frames[0].fusion_stage_output.raw_prompt == rewritten
+    assert result.frames[0].generation_request.final_positive_prompt == finalized
 
 
 @pytest.mark.asyncio
@@ -675,7 +723,7 @@ async def test_negative_prompt_like_text_does_not_trigger_local_rejection():
 
     result = await _run_service(plan, llm, stage_callback=events.append)
 
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3
     assert result.frames[0].generation_request.final_positive_prompt == json.dumps(
         invalid_fusion,
         ensure_ascii=False,
@@ -688,6 +736,8 @@ async def test_negative_prompt_like_text_does_not_trigger_local_rejection():
         ("visual_anchor_content_stage", "end", 1),
         ("visual_anchor_fusion_stage", "start", None),
         ("visual_anchor_fusion_stage", "end", 1),
+        ("visual_anchor_finalization_stage", "start", None),
+        ("visual_anchor_finalization_stage", "end", 1),
     ]
 
 
@@ -712,6 +762,8 @@ async def test_each_stage_emits_one_start_and_one_end_event():
         ("visual_anchor_content_stage", "end", 1),
         ("visual_anchor_fusion_stage", "start", None),
         ("visual_anchor_fusion_stage", "end", 1),
+        ("visual_anchor_finalization_stage", "start", None),
+        ("visual_anchor_finalization_stage", "end", 1),
     ]
 
 
@@ -772,7 +824,7 @@ async def test_unstructured_model_content_is_forwarded_without_validation():
 
     result = await _run_service(plan, llm, stage_callback=events.append)
 
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 3
     assert result.frames[0].content_stage_output.pure_content_prompt == json.dumps(
         {"core_claim": "缺少必填结构"},
         ensure_ascii=False,
@@ -785,43 +837,88 @@ async def test_unstructured_model_content_is_forwarded_without_validation():
         ("end", 1, 0),
         ("start", None, None),
         ("end", 1, 0),
+        ("start", None, None),
+        ("end", 1, 0),
     ]
 
 
 @pytest.mark.asyncio
 async def test_continuous_scene_passes_the_previous_raw_prompt_as_context():
     fusions = [_fusion("frame-a"), _fusion("frame-b", inherited=True)]
-    result, _ = await _run(_plan(continuous=True), fusions=fusions)
-    second_input = result.frames[1].fusion_stage_input.continuous_scene_context
-    assert second_input.existing_fusion_decision == fusions[0].model_dump_json()
-    assert second_input.existing_selected_fusion_method is None
-    assert result.frames[1].generation_request.final_positive_prompt == (
-        fusions[1].model_dump_json()
+    finalizations = ["第一镜最终提示词", "第二镜最终提示词"]
+    result, _ = await _run(
+        _plan(continuous=True),
+        fusions=fusions,
+        finalizations=finalizations,
     )
+    second_input = result.frames[1].fusion_stage_input.continuous_scene_context
+    assert second_input.existing_fusion_decision == finalizations[0]
+    assert second_input.existing_selected_fusion_method is None
+    assert result.frames[1].generation_request.final_positive_prompt == finalizations[1]
 
 
 @pytest.mark.asyncio
-async def test_independent_frames_receive_only_the_last_three_raw_fusion_prompts():
+async def test_only_finalization_receives_the_last_three_final_prompts():
     plan = _independent_plan()
     fusions = [f"  原始融合结果::{frame.frame_id}\n" for frame in plan.frames]
+    finalizations = [
+        f"  原始最终结果::{frame.frame_id}\n" for frame in plan.frames
+    ]
 
-    result, llm = await _run(plan, fusions=fusions)
+    result, llm = await _run(
+        plan,
+        fusions=fusions,
+        finalizations=finalizations,
+    )
 
-    histories = [
+    fusion_histories = [
         frame.fusion_stage_input.series_fusion_history for frame in result.frames
     ]
-    assert histories == [
-        [],
-        [fusions[0]],
-        fusions[:2],
-        fusions[:3],
-        fusions[1:4],
+    assert fusion_histories == [[], [], [], [], []]
+    final_histories = [
+        frame.finalization_stage_input.series_final_prompt_history
+        for frame in result.frames
     ]
-    assert len(llm.calls) == len(plan.frames) * 2
+    assert final_histories == [
+        [],
+        [finalizations[0]],
+        finalizations[:2],
+        finalizations[:3],
+        finalizations[1:4],
+    ]
+    assert len(llm.calls) == len(plan.frames) * 3
     assert [
         frame.fusion_stage_output.raw_prompt for frame in result.frames
     ] == fusions
+    assert [
+        frame.finalization_stage_output.raw_prompt for frame in result.frames
+    ] == finalizations
 
+
+@pytest.mark.asyncio
+async def test_finalization_failure_emits_one_failure_without_retry():
+    plan = _plan()
+    llm = _QueuedLLM(
+        {
+            ContentStageModelOutput: ["纯内容结果"],
+            FusionStageModelOutput: ["融合草稿"],
+            FinalizationStagePromptPassthrough: [RuntimeError("审查调用失败")],
+        }
+    )
+    events = []
+
+    with pytest.raises(RuntimeError, match="审查调用失败"):
+        await _run_service(plan, llm, stage_callback=events.append)
+
+    assert len(llm.calls) == 3
+    assert [
+        (event["stage"], event["event"], event.get("llm_call_count"))
+        for event in events[-2:]
+    ] == [
+        ("visual_anchor_finalization_stage", "start", None),
+        ("visual_anchor_finalization_stage", "fail", 1),
+    ]
+    assert events[-1]["retry_count"] == 0
 
 @pytest.mark.asyncio
 async def test_continuity_content_is_never_locally_rejected():
@@ -839,7 +936,7 @@ async def test_continuity_content_is_never_locally_rejected():
 
     result = await _run_service(plan, llm)
 
-    assert len(llm.calls) == 4
+    assert len(llm.calls) == 6
     assert result.frames[1].generation_request.final_positive_prompt == json.dumps(
         changed_second,
         ensure_ascii=False,
@@ -901,12 +998,38 @@ async def test_current_raw_payload_round_trips_without_content_validation():
 
     assert isinstance(frame.content_stage_output, RawContentStageOutput)
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
+    assert isinstance(
+        frame.finalization_stage_output,
+        FinalizationStagePromptPassthrough,
+    )
     assert frame.generation_request.request_version == (
-        "visual_anchor_generation_request.v7"
+        "visual_anchor_generation_request.v8"
     )
     assert frame.generation_request.final_positive_prompt == (
-        frame.fusion_stage_output.raw_prompt
+        frame.finalization_stage_output.raw_prompt
     )
+
+
+@pytest.mark.asyncio
+async def test_current_three_stage_payload_rejects_broken_stage_lineage():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+    payload["fusion_stage_input"]["content_stage_output"]["raw_prompt"] += "被替换"
+
+    with pytest.raises(ValidationError, match="exact content output"):
+        VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_current_three_stage_payload_rejects_mismatched_stage_version():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+    payload["generation_request"]["fusion_stage_prompt_version"] = (
+        "visual_anchor_fusion_stage.v19"
+    )
+
+    with pytest.raises(ValidationError, match="fusion version must match"):
+        VisualAnchorTwoStageFrameResult.model_validate(payload)
 
 
 @pytest.mark.asyncio
@@ -927,6 +1050,12 @@ async def test_v1_raw_passthrough_artifact_is_upgraded_at_parse_boundary():
         "final_positive_prompt": fusion_prompt,
         "final_negative_prompt": "",
     }
+    payload["finalization_stage_input"]["fusion_stage_input"] = payload[
+        "fusion_stage_input"
+    ]
+    payload["finalization_stage_input"]["fusion_stage_output"] = payload[
+        "fusion_stage_output"
+    ]
 
     restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
 
@@ -948,10 +1077,15 @@ async def test_v16_v14_raw_artifact_remains_readable_after_prompt_upgrade():
     )
     payload["generation_request"].update(
         {
+            "request_version": "visual_anchor_generation_request.v7",
             "content_stage_prompt_version": "visual_anchor_content_stage.v16",
             "fusion_stage_prompt_version": "visual_anchor_fusion_stage.v14",
+            "final_positive_prompt": payload["fusion_stage_output"]["raw_prompt"],
         }
     )
+    payload["generation_request"].pop("finalization_stage_prompt_version")
+    payload.pop("finalization_stage_input")
+    payload.pop("finalization_stage_output")
 
     restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
 
@@ -1007,6 +1141,9 @@ async def test_v15_v13_structured_artifact_remains_readable():
             "final_negative_prompt": fusion_output.final_negative_prompt,
         }
     )
+    payload["generation_request"].pop("finalization_stage_prompt_version")
+    payload.pop("finalization_stage_input")
+    payload.pop("finalization_stage_output")
 
     restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
 
@@ -1043,11 +1180,14 @@ async def test_regeneration_preserves_the_raw_model_prompt(
     assert context.generation_request.task_id == "regenerated-task"
     assert (
         context.generation_request.request_version
-        == "visual_anchor_generation_request.v7"
+        == "visual_anchor_generation_request.v8"
     )
     restored_payload = context.frame_result.model_dump(mode="json")
     assert restored_payload["fusion_stage_output"]["raw_prompt"] == (
         raw_payload["fusion_stage_output"]["raw_prompt"]
+    )
+    assert restored_payload["finalization_stage_output"]["raw_prompt"] == (
+        raw_payload["finalization_stage_output"]["raw_prompt"]
     )
     assert context.generation_request.identity_reference_condition is None
     assert not (context.task_root / "reference_image").exists()

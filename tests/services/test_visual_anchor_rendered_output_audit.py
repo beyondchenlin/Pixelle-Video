@@ -7,12 +7,16 @@ from PIL import Image
 from pixelle_video.models.visual_anchor_two_stage import (
     CONTENT_PROMPT_ASSEMBLY_VERSION,
     CONTENT_STAGE_PROMPT_VERSION,
+    FINALIZATION_PROMPT_PASSTHROUGH_VERSION,
+    FINALIZATION_STAGE_PROMPT_VERSION,
     FUSION_PROMPT_ASSEMBLY_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
     ContentStageInput,
     ContentStageModelOutput,
     ContentStageOutput,
     ContinuousSceneContext,
+    FinalizationStageInput,
+    FinalizationStagePromptPassthrough,
     FusionStageInput,
     FusionStageModelOutput,
     FusionStageOutput,
@@ -192,6 +196,17 @@ def _frame_result(tmp_path):
             negative_prompt_supported=False,
         ),
     )
+    finalization_input = FinalizationStageInput(
+        frame_id="frame-a",
+        original_storyboard_text=content_input.original_storyboard_text,
+        fusion_stage_input=fusion_input,
+        fusion_stage_output=fusion_output,
+        series_final_prompt_history=[],
+    )
+    finalization_output = FinalizationStagePromptPassthrough(
+        passthrough_version=FINALIZATION_PROMPT_PASSTHROUGH_VERSION,
+        raw_prompt=fusion_output.final_positive_prompt,
+    )
     request = VisualAnchorImageGenerationRequest(
         task_id="task-two-stage",
         frame_id="frame-a",
@@ -212,6 +227,7 @@ def _frame_result(tmp_path):
         target_visual_style=target_style,
         content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
         fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
+        finalization_stage_prompt_version=FINALIZATION_STAGE_PROMPT_VERSION,
         negative_prompt_supported=False,
         target_image_prompt_language="中文",
         workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
@@ -237,6 +253,8 @@ def _frame_result(tmp_path):
         content_stage_output=content_output,
         fusion_stage_input=fusion_input,
         fusion_stage_output=fusion_output,
+        finalization_stage_input=finalization_input,
+        finalization_stage_output=finalization_output,
         generation_request=request,
     )
 
@@ -326,6 +344,9 @@ def _write_passed_binding(
                 "prompt_versions": {
                     "content_stage": request.content_stage_prompt_version,
                     "fusion_stage": request.fusion_stage_prompt_version,
+                    "finalization_stage": (
+                        request.finalization_stage_prompt_version
+                    ),
                 },
                 "identity_profile_id": request.identity_profile_id,
                 "identity_display_name": request.identity_display_name,

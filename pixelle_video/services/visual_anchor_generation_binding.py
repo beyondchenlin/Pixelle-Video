@@ -27,6 +27,18 @@ VISUAL_ANCHOR_GENERATION_REQUEST_PARAM = "_visual_anchor_generation_request"
 _SAFE_FRAME_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
+def _prompt_versions(
+    request: VisualAnchorImageGenerationRequest,
+) -> dict[str, str]:
+    versions = {
+        "content_stage": request.content_stage_prompt_version,
+        "fusion_stage": request.fusion_stage_prompt_version,
+    }
+    if request.finalization_stage_prompt_version is not None:
+        versions["finalization_stage"] = request.finalization_stage_prompt_version
+    return versions
+
+
 def validate_visual_anchor_first_generation_binding(
     *,
     request_payload: Mapping[str, Any],
@@ -182,10 +194,7 @@ def validate_visual_anchor_first_generation_binding(
             "failure_codes": list(failures),
             "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
             "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
-            "prompt_versions": {
-                "content_stage": request.content_stage_prompt_version,
-                "fusion_stage": request.fusion_stage_prompt_version,
-            },
+            "prompt_versions": _prompt_versions(request),
             "identity_profile_id": request.identity_profile_id,
             "identity_display_name": request.identity_display_name,
             "identity_core_traits": list(request.identity_core_traits),
@@ -232,10 +241,7 @@ def validate_visual_anchor_first_generation_binding(
         "prompt_assembly_trace": _prompt_assembly_trace_payload(request),
         "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
         "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
-        "prompt_versions": {
-            "content_stage": request.content_stage_prompt_version,
-            "fusion_stage": request.fusion_stage_prompt_version,
-        },
+        "prompt_versions": _prompt_versions(request),
         "identity_profile_id": request.identity_profile_id,
         "identity_display_name": request.identity_display_name,
         "identity_core_traits": list(request.identity_core_traits),
@@ -330,10 +336,7 @@ def _first_generation_binding_audit_payload(
         "prompt_assembly_trace": _prompt_assembly_trace_payload(request),
         "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
         "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
-        "prompt_versions": {
-            "content_stage": request.content_stage_prompt_version,
-            "fusion_stage": request.fusion_stage_prompt_version,
-        },
+        "prompt_versions": _prompt_versions(request),
         "identity_profile_id": request.identity_profile_id,
         "identity_display_name": request.identity_display_name,
         "identity_core_traits": list(request.identity_core_traits),

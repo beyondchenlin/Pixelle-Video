@@ -519,7 +519,7 @@ async def test_request_audit_never_persists_user_or_world_hint_text(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_without_reference(
+async def test_default_text_to_image_visual_anchor_uses_three_stage_text_profile_without_reference(
     monkeypatch,
 ) -> None:
     captured_generation = {}
@@ -567,7 +567,7 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
 
         def to_dict(self):
             return {
-                "schema_version": "visual_anchor_two_stage_batch.v8",
+                "schema_version": "visual_anchor_two_stage_batch.v9",
                 "frames": [self.frames[0].model_dump(mode="json")],
             }
 
@@ -629,8 +629,12 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
     assert result.negative_prompt is None
     assert "visual_anchor_two_stage" in result.planning_snapshot
     assert result.planning_snapshot["visual_anchor_two_stage_prompt_policy"] == {
-        "schema_version": "visual_anchor_two_stage_prompt_policy.v6",
-        "prompt_chain": "content_raw_response_then_fusion_raw_response",
+        "schema_version": "visual_anchor_two_stage_prompt_policy.v7",
+        "prompt_chain": (
+            "content_raw_response_then_fusion_draft_then_"
+            "finalization_raw_response"
+        ),
+        "model_calls_per_frame": 3,
         "image_generation_attempts_per_frame": 1,
         "model_output_passthrough_enabled": True,
         "post_generation_local_validation_enabled": False,
