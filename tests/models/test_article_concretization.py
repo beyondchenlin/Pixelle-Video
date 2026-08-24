@@ -14,6 +14,7 @@ from pixelle_video.models.article_concretization import (
     SeriesVisualSignatureRole,
     VisibleTextResolution,
 )
+from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, VisibleTextPolicy
 
 
@@ -99,20 +100,27 @@ def _diagram() -> "ac.ExplanationDiagramBrief":
     )
 
 
+def _signature_profile() -> VisualSignatureProfileSnapshot:
+    return VisualSignatureProfileSnapshot(
+        profile_id=" signature-profile-7 ",
+        display_name="Editorial Guide",
+        identity_traits=("round glasses", "blue pointer"),
+    )
+
+
 def _signature(
     *,
     enabled: bool = True,
     role: SeriesVisualSignatureRole = SeriesVisualSignatureRole.GUIDE,
-    identity_profile_id: str | None = " signature-profile-7 ",
-    visual_weight: float = 0.35,
+    max_area_ratio: float = 0.18,
 ) -> "ac.SeriesVisualSignatureContract":
     return ac.SeriesVisualSignatureContract(
         enabled=enabled,
         role=role,
-        identity_profile_id=identity_profile_id,
+        profile=_signature_profile(),
         participation_rule="Guide appears only as an explanatory marker.",
         replacement_policy="no_subject_replacement",
-        visual_weight=visual_weight,
+        max_area_ratio=max_area_ratio,
         forbidden_behaviors=["replace article subjects", "dominate the panel"],
     )
 
@@ -347,7 +355,8 @@ def test_full_plan_serializes_request_resolution_anchor_diagram_signature_render
         "Panel 1: policy dial",
         "Panel 2: market pressure",
     )
-    assert plan.series_signature.identity_profile_id == "signature-profile-7"
+    assert plan.series_signature.profile is not None
+    assert plan.series_signature.profile.profile_id == "signature-profile-7"
     assert plan.series_signature.forbidden_behaviors == (
         "replace article subjects",
         "dominate the panel",
@@ -385,10 +394,10 @@ def test_xiaohei_render_style_does_not_insert_signature_when_role_none():
     signature = ac.SeriesVisualSignatureContract(
         enabled=False,
         role=SeriesVisualSignatureRole.NONE,
-        identity_profile_id=None,
+        profile=None,
         participation_rule="No recurring signature participates.",
         replacement_policy="no_subject_replacement",
-        visual_weight=0.0,
+        max_area_ratio=0.0,
         forbidden_behaviors=["do not replace article subjects"],
     )
     render = ac.DiagramRenderContract(
@@ -491,29 +500,26 @@ def test_signature_enabled_requires_non_none_role():
         with pytest.raises(ValueError, match="role"):
             _signature(enabled=True, role=role)
 
-    with pytest.raises(ValueError, match="identity_profile_id"):
-        _signature(enabled=True, identity_profile_id=None)
+    with pytest.raises(ValueError, match="profile"):
+        ac.SeriesVisualSignatureContract(
+            enabled=True,
+            role=SeriesVisualSignatureRole.GUIDE,
+            profile=None,
+            max_area_ratio=0.18,
+        )
 
-    disabled = ac.SeriesVisualSignatureContract(
-        enabled=False,
-        role=SeriesVisualSignatureRole.NONE,
-        identity_profile_id=" ",
-        participation_rule="Disabled signature stays out of the frame.",
-        replacement_policy="no_subject_replacement",
-        visual_weight=0.0,
-        forbidden_behaviors=[],
-    )
+    disabled = ac.SeriesVisualSignatureContract.disabled()
 
     assert disabled.role is SeriesVisualSignatureRole.NONE
-    assert disabled.identity_profile_id is None
+    assert disabled.profile is None
 
 
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
         ({"role": SeriesVisualSignatureRole.GUIDE}, "role"),
-        ({"identity_profile_id": "ip-1"}, "identity_profile_id"),
-        ({"visual_weight": 0.1}, "visual_weight"),
+        ({"profile": _signature_profile()}, "profile"),
+        ({"max_area_ratio": 0.1}, "max_area_ratio"),
     ],
 )
 def test_signature_disabled_rejects_contradictory_presence_fields(
@@ -523,10 +529,10 @@ def test_signature_disabled_rejects_contradictory_presence_fields(
     kwargs = {
         "enabled": False,
         "role": SeriesVisualSignatureRole.NONE,
-        "identity_profile_id": None,
+        "profile": None,
         "participation_rule": "Disabled signature stays out of the frame.",
         "replacement_policy": "no_subject_replacement",
-        "visual_weight": 0.0,
+        "max_area_ratio": 0.0,
         "forbidden_behaviors": [],
     }
     kwargs.update(overrides)
@@ -535,13 +541,16 @@ def test_signature_disabled_rejects_contradictory_presence_fields(
         ac.SeriesVisualSignatureContract(**kwargs)
 
 
-def test_signature_visual_weight_range_validation():
-    for bad_weight in (-0.01, 1.01):
-        with pytest.raises(ValueError, match="visual_weight"):
-            _signature(visual_weight=bad_weight)
+def test_signature_max_area_ratio_range_validation():
+    for bad_ratio in (-0.01, 1.01):
+        with pytest.raises(ValueError, match="max_area_ratio"):
+            _signature(max_area_ratio=bad_ratio)
 
-    assert _signature(visual_weight=0.0).visual_weight == 0.0
-    assert _signature(visual_weight=1.0).visual_weight == 1.0
+    with pytest.raises(ValueError, match="positive max_area_ratio"):
+        _signature(max_area_ratio=0.0)
+
+    assert _signature(max_area_ratio=0.1).max_area_ratio == 0.1
+    assert _signature(max_area_ratio=1.0).max_area_ratio == 1.0
 
 
 def test_diagram_render_contract_serializes_canvas_and_panel_ratio():
