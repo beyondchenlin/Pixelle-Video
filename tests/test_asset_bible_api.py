@@ -3,8 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
+
+from api.schemas.asset_bible import PromptPlanProjectionPromptPlanResponse
 
 
 @dataclass
@@ -1089,6 +1093,30 @@ def test_prompt_plan_projection_api_returns_preview_through_repositories():
     }
     assert "C:\\" not in str(body)
     assert "local_path" not in str(body)
+
+
+def test_prompt_plan_projection_api_allows_contract_without_identity_hash():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(identity_content_sha256=None)
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["projection"]["prompt_plan"][
+        "identity_content_sha256"
+    ] is None
+
+
+def test_prompt_plan_projection_response_schema_rejects_partial_contract_lineage():
+    with pytest.raises(ValidationError, match="contract_content_sha256"):
+        PromptPlanProjectionPromptPlanResponse.model_validate(
+            _prompt_plan_payload(contract_version=None)
+        )
 
 
 def test_projection_preview_does_not_use_stale_write_repositories():

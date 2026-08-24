@@ -127,17 +127,17 @@ class PromptPlan:
             "contract_version",
             _optional_contract_version(self.contract_version),
         )
-        lineage_fields = (
-            self.identity_content_sha256,
-            self.contract_content_sha256,
-            self.contract_version,
-        )
-        if any(value is not None for value in lineage_fields) and not all(
-            value is not None for value in lineage_fields
+        if (self.contract_content_sha256 is None) != (self.contract_version is None):
+            raise ValueError(
+                "contract_content_sha256 and contract_version must be provided together"
+            )
+        if (
+            self.identity_content_sha256 is not None
+            and self.contract_content_sha256 is None
         ):
             raise ValueError(
-                "identity_content_sha256, contract_content_sha256, and "
-                "contract_version must be provided together"
+                "identity_content_sha256 requires contract_content_sha256 and "
+                "contract_version"
             )
         object.__setattr__(self, "source_trace_id", _optional_str(self.source_trace_id))
         object.__setattr__(self, "character_ids", _normalize_id_tuple("character_ids", self.character_ids))

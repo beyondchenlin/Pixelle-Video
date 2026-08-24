@@ -85,22 +85,15 @@ def test_prompt_plan_uses_canonical_stage1a_shape():
 
 
 @pytest.mark.parametrize(
-    "missing_field",
+    "lineage",
     (
-        "identity_content_sha256",
-        "contract_content_sha256",
-        "contract_version",
+        {"contract_content_sha256": "b" * 64},
+        {"contract_version": "final_visual_prompt_contract.v4_6"},
+        {"identity_content_sha256": "a" * 64},
     ),
 )
-def test_prompt_plan_requires_complete_lineage_metadata(missing_field):
-    lineage = {
-        "identity_content_sha256": "a" * 64,
-        "contract_content_sha256": "b" * 64,
-        "contract_version": "final_visual_prompt_contract.v4_6",
-    }
-    lineage.pop(missing_field)
-
-    with pytest.raises(ValueError, match="must be provided together"):
+def test_prompt_plan_rejects_incomplete_lineage_metadata(lineage):
+    with pytest.raises(ValueError, match="contract_content_sha256"):
         PromptPlan(
             prompt_plan_id="prompt_plan_001",
             storyboard_plan_id="storyboard_plan_001",
@@ -110,6 +103,21 @@ def test_prompt_plan_requires_complete_lineage_metadata(missing_field):
             final_prompt="fox cub",
             **lineage,
         )
+
+
+def test_prompt_plan_allows_contract_lineage_without_identity_hash():
+    plan = PromptPlan(
+        prompt_plan_id="prompt_plan_001",
+        storyboard_plan_id="storyboard_plan_001",
+        frame_id="frame_0001",
+        image_prompt_draft_id="draft_001",
+        prompt_sections={"subject": "fox cub"},
+        final_prompt="fox cub",
+        contract_content_sha256="b" * 64,
+        contract_version="final_visual_prompt_contract.v4_6",
+    )
+
+    assert plan.identity_content_sha256 is None
 
 
 @pytest.mark.parametrize(

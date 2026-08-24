@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from api.schemas.storyboard_workbench import validate_public_reference_id
 from pixelle_video.models.asset_bible import (
@@ -651,6 +651,22 @@ class PromptPlanProjectionPromptPlanResponse(BaseModel):
     prop_ids: list[str] = Field(default_factory=list)
     style_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_lineage_contract(self):
+        if (self.contract_content_sha256 is None) != (self.contract_version is None):
+            raise ValueError(
+                "contract_content_sha256 and contract_version must be provided together"
+            )
+        if (
+            self.identity_content_sha256 is not None
+            and self.contract_content_sha256 is None
+        ):
+            raise ValueError(
+                "identity_content_sha256 requires contract_content_sha256 and "
+                "contract_version"
+            )
+        return self
 
     @field_validator("prompt_plan_id", "storyboard_plan_id", "frame_id", "image_prompt_draft_id")
     @classmethod
