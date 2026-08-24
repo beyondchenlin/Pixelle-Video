@@ -493,20 +493,17 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "原始分镜明确的人物、身份、数量、关键动作、关键物品",
+        "original_storyboard_text 是画面主旨与事实边界",
         "content_stage_output.raw_prompt 是不含视觉身份的创作草稿",
-        "可以增加、删除、替换、移动或重写背景、道具、服装细节",
-        "不必沿用纯内容草稿的句序、段落和空间布局",
-        "只选择一种结构简单、边界清楚、位置可精确描述",
-        "不得在最终提示词中枚举候选方案",
-        "不为任何合法形态设置默认优先级",
+        "可以增加、删除、替换、移动或重写任何背景、道具、服装细节",
+        "不预设视觉身份的形态、大小、位置、朝向、载体",
+        "不为任何表现方式设置默认优先级",
+        "先判断当前画面的叙事重点",
         "不能只是无意义地摆在旁边",
         "不得因为独立实体最容易生成",
-        "“不干扰主体”不能单独构成场景职责",
-        "保持同一表现形态、载体、相对位置、尺寸和互动关系",
-        "不得机械复用相邻镜头的通用陪伴关系",
-        "禁止原样复制 content_stage_output.raw_prompt 后追加视觉身份句子",
-        "禁止使用“纯内容段落加身份补丁”的拼接结构",
+        "脚边、身旁、画面角落或空白区域静坐、站立、观看或陪伴",
+        "不得机械沿用相邻镜头的表现方式",
+        "不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子",
     ):
         assert required_rule in template
 
@@ -533,7 +530,7 @@ def test_fusion_template_explicitly_allows_material_and_interactive_forms():
         assert manifestation in template
 
 
-def test_fusion_template_enforces_single_instance_style_and_positive_exclusions():
+def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
@@ -541,13 +538,19 @@ def test_fusion_template_enforces_single_instance_style_and_positive_exclusions(
 
     for required_rule in (
         "整幅画只出现一个可识别的视觉身份实例",
-        "明确排除第二实例、重复图案、连续纹样、镜像复制、背景复制",
-        "禁止满版印花、散点纹样和多处复制",
-        "required_final_prompt_fragments 中的每一项必须原样、完整、各出现一次",
-        "所有禁止项，都必须转换成正向提示词末尾的直接排除句",
-        "不得并列互斥的媒介、色彩、光照或质感要求",
+        "先在内部依次确定唯一的融合方式、最终表现形态以及空间接触与光照关系",
+        "任何能够在当前场景中真实成立的单一表现方式都合法",
+        "target_visual_style.required_final_prompt_fragments",
     ):
         assert required_rule in template
+    for removed_bias in (
+        "最容易被当前图片工作流一次生成正确",
+        "画面中仅出现一个〈身份名称〉",
+        "明确排除第二实例、重复图案、连续纹样、镜像复制、背景复制",
+        "禁止满版印花、散点纹样和多处复制",
+        "所有禁止项，都必须转换成正向提示词末尾的直接排除句",
+    ):
+        assert removed_bias not in template
     for removed_fusion_field in (
         "identity_prompt_clause",
         "relative_scale_and_visual_weight",
