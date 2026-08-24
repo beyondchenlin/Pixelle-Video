@@ -644,7 +644,7 @@ async def test_smart_ignores_out_of_bounds_source_range():
 
 
 @pytest.mark.asyncio
-async def test_smart_fills_missing_source_coverage():
+async def test_smart_rejects_missing_source_coverage_after_repair():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     partial_frames = [
         {
@@ -655,22 +655,25 @@ async def test_smart_fills_missing_source_coverage():
             "source_end": 5,
         }
     ]
-    llm = SequencedSmartFakeLLM([partial_frames])
+    llm = SequencedSmartFakeLLM([partial_frames, partial_frames])
 
-    plan = await service.generate(
-        llm_service=llm,
-        source_text="alpha beta gamma",
-        storyboard_mode="smart",
-        storyboard_count_mode="auto",
-        storyboard_scene_count=None,
-    )
+    with pytest.raises(
+        ValueError,
+        match="smart storyboard frames must not omit meaningful source_text",
+    ):
+        await service.generate(
+            llm_service=llm,
+            source_text="alpha beta gamma",
+            storyboard_mode="smart",
+            storyboard_count_mode="manual",
+            storyboard_scene_count=1,
+        )
 
-    assert len(llm.calls) == 1
-    assert plan.source_texts() == ["alpha beta gamma"]
+    assert len(llm.calls) == 2
 
 
 @pytest.mark.asyncio
-async def test_smart_fills_missing_source_coverage_even_with_repeated_llm_output():
+async def test_smart_auto_falls_back_after_repeated_missing_source_coverage():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     partial_frames = [
         {
@@ -691,7 +694,8 @@ async def test_smart_fills_missing_source_coverage_even_with_repeated_llm_output
         storyboard_scene_count=None,
     )
 
-    assert len(llm.calls) == 1
+    assert len(llm.calls) == 2
+    assert plan.diagnostics["strategy"] == "smart_sentence_fallback"
     assert plan.source_texts() == ["alpha beta gamma"]
 
 
@@ -723,7 +727,11 @@ async def test_smart_allows_whitespace_only_source_coverage_gaps():
         storyboard_scene_count=None,
     )
 
-    assert plan.source_texts() == ["alpha ", "beta"]
+    assert plan.source_texts() == ["alpha", "beta"]
+    assert [(frame.source_start, frame.source_end) for frame in plan.frames] == [
+        (0, 5),
+        (6, 10),
+    ]
 
 
 def test_smart_storyboard_prompt_requires_complete_source_coverage():
@@ -1046,7 +1054,7 @@ async def test_smart_locates_frames_via_source_text_not_offsets():
     )
 
     assert len(llm.calls) == 1
-    assert plan.source_texts() == ["alpha ", "beta"]
+    assert plan.source_texts() == ["alpha", "beta"]
     assert [
         plan.source_text[frame.source_start : frame.source_end]
         for frame in plan.frames
@@ -1086,7 +1094,7 @@ async def test_smart_normalizes_literal_newline_escapes_before_planning():
 
     assert "\\n" not in plan.source_text
     assert "\\n" not in "".join(plan.source_texts())
-    assert plan.source_texts() == ["Intro. ", "First point. ", "Second point."]
+    assert plan.source_texts() == ["Intro.", "First point.", "Second point."]
 
 
 @pytest.mark.asyncio

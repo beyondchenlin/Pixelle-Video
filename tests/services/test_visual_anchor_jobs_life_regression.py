@@ -21,8 +21,6 @@ from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.visual_anchor_two_stage_service import (
     VisualAnchorTwoStageService,
-    _contains_required_prompt_fragment_contract,
-    _materialize_content_stage_output,
 )
 from pixelle_video.services.visual_prompt_composer import (
     VisualPromptComposer,
@@ -168,14 +166,14 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
     ):
         (
             primary_name,
-            primary_source,
+            _primary_source,
             primary_quantity,
             primary_action,
             secondary_name,
-            secondary_source,
+            _secondary_source,
             secondary_action,
         ) = spec
-        event_source, event_prompt, event_category = event_spec
+        event_source, _event_prompt, event_category = event_spec
         outputs.append(
             ContentStageModelOutput(
                 core_claim=pure_prompt,
@@ -185,16 +183,6 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
                     "identity": "分镜原文中的真正叙事人物",
                     "quantity": primary_quantity,
                     "action": primary_action,
-                    "source_evidence": primary_source,
-                    "pure_content_prompt_evidence": primary_name,
-                    "protected_facts": [
-                        {
-                            "category": "person",
-                            "statement": primary_source,
-                            "source_evidence": primary_source,
-                            "pure_content_prompt_evidence": primary_name,
-                        }
-                    ],
                 },
                 secondary_subjects=[
                     {
@@ -203,30 +191,16 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
                         "identity": "分镜原文中的产品、技术或道路系统",
                         "quantity": 1,
                         "action": secondary_action,
-                        "source_evidence": secondary_source,
-                        "pure_content_prompt_evidence": secondary_name,
-                        "protected_facts": [
-                            {
-                                "category": "product",
-                                "statement": secondary_source,
-                                "source_evidence": secondary_source,
-                                "pure_content_prompt_evidence": secondary_name,
-                            }
-                        ],
                     }
                 ],
                 scene_facts=[
                     {
                         "category": event_category,
                         "statement": event_source,
-                        "source_evidence": event_source,
-                        "pure_content_prompt_evidence": event_prompt,
                     }
                 ],
                 adjustable_non_core_content=["非核心环境道具", "辅助光影层次"],
                 pure_content_prompt=pure_prompt,
-                self_check="pass",
-                self_check_failures=[],
             )
         )
     return outputs
@@ -316,43 +290,41 @@ def test_fusion_template_allows_required_style_and_text_prohibitions():
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert '“必须”“禁止”' not in template
-    assert "明确要求的“禁止”类画面约束属于最终提示词内容，必须逐字保留" in template
+    assert "遵守 target_visual_style" in template
+    assert "不输出候选、比较过程、证明、自检或审查字段" in template
 
 
-def test_content_template_requires_exact_shortest_prompt_evidence():
+def test_content_template_requests_no_proof_or_self_check_fields():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_content_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert (
-        "先完成 pure_content_prompt，再填写主体与 scene_facts 的所有 "
-        "pure_content_prompt_evidence"
-    ) in template
-    assert "主体证据优先只复制 pure_content_prompt 中的主体名称" in template
-    assert "甲的证据应为“甲”" in template
-    assert "主体存在事实由服务端根据主体证据生成" in template
-    assert "不要输出 protected_facts" in template
-    assert "不要输出 self_check 或 self_check_failures" in template
-    assert "抽象事实若已转换成可见结果、隐喻或氛围" in template
-    assert "零散名词不能单独证明动作、因果或关系事实" in template
-    assert "直接不输出对应 scene_facts 项" in template
+    assert "每项只包含 category 和 statement" in template
+    for removed_field in (
+        "source_evidence",
+        "pure_content_prompt_evidence",
+        "protected_facts",
+        "self_check",
+        "self_check_failures",
+    ):
+        assert removed_field not in template
 
 
-def test_fusion_template_requires_exact_single_instance_and_trait_evidence():
+def test_fusion_template_requests_only_final_result_fields():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "必须先完成 final_positive_prompt" in template
-    assert "required_single_instance_prompt_fragment" in template
-    assert "不能写不存在的“一只斑点狗”" in template
-    assert "protected_facts[].pure_content_prompt_evidence 原样放入" in template
-    assert "不要先改写事实再尝试回填一个不存在的证据句" in template
-    assert "不可翻译、不可改写的字面量" in template
-    assert "例如片段是英文时必须保留英文" in template
+    assert "直接给出唯一的最终融合结果" in template
+    for removed_field in (
+        "protected_fact_checks",
+        "identity_trait_checks",
+        "single_instance_prompt_evidence",
+        "self_check",
+    ):
+        assert removed_field not in template
 
 
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
@@ -366,15 +338,10 @@ def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
     assert policy.required_negative_prompt_fragment == _NO_TEXT_NEGATIVE
 
 
-def test_visible_text_negative_contract_accepts_equivalent_list_punctuation():
-    assert _contains_required_prompt_fragment_contract(
-        "摄影写实, 文字, 水印, 标题, 乱码",
-        _NO_TEXT_NEGATIVE,
-    )
-    assert not _contains_required_prompt_fragment_contract(
-        "摄影写实, 文字, 水印, 标题",
-        _NO_TEXT_NEGATIVE,
-    )
+def test_visible_text_policy_keeps_prompt_fragments_as_model_input():
+    policy = _text_policy()
+    assert policy.required_positive_prompt_fragment == _NO_TEXT_POSITIVE
+    assert policy.required_negative_prompt_fragment == _NO_TEXT_NEGATIVE
 
 
 def _fusion_outputs(
@@ -383,14 +350,6 @@ def _fusion_outputs(
     style_positive = "，".join(_STYLE_POSITIVE)
     outputs = []
     for content in contents:
-        fact_checks = [
-            {
-                "fact_id": fact.fact_id,
-                "preserved": True,
-                "final_image_evidence": fact.pure_content_prompt_evidence,
-            }
-            for fact in content.protected_facts
-        ]
         positive = (
             f"{content.pure_content_prompt} {style_positive}。"
             "画面中只有一只斑点狗，斑点狗特征与黑色墨镜清晰可辨，"
@@ -401,36 +360,7 @@ def _fusion_outputs(
         outputs.append(
             FusionStageOutput(
                 selected_fusion_method="让视觉锚点根据当前内容关系自然参与",
-                unselected_candidate_summaries=[
-                    {
-                        "manifestation": "墙面徽记",
-                        "audit_summary": "没有采用非实体装饰表现",
-                    }
-                ],
-                content_stage_deviations=[],
-                non_core_reconstruction_summary=["重组非核心道具以保持空间自然"],
-                protected_fact_checks=fact_checks,
-                primary_subject_preserved=True,
-                primary_subject_final_prompt_evidence=(
-                    content.primary_subject.pure_content_prompt_evidence
-                ),
-                visual_anchor_replaces_primary_subject=False,
-                identity_trait_checks=[
-                    {
-                        "trait": "斑点狗",
-                        "preserved": True,
-                        "final_prompt_evidence": "斑点狗",
-                    },
-                    {
-                        "trait": "黑色墨镜",
-                        "preserved": True,
-                        "final_prompt_evidence": "黑色墨镜",
-                    },
-                ],
                 final_manifestation="服从当前场景关系的斑点狗单一实体",
-                target_visual_anchor_instance_count=1,
-                other_scene_elements_inherit_identity_features=False,
-                single_instance_prompt_evidence="画面中只有一只斑点狗",
                 spatial_contact_and_lighting_relation=(
                     "根据当前画面的透视、光照、材质、支撑和遮挡关系自然融合"
                 ),
@@ -438,8 +368,6 @@ def _fusion_outputs(
                 continuity_change_reason="独立镜头没有既有融合决定",
                 final_positive_prompt=positive,
                 final_negative_prompt="",
-                self_check="pass",
-                self_check_failures=[],
             )
         )
     return outputs
@@ -495,11 +423,8 @@ async def _run_jobs_sample():
     plan = _jobs_plan()
     model_contents = _content_outputs(plan)
     contents = [
-        _materialize_content_stage_output(
-            frame_id=frame.frame_id,
-            model_output=model_output,
-        )
-        for frame, model_output in zip(plan.frames, model_contents)
+        ContentStageOutput.model_validate(model_output.model_dump(mode="json"))
+        for model_output in model_contents
     ]
     fusions = _fusion_outputs(contents)
     llm = _QueuedLLM(
@@ -572,15 +497,11 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
         content = frame_result.content_stage_output
         request = frame_result.generation_request
         assert content.primary_subject.name == expected_primary
-        assert content.protected_facts
+        assert content.scene_facts
         assert "表达乔布斯人生第" not in content.primary_subject.name
-        assert request.primary_subject_name == expected_primary
-        assert request.primary_subject_preserved is True
-        assert request.visual_anchor_replaces_primary_subject is False
         assert expected_primary in request.final_positive_prompt
         assert request.identity_conditioning_mode == "text_profile"
         assert request.identity_reference_condition is None
-        assert request.target_visual_anchor_instance_count == 1
         assert "画面中只有一只斑点狗" in request.final_positive_prompt
         assert _NO_TEXT_POSITIVE in request.final_positive_prompt
         assert request.final_negative_prompt == ""
@@ -602,7 +523,7 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
 
 
 @pytest.mark.asyncio
-async def test_jobs_life_validated_fusion_generates_each_frame_exactly_once(
+async def test_jobs_life_model_fusion_generates_each_frame_exactly_once(
     monkeypatch,
     tmp_path,
 ):

@@ -167,7 +167,7 @@ def validate_visual_anchor_first_generation_binding(
 
     if failures:
         failed_audit = {
-            "schema_version": "visual_anchor_first_generation_binding_audit.v4",
+            "schema_version": "visual_anchor_first_generation_binding_audit.v5",
             "request_version": request.request_version,
             "recorded_at_utc": datetime.now(UTC).isoformat(),
             "status": "failed",
@@ -175,20 +175,8 @@ def validate_visual_anchor_first_generation_binding(
             "frame_id": request.frame_id,
             "generation_attempt": 1,
             "random_seed": request.random_seed,
-            "target_visual_anchor_instance_count": 1,
             "selected_fusion_method": request.selected_fusion_method,
             "final_manifestation": request.final_manifestation,
-            "protected_fact_checks": [
-                check.model_dump(mode="json")
-                for check in request.protected_fact_checks
-            ],
-            "identity_trait_checks": [
-                check.model_dump(mode="json")
-                for check in request.identity_trait_checks
-            ],
-            "single_instance_prompt_evidence": (
-                request.single_instance_prompt_evidence
-            ),
             "failure_reason": "; ".join(failures),
             "failure_codes": list(failures),
             "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
@@ -228,7 +216,7 @@ def validate_visual_anchor_first_generation_binding(
         )
 
     audit = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v4",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v5",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": "ready_to_submit",
@@ -236,16 +224,8 @@ def validate_visual_anchor_first_generation_binding(
         "frame_id": request.frame_id,
         "generation_attempt": 1,
         "random_seed": request.random_seed,
-        "target_visual_anchor_instance_count": 1,
         "selected_fusion_method": request.selected_fusion_method,
         "final_manifestation": request.final_manifestation,
-        "protected_fact_checks": [
-            check.model_dump(mode="json") for check in request.protected_fact_checks
-        ],
-        "identity_trait_checks": [
-            check.model_dump(mode="json") for check in request.identity_trait_checks
-        ],
-        "single_instance_prompt_evidence": request.single_instance_prompt_evidence,
         "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
         "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
         "prompt_versions": {
@@ -331,7 +311,7 @@ def _first_generation_binding_audit_payload(
     actual_binding: Mapping[str, Any],
 ) -> dict[str, Any]:
     payload = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v4",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v5",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": status,
@@ -339,24 +319,8 @@ def _first_generation_binding_audit_payload(
         "frame_id": request.frame_id,
         "generation_attempt": 1,
         "random_seed": request.random_seed,
-        "target_visual_anchor_instance_count": 1,
         "selected_fusion_method": request.selected_fusion_method,
         "final_manifestation": request.final_manifestation,
-        "protected_fact_checks": [
-            check.model_dump(mode="json") for check in request.protected_fact_checks
-        ],
-        "primary_subject_name": request.primary_subject_name,
-        "primary_subject_preserved": request.primary_subject_preserved,
-        "primary_subject_final_prompt_evidence": (
-            request.primary_subject_final_prompt_evidence
-        ),
-        "visual_anchor_replaces_primary_subject": (
-            request.visual_anchor_replaces_primary_subject
-        ),
-        "identity_trait_checks": [
-            check.model_dump(mode="json") for check in request.identity_trait_checks
-        ],
-        "single_instance_prompt_evidence": request.single_instance_prompt_evidence,
         "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
         "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
         "prompt_versions": {

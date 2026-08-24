@@ -206,38 +206,6 @@ def _coalesce_segments_to_count(
     return grouped
 
 
-def _extend_frame_source(
-    frame: StoryboardPlanFrame,
-    *,
-    source_text: str,
-    end: int,
-    start: int | None = None,
-) -> StoryboardPlanFrame:
-    resolved_start = (
-        start
-        if start is not None
-        else frame.source_start
-        if frame.source_start is not None
-        else 0
-    )
-    return StoryboardPlanFrame(
-        index=frame.index,
-        source_text=source_text[resolved_start:end],
-        visual_goal=frame.visual_goal,
-        prompt_intent=frame.prompt_intent,
-        frame_id=frame.frame_id,
-        shot_type=frame.shot_type,
-        shot_purpose=frame.shot_purpose,
-        primary_subject=frame.primary_subject,
-        secondary_subjects=frame.secondary_subjects,
-        continuity_anchors=frame.continuity_anchors,
-        world_elements=frame.world_elements,
-        source_start=resolved_start,
-        source_end=end,
-        metadata=frame.metadata,
-    )
-
-
 @dataclass
 class StoryboardGenerationService:
     config: Any | None = None
@@ -703,15 +671,10 @@ class StoryboardGenerationService:
             if start < search_start:
                 raise ValueError("smart storyboard frame source ranges must be ordered")
 
-            if start > search_start:
-                if not frames:
-                    start = search_start
-                else:
-                    frames[-1] = _extend_frame_source(
-                        frames[-1],
-                        source_text=source_text,
-                        end=start,
-                    )
+            if source_text[search_start:start].strip():
+                raise ValueError(
+                    "smart storyboard frames must not omit meaningful source_text"
+                )
             search_start = max(search_start, end)
             frames.append(
                 StoryboardPlanFrame(
@@ -726,11 +689,9 @@ class StoryboardGenerationService:
                     metadata={"strategy": "smart"},
                 )
             )
-        if frames and search_start < len(source_text):
-            frames[-1] = _extend_frame_source(
-                frames[-1],
-                source_text=source_text,
-                end=len(source_text),
+        if source_text[search_start:].strip():
+            raise ValueError(
+                "smart storyboard frames must not omit meaningful source_text"
             )
         return frames
 

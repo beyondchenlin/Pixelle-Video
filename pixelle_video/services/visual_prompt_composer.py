@@ -125,8 +125,8 @@ class VisualPromptComposer:
 
     Historical product controls are normalized before reaching this service.
     When recurring identity is enabled, every frame first receives an
-    identity-free content call, then a full identity-fusion rewrite and a
-    deterministic fusion validation before the only image workflow request.
+    identity-free content call, then a full identity-fusion rewrite before the
+    only image workflow request.
     """
 
     async def compose(
@@ -805,9 +805,9 @@ def _render_two_stage_prompt(frame_result: Any) -> RenderedMediaPrompt:
     request = frame_result.generation_request
     negative_prompt = request.final_negative_prompt or None
     identity_condition = (
-        "唯一身份实例使用已绑定首次工作流的真实参考资源保持身份"
+        "融合阶段使用首次工作流已绑定的真实参考资源表达身份"
         if request.identity_conditioning_mode == "reference_image"
-        else "唯一身份实例使用身份档案的名称、核心识别特征和禁止变化项保持身份"
+        else "融合阶段使用身份档案的名称、核心识别特征和禁止变化项表达身份"
     )
     contract = FinalVisualPromptContract(
         scene=request.final_positive_prompt,
@@ -815,7 +815,7 @@ def _render_two_stage_prompt(frame_result: Any) -> RenderedMediaPrompt:
         style_assignment="融合结果服从用户选择的全局风格、材质、光照和空间关系",
         character_layer_style=identity_condition,
         world_layer_style=fusion.spatial_contact_and_lighting_relation,
-        integration_priority="先保护真正主体与全部文案事实，再保持唯一视觉锚点和场景协调",
+        integration_priority="由融合阶段综合处理内容主体、文案事实、身份元素和场景协调",
         negative_rules=(request.final_negative_prompt,)
         if request.final_negative_prompt
         else (),

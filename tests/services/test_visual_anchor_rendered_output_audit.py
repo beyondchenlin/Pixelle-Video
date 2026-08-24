@@ -80,23 +80,9 @@ def _frame_result(tmp_path):
     )
     content_output = ContentStageOutput(
         core_claim="两位创作者组装电脑",
-        protected_facts=[
-            {
-                "fact_id": "fact-1",
-                "category": "person",
-                "subject_ids": ["subject-creators"],
-                "statement": "两位创作者组装电脑",
-                "source_evidence": "两位创作者",
-                "pure_content_prompt_evidence": "两位创作者",
-            },
-            {
-                "fact_id": "fact-2",
-                "category": "product",
-                "subject_ids": ["subject-computer"],
-                "statement": "电脑正在被组装",
-                "source_evidence": "电脑",
-                "pure_content_prompt_evidence": "电脑",
-            },
+        scene_facts=[
+            {"category": "person", "statement": "两位创作者组装电脑"},
+            {"category": "product", "statement": "电脑正在被组装"},
         ],
         primary_subject={
             "subject_id": "subject-creators",
@@ -106,8 +92,6 @@ def _frame_result(tmp_path):
             "identity": "在车库创业的电脑创作者",
             "quantity": 2,
             "action": "组装电脑",
-            "source_evidence": "两位创作者",
-            "pure_content_prompt_evidence": "两位创作者",
         },
         secondary_subjects=[
             {
@@ -118,13 +102,10 @@ def _frame_result(tmp_path):
                 "identity": "工作台上的技术产品",
                 "quantity": 1,
                 "action": "正在被组装",
-                "source_evidence": "电脑",
-                "pure_content_prompt_evidence": "电脑",
             }
         ],
         adjustable_non_core_content=["工作台工具"],
         pure_content_prompt="两位创作者在车库工作台组装电脑。",
-        self_check="pass",
     )
     continuity = ContinuousSceneContext(
         scene_id="independent:frame-a",
@@ -145,49 +126,10 @@ def _frame_result(tmp_path):
         target_visual_style=target_style,
         negative_prompt_supported=False,
         target_image_prompt_language="中文",
-        required_single_instance_prompt_fragment="画面中只有一只小皮",
     )
     fusion_output = FusionStageOutput(
         selected_fusion_method="小皮作为工作台旁的唯一实体参与现场",
-        unselected_candidate_summaries=[
-            {
-                "manifestation": "墙面图形",
-                "audit_summary": "实体形态更符合车库空间关系",
-            }
-        ],
-        content_stage_deviations=[],
-        non_core_reconstruction_summary=["重新组织工具间距"],
-        protected_fact_checks=[
-            {
-                "fact_id": "fact-1",
-                "preserved": True,
-                "final_image_evidence": "两位创作者在车库组装电脑",
-            },
-            {
-                "fact_id": "fact-2",
-                "preserved": True,
-                "final_image_evidence": "电脑",
-            },
-        ],
-        primary_subject_preserved=True,
-        primary_subject_final_prompt_evidence="两位创作者",
-        visual_anchor_replaces_primary_subject=False,
-        identity_trait_checks=[
-            {
-                "trait": "圆形白色脸",
-                "preserved": True,
-                "final_prompt_evidence": "圆形白色脸",
-            },
-            {
-                "trait": "蓝色短耳",
-                "preserved": True,
-                "final_prompt_evidence": "蓝色短耳",
-            },
-        ],
         final_manifestation="小皮的单一实体形态",
-        target_visual_anchor_instance_count=1,
-        other_scene_elements_inherit_identity_features=False,
-        single_instance_prompt_evidence="画面中只有一只小皮",
         spatial_contact_and_lighting_relation="接触地面并共享车库光照",
         inherited_existing_fusion_decision=False,
         continuity_change_reason="独立镜头没有既有决定",
@@ -196,7 +138,6 @@ def _frame_result(tmp_path):
             "它以圆形白色脸和蓝色短耳的单一实体自然参与现场。"
         ),
         final_negative_prompt="",
-        self_check="pass",
     )
     request = VisualAnchorImageGenerationRequest(
         task_id="task-two-stage",
@@ -204,17 +145,6 @@ def _frame_result(tmp_path):
         random_seed=101,
         selected_fusion_method=fusion_output.selected_fusion_method,
         final_manifestation=fusion_output.final_manifestation,
-        protected_fact_checks=fusion_output.protected_fact_checks,
-        primary_subject_name=content_output.primary_subject.name,
-        primary_subject_preserved=True,
-        primary_subject_final_prompt_evidence=(
-            fusion_output.primary_subject_final_prompt_evidence
-        ),
-        visual_anchor_replaces_primary_subject=False,
-        identity_trait_checks=fusion_output.identity_trait_checks,
-        single_instance_prompt_evidence=(
-            fusion_output.single_instance_prompt_evidence
-        ),
         final_positive_prompt=fusion_output.final_positive_prompt,
         final_negative_prompt="",
         identity_profile_id=identity.profile_id,
@@ -319,27 +249,15 @@ def _write_passed_binding(
     binding_path.write_text(
         json.dumps(
             {
-                "schema_version": "visual_anchor_first_generation_binding_audit.v4",
+                "schema_version": "visual_anchor_first_generation_binding_audit.v5",
                 "request_version": request.request_version,
                 "status": "passed",
                 "task_id": request.task_id,
                 "frame_id": request.frame_id,
                 "generation_attempt": 1,
                 "random_seed": seed,
-                "target_visual_anchor_instance_count": 1,
                 "selected_fusion_method": request.selected_fusion_method,
                 "final_manifestation": request.final_manifestation,
-                "protected_fact_checks": [
-                    check.model_dump(mode="json")
-                    for check in request.protected_fact_checks
-                ],
-                "identity_trait_checks": [
-                    check.model_dump(mode="json")
-                    for check in request.identity_trait_checks
-                ],
-                "single_instance_prompt_evidence": (
-                    request.single_instance_prompt_evidence
-                ),
                 "positive_prompt_sha256": _sha256_text(
                     request.final_positive_prompt
                 ),

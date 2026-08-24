@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -11,14 +12,14 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-MANUAL_ACCEPTANCE_SCHEMA_VERSION = "visual_anchor_manual_acceptance.v2"
+MANUAL_ACCEPTANCE_SCHEMA_VERSION = "visual_anchor_manual_acceptance.v4"
 _SAFE_FRAME_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 class VisualAnchorManualAcceptanceChecks(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    protected_facts_visible: bool
+    story_content_visible: bool
     identity_present: bool
     identity_instance_count_one: bool
     identity_traits_recognizable: bool
@@ -27,24 +28,38 @@ class VisualAnchorManualAcceptanceChecks(BaseModel):
     no_sticker_floating_or_penetration: bool
     size_and_position_fit_current_composition: bool
     unique_final_plan_submitted: bool
-    first_generation_reference_bound: bool
-    deterministic_fusion_and_post_audit_complete: bool
+    identity_condition_bound_to_first_request: bool
+    generation_binding_and_post_audit_complete: bool
     continuous_scene_consistency: bool
     original_first_generation_unmodified: bool
 
     @model_validator(mode="before")
     @classmethod
     def _migrate_legacy_preflight_check(cls, value: object) -> object:
-        if not isinstance(value, dict):
+        if not isinstance(value, Mapping):
             return value
         normalized = dict(value)
+        legacy_story_check = normalized.pop("protected_facts_visible", None)
+        normalized.setdefault("story_content_visible", legacy_story_check)
         legacy_value = normalized.pop(
             "preflight_and_post_audit_complete",
             None,
         )
-        normalized.setdefault(
+        deterministic_value = normalized.pop(
             "deterministic_fusion_and_post_audit_complete",
-            legacy_value,
+            None,
+        )
+        legacy_identity_condition = normalized.pop(
+            "first_generation_reference_bound",
+            None,
+        )
+        normalized.setdefault(
+            "identity_condition_bound_to_first_request",
+            legacy_identity_condition,
+        )
+        normalized.setdefault(
+            "generation_binding_and_post_audit_complete",
+            deterministic_value if deterministic_value is not None else legacy_value,
         )
         return normalized
 
@@ -80,10 +95,14 @@ class VisualAnchorManualAcceptanceRecord(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _upgrade_legacy_schema_version(cls, value: object) -> object:
-        if not isinstance(value, dict):
+        if not isinstance(value, Mapping):
             return value
         normalized = dict(value)
-        if normalized.get("schema_version") == "visual_anchor_manual_acceptance.v1":
+        if normalized.get("schema_version") in {
+            "visual_anchor_manual_acceptance.v1",
+            "visual_anchor_manual_acceptance.v2",
+            "visual_anchor_manual_acceptance.v3",
+        }:
             normalized["schema_version"] = MANUAL_ACCEPTANCE_SCHEMA_VERSION
         return normalized
 
@@ -133,6 +152,37 @@ class VisualAnchorManualAcceptanceRecord(BaseModel):
                     "failed manual acceptance must contain failure reasons"
                 )
         return self
+
+
+def identity_condition_binding_succeeded(
+    *,
+    generation_request: Mapping[str, object],
+    reference_condition: Mapping[str, object],
+    binding_audit: Mapping[str, object],
+) -> bool:
+    """Report only whether the declared identity input reached the first request."""
+
+    if binding_audit.get("status") != "passed":
+        return False
+    actual_execution = binding_audit.get("actual_execution")
+    if not isinstance(actual_execution, Mapping):
+        return False
+    conditioning_mode = generation_request.get("identity_conditioning_mode")
+    if conditioning_mode == "reference_image":
+        expected_digest = reference_condition.get("asset_sha256")
+        return (
+            isinstance(expected_digest, str)
+            and bool(expected_digest)
+            and actual_execution.get("uploaded_reference_sha256")
+            == expected_digest
+            and actual_execution.get("reference_conditioning_input_count") == 1
+        )
+    if conditioning_mode == "text_profile":
+        return (
+            actual_execution.get("identity_conditioning_mode") == "text_profile"
+            and actual_execution.get("reference_conditioning_input_count") == 0
+        )
+    return False
 
 
 def record_visual_anchor_manual_acceptance(
@@ -288,6 +338,7 @@ __all__ = [
     "MANUAL_ACCEPTANCE_SCHEMA_VERSION",
     "VisualAnchorManualAcceptanceChecks",
     "VisualAnchorManualAcceptanceRecord",
+    "identity_condition_binding_succeeded",
     "manual_acceptance_artifact_relative_path",
     "record_visual_anchor_manual_acceptance",
 ]
