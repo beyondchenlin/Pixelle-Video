@@ -39,6 +39,7 @@ from pixelle_video.services.visual_anchor_reference_workflow import (
     resolve_visual_anchor_reference_workflow_key,
 )
 from pixelle_video.services.visual_anchor_two_stage_service import (
+    ContentStageContractError,
     VisualAnchorTwoStageError,
     VisualAnchorTwoStageService,
     _materialize_content_stage_output,
@@ -825,7 +826,7 @@ async def test_content_stage_materializes_subject_fact_from_simplified_response(
 
 
 @pytest.mark.asyncio
-async def test_content_stage_accepts_unique_longest_delimited_prompt_evidence():
+async def test_content_stage_rejects_delimited_prompt_evidence_without_rewriting_it():
     source_text = (
         "乔布斯，这个名字你肯定不陌生。"
         "他不只是苹果公司的创始人之一，更是改变世界的科技巨头。"
@@ -879,19 +880,21 @@ async def test_content_stage_accepts_unique_longest_delimited_prompt_evidence():
     }
     llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
 
-    output = await VisualAnchorTwoStageService()._run_content_stage(
-        llm_service=llm,
-        stage_input=stage_input,
-        trace_context=None,
-        trace_recorder=None,
-    )
+    with pytest.raises(
+        ContentStageContractError,
+        match="fact_prompt_evidence_invalid",
+    ):
+        await VisualAnchorTwoStageService()._run_content_stage(
+            llm_service=llm,
+            stage_input=stage_input,
+            trace_context=None,
+            trace_recorder=None,
+        )
 
     assert len(llm.calls) == 1
-    assert output.protected_facts[-1].statement == "画面表达了乔布斯作为科技巨擘的形象"
-    assert output.protected_facts[-1].pure_content_prompt_evidence == "科技巨头"
 
 
-def test_content_model_drops_ambiguous_unrendered_scene_fact():
+def test_content_model_preserves_ambiguous_unrendered_scene_fact_for_validation():
     payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
         mode="json"
     )
@@ -907,11 +910,12 @@ def test_content_model_drops_ambiguous_unrendered_scene_fact():
 
     output = ContentStageModelOutput.model_validate(payload)
 
-    assert output.scene_facts == []
+    assert len(output.scene_facts) == 1
+    assert output.scene_facts[0].pure_content_prompt_evidence == "乔布斯，工作台"
 
 
 @pytest.mark.asyncio
-async def test_content_stage_drops_abstract_fact_not_rendered_as_exact_prompt_text():
+async def test_content_stage_rejects_abstract_fact_not_rendered_as_exact_prompt_text():
     source_text = (
         "乔布斯，一个名字就能让人想起很多故事。"
         "他的生活就像一部电影，充满了起起伏伏。"
@@ -953,32 +957,24 @@ async def test_content_stage_drops_abstract_fact_not_rendered_as_exact_prompt_te
     }
     llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
 
-    output = await VisualAnchorTwoStageService()._run_content_stage(
-        llm_service=llm,
-        stage_input=stage_input,
-        trace_context=None,
-        trace_recorder=None,
-    )
+    with pytest.raises(
+        ContentStageContractError,
+        match="fact_prompt_evidence_invalid",
+    ):
+        await VisualAnchorTwoStageService()._run_content_stage(
+            llm_service=llm,
+            stage_input=stage_input,
+            trace_context=None,
+            trace_recorder=None,
+        )
 
     assert len(llm.calls) == 1
-    assert len(output.protected_facts) == 1
-    assert output.protected_facts[0].statement == "乔布斯"
 
 
-@pytest.mark.asyncio
-async def test_content_stage_canonicalizes_unambiguous_pronoun_subject_name():
+def test_content_model_does_not_rewrite_pronoun_subject_name():
     source_text = (
         "这种执着让他一次次突破创新。"
         "但成功路上也有挫折，他也曾被自己创立的公司开除。"
-    )
-    stage_input = ContentStageInput(
-        frame_id="frame-pronoun-subject",
-        original_storyboard_text=source_text,
-        article_context=f"乔布斯的人生就像一部传奇电影。{source_text}",
-        previous_frame_summary="乔布斯重视用户体验",
-        next_frame_summary="乔布斯创办了皮克斯",
-        target_visual_style=TargetVisualStyle(description="简约单色线稿"),
-        target_image_prompt_language="中文",
     )
     recorded_response = {
         "core_claim": source_text,
@@ -996,20 +992,9 @@ async def test_content_stage_canonicalizes_unambiguous_pronoun_subject_name():
         "adjustable_non_core_content": ["背景环境"],
         "pure_content_prompt": "乔布斯站在公司的门口，显得沮丧和失落",
     }
-    llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
+    output = ContentStageModelOutput.model_validate(recorded_response)
 
-    output = await VisualAnchorTwoStageService()._run_content_stage(
-        llm_service=llm,
-        stage_input=stage_input,
-        trace_context=None,
-        trace_recorder=None,
-    )
-
-    assert len(llm.calls) == 1
-    assert output.primary_subject.name == "乔布斯"
-    assert output.protected_facts[0].statement == "乔布斯"
-    assert output.protected_facts[0].source_evidence == "他"
-    assert output.protected_facts[0].pure_content_prompt_evidence == "乔布斯"
+    assert output.primary_subject.name == "他"
 
 
 def test_content_model_preserves_pronoun_when_identity_and_evidence_differ():
@@ -1074,7 +1059,7 @@ def test_content_model_output_decodes_complete_flattened_fact_object():
     }
 
 
-def test_content_model_output_decodes_categoryless_subject_fact_object():
+def test_content_model_output_rejects_categoryless_subject_fact_object():
     payload = _content("frame-a", _plan().frames[0].source_text).model_dump(
         mode="json"
     )
@@ -1085,18 +1070,12 @@ def test_content_model_output_decodes_categoryless_subject_fact_object():
     ]
     payload["pure_content_prompt"] = "乔布斯的一生，改变了我们每个人的生活。"
 
-    output = ContentStageModelOutput.model_validate(payload)
-
-    assert output.primary_subject.protected_facts[0].model_dump(mode="json") == {
-        "category": "person",
-        "statement": "乔布斯的一生，改变了我们每个人的生活。",
-        "source_evidence": "乔布斯的一生，改变了我们每个人的生活。",
-        "pure_content_prompt_evidence": "乔布斯的一生",
-    }
+    with pytest.raises(ValidationError):
+        ContentStageModelOutput.model_validate(payload)
 
 
 @pytest.mark.asyncio
-async def test_content_stage_accepts_complete_categoryless_subject_fact_in_one_call():
+async def test_content_stage_rejects_categoryless_subject_fact_without_repair():
     source_text = "乔布斯的一生，改变了我们每个人的生活。"
     stage_input = ContentStageInput(
         frame_id="frame-categoryless-fact",
@@ -1132,16 +1111,18 @@ async def test_content_stage_accepts_complete_categoryless_subject_fact_in_one_c
     }
     llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
 
-    output = await VisualAnchorTwoStageService()._run_content_stage(
-        llm_service=llm,
-        stage_input=stage_input,
-        trace_context=None,
-        trace_recorder=None,
-    )
+    with pytest.raises(
+        ContentStageContractError,
+        match="schema_contract_invalid",
+    ):
+        await VisualAnchorTwoStageService()._run_content_stage(
+            llm_service=llm,
+            stage_input=stage_input,
+            trace_context=None,
+            trace_recorder=None,
+        )
 
     assert len(llm.calls) == 1
-    assert output.protected_facts[0].category == "person"
-    assert output.protected_facts[0].statement == source_text
 
 
 @pytest.mark.asyncio
@@ -1208,7 +1189,7 @@ async def test_content_stage_accepts_recorded_flattened_fact_response_in_one_cal
 
 
 @pytest.mark.asyncio
-async def test_content_stage_accepts_recorded_bare_fact_and_empty_action_response():
+async def test_content_stage_rejects_recorded_bare_fact_without_repair():
     source_text = "乔布斯的一生，就是一部传奇。"
     stage_input = ContentStageInput(
         frame_id="frame-browser-recorded",
@@ -1251,27 +1232,22 @@ async def test_content_stage_accepts_recorded_bare_fact_and_empty_action_respons
     }
     llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
 
-    output = await VisualAnchorTwoStageService()._run_content_stage(
-        llm_service=llm,
-        stage_input=stage_input,
-        trace_context=None,
-        trace_recorder=None,
-    )
+    with pytest.raises(
+        ContentStageContractError,
+        match="schema_contract_invalid",
+    ):
+        await VisualAnchorTwoStageService()._run_content_stage(
+            llm_service=llm,
+            stage_input=stage_input,
+            trace_context=None,
+            trace_recorder=None,
+        )
 
     assert len(llm.calls) == 1
-    assert output.primary_subject.action == ""
-    assert [fact.statement for fact in output.protected_facts] == [
-        source_text,
-        "乔布斯的一生是一部传奇",
-    ]
-    assert all(
-        fact.pure_content_prompt_evidence == source_text
-        for fact in output.protected_facts
-    )
 
 
 @pytest.mark.asyncio
-async def test_bare_fact_inherits_subject_source_evidence_not_rewritten_core_claim():
+async def test_bare_fact_does_not_inherit_subject_evidence():
     source_text = (
         "乔布斯的一生，就是一部传奇。"
         "他从一个被领养的孩子成长为改变世界的科技巨头。"
@@ -1319,15 +1295,18 @@ async def test_bare_fact_inherits_subject_source_evidence_not_rewritten_core_cla
     }
     llm = _QueuedLLM({ContentStageModelOutput: [recorded_response]})
 
-    output = await VisualAnchorTwoStageService()._run_content_stage(
-        llm_service=llm,
-        stage_input=stage_input,
-        trace_context=None,
-        trace_recorder=None,
-    )
+    with pytest.raises(
+        ContentStageContractError,
+        match="schema_contract_invalid",
+    ):
+        await VisualAnchorTwoStageService()._run_content_stage(
+            llm_service=llm,
+            stage_input=stage_input,
+            trace_context=None,
+            trace_recorder=None,
+        )
 
     assert len(llm.calls) == 1
-    assert output.protected_facts[0].source_evidence == subject_source_evidence
 
 
 @pytest.mark.asyncio
@@ -1931,7 +1910,7 @@ async def test_fusion_rejects_missing_protected_fact_fragment():
                 }
             ],
             "pure_content_prompt": (
-                f"{fact_evidence}，暖色灯光和真实材质。"
+                f"两位创作者：{fact_evidence}，暖色灯光和真实材质。"
             ),
         }
     )
