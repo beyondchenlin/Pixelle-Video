@@ -109,7 +109,7 @@ class VisualStoryBatchOrchestrator:
                 }
                 for ref in batch.frame_refs
             ]
-            contract = context_builder.build_for_visual_anchor(
+            contract = context_builder.build_for_frame_planning(
                 frame_contexts=raw_contexts
             )
             expected_batch_frame_ids = batch.frame_ids
@@ -145,7 +145,7 @@ class VisualStoryBatchOrchestrator:
                     "visual_plan_fallback_used": visual_outcome.fallback_used,
                     "visual_plan_fallback_reason_code": visual_outcome.fallback_reason_code,
                     "legacy_ip_planning": "disabled",
-                    "visual_signature_owner": "canonical_v4_5_projection",
+                    "visual_signature_owner": "canonical_v4_6_projection",
                 }
             )
             visual_plans.extend(dict(item) for item in batch_visual)
@@ -207,7 +207,7 @@ class VisualStoryBatchOrchestrator:
                 "batch_size": execution_plan.batch_size,
                 "max_context_chars": execution_plan.max_context_chars,
                 "legacy_ip_planning": "disabled",
-                "visual_signature_owner": "canonical_v4_5_projection",
+                "visual_signature_owner": "canonical_v4_6_projection",
                 "batch_diagnostics": batch_diagnostics,
             },
         )
