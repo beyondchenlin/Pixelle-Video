@@ -27,6 +27,7 @@ from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureProjectionService,
 )
 from pixelle_video.utils.template_util import get_template_orientation
+from tests.support.visual_story import DeterministicFrameVisualPlanLLM
 
 
 class _FakeRawPayloadStore:
@@ -63,7 +64,7 @@ class _FakeTraceRepository:
 class _DummyCore:
     def __init__(self, config=None):
         self.config = config or {"comfyui": {"image": {}, "video": {}}}
-        self.llm = object()
+        self.llm = DeterministicFrameVisualPlanLLM()
         self.tts = None
         self.media = object()
         self.video = None

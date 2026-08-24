@@ -37,6 +37,7 @@ from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE
 from pixelle_video.services.persistence import PersistenceService
 from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE
+from tests.support.visual_story import DeterministicFrameVisualPlanLLM
 
 
 def _storyboard_plan_from_segments(segments: list[str]) -> StoryboardPlan:
@@ -1088,7 +1089,7 @@ async def test_standard_pipeline_plan_visuals_defaults_prompt_language_to_englis
         (),
         {
             "config": {"comfyui": {"image": {}}},
-            "llm": None,
+            "llm": DeterministicFrameVisualPlanLLM(),
             "tts": None,
             "media": object(),
             "video": None,

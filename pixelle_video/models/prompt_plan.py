@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
+
+_CONTRACT_VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 _RESERVED_PROMPT_PROJECTION_METADATA_KEYS = frozenset({
     "image_text_plan",
@@ -119,7 +122,23 @@ class PromptPlan:
             "contract_content_sha256",
             _optional_sha256("contract_content_sha256", self.contract_content_sha256),
         )
-        object.__setattr__(self, "contract_version", _optional_str(self.contract_version))
+        object.__setattr__(
+            self,
+            "contract_version",
+            _optional_contract_version(self.contract_version),
+        )
+        if (self.contract_content_sha256 is None) != (self.contract_version is None):
+            raise ValueError(
+                "contract_content_sha256 and contract_version must be provided together"
+            )
+        if (
+            self.identity_content_sha256 is not None
+            and self.contract_content_sha256 is None
+        ):
+            raise ValueError(
+                "identity_content_sha256 requires contract_content_sha256 and "
+                "contract_version"
+            )
         object.__setattr__(self, "source_trace_id", _optional_str(self.source_trace_id))
         object.__setattr__(self, "character_ids", _normalize_id_tuple("character_ids", self.character_ids))
         object.__setattr__(self, "scene_id", _optional_str(self.scene_id))
@@ -316,6 +335,17 @@ def _optional_sha256(field_name: str, value: Any) -> str | None:
     if len(lowered) != 64 or any(character not in "0123456789abcdef" for character in lowered):
         raise ValueError(f"{field_name} must be a 64-character SHA-256 hex digest")
     return lowered
+
+
+def _optional_contract_version(value: Any) -> str | None:
+    normalized = _optional_str(value)
+    if normalized is None:
+        return None
+    if not _CONTRACT_VERSION_RE.fullmatch(normalized):
+        raise ValueError(
+            "contract_version must be a 1-128 character version identifier"
+        )
+    return normalized
 
 
 def _freeze_prompt_sections(value: Mapping[str, str]) -> Mapping[str, str]:

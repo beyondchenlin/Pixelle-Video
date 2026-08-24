@@ -141,8 +141,6 @@ class _FakeFrameGenerator:
     def get_media_size(self):
         return (1080, 1920)
 
-frame_html.HTMLFrameGenerator = _FakeFrameGenerator
-
 class _FakeMedia:
     @staticmethod
     def list_workflows():

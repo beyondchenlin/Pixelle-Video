@@ -45,7 +45,11 @@ def test_visual_story_contract_degrades_without_exceeding_budget():
         for index in range(40)
     ]
 
-    contract = VisualStoryContextContractBuilder().build_for_visual_anchor(frame_contexts=frames)
+    builder = VisualStoryContextContractBuilder()
+    contract = builder.build_for_frame_planning(frame_contexts=frames)
+    compatibility_contract = builder.build_for_visual_anchor(frame_contexts=frames)
+
+    assert compatibility_contract == contract
     assert len(str(contract.payload)) <= 11000
     assert contract.payload["context_contract"]["degradation_level"] in {
         "compact",

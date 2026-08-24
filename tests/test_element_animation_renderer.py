@@ -115,9 +115,15 @@ def test_render_video_muxes_audio_bounded_to_animation_duration(
     audio = tmp_path / "audio.wav"
     audio.write_bytes(b"audio")
     manifest = _manifest(tmp_path, audio_path=str(audio), duration=0.4, fps=5)
-    renderer = PythonElementAnimationRenderer()
     rendered_times: list[float] = []
-    commands: list[list[str]] = []
+    encoder_calls: list[dict[str, object]] = []
+
+    class FakeEncoder:
+        def encode_png_sequence(self, **kwargs) -> str:
+            encoder_calls.append(kwargs)
+            return str(kwargs["output_path"])
+
+    renderer = PythonElementAnimationRenderer(video_encoder=FakeEncoder())
 
     def fake_render_frame(
         frame_manifest: ElementAnimationManifest,
@@ -128,29 +134,15 @@ def test_render_video_muxes_audio_bounded_to_animation_duration(
         rendered_times.append(time)
         return Image.new("RGB", (2, 2), (1, 2, 3))
 
-    def fake_run(command: list[str], *, check: bool) -> None:
-        commands.append(command)
-        assert check is True
-
     monkeypatch.setattr(renderer, "render_frame", fake_render_frame)
-    monkeypatch.setattr(
-        "pixelle_video.services.element_animation_renderer.subprocess.run",
-        fake_run,
-    )
 
     output_path = tmp_path / "rendered.mp4"
     result = renderer.render_video(manifest, str(output_path))
 
     assert result == str(output_path)
     assert len(rendered_times) == 2
-    assert commands
-    command = commands[0]
-    assert command[command.index("-framerate") + 1] == "5"
-    assert "-pix_fmt" in command
-    assert command[command.index("-pix_fmt") + 1] == "yuv420p"
-    assert str(audio) in command
-    assert "-c:a" in command
-    assert command[command.index("-c:a") + 1] == "aac"
-    assert "-t" in command
-    assert command[command.index("-t") + 1] == "0.4"
-    assert "-shortest" not in command
+    assert len(encoder_calls) == 1
+    assert encoder_calls[0]["fps"] == 5
+    assert encoder_calls[0]["duration"] == 0.4
+    assert encoder_calls[0]["audio_path"] == str(audio)
+    assert encoder_calls[0]["output_path"] == output_path

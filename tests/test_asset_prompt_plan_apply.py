@@ -241,6 +241,29 @@ async def test_apply_scene_cast_replaces_only_target_prompt_plan_and_saves_bundl
 
 
 @pytest.mark.asyncio
+async def test_apply_result_does_not_forward_persistence_only_fields(monkeypatch):
+    service, _, _, _ = service_with_defaults()
+    result = await service.apply_scene_cast_to_prompt_plan_bundle(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        asset_bible_id="bible_demo",
+        scene_cast_id="cast_frame_1",
+        storyboard_plan_id="storyboard_plan_1",
+        frame_id="frame_0001",
+    )
+    monkeypatch.setattr(
+        type(result.prompt_plan),
+        "to_dict",
+        lambda _self: {"internal_storage_path": "C:\\private\\prompt.json"},
+    )
+
+    payload = result.to_dict()["prompt_plan"]
+
+    assert payload["prompt_plan_id"] == "prompt_plan_1"
+    assert "internal_storage_path" not in payload
+
+
+@pytest.mark.asyncio
 async def test_apply_scene_cast_rejects_missing_prompt_plan_frame():
     service, _, prompt_repository, _ = service_with_defaults()
     prompt_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [

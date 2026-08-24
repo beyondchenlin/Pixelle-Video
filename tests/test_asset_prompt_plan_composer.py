@@ -156,6 +156,30 @@ async def test_preview_prompt_plan_projection_projects_scene_cast_without_mutati
 
 
 @pytest.mark.asyncio
+async def test_preview_projection_does_not_forward_persistence_only_fields(monkeypatch):
+    service, _, _ = service_with_defaults()
+    preview = await service.preview_prompt_plan_projection(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        asset_bible_id="bible_demo",
+        scene_cast_id="cast_frame_1",
+        storyboard_plan_id="storyboard_plan_1",
+        frame_id="frame_0001",
+    )
+
+    monkeypatch.setattr(
+        type(preview.prompt_plan),
+        "to_dict",
+        lambda _self: {"internal_storage_path": "C:\\private\\prompt.json"},
+    )
+
+    payload = preview.to_dict()["prompt_plan"]
+
+    assert payload["prompt_plan_id"] == "prompt_plan_1"
+    assert "internal_storage_path" not in payload
+
+
+@pytest.mark.asyncio
 async def test_preview_prompt_plan_projection_rejects_missing_asset_bible():
     service, asset_repository, _ = service_with_defaults()
     asset_repository.asset_bibles.clear()

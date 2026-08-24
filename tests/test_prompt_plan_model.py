@@ -84,6 +84,61 @@ def test_prompt_plan_uses_canonical_stage1a_shape():
     assert PromptPlan.from_dict(payload) == plan
 
 
+@pytest.mark.parametrize(
+    "lineage",
+    (
+        {"contract_content_sha256": "b" * 64},
+        {"contract_version": "final_visual_prompt_contract.v4_6"},
+        {"identity_content_sha256": "a" * 64},
+    ),
+)
+def test_prompt_plan_rejects_incomplete_lineage_metadata(lineage):
+    with pytest.raises(ValueError, match="contract_content_sha256"):
+        PromptPlan(
+            prompt_plan_id="prompt_plan_001",
+            storyboard_plan_id="storyboard_plan_001",
+            frame_id="frame_0001",
+            image_prompt_draft_id="draft_001",
+            prompt_sections={"subject": "fox cub"},
+            final_prompt="fox cub",
+            **lineage,
+        )
+
+
+def test_prompt_plan_allows_contract_lineage_without_identity_hash():
+    plan = PromptPlan(
+        prompt_plan_id="prompt_plan_001",
+        storyboard_plan_id="storyboard_plan_001",
+        frame_id="frame_0001",
+        image_prompt_draft_id="draft_001",
+        prompt_sections={"subject": "fox cub"},
+        final_prompt="fox cub",
+        contract_content_sha256="b" * 64,
+        contract_version="final_visual_prompt_contract.v4_6",
+    )
+
+    assert plan.identity_content_sha256 is None
+
+
+@pytest.mark.parametrize(
+    "contract_version",
+    ("../private/contract", "contract version", "v" * 129),
+)
+def test_prompt_plan_rejects_invalid_contract_version(contract_version):
+    with pytest.raises(ValueError, match="contract_version"):
+        PromptPlan(
+            prompt_plan_id="prompt_plan_001",
+            storyboard_plan_id="storyboard_plan_001",
+            frame_id="frame_0001",
+            image_prompt_draft_id="draft_001",
+            prompt_sections={"subject": "fox cub"},
+            final_prompt="fox cub",
+            identity_content_sha256="a" * 64,
+            contract_content_sha256="b" * 64,
+            contract_version=contract_version,
+        )
+
+
 def test_prompt_projection_is_read_model_for_generation_and_stage2_refs():
     plan = PromptPlan(
         prompt_plan_id="prompt_plan_001",

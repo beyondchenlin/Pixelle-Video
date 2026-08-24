@@ -3,8 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
+
+from api.schemas.asset_bible import PromptPlanProjectionPromptPlanResponse
 
 
 @dataclass
@@ -263,6 +267,10 @@ def _prompt_plan_payload(**overrides) -> dict[str, Any]:
         "image_prompt_draft_id": "draft_1",
         "prompt_sections": {"visual_goal": "Show Luna in the lab."},
         "final_prompt": "Show Luna in the lab.",
+        "final_negative_prompt": "blurry, duplicate subjects",
+        "identity_content_sha256": "a" * 64,
+        "contract_content_sha256": "b" * 64,
+        "contract_version": "final_visual_prompt_contract.v4_6",
         "source_trace_id": "trace_1",
         "metadata": {"source": "stage1a"},
     }
@@ -1065,6 +1073,14 @@ def test_prompt_plan_projection_api_returns_preview_through_repositories():
     assert body["success"] is True
     assert body["projection"]["prompt_plan"]["prompt_plan_id"] == "prompt_plan_1"
     assert body["projection"]["prompt_plan"]["final_prompt"] == "Show Luna in the lab."
+    assert body["projection"]["prompt_plan"]["final_negative_prompt"] == (
+        "blurry, duplicate subjects"
+    )
+    assert body["projection"]["prompt_plan"]["identity_content_sha256"] == "a" * 64
+    assert body["projection"]["prompt_plan"]["contract_content_sha256"] == "b" * 64
+    assert body["projection"]["prompt_plan"]["contract_version"] == (
+        "final_visual_prompt_contract.v4_6"
+    )
     assert body["projection"]["prompt_plan"]["character_ids"] == ["char_luna"]
     assert body["projection"]["prompt_plan"]["scene_id"] == "scene_lab"
     assert body["projection"]["prompt_plan"]["prop_ids"] == ["prop_compass"]
@@ -1077,6 +1093,30 @@ def test_prompt_plan_projection_api_returns_preview_through_repositories():
     }
     assert "C:\\" not in str(body)
     assert "local_path" not in str(body)
+
+
+def test_prompt_plan_projection_api_allows_contract_without_identity_hash():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(identity_content_sha256=None)
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["projection"]["prompt_plan"][
+        "identity_content_sha256"
+    ] is None
+
+
+def test_prompt_plan_projection_response_schema_rejects_partial_contract_lineage():
+    with pytest.raises(ValidationError, match="contract_content_sha256"):
+        PromptPlanProjectionPromptPlanResponse.model_validate(
+            _prompt_plan_payload(contract_version=None)
+        )
 
 
 def test_projection_preview_does_not_use_stale_write_repositories():
@@ -1334,6 +1374,21 @@ def test_prompt_plan_projection_api_maps_prompt_plan_repository_identity_to_502(
 
     assert response.status_code == 502
     assert "prompt plan storyboard" in response.json()["detail"]
+
+
+def test_prompt_plan_projection_api_rejects_partial_lineage_metadata():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(contract_version=None)
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "prompt plan repository payload is invalid"
 
 
 def test_prompt_plan_projection_api_rejects_path_like_prompt_plan_response_ids():

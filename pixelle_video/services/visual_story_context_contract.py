@@ -11,12 +11,12 @@ DEFAULT_MAX_TOTAL_CHARS = 9000
 
 @dataclass(frozen=True)
 class PromptBudgetPolicy:
-    """Hard prompt budget for downstream visual-signature planning.
+    """Hard prompt budget for bounded visual frame context.
 
     The policy is intentionally expressed in characters rather than tokens because
     this project uses multiple OpenAI-compatible providers. The budget is set far
-    below common provider limits so the visual-anchor prompt still has room for
-    base visual briefs, identity profile, schema instructions, and repair context.
+    below common provider limits so downstream prompts still have room for their
+    output schema and provider framing.
     """
 
     max_total_chars: int = DEFAULT_MAX_TOTAL_CHARS
@@ -30,7 +30,7 @@ class PromptBudgetPolicy:
 
 @dataclass(frozen=True)
 class BudgetedVisualStoryContext:
-    """Serialized-safe context contract passed to visual-anchor integration."""
+    """Serialized-safe context contract for downstream visual planning."""
 
     payload: dict[str, Any]
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -52,7 +52,7 @@ class VisualStoryContextContractBuilder:
     def __init__(self, policy: PromptBudgetPolicy | None = None) -> None:
         self.policy = policy or PromptBudgetPolicy()
 
-    def build_for_visual_anchor(
+    def build_for_frame_planning(
         self,
         *,
         frame_contexts: Sequence[Mapping[str, Any]],
@@ -147,6 +147,15 @@ class VisualStoryContextContractBuilder:
             payload = self._with_contract_metadata(payload, diagnostics)
 
         return BudgetedVisualStoryContext(payload=payload, diagnostics=diagnostics)
+
+    def build_for_visual_anchor(
+        self,
+        *,
+        frame_contexts: Sequence[Mapping[str, Any]],
+    ) -> BudgetedVisualStoryContext:
+        """Compatibility alias retained for the visual-signature anchor planner."""
+
+        return self.build_for_frame_planning(frame_contexts=frame_contexts)
 
     def compact_one_frame(self, context: Mapping[str, Any]) -> dict[str, Any]:
         frame = dict(context or {})
@@ -284,7 +293,7 @@ def compact_visual_anchor_contexts(
     """Backward-compatible entry point used by the visual-anchor planner."""
 
     policy = PromptBudgetPolicy(max_total_chars=max_total_chars)
-    contract = VisualStoryContextContractBuilder(policy).build_for_visual_anchor(
+    contract = VisualStoryContextContractBuilder(policy).build_for_frame_planning(
         frame_contexts=frame_contexts,
     )
     return contract.payload

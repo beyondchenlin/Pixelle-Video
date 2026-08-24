@@ -18,6 +18,14 @@ def ps_single_quote(value: object) -> str:
     return str(value).replace("'", "''")
 
 
+def terminal_output_contains(output: str, expected: str) -> bool:
+    """Match diagnostics independently of host-inserted terminal wrapping."""
+
+    compact_output = "".join(output.split())
+    compact_expected = "".join(expected.split())
+    return compact_expected in compact_output
+
+
 def run_powershell(
     script: Path,
     *args: str,
@@ -1165,7 +1173,7 @@ def test_start_backend_rejects_missing_allowed_custom_node(tmp_path: Path) -> No
     )
 
     assert result.returncode != 0
-    assert "does not exist" in (result.stdout + result.stderr)
+    assert terminal_output_contains(result.stdout + result.stderr, "does not exist")
 
 
 def test_start_backend_rejects_scalar_custom_node_payload(tmp_path: Path) -> None:
@@ -1197,7 +1205,7 @@ def test_start_backend_rejects_scalar_custom_node_payload(tmp_path: Path) -> Non
     )
 
     assert result.returncode != 0
-    assert "base64 JSON" in (result.stdout + result.stderr)
+    assert terminal_output_contains(result.stdout + result.stderr, "base64 JSON")
 
 
 def test_backend_diagnostic_tail_reads_utf8_without_a_byte_order_mark(
@@ -1373,9 +1381,12 @@ def test_start_backend_rejects_a_second_effective_custom_node_root(
 
     assert result.returncode != 0
     diagnostic = result.stdout + result.stderr
-    assert "requires exactly one effective custom_nodes root" in diagnostic
-    assert "ComfyUIData\\custom_nodes" in diagnostic
-    assert "SecondComfyUIData\\custom_nodes" in diagnostic
+    assert terminal_output_contains(
+        diagnostic,
+        "requires exactly one effective custom_nodes root",
+    )
+    assert terminal_output_contains(diagnostic, "ComfyUIData\\custom_nodes")
+    assert terminal_output_contains(diagnostic, "SecondComfyUIData\\custom_nodes")
 
 
 def test_start_backend_rejects_case_aliases_of_the_effective_custom_node_root(
@@ -1424,7 +1435,7 @@ def test_start_backend_rejects_case_aliases_of_the_effective_custom_node_root(
     )
 
     assert result.returncode != 0
-    assert "resolved 2" in (result.stdout + result.stderr)
+    assert terminal_output_contains(result.stdout + result.stderr, "resolved 2")
 
 
 def test_custom_node_root_error_does_not_leak_configuration_contents(
@@ -1473,8 +1484,11 @@ def test_custom_node_root_error_does_not_leak_configuration_contents(
 
     diagnostic = result.stdout + result.stderr
     assert result.returncode != 0
-    assert "could not load ComfyUI path configuration" in diagnostic
-    assert secret not in diagnostic
+    assert terminal_output_contains(
+        diagnostic,
+        "could not load ComfyUI path configuration",
+    )
+    assert not terminal_output_contains(diagnostic, secret)
 
 
 def test_custom_node_root_resolver_timeout_is_bounded(tmp_path: Path) -> None:
@@ -1512,7 +1526,10 @@ def test_custom_node_root_resolver_timeout_is_bounded(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert elapsed < 4
-    assert "exceeded 300 milliseconds" in (result.stdout + result.stderr)
+    assert terminal_output_contains(
+        result.stdout + result.stderr,
+        "exceeded 300 milliseconds",
+    )
 
 
 def test_start_backend_memory_safe_policy_preserves_batch_reuse_and_offload(
@@ -1659,7 +1676,7 @@ def test_start_backend_memory_safe_policy_fails_when_support_is_unverifiable(
     )
 
     assert result.returncode != 0
-    assert "cannot prove support" in result.stderr
+    assert terminal_output_contains(result.stderr, "cannot prove support")
 
 
 def test_data_root_environment_does_not_override_shared_base_path(tmp_path: Path) -> None:
@@ -1762,8 +1779,8 @@ def test_start_backend_refuses_occupied_port_even_in_dry_run(tmp_path: Path) -> 
 
     assert result.returncode != 0
     combined_output = result.stdout + result.stderr
-    assert "already in use" in combined_output
-    assert "Refusing to start" in combined_output
+    assert terminal_output_contains(combined_output, "already in use")
+    assert terminal_output_contains(combined_output, "Refusing to start")
 
 
 def test_start_backend_refuses_wildcard_address_port_conflict(tmp_path: Path) -> None:
@@ -1797,8 +1814,8 @@ def test_start_backend_refuses_wildcard_address_port_conflict(tmp_path: Path) ->
 
     assert result.returncode != 0
     combined_output = result.stdout + result.stderr
-    assert "already in use" in combined_output
-    assert "Refusing to start" in combined_output
+    assert terminal_output_contains(combined_output, "already in use")
+    assert terminal_output_contains(combined_output, "Refusing to start")
 
 
 def test_stop_backend_without_pid_file_is_safe_noop(tmp_path: Path) -> None:
@@ -2898,7 +2915,7 @@ def test_start_backend_cleans_up_when_backend_never_listens(tmp_path: Path) -> N
         )
 
         assert result.returncode != 0
-        assert "did not listen" in (result.stdout + result.stderr)
+        assert terminal_output_contains(result.stdout + result.stderr, "did not listen")
         assert not (runtime_dir / "comfyui-backend.pid").exists()
         assert not (runtime_dir / "comfyui-backend.launcher.pid").exists()
         wait_for_accelerator_mutex_release()
@@ -2964,13 +2981,13 @@ def test_start_backend_reports_early_backend_exit_without_waiting_for_timeout(
     combined_output = result.stdout + result.stderr
     assert result.returncode != 0
     assert elapsed < 5
-    assert "exited with code 23" in combined_output
-    assert "deliberate backend failure" in combined_output
-    assert "api_key=[REDACTED]" in combined_output
-    assert "do-not-expose" not in combined_output
-    assert "json-do-not-expose" not in combined_output
-    assert "bearer-do-not-expose" not in combined_output
-    assert "comfyui-backend.stderr.log" in combined_output
+    assert terminal_output_contains(combined_output, "exited with code 23")
+    assert terminal_output_contains(combined_output, "deliberate backend failure")
+    assert terminal_output_contains(combined_output, "api_key=[REDACTED]")
+    assert not terminal_output_contains(combined_output, "do-not-expose")
+    assert not terminal_output_contains(combined_output, "json-do-not-expose")
+    assert not terminal_output_contains(combined_output, "bearer-do-not-expose")
+    assert terminal_output_contains(combined_output, "comfyui-backend.stderr.log")
     assert not (runtime_dir / "comfyui-backend.pid").exists()
     assert not (runtime_dir / "comfyui-backend.launcher.pid").exists()
 

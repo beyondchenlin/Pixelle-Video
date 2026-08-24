@@ -10,6 +10,9 @@ from pixelle_video.models.scene_cast import SceneCast
 from pixelle_video.repositories.assets import AssetBibleRepository
 from pixelle_video.repositories.prompt_plans import PromptPlanRepository
 from pixelle_video.services.prompt_composer import apply_scene_cast_to_prompt_plan
+from pixelle_video.services.prompt_plan_public_projection import (
+    prompt_plan_public_projection_payload,
+)
 from pixelle_video.services.public_ids import validate_public_reference_id
 from pixelle_video.services.scene_casting import (
     SceneCastValidationError,
@@ -66,7 +69,7 @@ class PromptPlanProjectionPreview:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "prompt_plan": self.prompt_plan.to_dict(),
+            "prompt_plan": prompt_plan_public_projection_payload(self.prompt_plan),
             "source": self.source.to_dict(),
         }
 

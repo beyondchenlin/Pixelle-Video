@@ -672,8 +672,15 @@ class SeriesVisualSignatureContract:
                     "enabled series visual signature relative_size must match "
                     "the max_area_ratio compatibility mapping"
                 )
-        elif self.profile is not None:
-            raise ValueError("disabled series visual signature must not carry a profile")
+        else:
+            if self.role is not SeriesVisualSignatureRole.NONE:
+                raise ValueError("disabled series visual signature must use none role")
+            if self.profile is not None:
+                raise ValueError("disabled series visual signature must not carry a profile")
+            if self.max_area_ratio != 0.0:
+                raise ValueError("disabled series visual signature must use zero max_area_ratio")
+            if normalized_relative_size is not VisualRelativeSize.SMALL:
+                raise ValueError("disabled series visual signature must use small relative_size")
 
     @classmethod
     def from_mapping(
