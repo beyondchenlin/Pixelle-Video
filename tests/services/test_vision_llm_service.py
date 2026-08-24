@@ -82,9 +82,25 @@ def _trace_context() -> LLMTraceContext:
     )
 
 
+@pytest.fixture
+async def vision_service_factory():
+    services = []
+
+    def create(config=None):
+        service = VisionLLMService(config)
+        services.append(service)
+        return service
+
+    try:
+        yield create
+    finally:
+        for service in reversed(services):
+            await service.aclose()
+
+
 @pytest.mark.asyncio
-async def test_vision_llm_service_records_redacted_trace(monkeypatch):
-    service = VisionLLMService({"force_supports_vision": True})
+async def test_vision_llm_service_records_redacted_trace(monkeypatch, vision_service_factory):
+    service = vision_service_factory({"force_supports_vision": True})
     client = _FakeClient()
     monkeypatch.setattr(service, "_create_client", lambda **kwargs: client)
     recorder = _FakeRecorder()
@@ -123,8 +139,11 @@ async def test_vision_llm_service_records_redacted_trace(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_vision_llm_service_redacts_provider_error_trace(monkeypatch):
-    service = VisionLLMService({"force_supports_vision": True})
+async def test_vision_llm_service_redacts_provider_error_trace(
+    monkeypatch,
+    vision_service_factory,
+):
+    service = vision_service_factory({"force_supports_vision": True})
     monkeypatch.setattr(service, "_create_client", lambda **kwargs: _FailingClient())
     recorder = _FakeRecorder()
 
@@ -156,8 +175,11 @@ async def test_vision_llm_service_redacts_provider_error_trace(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_vision_llm_service_rejects_empty_provider_response_and_records_error(monkeypatch):
-    service = VisionLLMService({"force_supports_vision": True})
+async def test_vision_llm_service_rejects_empty_provider_response_and_records_error(
+    monkeypatch,
+    vision_service_factory,
+):
+    service = vision_service_factory({"force_supports_vision": True})
     client = _FakeClient()
 
     async def empty_response(**kwargs):
@@ -181,8 +203,11 @@ async def test_vision_llm_service_rejects_empty_provider_response_and_records_er
 
 
 @pytest.mark.asyncio
-async def test_vision_llm_service_trace_failure_is_fail_closed(monkeypatch):
-    service = VisionLLMService({"force_supports_vision": True})
+async def test_vision_llm_service_trace_failure_is_fail_closed(
+    monkeypatch,
+    vision_service_factory,
+):
+    service = vision_service_factory({"force_supports_vision": True})
     monkeypatch.setattr(service, "_create_client", lambda **kwargs: _FakeClient())
 
     with pytest.raises(LLMTraceRecordingError):
@@ -195,8 +220,11 @@ async def test_vision_llm_service_trace_failure_is_fail_closed(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_vision_llm_service_reuses_client_and_redacts_sensitive_extras(monkeypatch):
-    service = VisionLLMService({"force_supports_vision": True})
+async def test_vision_llm_service_reuses_client_and_redacts_sensitive_extras(
+    monkeypatch,
+    vision_service_factory,
+):
+    service = vision_service_factory({"force_supports_vision": True})
     client = _FakeClient()
     create_calls = 0
 
@@ -235,8 +263,8 @@ async def test_vision_llm_service_reuses_client_and_redacts_sensitive_extras(mon
 
 
 @pytest.mark.asyncio
-async def test_vision_llm_service_requires_trace_objects():
-    service = VisionLLMService({"force_supports_vision": True})
+async def test_vision_llm_service_requires_trace_objects(vision_service_factory):
+    service = vision_service_factory({"force_supports_vision": True})
 
     with pytest.raises(LLMTraceRequiredError):
         await service.chat(
@@ -246,8 +274,8 @@ async def test_vision_llm_service_requires_trace_objects():
 
 
 @pytest.mark.asyncio
-async def test_vision_llm_service_rejects_unknown_text_model():
-    service = VisionLLMService()
+async def test_vision_llm_service_rejects_unknown_text_model(vision_service_factory):
+    service = vision_service_factory()
 
     with pytest.raises(ValueError, match="does not support image messages"):
         await service.chat(

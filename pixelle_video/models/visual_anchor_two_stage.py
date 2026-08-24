@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v16"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v17"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v15"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v7"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
@@ -30,6 +30,7 @@ HistoricalContentStagePromptVersion = Literal[
 ]
 ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v15",
+    "visual_anchor_content_stage.v16",
     CONTENT_STAGE_PROMPT_VERSION
 ]
 FusionStagePromptVersion = Literal[
@@ -522,9 +523,12 @@ class ContentStageInput(_ContentStageInputCommon):
 
 
 class LegacyContentStageInputV15(_ContentStageInputCommon):
-    """Historical v15 style-neutral input retained for persisted artifacts."""
+    """Historical style-neutral input retained for persisted artifacts."""
 
-    prompt_version: Literal["visual_anchor_content_stage.v15"]
+    prompt_version: Literal[
+        "visual_anchor_content_stage.v15",
+        "visual_anchor_content_stage.v16",
+    ]
 
 
 ReadableContentStageInput = (

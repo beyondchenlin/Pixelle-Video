@@ -180,6 +180,24 @@ def test_v44_api_planning_fields_use_model_enum_fact_sources():
     )
 
 
+def test_video_generate_request_defaults_are_typed_and_serialize_without_warnings(recwarn):
+    request = VideoGenerateRequest(text="demo")
+
+    assert request.article_understanding_mode is ArticleUnderstandingMode.AUTO
+    assert request.visual_planning_mode is VisualPlanningMode.AUTO
+    assert request.series_visual_signature_strategy is SeriesVisualSignatureStrategy.AUTO
+    assert request.cognitive_anchor_kind is CognitiveAnchorKind.AUTO
+    assert request.explanation_diagram_grammar is ExplanationDiagramGrammar.AUTO
+    assert request.series_visual_signature_role is SeriesVisualSignatureRole.NONE
+    assert request.diagram_render_style is DiagramRenderStyle.AUTO
+    assert request.diagram_aspect_ratio is DiagramAspectRatio.AUTO
+    assert request.diagram_visible_text_policy is VisibleTextPolicy.NO_VISIBLE_TEXT
+
+    request.model_dump(mode="python")
+
+    assert not recwarn.list
+
+
 def test_video_generate_request_rejects_removed_hyperframes_alias():
     with pytest.raises(ValidationError, match="hyperframes_compiled"):
         VideoGenerateRequest(

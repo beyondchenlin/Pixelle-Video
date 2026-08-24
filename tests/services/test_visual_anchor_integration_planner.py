@@ -1,5 +1,3 @@
-import asyncio
-
 import pytest
 from pydantic import ValidationError
 
@@ -223,15 +221,14 @@ def _embedded_scene_mark_policy() -> SeriesVisualSignaturePresentationPolicy:
     )
 
 
-def test_series_visual_signature_anchor_planner_uses_flat_typed_scene_bound_plan():
-    plans = asyncio.run(
-        VisualAnchorIntegrationPlanner(
-            llm_service=ValidSceneBoundLLM(),
-            presentation_policy=_embedded_scene_mark_policy(),
-        ).plan_batch(
-            base_visual_briefs=(_book_brief(),),
-            anchor_profile=_profile(),
-        )
+@pytest.mark.asyncio
+async def test_series_visual_signature_anchor_planner_uses_flat_typed_scene_bound_plan():
+    plans = await VisualAnchorIntegrationPlanner(
+        llm_service=ValidSceneBoundLLM(),
+        presentation_policy=_embedded_scene_mark_policy(),
+    ).plan_batch(
+        base_visual_briefs=(_book_brief(),),
+        anchor_profile=_profile(),
     )
 
     assert plans[0].visible
@@ -244,17 +241,16 @@ def test_series_visual_signature_anchor_planner_uses_flat_typed_scene_bound_plan
     assert plans[0].metadata["source"] == "llm_mandatory_series_visual_signature_integration"
 
 
-def test_series_visual_signature_anchor_planner_uses_typed_schema_and_repairs_validation_failures():
+@pytest.mark.asyncio
+async def test_series_visual_signature_anchor_planner_uses_typed_schema_and_repairs_validation_failures():
     llm = TypedRepairLLM()
 
-    plans = asyncio.run(
-        VisualAnchorIntegrationPlanner(
-            llm_service=llm,
-            presentation_policy=_embedded_scene_mark_policy(),
-        ).plan_batch(
-            base_visual_briefs=(_book_brief(),),
-            anchor_profile=_ascii_profile(),
-        )
+    plans = await VisualAnchorIntegrationPlanner(
+        llm_service=llm,
+        presentation_policy=_embedded_scene_mark_policy(),
+    ).plan_batch(
+        base_visual_briefs=(_book_brief(),),
+        anchor_profile=_ascii_profile(),
     )
 
     assert len(llm.calls) == 2
@@ -265,20 +261,19 @@ def test_series_visual_signature_anchor_planner_uses_typed_schema_and_repairs_va
     assert plans[0].metadata["anchor_manifestation"]["form"] == "bookplate stamp"
 
 
-def test_series_visual_signature_anchor_planner_fallbacks_on_recoverable_llm_error():
+@pytest.mark.asyncio
+async def test_series_visual_signature_anchor_planner_fallbacks_on_recoverable_llm_error():
     policy = SeriesVisualSignaturePresentationPolicy.from_mapping(
         {"series_visual_signature_presentation_mode": "embedded_scene_mark"}
     )
 
-    plans = asyncio.run(
-        VisualAnchorIntegrationPlanner(
-            llm_service=RecoverableTimeoutLLM(),
-            presentation_policy=policy,
-            max_repair_attempts=0,
-        ).plan_batch(
-            base_visual_briefs=(_book_brief(),),
-            anchor_profile=_profile(),
-        )
+    plans = await VisualAnchorIntegrationPlanner(
+        llm_service=RecoverableTimeoutLLM(),
+        presentation_policy=policy,
+        max_repair_attempts=0,
+    ).plan_batch(
+        base_visual_briefs=(_book_brief(),),
+        anchor_profile=_profile(),
     )
 
     assert len(plans) == 1
@@ -389,12 +384,13 @@ def test_mandatory_visual_anchor_integration_plan_maps_flat_wire_fields_to_inter
     assert "manifestation_location" not in payload
 
 
-def test_series_visual_signature_anchor_planner_repairs_overlay_candidate_with_fallback():
-    plans = asyncio.run(
-        VisualAnchorIntegrationPlanner(llm_service=RejectedOverlayLLM()).plan_batch(
-            base_visual_briefs=(_book_brief(),),
-            anchor_profile=_profile(),
-        )
+@pytest.mark.asyncio
+async def test_series_visual_signature_anchor_planner_repairs_overlay_candidate_with_fallback():
+    plans = await VisualAnchorIntegrationPlanner(
+        llm_service=RejectedOverlayLLM()
+    ).plan_batch(
+        base_visual_briefs=(_book_brief(),),
+        anchor_profile=_profile(),
     )
 
     assert plans[0].visible
@@ -405,20 +401,19 @@ def test_series_visual_signature_anchor_planner_repairs_overlay_candidate_with_f
     assert "logo" not in plans[0].image_prompt_clause.lower()
 
 
-def test_series_visual_signature_anchor_planner_repairs_projection_gate_failure_with_fallback():
+@pytest.mark.asyncio
+async def test_series_visual_signature_anchor_planner_repairs_projection_gate_failure_with_fallback():
     policy = SeriesVisualSignaturePresentationPolicy.from_mapping(
         {"series_visual_signature_presentation_mode": "visible_supporting_character"}
     )
 
-    plans = asyncio.run(
-        VisualAnchorIntegrationPlanner(
-            llm_service=UnprojectableSupportingLLM(),
-            presentation_policy=policy,
-            max_repair_attempts=0,
-        ).plan_batch(
-            base_visual_briefs=(_book_brief(),),
-            anchor_profile=_ascii_profile(),
-        )
+    plans = await VisualAnchorIntegrationPlanner(
+        llm_service=UnprojectableSupportingLLM(),
+        presentation_policy=policy,
+        max_repair_attempts=0,
+    ).plan_batch(
+        base_visual_briefs=(_book_brief(),),
+        anchor_profile=_ascii_profile(),
     )
 
     assert plans[0].visible
@@ -441,28 +436,30 @@ def test_series_visual_signature_anchor_planner_repairs_projection_gate_failure_
         },
     ),
 )
-def test_series_visual_signature_anchor_planner_respects_no_fallback_modes(policy_payload):
+@pytest.mark.asyncio
+async def test_series_visual_signature_anchor_planner_respects_no_fallback_modes(
+    policy_payload,
+):
     policy = SeriesVisualSignaturePresentationPolicy.from_mapping(policy_payload)
 
     with pytest.raises(ValueError, match="provider projection gate rejected"):
-        asyncio.run(
-            VisualAnchorIntegrationPlanner(
-                llm_service=UnprojectableSupportingLLM(),
-                presentation_policy=policy,
-                max_repair_attempts=0,
-            ).plan_batch(
-                base_visual_briefs=(_book_brief(),),
-                anchor_profile=_ascii_profile(),
-            )
-        )
-
-
-def test_series_visual_signature_anchor_planner_repairs_legacy_candidate_array_shape():
-    plans = asyncio.run(
-        VisualAnchorIntegrationPlanner(llm_service=MalformedButJsonLLM()).plan_batch(
+        await VisualAnchorIntegrationPlanner(
+            llm_service=UnprojectableSupportingLLM(),
+            presentation_policy=policy,
+            max_repair_attempts=0,
+        ).plan_batch(
             base_visual_briefs=(_book_brief(),),
-            anchor_profile=_profile(),
+            anchor_profile=_ascii_profile(),
         )
+
+
+@pytest.mark.asyncio
+async def test_series_visual_signature_anchor_planner_repairs_legacy_candidate_array_shape():
+    plans = await VisualAnchorIntegrationPlanner(
+        llm_service=MalformedButJsonLLM()
+    ).plan_batch(
+        base_visual_briefs=(_book_brief(),),
+        anchor_profile=_profile(),
     )
 
     assert plans[0].visible
@@ -472,11 +469,10 @@ def test_series_visual_signature_anchor_planner_repairs_legacy_candidate_array_s
     assert "selected_index" not in plans[0].image_prompt_clause
 
 
-def test_series_visual_signature_anchor_planner_rejects_non_callable_llm_service():
+@pytest.mark.asyncio
+async def test_series_visual_signature_anchor_planner_rejects_non_callable_llm_service():
     with pytest.raises(ValueError, match="callable llm_service"):
-        asyncio.run(
-            VisualAnchorIntegrationPlanner(llm_service=object()).plan_batch(
-                base_visual_briefs=(_book_brief(),),
-                anchor_profile=_profile(),
-            )
+        await VisualAnchorIntegrationPlanner(llm_service=object()).plan_batch(
+            base_visual_briefs=(_book_brief(),),
+            anchor_profile=_profile(),
         )
