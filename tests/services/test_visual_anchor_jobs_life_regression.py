@@ -327,6 +327,43 @@ def test_fusion_template_requests_only_final_result_fields():
         assert removed_field not in template
 
 
+def test_fusion_template_keeps_subject_facts_fixed_while_opening_manifestation():
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
+    ).read_text(encoding="utf-8")
+
+    for required_rule in (
+        "是画面主旨与事实边界",
+        "可以增加、删除、替换、移动或重写任何背景、道具、服装细节",
+        "不为任何表现方式设置默认优先级",
+        "任何能够在当前场景中真实成立的单一表现方式都合法",
+        "如果现有构图没有自然载体或互动关系，可以新增不改变主旨的道具",
+        "不得因为独立实体最容易生成",
+        "独立场景必须根据当前画面重新判断",
+    ):
+        assert required_rule in template
+
+
+def test_fusion_template_explicitly_allows_material_and_interactive_forms():
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
+    ).read_text(encoding="utf-8")
+
+    for manifestation in (
+        "服装图形",
+        "材质纹样",
+        "互动角色",
+        "印刷",
+        "刺绣",
+        "压印",
+        "雕刻",
+    ):
+        assert manifestation in template
+    assert "整幅画只出现一个可识别的视觉身份实例" in template
+
+
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
     policy = _visible_text_policy(
         {"image_text": {"suppress_embedded_text": True}},
