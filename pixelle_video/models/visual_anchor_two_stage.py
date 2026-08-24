@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic.json_schema import SkipJsonSchema
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v12"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v8"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v9"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v4"
 ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v5",
@@ -24,13 +24,10 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v5",
     "visual_anchor_fusion_stage.v6",
     "visual_anchor_fusion_stage.v7",
+    "visual_anchor_fusion_stage.v8",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 
-GenerationRequestVersion = Literal[
-    "visual_anchor_generation_request.v3",
-    GENERATION_REQUEST_VERSION,
-]
 StageSelfCheckDecision = Literal["pass", "fail"]
 ContentSubjectCategory = Literal[
     "person",
@@ -998,11 +995,16 @@ class FusionStageInput(BaseModel):
     negative_prompt_supported: bool
     target_image_prompt_language: str
     required_single_instance_prompt_fragment: str
-    review_feedback: list[str] = Field(
-        default_factory=list,
-        description="仅用于读取旧版审计制品，不得触发再次调用",
-    )
     prompt_version: FusionStagePromptVersion = FUSION_STAGE_PROMPT_VERSION
+
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_legacy_review_feedback(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        normalized.pop("review_feedback", None)
+        return normalized
 
     @field_validator(
         "frame_id",
@@ -1015,11 +1017,6 @@ class FusionStageInput(BaseModel):
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
-
-    @field_validator("review_feedback")
-    @classmethod
-    def _validate_feedback(cls, value: list[str]) -> list[str]:
-        return _text_list(value, "review_feedback")
 
     @model_validator(mode="after")
     def _require_passed_content(self) -> "FusionStageInput":
@@ -1131,13 +1128,19 @@ class FusionStageOutput(BaseModel):
         "single_instance_prompt_evidence",
         "primary_subject_final_prompt_evidence",
         "spatial_contact_and_lighting_relation",
-        "continuity_change_reason",
         "final_positive_prompt",
         mode="before",
     )
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
+
+    @field_validator("continuity_change_reason", mode="before")
+    @classmethod
+    def _validate_optional_continuity_change_reason(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("continuity_change_reason must be a string")
+        return " ".join(value.split())
 
     @field_validator("final_negative_prompt", mode="before")
     @classmethod
@@ -1212,7 +1215,7 @@ class ImageWorkflowExecutionContract(BaseModel):
 class VisualAnchorImageGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    request_version: GenerationRequestVersion = GENERATION_REQUEST_VERSION
+    request_version: Literal[GENERATION_REQUEST_VERSION] = GENERATION_REQUEST_VERSION
     task_id: str
     frame_id: str
     generation_attempt: Literal[1] = 1
@@ -1253,6 +1256,8 @@ class VisualAnchorImageGenerationRequest(BaseModel):
         normalized = dict(value)
         normalized.pop("preflight_review_prompt_version", None)
         normalized.pop("preflight_review_decision", None)
+        if normalized.get("request_version") == "visual_anchor_generation_request.v3":
+            normalized["request_version"] = GENERATION_REQUEST_VERSION
         return normalized
 
     @field_validator(

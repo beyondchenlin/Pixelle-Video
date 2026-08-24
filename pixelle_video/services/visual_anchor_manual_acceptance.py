@@ -56,10 +56,9 @@ class VisualAnchorManualAcceptanceChecks(BaseModel):
 class VisualAnchorManualAcceptanceRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[
-        "visual_anchor_manual_acceptance.v1",
-        MANUAL_ACCEPTANCE_SCHEMA_VERSION,
-    ] = MANUAL_ACCEPTANCE_SCHEMA_VERSION
+    schema_version: Literal[MANUAL_ACCEPTANCE_SCHEMA_VERSION] = (
+        MANUAL_ACCEPTANCE_SCHEMA_VERSION
+    )
     task_id: str
     acceptance_batch_id: str
     acceptance_round: int = Field(ge=1)
@@ -77,6 +76,16 @@ class VisualAnchorManualAcceptanceRecord(BaseModel):
         default_factory=lambda: datetime.now(UTC).isoformat()
     )
     artifact_relative_path: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_legacy_schema_version(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if normalized.get("schema_version") == "visual_anchor_manual_acceptance.v1":
+            normalized["schema_version"] = MANUAL_ACCEPTANCE_SCHEMA_VERSION
+        return normalized
 
     @field_validator(
         "task_id",

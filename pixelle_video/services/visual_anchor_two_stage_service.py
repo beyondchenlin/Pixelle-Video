@@ -697,8 +697,6 @@ def _render_stage_prompt(
     input_payload = stage_input.model_dump(mode="json")
     if isinstance(stage_input, ContentStageInput):
         input_payload.pop("prompt_version", None)
-    if isinstance(stage_input, FusionStageInput):
-        input_payload.pop("review_feedback", None)
     rendered = render_prompt_template(
         prompt_id,
         {

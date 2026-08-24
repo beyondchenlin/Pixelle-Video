@@ -1,5 +1,7 @@
 from pixelle_video.services.visual_anchor_manual_acceptance import (
+    MANUAL_ACCEPTANCE_SCHEMA_VERSION,
     VisualAnchorManualAcceptanceChecks,
+    VisualAnchorManualAcceptanceRecord,
 )
 
 
@@ -42,3 +44,30 @@ def test_legacy_preflight_audit_check_is_migrated_on_read():
 
     assert checks.deterministic_fusion_and_post_audit_complete is True
     assert "preflight_and_post_audit_complete" not in checks.model_dump()
+
+
+def test_legacy_manual_acceptance_record_is_upgraded_on_read():
+    record = VisualAnchorManualAcceptanceRecord.model_validate(
+        {
+            "schema_version": "visual_anchor_manual_acceptance.v1",
+            "task_id": "task-a",
+            "acceptance_batch_id": "batch-a",
+            "acceptance_round": 1,
+            "sample_id": "sample-a",
+            "frame_id": "frame-a",
+            "random_seed": 1,
+            "image_sha256": "a" * 64,
+            "rendered_audit_sha256": "b" * 64,
+            "first_request_binding_sha256": "c" * 64,
+            "status": "passed",
+            "checks": {
+                **_checks_payload(),
+                "preflight_and_post_audit_complete": True,
+            },
+            "reviewer": "tester",
+        }
+    )
+
+    payload = record.model_dump(mode="json")
+    assert payload["schema_version"] == MANUAL_ACCEPTANCE_SCHEMA_VERSION
+    assert "preflight_and_post_audit_complete" not in payload["checks"]

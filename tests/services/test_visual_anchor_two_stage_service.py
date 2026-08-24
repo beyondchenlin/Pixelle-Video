@@ -365,6 +365,17 @@ async def test_positive_only_workflow_requires_an_empty_negative_prompt():
     assert len(llm.calls) == 2
 
 
+def test_fusion_output_allows_empty_continuity_reason_without_existing_decision():
+    output = _fusion("frame-a").model_copy(
+        update={"continuity_change_reason": ""}
+    )
+
+    restored = FusionStageOutput.model_validate(output.model_dump(mode="json"))
+
+    assert restored.inherited_existing_fusion_decision is False
+    assert restored.continuity_change_reason == ""
+
+
 @pytest.mark.asyncio
 async def test_contract_bound_stages_use_zero_temperature():
     _, llm = await _run(_plan())
@@ -1513,7 +1524,7 @@ def test_server_materializes_deterministic_internal_identifiers():
         ("visual_anchor_content_stage.v10", "visual_anchor_fusion_stage.v7"),
     ],
 )
-async def test_previous_prompt_versions_retry_audit_and_review_fields_remain_readable(
+async def test_previous_prompt_versions_and_review_fields_are_migrated_on_read(
     content_prompt_version,
     fusion_prompt_version,
 ):
@@ -1545,11 +1556,11 @@ async def test_previous_prompt_versions_retry_audit_and_review_fields_remain_rea
 
     restored_payload = restored.model_dump(mode="json")
     assert restored.generation_request.request_version == (
-        "visual_anchor_generation_request.v3"
+        "visual_anchor_generation_request.v4"
     )
     assert restored.content_attempt_count == 2
     assert restored.fusion_attempt_count == 2
-    assert restored.fusion_stage_input.review_feedback == ["旧版审计反馈"]
+    assert "review_feedback" not in restored_payload["fusion_stage_input"]
     assert "preflight_review_input" not in restored_payload
     assert "preflight_review_output" not in restored_payload
     assert "preflight_review_prompt_version" not in restored_payload["generation_request"]
