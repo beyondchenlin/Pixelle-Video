@@ -4,7 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from pixelle_video.service import PixelleVideoCore
+from pixelle_video.service import (
+    PixelleVideoCore,
+    _validate_comfykit_media_prompt_trace_boundary,
+)
 from pixelle_video.services.media import MediaService
 from pixelle_video.services.prompt_trace_artifacts import (
     MEDIA_TRACE_MEDIA_RESULT_FILE_NAME,
@@ -35,6 +38,38 @@ def _trace_context(**overrides):
     }
     context.update(overrides)
     return context
+
+
+def test_comfykit_boundary_accepts_blank_verbatim_prompt(tmp_path):
+    prompt = "   \n"
+    workflow_params = {"prompt": prompt, "width": 768, "height": 512}
+    trace_context = write_single_media_prompt_trace_context(
+        tmp_path,
+        task_id="task-blank-verbatim",
+        prompt=prompt,
+        workflow="selfhost/image_z_image_turbo.json",
+        workflow_input="workflows/selfhost/image_z_image_turbo.json",
+        media_type="image",
+        source="test.visual_anchor_passthrough",
+        media_width=768,
+        media_height=512,
+        workflow_params=workflow_params,
+        preserve_prompt_verbatim=True,
+    )
+
+    validated = _validate_comfykit_media_prompt_trace_boundary(
+        workflow_input="workflows/selfhost/image_z_image_turbo.json",
+        workflow_params=workflow_params,
+        workflow_source="selfhost",
+        media_prompt_trace_context=trace_context,
+        media_type="image",
+        resolved_workflow="selfhost/image_z_image_turbo.json",
+        media_workflow_contract="image",
+        workflow_file_trace=trace_context,
+    )
+
+    assert validated is not None
+    assert validated["prompt"] == prompt
 
 
 @pytest.mark.asyncio

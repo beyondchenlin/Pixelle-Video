@@ -497,9 +497,11 @@ class VisualPromptComposer:
                 for item in two_stage_result.frames
             }
             planning_snapshot["visual_anchor_two_stage_prompt_policy"] = {
-                "schema_version": "visual_anchor_two_stage_prompt_policy.v5",
+                "schema_version": "visual_anchor_two_stage_prompt_policy.v6",
                 "prompt_chain": "content_raw_response_then_fusion_raw_response",
                 "image_generation_attempts_per_frame": 1,
+                "model_output_passthrough_enabled": True,
+                "post_generation_local_validation_enabled": False,
                 "post_generation_local_content_validation_enabled": False,
                 "post_generation_prompt_repair_enabled": False,
                 "post_generation_regeneration_enabled": False,
@@ -803,11 +805,9 @@ def _series_visual_signature_request_audit(
 def _render_two_stage_prompt(frame_result: Any) -> RenderedMediaPrompt:
     request = frame_result.generation_request
     negative_prompt = request.final_negative_prompt or None
+    frame_payload = frame_result.model_dump(mode="json")
     contract = RawModelPromptContract(
         raw_prompt=request.final_positive_prompt,
-        metadata={
-            "visual_anchor_two_stage": frame_result.model_dump(mode="json"),
-        },
         version="visual_anchor_two_stage_raw_prompt_contract.v1",
     )
     return RenderedMediaPrompt(
@@ -817,8 +817,7 @@ def _render_two_stage_prompt(frame_result: Any) -> RenderedMediaPrompt:
         renderer_id="visual_anchor_two_stage_renderer",
         renderer_version="v3",
         metadata={
-            "visual_anchor_two_stage": frame_result.model_dump(mode="json"),
-            "generation_request": request.model_dump(mode="json"),
+            "visual_anchor_two_stage": frame_payload,
         },
         preserve_prompt_verbatim=True,
     )

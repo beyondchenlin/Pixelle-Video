@@ -8,6 +8,8 @@ from pixelle_video.services.prompt_trace_artifacts import (
     build_media_prompt_trace_context,
     build_workflow_params_trace,
     media_workflow_trace_context,
+    require_media_prompt_trace_context,
+    validate_media_prompt_trace_artifact,
     write_final_prompt_artifact,
     write_media_workflow_result_artifact,
     write_single_media_prompt_trace_context,
@@ -103,6 +105,70 @@ def test_build_media_prompt_trace_context_records_task_root(tmp_path):
     )
 
     assert context["task_root"] == str(tmp_path.resolve())
+
+
+def test_verbatim_prompt_trace_accepts_blank_and_proves_exact_integrity(tmp_path):
+    prompt = "   \n"
+    context = write_single_media_prompt_trace_context(
+        tmp_path,
+        task_id="task_blank_prompt",
+        prompt=prompt,
+        workflow="selfhost/image_z_image_turbo.json",
+        workflow_input="selfhost/image_z_image_turbo.json",
+        media_type="image",
+        source="test.verbatim_passthrough",
+        frame_id="frame-a",
+        media_width=768,
+        media_height=768,
+        workflow_params={"prompt": prompt, "seed": 123},
+        preserve_prompt_verbatim=True,
+    )
+
+    assert context["prompt"] == prompt
+    assert context["preserve_prompt_verbatim"] is True
+    assert context["prompt_sha256"] == hashlib.sha256(prompt.encode()).hexdigest()
+    required = require_media_prompt_trace_context(
+        context,
+        prompt=prompt,
+        media_type="image",
+        width=768,
+        height=768,
+        negative_prompt="",
+    )
+    validate_media_prompt_trace_artifact(
+        required,
+        prompt=prompt,
+        resolved_workflow="selfhost/image_z_image_turbo.json",
+        resolved_workflow_input="selfhost/image_z_image_turbo.json",
+        media_type="image",
+        width=768,
+        height=768,
+        negative_prompt="",
+        workflow_param_trace=build_workflow_params_trace(
+            {"prompt": prompt, "seed": 123},
+            prompt=prompt,
+            preserve_prompt_verbatim=True,
+        ),
+    )
+
+
+def test_verbatim_prompt_trace_rejects_whitespace_rewrite(tmp_path):
+    context = write_single_media_prompt_trace_context(
+        tmp_path,
+        task_id="task_prompt_integrity",
+        prompt="  exact prompt\n",
+        workflow="selfhost/image_z_image_turbo.json",
+        media_type="image",
+        source="test.verbatim_passthrough",
+        preserve_prompt_verbatim=True,
+    )
+
+    with pytest.raises(ValueError, match="does not match media prompt"):
+        require_media_prompt_trace_context(
+            context,
+            prompt="exact prompt",
+            media_type="image",
+        )
 
 
 def test_build_workflow_params_trace_records_media_and_custom_text_inputs():

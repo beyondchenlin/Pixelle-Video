@@ -5,13 +5,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v16"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v14"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v17"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v15"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v7"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
 RAW_FUSION_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_fusion_raw_passthrough.v1"
+CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_prompt_passthrough.v2"
+FUSION_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_fusion_prompt_passthrough.v2"
 _PLANNING_TEXT_MAX_LENGTH = 1200
 _PROMPT_TEXT_MAX_LENGTH = 12000
 HistoricalContentStagePromptVersion = Literal[
@@ -28,6 +30,7 @@ HistoricalContentStagePromptVersion = Literal[
 ]
 ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v15",
+    "visual_anchor_content_stage.v16",
     CONTENT_STAGE_PROMPT_VERSION
 ]
 FusionStagePromptVersion = Literal[
@@ -41,6 +44,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v11",
     "visual_anchor_fusion_stage.v12",
     "visual_anchor_fusion_stage.v13",
+    "visual_anchor_fusion_stage.v14",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 
@@ -437,13 +441,45 @@ class ContentStageOutput(ContentStageModelOutput):
         return _text(value, "pure_content_prompt")
 
 
-class RawContentStageOutput(BaseModel):
-    """Current content-stage result: the model response is retained verbatim."""
+class ContentStagePromptPassthrough(BaseModel):
+    """Current content-stage contract: one model response retained verbatim."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    prompt_assembly_version: Literal[RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION]
-    pure_content_prompt: str
+    passthrough_version: Literal[CONTENT_PROMPT_PASSTHROUGH_VERSION]
+    raw_prompt: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_legacy_raw_contract(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            return value
+        normalized = dict(value)
+        if (
+            normalized.get("prompt_assembly_version")
+            != RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION
+        ):
+            return normalized
+        normalized["passthrough_version"] = CONTENT_PROMPT_PASSTHROUGH_VERSION
+        normalized["raw_prompt"] = normalized.pop("pure_content_prompt", None)
+        normalized.pop("prompt_assembly_version", None)
+        return normalized
+
+    @field_validator("raw_prompt", mode="before")
+    @classmethod
+    def _preserve_raw_prompt(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("raw_prompt must be a string")
+        return value
+
+    @property
+    def pure_content_prompt(self) -> str:
+        """Compatibility view for historical in-process callers."""
+
+        return self.raw_prompt
+
+
+RawContentStageOutput = ContentStagePromptPassthrough
 
 
 ReadableContentStageOutput = (
@@ -487,9 +523,12 @@ class ContentStageInput(_ContentStageInputCommon):
 
 
 class LegacyContentStageInputV15(_ContentStageInputCommon):
-    """Historical v15 style-neutral input retained for persisted artifacts."""
+    """Historical style-neutral input retained for persisted artifacts."""
 
-    prompt_version: Literal["visual_anchor_content_stage.v15"]
+    prompt_version: Literal[
+        "visual_anchor_content_stage.v15",
+        "visual_anchor_content_stage.v16",
+    ]
 
 
 ReadableContentStageInput = (
@@ -917,15 +956,53 @@ class FusionStageOutput(FusionStageModelOutput):
         return self
 
 
-class RawFusionStageOutput(BaseModel):
-    """Current fusion-stage result: the model response is the image prompt."""
+class FusionStagePromptPassthrough(BaseModel):
+    """Current fusion-stage contract: one model response is the image prompt."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    prompt_assembly_version: Literal[RAW_FUSION_PROMPT_PASSTHROUGH_VERSION]
-    base_content_prompt: str
-    final_positive_prompt: str
-    final_negative_prompt: str = ""
+    passthrough_version: Literal[FUSION_PROMPT_PASSTHROUGH_VERSION]
+    raw_prompt: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_legacy_raw_contract(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            return value
+        normalized = dict(value)
+        if (
+            normalized.get("prompt_assembly_version")
+            != RAW_FUSION_PROMPT_PASSTHROUGH_VERSION
+        ):
+            return normalized
+        normalized["passthrough_version"] = FUSION_PROMPT_PASSTHROUGH_VERSION
+        normalized["raw_prompt"] = normalized.pop("final_positive_prompt", None)
+        normalized.pop("prompt_assembly_version", None)
+        normalized.pop("base_content_prompt", None)
+        normalized.pop("final_negative_prompt", None)
+        return normalized
+
+    @field_validator("raw_prompt", mode="before")
+    @classmethod
+    def _preserve_raw_prompt(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("raw_prompt must be a string")
+        return value
+
+    @property
+    def final_positive_prompt(self) -> str:
+        """Compatibility view for historical in-process callers."""
+
+        return self.raw_prompt
+
+    @property
+    def final_negative_prompt(self) -> str:
+        """Compatibility view; the passthrough stage has no negative channel."""
+
+        return ""
+
+
+RawFusionStageOutput = FusionStagePromptPassthrough
 
 
 ReadableFusionStageOutput = (

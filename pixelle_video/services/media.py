@@ -650,6 +650,7 @@ class MediaService(ComfyBaseService):
             reference_binding_trace if isinstance(reference_binding_trace, Mapping) else None,
         )
         if isinstance(reference_binding_trace, Mapping) and reference_binding_trace.get("status") == "injected":
+            preserve_prompt_verbatim = trace_context.get("preserve_prompt_verbatim") is True
             trace_context = write_single_media_prompt_trace_context(
                 _reference_binding_trace_output_dir(trace_context),
                 task_id=trace_context.get("task_id") or "",
@@ -668,10 +669,13 @@ class MediaService(ComfyBaseService):
                 },
                 workflow_params=trace_safe_workflow_params,
                 task_root=trace_context.get("task_root"),
+                preserve_prompt_verbatim=preserve_prompt_verbatim,
             )
+        preserve_prompt_verbatim = trace_context.get("preserve_prompt_verbatim") is True
         workflow_param_trace = build_workflow_params_trace(
             trace_safe_workflow_params,
             prompt=prompt,
+            preserve_prompt_verbatim=preserve_prompt_verbatim,
         )
         validate_media_prompt_trace_artifact(
             trace_context,

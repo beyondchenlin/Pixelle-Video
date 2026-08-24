@@ -202,7 +202,10 @@ def write_single_media_prompt_trace_context(
     generation_context: Mapping[str, Any] | None = None,
     workflow_params: Mapping[str, Any] | None = None,
     task_root: str | Path | None = None,
+    preserve_prompt_verbatim: bool = False,
 ) -> dict[str, Any]:
+    if not isinstance(preserve_prompt_verbatim, bool):
+        raise TypeError("preserve_prompt_verbatim must be a boolean")
     resolved_workflow_input = str(workflow_input or workflow)
     workflow_context = {
         "requested_workflow": workflow,
@@ -219,6 +222,15 @@ def write_single_media_prompt_trace_context(
     workflow_param_trace = build_workflow_params_trace(
         workflow_params,
         prompt=prompt,
+        preserve_prompt_verbatim=preserve_prompt_verbatim,
+    )
+    prompt_integrity = (
+        {
+            "preserve_prompt_verbatim": True,
+            "prompt_sha256": _text_sha256(prompt),
+        }
+        if preserve_prompt_verbatim
+        else {}
     )
     artifact_path = write_single_media_prompt_artifact(
         output_dir,
@@ -232,6 +244,7 @@ def write_single_media_prompt_trace_context(
             **workflow_context,
             **workflow_file_trace,
             **workflow_param_trace,
+            **prompt_integrity,
             "media_type": media_type,
             **(
                 {"media_width": media_width}
@@ -258,6 +271,7 @@ def write_single_media_prompt_trace_context(
         workflow_param_trace=workflow_param_trace,
         workflow_file_trace=workflow_file_trace,
         task_root=task_root,
+        preserve_prompt_verbatim=preserve_prompt_verbatim,
     )
 
 
@@ -310,7 +324,10 @@ def build_media_prompt_trace_context(
     workflow_param_trace: Mapping[str, Any] | None = None,
     workflow_file_trace: Mapping[str, Any] | None = None,
     task_root: str | Path | None = None,
+    preserve_prompt_verbatim: bool = False,
 ) -> dict[str, Any]:
+    if not isinstance(preserve_prompt_verbatim, bool):
+        raise TypeError("preserve_prompt_verbatim must be a boolean")
     resolved_artifact_path = Path(artifact_path)
     context = {
         "artifact_path": str(resolved_artifact_path),
@@ -332,6 +349,13 @@ def build_media_prompt_trace_context(
         **dict(workflow_file_trace or {}),
         **dict(workflow_param_trace or {}),
     }
+    if preserve_prompt_verbatim:
+        context.update(
+            {
+                "preserve_prompt_verbatim": True,
+                "prompt_sha256": _text_sha256(prompt),
+            }
+        )
     if task_root is not None and str(task_root).strip():
         context["task_root"] = str(Path(task_root).resolve())
     return context
@@ -461,8 +485,15 @@ def build_workflow_params_trace(
     workflow_params: Mapping[str, Any] | None,
     *,
     prompt: str | None = None,
+    preserve_prompt_verbatim: bool = False,
 ) -> dict[str, Any]:
-    _validate_workflow_prompt_aliases(workflow_params, prompt=prompt)
+    if not isinstance(preserve_prompt_verbatim, bool):
+        raise TypeError("preserve_prompt_verbatim must be a boolean")
+    _validate_workflow_prompt_aliases(
+        workflow_params,
+        prompt=prompt,
+        preserve_prompt_verbatim=preserve_prompt_verbatim,
+    )
     _validate_workflow_negative_prompt_aliases(workflow_params)
     workflow_param_inputs = _traceable_workflow_param_inputs(workflow_params)
     if not workflow_param_inputs:
@@ -487,13 +518,13 @@ def require_media_prompt_trace_context(
     if not isinstance(context, Mapping):
         raise ValueError("media_prompt_trace_context is required before media generation")
     normalized = {str(key): value for key, value in context.items()}
-    required_fields = (
+    preserve_prompt_verbatim = normalized.get("preserve_prompt_verbatim") is True
+    required_fields = [
         "artifact_path",
         "artifact_sha256",
         "task_id",
-        "prompt",
         "media_type",
-    )
+    ]
     missing = [
         field
         for field in required_fields
@@ -504,7 +535,17 @@ def require_media_prompt_trace_context(
             "media_prompt_trace_context missing required fields: "
             + ", ".join(missing)
         )
-    if str(normalized["prompt"]).strip() != str(prompt).strip():
+    if "prompt" not in normalized or not isinstance(normalized["prompt"], str):
+        raise ValueError("media_prompt_trace_context prompt must be a string")
+    if preserve_prompt_verbatim:
+        if normalized["prompt"] != prompt:
+            raise ValueError("media_prompt_trace_context prompt does not match media prompt")
+        expected_sha256 = _text_sha256(prompt)
+        if str(normalized.get("prompt_sha256") or "") != expected_sha256:
+            raise ValueError(
+                "media_prompt_trace_context prompt_sha256 does not match media prompt"
+            )
+    elif str(normalized["prompt"]).strip() != str(prompt).strip():
         raise ValueError("media_prompt_trace_context prompt does not match media prompt")
     if str(normalized["media_type"]).strip() != str(media_type).strip():
         raise ValueError("media_prompt_trace_context media type does not match media call")
@@ -633,7 +674,19 @@ def validate_media_prompt_trace_artifact(
         expected_trace=workflow_file_trace,
     )
 
+    preserve_prompt_verbatim = context.get("preserve_prompt_verbatim") is True
     expected_prompt = str(prompt).strip()
+    if preserve_prompt_verbatim:
+        expected_prompt_sha256 = _text_sha256(prompt)
+        generation_context = document["generation_context"]
+        if generation_context.get("preserve_prompt_verbatim") is not True:
+            raise ValueError(
+                "media_prompt_trace_context artifact verbatim prompt marker is missing"
+            )
+        if str(generation_context.get("prompt_sha256") or "") != expected_prompt_sha256:
+            raise ValueError(
+                "media_prompt_trace_context artifact prompt_sha256 does not match"
+            )
     expected_negative_prompt = str(negative_prompt or "").strip()
     candidate_frames = document["frames"]
     if expected_frame_id:
@@ -665,6 +718,10 @@ def _artifact_sha256(artifact_path: Path) -> str | None:
         return hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     except OSError:
         return None
+
+
+def _text_sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _is_under_prompt_trace_dir(artifact_path: Path) -> bool:
@@ -1295,16 +1352,23 @@ def _validate_workflow_prompt_aliases(
     workflow_params: Mapping[str, Any] | None,
     *,
     prompt: str | None,
+    preserve_prompt_verbatim: bool = False,
 ) -> None:
     if not isinstance(workflow_params, Mapping):
         return
-    canonical_prompt = str(prompt or "").strip()
+    canonical_prompt = (
+        prompt
+        if preserve_prompt_verbatim and isinstance(prompt, str)
+        else str(prompt or "").strip()
+    )
     alias_values: list[tuple[str, str]] = []
     for key, value in workflow_params.items():
         name = str(key or "").strip().lower()
-        if not isinstance(value, str) or not value.strip():
+        if not isinstance(value, str) or (
+            not preserve_prompt_verbatim and not value.strip()
+        ):
             continue
-        text = value.strip()
+        text = value if preserve_prompt_verbatim else value.strip()
         if name == "prompt":
             if not canonical_prompt:
                 canonical_prompt = text

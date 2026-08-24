@@ -1,4 +1,5 @@
 import hashlib
+import inspect
 import json
 
 import pytest
@@ -9,7 +10,11 @@ from pixelle_video.models.series_visual_signature import VisualSignatureProfileS
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
     CONTENT_PROMPT_ASSEMBLY_VERSION,
+    CONTENT_PROMPT_PASSTHROUGH_VERSION,
     FUSION_PROMPT_ASSEMBLY_VERSION,
+    FUSION_PROMPT_PASSTHROUGH_VERSION,
+    RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION,
+    RAW_FUSION_PROMPT_PASSTHROUGH_VERSION,
     ContentStageInput,
     ContentStageModelOutput,
     ContentStageOutput,
@@ -318,6 +323,21 @@ def test_model_schemas_do_not_request_proof_fields():
     assert "target_visual_style" not in str(ContentStageInput.model_json_schema())
 
 
+def test_current_runtime_uses_only_semantic_passthrough_contracts():
+    source = inspect.getsource(VisualAnchorTwoStageService)
+    for legacy_runtime_symbol in (
+        "RawContentStageOutput",
+        "RawFusionStageOutput",
+        "RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION",
+        "RAW_FUSION_PROMPT_PASSTHROUGH_VERSION",
+        "base_content_prompt=",
+        "pure_content_prompt=",
+        "model_validate(",
+        "assemble_",
+    ):
+        assert legacy_runtime_symbol not in source
+
+
 def test_current_model_output_bounds_prevent_prompt_and_list_amplification():
     content_payload = _content("frame-a", "原文").model_dump(mode="json")
     content_payload["renderable_story_beats"] = [f"画面证据-{index}" for index in range(7)]
@@ -399,12 +419,16 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_fusion_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v7"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v8"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
-    assert (
-        frame.fusion_stage_output.base_content_prompt
-        == frame.content_stage_output.pure_content_prompt
-    )
+    assert frame.content_stage_output.model_dump(mode="json") == {
+        "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
+        "raw_prompt": frame.content_stage_output.raw_prompt,
+    }
+    assert frame.fusion_stage_output.model_dump(mode="json") == {
+        "passthrough_version": FUSION_PROMPT_PASSTHROUGH_VERSION,
+        "raw_prompt": frame.fusion_stage_output.raw_prompt,
+    }
     assert frame.generation_request.final_positive_prompt == (
         "原始最终图片提示词::frame-a::乔布斯和沃兹尼亚克在车库组装一台电脑。"
     )
@@ -415,6 +439,9 @@ async def test_raw_fusion_response_flows_directly_to_generation():
     assert all(call["kwargs"]["temperature"] == 0.0 for call in llm.calls)
     assert all(call["kwargs"]["max_tokens"] == 4096 for call in llm.calls)
     assert all(call["kwargs"]["single_request"] is True for call in llm.calls)
+    assert all(
+        call["kwargs"]["allow_blank_text_response"] is True for call in llm.calls
+    )
 
 
 @pytest.mark.asyncio
@@ -540,6 +567,30 @@ async def test_arbitrary_fusion_text_is_forwarded_verbatim():
 
 
 @pytest.mark.asyncio
+async def test_blank_fusion_text_is_forwarded_verbatim():
+    raw_fusion = "   \n"
+    result, _ = await _run(_plan(), fusions=[raw_fusion])
+
+    frame = result.frames[0]
+    assert frame.fusion_stage_output.final_positive_prompt == raw_fusion
+    assert frame.generation_request.final_positive_prompt == raw_fusion
+    assert _render_two_stage_prompt(frame).prompt == raw_fusion
+
+
+@pytest.mark.asyncio
+async def test_empty_content_and_blank_fusion_are_both_forwarded_verbatim():
+    llm = _QueuedLLM({None: ["", "\n"]})
+
+    result = await _run_service(_plan(), llm)
+
+    frame = result.frames[0]
+    assert frame.content_stage_output.raw_prompt == ""
+    assert frame.fusion_stage_input.content_stage_output.raw_prompt == ""
+    assert frame.fusion_stage_output.raw_prompt == "\n"
+    assert frame.generation_request.final_positive_prompt == "\n"
+
+
+@pytest.mark.asyncio
 async def test_raw_fusion_response_remains_verbatim_through_prompt_plan():
     raw_fusion = "\n  模型原始最终提示词，保留所有空白。  \n"
     plan = _plan()
@@ -552,6 +603,8 @@ async def test_raw_fusion_response_remains_verbatim_through_prompt_plan():
     )
 
     assert rendered.prompt == raw_fusion
+    assert rendered.prompt_contract.metadata == {}
+    assert "generation_request" not in rendered.metadata
     assert bundle.image_prompt_drafts[0].prompt_text == raw_fusion
     assert bundle.prompt_plans[0].final_prompt == raw_fusion
     assert bundle.prompt_plans[0].prompt_sections["scene"] == raw_fusion
@@ -796,7 +849,60 @@ async def test_current_raw_payload_round_trips_without_content_validation():
         "visual_anchor_generation_request.v7"
     )
     assert frame.generation_request.final_positive_prompt == (
-        frame.fusion_stage_output.final_positive_prompt
+        frame.fusion_stage_output.raw_prompt
+    )
+
+
+@pytest.mark.asyncio
+async def test_v1_raw_passthrough_artifact_is_upgraded_at_parse_boundary():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+    content_prompt = payload["content_stage_output"]["raw_prompt"]
+    fusion_prompt = payload["fusion_stage_output"]["raw_prompt"]
+    legacy_content = {
+        "prompt_assembly_version": RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION,
+        "pure_content_prompt": content_prompt,
+    }
+    payload["content_stage_output"] = legacy_content
+    payload["fusion_stage_input"]["content_stage_output"] = legacy_content
+    payload["fusion_stage_output"] = {
+        "prompt_assembly_version": RAW_FUSION_PROMPT_PASSTHROUGH_VERSION,
+        "base_content_prompt": content_prompt,
+        "final_positive_prompt": fusion_prompt,
+        "final_negative_prompt": "",
+    }
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.content_stage_output.raw_prompt == content_prompt
+    assert restored.fusion_stage_output.raw_prompt == fusion_prompt
+    assert "prompt_assembly_version" not in restored.model_dump_json()
+    assert "base_content_prompt" not in restored.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_v16_v14_raw_artifact_remains_readable_after_prompt_upgrade():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+    payload["content_stage_input"]["prompt_version"] = (
+        "visual_anchor_content_stage.v16"
+    )
+    payload["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v14"
+    )
+    payload["generation_request"].update(
+        {
+            "content_stage_prompt_version": "visual_anchor_content_stage.v16",
+            "fusion_stage_prompt_version": "visual_anchor_fusion_stage.v14",
+        }
+    )
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert isinstance(restored.content_stage_output, RawContentStageOutput)
+    assert isinstance(restored.fusion_stage_output, RawFusionStageOutput)
+    assert restored.generation_request.request_version == (
+        "visual_anchor_generation_request.v7"
     )
 
 
@@ -884,8 +990,8 @@ async def test_regeneration_preserves_the_raw_model_prompt(
         == "visual_anchor_generation_request.v7"
     )
     restored_payload = context.frame_result.model_dump(mode="json")
-    assert restored_payload["fusion_stage_output"]["final_positive_prompt"] == (
-        raw_payload["fusion_stage_output"]["final_positive_prompt"]
+    assert restored_payload["fusion_stage_output"]["raw_prompt"] == (
+        raw_payload["fusion_stage_output"]["raw_prompt"]
     )
     assert context.generation_request.identity_reference_condition is None
     assert not (context.task_root / "reference_image").exists()
@@ -903,7 +1009,7 @@ async def test_regeneration_rejects_tampered_raw_contract_before_normalization(
     original_payload = batch.frames[0].model_dump(mode="json")
     original_digest = _contract_digest(original_payload)
     tampered_payload = json.loads(json.dumps(original_payload, ensure_ascii=False))
-    tampered_payload["fusion_stage_output"]["final_positive_prompt"] += "已篡改"
+    tampered_payload["fusion_stage_output"]["raw_prompt"] += "已篡改"
     tampered_payload["generation_request"]["final_positive_prompt"] += "已篡改"
     prompt_plan = _prompt_plan(
         tampered_payload,
