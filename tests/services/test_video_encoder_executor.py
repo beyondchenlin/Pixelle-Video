@@ -107,6 +107,7 @@ def test_png_sequence_replaces_existing_output_only_after_success(
     )
     output = tmp_path / "result.mp4"
     output.write_bytes(b"existing")
+    original_mode = output.stat().st_mode
     attempted_outputs: list[Path] = []
 
     def fake_run(command, *, check, capture_output, text):
@@ -140,8 +141,10 @@ def test_png_sequence_replaces_existing_output_only_after_success(
 
     assert result == str(output)
     assert output.read_bytes() == b"complete"
+    assert output.stat().st_mode == original_mode
     assert len(attempted_outputs) == 2
     assert all(not path.exists() for path in attempted_outputs)
+    assert list(tmp_path.iterdir()) == [output]
     reset_runtime_encoder_failures()
 
 
@@ -179,6 +182,7 @@ def test_png_sequence_cpu_failure_preserves_existing_output(
     assert output.read_bytes() == b"existing"
     assert len(temporary_outputs) == 1
     assert not temporary_outputs[0].exists()
+    assert list(tmp_path.iterdir()) == [output]
 
 
 def test_cpu_failure_is_not_silently_swallowed(monkeypatch) -> None:

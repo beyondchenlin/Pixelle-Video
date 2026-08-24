@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import stat
 import subprocess
 import tempfile
 import threading
@@ -84,6 +84,7 @@ class UnifiedVideoEncoder:
     ) -> str:
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
+        existing_output_mode = _existing_output_mode(output)
         temporary_output = _temporary_output_path(output)
         last_error: subprocess.CalledProcessError | None = None
         try:
@@ -105,6 +106,8 @@ class UnifiedVideoEncoder:
                         capture_output=True,
                         text=True,
                     )
+                    if existing_output_mode is not None:
+                        temporary_output.chmod(existing_output_mode)
                     temporary_output.replace(output)
                     return str(output)
                 except subprocess.CalledProcessError as exc:
@@ -130,7 +133,7 @@ class UnifiedVideoEncoder:
                 "no H.264 encoder candidate could encode the PNG sequence"
             )
         finally:
-            _unlink_if_exists(temporary_output)
+            _cleanup_temporary_output(temporary_output)
 
     def runtime_backend_candidates(self) -> tuple[H264EncoderBackend, ...]:
         result: list[H264EncoderBackend] = []
@@ -264,13 +267,18 @@ def _known_backend(codec: str) -> H264EncoderBackend | None:
 
 def _temporary_output_path(output: Path) -> Path:
     suffix = output.suffix or ".mp4"
-    file_descriptor, raw_path = tempfile.mkstemp(
+    temporary_directory = Path(tempfile.mkdtemp(
         prefix=f".{output.stem or 'video'}.",
-        suffix=suffix,
         dir=output.parent,
-    )
-    os.close(file_descriptor)
-    return Path(raw_path)
+    ))
+    return temporary_directory / f"encoded{suffix}"
+
+
+def _existing_output_mode(output: Path) -> int | None:
+    try:
+        return stat.S_IMODE(output.stat().st_mode)
+    except FileNotFoundError:
+        return None
 
 
 def _unlink_if_exists(path: Path) -> None:
@@ -278,6 +286,17 @@ def _unlink_if_exists(path: Path) -> None:
         path.unlink(missing_ok=True)
     except OSError:
         logger.warning("failed to remove temporary video output {}", path.name)
+
+
+def _cleanup_temporary_output(path: Path) -> None:
+    _unlink_if_exists(path)
+    try:
+        path.parent.rmdir()
+    except OSError:
+        logger.warning(
+            "failed to remove temporary video directory {}",
+            path.parent.name,
+        )
 
 
 def _is_hardware_backend_unavailable(codec: str, stderr: str | bytes | None) -> bool:
