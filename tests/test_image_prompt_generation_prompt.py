@@ -29,6 +29,7 @@ def test_image_prompt_prompt_explains_generation_world_profile_contract():
         max_words=60,
         prompt_contexts=prompt_contexts,
         prompt_language="zh_CN",
+        visual_anchor_preparation_enabled=True,
     )
 
     assert "generation_world_profile" in prompt
@@ -42,3 +43,36 @@ def test_image_prompt_prompt_explains_generation_world_profile_contract():
     assert "ip_integration_guidance" in prompt
     assert "ip_scene_description" in prompt
     assert "must not copy internal keys or JSON labels" in prompt
+
+
+def test_ordinary_image_prompt_keeps_only_frame_subject_action_composition_and_language():
+    prompt = build_image_prompt_prompt(
+        narrations=["一只小狗越过水坑。"],
+        min_words=30,
+        max_words=60,
+        style_profile={"consistency_anchor": "STYLE_MARKER_MUST_NOT_REPEAT"},
+        prompt_contexts=PromptContextEnvelope(
+            plan_context={"plan_source_text": "不应进入普通图片提示词的全文"},
+            frame_contexts=[
+                {
+                    "frame_source_text": "一只小狗越过水坑。",
+                    "primary_subject": "小狗",
+                    "secondary_subjects": ["水坑"],
+                    "visual_goal": "表现小狗腾空跳跃",
+                    "shot_type": "medium_shot",
+                    "generation_world_profile": "不应进入普通图片提示词",
+                }
+            ],
+        ),
+        prompt_language="zh_CN",
+    )
+
+    assert "一只小狗越过水坑" in prompt
+    assert "小狗" in prompt
+    assert "表现小狗腾空跳跃" in prompt
+    assert "medium_shot" in prompt
+    assert "必须使用中文" in prompt
+    assert "STYLE_MARKER_MUST_NOT_REPEAT" not in prompt
+    assert "plan_source_text" not in prompt
+    assert "generation_world_profile" not in prompt
+    assert "ip_scene_description" not in prompt

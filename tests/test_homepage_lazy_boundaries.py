@@ -59,6 +59,7 @@ def test_prompt_prefix_library_is_not_built_by_default(monkeypatch):
 
     assert value == "cinematic"
     assert session_state["prompt_prefix_effective_value"] == "cinematic"
+    assert session_state["prompt_prefix_effective_id"] == "active"
 
 
 def test_prompt_prefix_pagination_is_bounded_and_clamped():

@@ -134,7 +134,11 @@ def _frame_source_count(payload: Any) -> int:
 
 def _apply_template_defaults(prompt_id: str, variables: dict[str, Any]) -> dict[str, Any]:
     resolved = dict(variables)
-    if prompt_id in {"image_generation", "video_generation"} and "input_payload" in resolved:
+    if prompt_id in {
+        "image_generation",
+        "ordinary_image_generation",
+        "video_generation",
+    } and "input_payload" in resolved:
         input_payload = resolved["input_payload"]
         resolved.setdefault("narrations_json", _json_default(input_payload))
         resolved.setdefault("style_profile_json", _json_default(None))

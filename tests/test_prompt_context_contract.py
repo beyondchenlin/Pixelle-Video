@@ -37,13 +37,14 @@ def test_image_prompt_template_requires_frame_aware_context():
         prompt_contexts=_prompt_contexts(),
     )
 
-    assert "plan_source_text" in prompt
-    assert "frame_source_text" in prompt
-    assert "visual_goal" in prompt
-    assert "prompt_intent" in prompt
-    assert "Use prompt_contexts as the primary source" in prompt
-    assert prompt.count("Full script. It has two connected ideas.") == 1
-    assert '"frame_source_texts"' in prompt
+    assert '"current_storyboard"' in prompt
+    assert '"subjects"' in prompt
+    assert '"action"' in prompt
+    assert '"composition"' in prompt
+    assert "Show the connected idea." in prompt
+    assert "Keep continuity with the full script." in prompt
+    assert "Full script. It has two connected ideas." not in prompt
+    assert '"frames"' in prompt
     assert '"narrations"' not in prompt
     assert "narration" not in prompt.lower()
 
@@ -67,7 +68,7 @@ def test_video_prompt_template_requires_frame_aware_context():
     assert "narration" not in prompt.lower()
 
 
-def test_legacy_prompt_contexts_are_compacted_into_plan_context():
+def test_legacy_prompt_contexts_are_projected_to_current_frame_fields():
     prompt = build_image_prompt_prompt(
         narrations=["Full script."],
         min_words=30,
@@ -75,8 +76,9 @@ def test_legacy_prompt_contexts_are_compacted_into_plan_context():
         prompt_contexts=_legacy_prompt_contexts(),
     )
 
-    assert "plan_context" in prompt
-    assert prompt.count("Full script. It has two connected ideas.") == 1
+    assert "plan_context" not in prompt
+    assert '"current_storyboard": "Full script."' in prompt
+    assert "Show the connected idea." in prompt
 
 
 def test_image_prompt_template_can_request_chinese_output():
@@ -124,7 +126,8 @@ def test_image_prompt_template_prepares_content_bound_scene_without_legacy_mark_
                     "ip_scene_description": "白色卡通兔子站在古城门前",
                 }
             ],
-        ),
+            ),
+        visual_anchor_preparation_enabled=True,
     )
 
     assert "ip_scene_description" in prompt
@@ -159,7 +162,8 @@ def test_image_prompt_template_carries_article_concretization_plan():
                     },
                 }
             ],
-        ),
+            ),
+        visual_anchor_preparation_enabled=True,
     )
 
     assert "article_concretization_plan" in prompt

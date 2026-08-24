@@ -54,6 +54,44 @@ def test_resolve_style_source_ignores_legacy_config_prompt_prefix():
     assert source is None
 
 
+def test_resolve_style_source_uses_requested_library_id_instead_of_current_active_id():
+    source = resolve_style_source(
+        {
+            "prompt_prefix_library": {
+                "active_prefix_id": "warm-story",
+                "items": [
+                    {"id": "warm-story", "content": "warm storybook illustration"},
+                    {"id": "minimal-line", "content": "minimal monochrome line art"},
+                ],
+            }
+        },
+        prompt_prefix_id_override="minimal-line",
+    )
+
+    assert source is not None
+    assert source.origin == "library"
+    assert source.item_id == "minimal-line"
+    assert source.source_identity == "library:minimal-line"
+    assert source.raw_content == "minimal monochrome line art"
+
+
+def test_resolve_style_source_rejects_raw_text_and_library_id_together():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        resolve_style_source(
+            {"prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+            prompt_prefix_override="raw style",
+            prompt_prefix_id_override="minimal-line",
+        )
+
+
+def test_resolve_style_source_rejects_unknown_requested_library_id():
+    with pytest.raises(ValueError, match="unknown image prompt prefix id"):
+        resolve_style_source(
+            {"prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+            prompt_prefix_id_override="missing-style",
+        )
+
+
 def test_build_style_resolution_cache_key_distinguishes_library_and_request():
     library_source = StyleSourceSpec(
         origin="library",

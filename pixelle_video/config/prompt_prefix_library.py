@@ -274,9 +274,26 @@ def get_active_image_prompt_prefix_item(image_config: Any) -> Optional[dict[str,
         return None
 
     active_prefix_id = _read_mapping_or_attr(library, "active_prefix_id", None)
+    return get_image_prompt_prefix_item(image_config, active_prefix_id)
+
+
+def get_image_prompt_prefix_item(
+    image_config: Any,
+    prefix_id: Optional[str],
+) -> Optional[dict[str, Any]]:
+    """Return one image style library item by its stable id."""
+
+    normalized_prefix_id = str(prefix_id or "").strip()
+    if not normalized_prefix_id:
+        return None
+
+    library = _read_mapping_or_attr(image_config, "prompt_prefix_library", None)
+    if library is None:
+        return None
+
     items = _read_mapping_or_attr(library, "items", [])
     for item in items:
-        if _read_mapping_or_attr(item, "id", None) == active_prefix_id:
+        if _read_mapping_or_attr(item, "id", None) == normalized_prefix_id:
             return item if isinstance(item, dict) else item.model_dump()
 
     return None

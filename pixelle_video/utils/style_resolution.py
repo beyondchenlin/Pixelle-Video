@@ -21,7 +21,10 @@ from typing import Any, Mapping, Optional
 
 from loguru import logger
 
-from pixelle_video.config.prompt_prefix_library import get_active_image_prompt_prefix_item
+from pixelle_video.config.prompt_prefix_library import (
+    get_active_image_prompt_prefix_item,
+    get_image_prompt_prefix_item,
+)
 from pixelle_video.models.llm_interaction_trace import (
     LLMTraceContext,
     trace_context_with_prompt_template,
@@ -67,8 +70,13 @@ def _hash_text(value: str) -> str:
 def resolve_style_source(
     image_config,
     prompt_prefix_override: Optional[str] = None,
+    prompt_prefix_id_override: Optional[str] = None,
 ) -> Optional[StyleSourceSpec]:
     override = (prompt_prefix_override or "").strip()
+    prefix_id = (prompt_prefix_id_override or "").strip()
+    if override and prefix_id:
+        raise ValueError("prompt_prefix and prompt_prefix_id are mutually exclusive")
+
     if override:
         content_hash = _hash_text(override)
         return StyleSourceSpec(
@@ -79,18 +87,26 @@ def resolve_style_source(
             item_id=None,
         )
 
-    active_item = get_active_image_prompt_prefix_item(image_config)
-    if active_item:
-        raw_content = (active_item.get("content") or "").strip()
+    library_item = (
+        get_image_prompt_prefix_item(image_config, prefix_id)
+        if prefix_id
+        else get_active_image_prompt_prefix_item(image_config)
+    )
+    if prefix_id and library_item is None:
+        raise ValueError(f"unknown image prompt prefix id: {prefix_id}")
+    if library_item:
+        raw_content = (library_item.get("content") or "").strip()
         if raw_content:
             content_hash = _hash_text(raw_content)
             return StyleSourceSpec(
                 origin="library",
                 raw_content=raw_content,
                 content_hash=content_hash,
-                source_identity=f"library:{active_item['id']}",
-                item_id=active_item["id"],
+                source_identity=f"library:{library_item['id']}",
+                item_id=library_item["id"],
             )
+        if prefix_id:
+            raise ValueError(f"image prompt prefix has empty content: {prefix_id}")
 
     return None
 

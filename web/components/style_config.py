@@ -2328,6 +2328,9 @@ def _render_image_prompt_prefix_library(
     active_item = library_items_by_id.get(active_prefix_id)
     effective_prefix = get_effective_image_prompt_prefix(image_config)
     st.session_state["prompt_prefix_effective_value"] = effective_prefix
+    st.session_state["prompt_prefix_effective_id"] = (
+        active_item.get("id") if active_item is not None else None
+    )
 
     style_options, scene_options = get_localized_prompt_prefix_category_options(language=language)
     style_label_map = {option["id"]: option["label"] for option in style_options}
@@ -2934,6 +2937,9 @@ def _render_image_prompt_prefix_library_on_demand(
     effective_prefix = get_effective_image_prompt_prefix(image_config)
     st.session_state["prompt_prefix_effective_value"] = effective_prefix
     active_item = get_active_image_prompt_prefix_item(image_config)
+    st.session_state["prompt_prefix_effective_id"] = (
+        active_item.get("id") if active_item is not None else None
+    )
 
     st.markdown(f"**{tr('style.prompt_prefix')}**")
     if active_item is not None:
@@ -3636,6 +3642,7 @@ def render_style_config(
     # Check if current template requires media generation
     template_media_type = st.session_state.get('template_media_type', 'image')
     template_requires_media = st.session_state.get('template_requires_media', True)
+    prompt_prefix_id = None
     if template_requires_media:
         # Template requires media - show Media Generation Section
         if template_media_type == "video":
@@ -3777,7 +3784,8 @@ def render_style_config(
                     prompt_language=storyboard_prompt_language,
                     workflow_display_map=workflow_display_map,
                 )
-                prompt_prefix = st.session_state.get("prompt_prefix_effective_value", "")
+                prompt_prefix = ""
+                prompt_prefix_id = st.session_state.get("prompt_prefix_effective_id")
         
     
     else:
@@ -3835,6 +3843,7 @@ def render_style_config(
         "media_workflow": workflow_key,
         "storyboard_prompt_language": storyboard_prompt_language,
         "prompt_prefix": prompt_prefix if prompt_prefix else "",
+        "prompt_prefix_id": prompt_prefix_id,
         **size_contract.to_params(),
         **reference_image_settings,
         "media_placement": st.session_state.get(

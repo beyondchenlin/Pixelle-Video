@@ -26,6 +26,7 @@ import regex as unicode_regex
 from loguru import logger
 
 from pixelle_video.config import config_manager
+from pixelle_video.config.prompt_prefix_library import get_image_prompt_prefix_item
 from pixelle_video.config.storyboard_preset_library import lookup_world_preset
 from pixelle_video.models.content_generation import (
     ImagePromptBatchResponse,
@@ -1378,6 +1379,7 @@ async def generate_styled_image_prompt_batch(
     prompt_contexts: Optional[PromptContextInput] = None,
     prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
     prompt_prefix: Optional[str] = None,
+    prompt_prefix_id: Optional[str] = None,
     workflow: Optional[str] = None,
     media_service=None,
     media_type: Literal["image", "video"] = "image",
@@ -1518,7 +1520,18 @@ async def generate_styled_image_prompt_batch(
         if storyboard_enabled
         else None
     )
-    source = resolve_style_source(image_config, prompt_prefix_override=prompt_prefix)
+    source = (
+        resolve_style_source(
+            image_config,
+            prompt_prefix_override=prompt_prefix,
+            prompt_prefix_id_override=prompt_prefix_id,
+        )
+        if prompt_prefix_id
+        else resolve_style_source(
+            image_config,
+            prompt_prefix_override=prompt_prefix,
+        )
+    )
     resolved_style = None
     style_profile = None
     planning_snapshot = None
@@ -1813,7 +1826,9 @@ async def generate_styled_image_prompt_batch(
             max_concurrency=max_concurrency,
             max_retries=max_retries,
             progress_callback=progress_callback,
-            style_profile=style_profile,
+            style_profile=(
+                style_profile if visual_anchor_preparation_enabled else None
+            ),
             prompt_contexts=prompt_contexts_for_generation,
             stage_callback=stage_callback,
             trace_context=trace_context,
@@ -1875,14 +1890,11 @@ async def generate_styled_image_prompt_batch(
         prompt_contexts_for_generation,
         len(base_prompts),
     )
-    active_style_item = None
-    if isinstance(image_config, Mapping):
-        prefix_library = image_config.get("prompt_prefix_library") or {}
-        active_prefix_id = prefix_library.get("active_prefix_id") if isinstance(prefix_library, Mapping) else None
-        for item in prefix_library.get("items", ()) if isinstance(prefix_library, Mapping) else ():
-            if isinstance(item, Mapping) and item.get("id") == active_prefix_id:
-                active_style_item = item
-                break
+    active_style_item = (
+        get_image_prompt_prefix_item(image_config, source.item_id)
+        if source is not None and source.item_id
+        else None
+    )
     visual_style_contract = VisualStyleContractResolver().resolve(
         resolved_style=resolved_style,
         active_style_item=active_style_item,

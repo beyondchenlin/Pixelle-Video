@@ -19,7 +19,11 @@ For generating image prompts from storyboard frame context.
 import json
 from typing import Any, List, Optional
 
-from pixelle_video.models.prompt_context import PromptContextInput, llm_prompt_context_payload
+from pixelle_video.models.prompt_context import (
+    PromptContextInput,
+    llm_prompt_context_payload,
+    normalize_prompt_contexts,
+)
 from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
     DEFAULT_PROMPT_LANGUAGE,
@@ -86,20 +90,29 @@ def render_image_prompt_prompt(
     Example:
         >>> build_image_prompt_prompt(narrations, 50, 100)
     """
-    context_payload = llm_prompt_context_payload(prompt_contexts, len(narrations))
-    payload: dict[str, Any] = (
-        {"frame_source_texts": narrations}
-        if context_payload is not None
-        else {"narrations": narrations}
-    )
-    if context_payload is not None:
-        payload.update(context_payload)
+    if visual_anchor_preparation_enabled:
+        context_payload = llm_prompt_context_payload(prompt_contexts, len(narrations))
+        payload: dict[str, Any] = (
+            {"frame_source_texts": narrations}
+            if context_payload is not None
+            else {"narrations": narrations}
+        )
+        if context_payload is not None:
+            payload.update(context_payload)
+        template_id = "image_generation"
+    else:
+        payload = _ordinary_image_prompt_payload(narrations, prompt_contexts)
+        template_id = "ordinary_image_generation"
     narrations_json = json.dumps(payload, ensure_ascii=False, indent=2)
-    style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
+    style_profile_json = json.dumps(
+        (style_profile or None) if visual_anchor_preparation_enabled else None,
+        ensure_ascii=False,
+        indent=2,
+    )
     resolved_prompt_language = normalize_prompt_language(prompt_language)
     
     return render_prompt_template(
-        "image_generation",
+        template_id,
         {
             "input_payload": payload,
             "style_profile_json": style_profile_json,
@@ -116,6 +129,76 @@ def render_image_prompt_prompt(
             "visual_anchor_preparation_enabled": visual_anchor_preparation_enabled,
         },
     )
+
+
+def _ordinary_image_prompt_payload(
+    narrations: List[str],
+    prompt_contexts: Optional[PromptContextInput],
+) -> dict[str, Any]:
+    envelope = normalize_prompt_contexts(prompt_contexts, len(narrations))
+    contexts = envelope.frame_contexts if envelope is not None else tuple({} for _ in narrations)
+    frames: list[dict[str, Any]] = []
+    for index, narration in enumerate(narrations):
+        context = contexts[index]
+        visual_plan = context.get("visual_story_frame_plan")
+        visual_plan = visual_plan if isinstance(visual_plan, dict) else {}
+        frames.append(
+            {
+                "current_storyboard": str(
+                    context.get("frame_source_text") or narration
+                ).strip(),
+                "subjects": _unique_prompt_values(
+                    context.get("primary_subject"),
+                    context.get("secondary_subjects"),
+                    context.get("required_subjects"),
+                    visual_plan.get("required_subjects"),
+                ),
+                "action": _unique_prompt_values(
+                    context.get("visual_goal"),
+                    context.get("prompt_intent"),
+                    context.get("focus_detail"),
+                    visual_plan.get("local_claim"),
+                    visual_plan.get("visual_task"),
+                    visual_plan.get("visual_logic"),
+                ),
+                "composition": _unique_prompt_values(
+                    context.get("shot_type"),
+                    context.get("shot_purpose"),
+                    context.get("world_elements"),
+                    visual_plan.get("scene_arena"),
+                    visual_plan.get("physical_metaphor"),
+                    visual_plan.get("frame_storytelling_logic"),
+                ),
+            }
+        )
+    return {"frames": frames}
+
+
+def _unique_prompt_values(*values: Any) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+
+    def append(value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, str):
+            text = value.strip()
+            if text and text.lower() not in seen:
+                seen.add(text.lower())
+                result.append(text)
+            return
+        if isinstance(value, dict):
+            append(value.get("label") or value.get("name"))
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                append(item)
+            return
+        append(str(value))
+
+    for value in values:
+        append(value)
+    return result
 
 
 

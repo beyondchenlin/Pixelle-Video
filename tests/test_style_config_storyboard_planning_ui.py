@@ -2187,6 +2187,11 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
 
     assert result["media_workflow"] == "selfhost/image_z_image_turbo_gguf.json"
     assert result["frame_template"] == "1080x1920/image_default.html"
+    assert result["prompt_prefix"] == ""
+    assert result["prompt_prefix_id"] == fake_st.session_state[
+        "prompt_prefix_effective_id"
+    ]
+    assert result["prompt_prefix_id"]
     assert ("section.image", False) in fake_st.expanders
     assert fake_st.nested_expanders == []
     assert all("orientation.portrait" not in labels for labels in fake_st.tab_label_sets)

@@ -327,6 +327,42 @@ def test_selected_minimal_emotion_style_maps_to_complete_final_contract():
     assert contract.required_negative_prompt_fragments == _STYLE_NEGATIVE
 
 
+def test_requested_style_id_preserves_complete_contract_when_active_style_changes():
+    batch = _resolve_visual_anchor_style_batch(
+        image_config={
+            "prompt_prefix_library": {
+                "active_prefix_id": "builtin_childrens_storybook_warm",
+                "items": [
+                    {
+                        "id": "builtin_childrens_storybook_warm",
+                        "content": "warm children's storybook illustration",
+                    },
+                    {
+                        "id": "builtin_line_art_emotion_minimal",
+                        "content": "minimal line art, negative space, monochrome illustration",
+                    },
+                ],
+            }
+        },
+        prompt_prefix=None,
+        prompt_prefix_id="builtin_line_art_emotion_minimal",
+        frame_count=1,
+    )
+
+    contract = _target_visual_style_contract(
+        batch=batch,
+        visual_profile_snapshot=None,
+        prompt_language=CHINESE_PROMPT_LANGUAGE,
+    )
+
+    assert batch.resolved_style is not None
+    assert batch.resolved_style.source_identity == (
+        "library:builtin_line_art_emotion_minimal"
+    )
+    assert contract.required_final_prompt_fragments == _STYLE_POSITIVE
+    assert contract.required_negative_prompt_fragments == _STYLE_NEGATIVE
+
+
 def test_z_image_style_contract_moves_avoidance_rules_into_positive_prompt():
     batch = _resolve_visual_anchor_style_batch(
         image_config={

@@ -33,6 +33,7 @@ from typing import Any, Callable, List, Literal, Mapping, Optional
 
 from loguru import logger
 
+from pixelle_video.config import config_manager
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.models.asset_bible import AssetBible, IPProfile
@@ -934,15 +935,21 @@ class StandardPipeline(LinearVideoPipeline):
             self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_IMAGE_PROMPTS, 0.15)
 
             prompt_prefix = ctx.params.get("prompt_prefix")
+            prompt_prefix_id = ctx.params.get("prompt_prefix_id")
             min_words = ctx.params.get("min_image_prompt_words", 30)
             max_words = ctx.params.get("max_image_prompt_words", 60)
             media_type = "video" if template_type == "video" else "image"
 
-            if prompt_prefix is not None:
+            if prompt_prefix:
                 logger.bind(
                     channel="runtime",
                     prompt_prefix=build_content_observability(prompt_prefix),
                 ).info("custom prompt prefix received")
+            elif prompt_prefix_id:
+                logger.bind(
+                    channel="runtime",
+                    prompt_prefix_id=prompt_prefix_id,
+                ).info("image prompt prefix id received")
 
             # Create progress callback wrapper for image prompt generation
             def image_prompt_progress(
@@ -960,6 +967,8 @@ class StandardPipeline(LinearVideoPipeline):
                 )
 
             image_config = self.core.config.get("comfyui", {}).get(media_type, {})
+            if media_type == "image" and prompt_prefix_id:
+                image_config = config_manager.config.comfyui.image
             native_hints = NativePromptProjection().project(
                 plan=text_rendering_result.overlay_plan,
                 policy=text_rendering_result.overlay_policy,
@@ -984,6 +993,7 @@ class StandardPipeline(LinearVideoPipeline):
                 image_config=image_config,
                 prompt_language=storyboard_contract.storyboard_prompt_language,
                 prompt_prefix=prompt_prefix,
+                prompt_prefix_id=prompt_prefix_id,
                 workflow=ctx.params.get("media_workflow"),
                 media_service=self.core.media,
                 media_type=media_type,
@@ -1840,6 +1850,7 @@ class StandardPipeline(LinearVideoPipeline):
                 "prompt_language": storyboard_contract.storyboard_prompt_language,
                 "generation_world_hint": ctx.params.get("generation_world_hint"),
                 "prompt_prefix": ctx.params.get("prompt_prefix"),
+                "prompt_prefix_id": ctx.params.get("prompt_prefix_id"),
                 "ip_controls": ip_controls,
                 "storyboard_controls": storyboard_controls,
                 "series_visual_signature_request": series_visual_signature_request.to_dict(),

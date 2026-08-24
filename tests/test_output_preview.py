@@ -266,7 +266,8 @@ def test_build_single_generation_request_includes_render_backend():
             "title": "Demo",
             "media_workflow": "runninghub/image_flux.json",
             "frame_template": "1080x1920/image_default.html",
-            "prompt_prefix": "clean",
+            "prompt_prefix": "",
+            "prompt_prefix_id": "builtin_flat_knowledge_clean",
             "bgm_path": None,
             "bgm_volume": 0.3,
             "tts_inference_mode": "local",
@@ -283,6 +284,8 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["render_backend"] == "hyperframes_compiled"
     assert request["tts_audio_strategy"] == "master_track"
     assert request["progress_callback"] is _progress
+    assert request["prompt_prefix"] == ""
+    assert request["prompt_prefix_id"] == "builtin_flat_knowledge_clean"
 
 
 def test_build_single_generation_request_includes_series_visual_signature_controls():
