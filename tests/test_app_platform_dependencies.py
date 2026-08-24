@@ -384,45 +384,41 @@ def test_platform_dependencies_store_task_registries_without_pixelle_provider(tm
     assert not hasattr(dependencies, "pixelle_video_core_provider")
 
 
-def test_in_memory_artifact_repository_keeps_single_selected_version():
+@pytest.mark.asyncio
+async def test_in_memory_artifact_repository_keeps_single_selected_version():
     from pixelle_video.models.artifact import Artifact, ArtifactVersion
     from pixelle_video.storage.dev_repositories import InMemoryArtifactRepository
 
-    async def run_scenario():
-        repository = InMemoryArtifactRepository()
-        await repository.create_artifact(
+    repository = InMemoryArtifactRepository()
+    await repository.create_artifact(
+        "workspace_1",
+        Artifact(
+            artifact_id="artifact_1",
+            workspace_id="workspace_1",
+            artifact_type="storyboard_frame_image",
+            frame_id="frame_1",
+            source_prompt_plan_id="prompt_1",
+        ).to_dict(),
+    )
+    for version_id in ("version_1", "version_2"):
+        await repository.create_artifact_version(
             "workspace_1",
-            Artifact(
+            "artifact_1",
+            ArtifactVersion(
+                version_id=version_id,
                 artifact_id="artifact_1",
                 workspace_id="workspace_1",
-                artifact_type="storyboard_frame_image",
                 frame_id="frame_1",
                 source_prompt_plan_id="prompt_1",
+                storage_key=f"artifacts/workspace_1/{version_id}.png",
+                status="candidate",
             ).to_dict(),
         )
-        for version_id in ("version_1", "version_2"):
-            await repository.create_artifact_version(
-                "workspace_1",
-                "artifact_1",
-                ArtifactVersion(
-                    version_id=version_id,
-                    artifact_id="artifact_1",
-                    workspace_id="workspace_1",
-                    frame_id="frame_1",
-                    source_prompt_plan_id="prompt_1",
-                    storage_key=f"artifacts/workspace_1/{version_id}.png",
-                    status="candidate",
-                ).to_dict(),
-            )
 
-        await repository.select_artifact_version("workspace_1", "artifact_1", "version_1")
-        await repository.select_artifact_version("workspace_1", "artifact_1", "version_2")
+    await repository.select_artifact_version("workspace_1", "artifact_1", "version_1")
+    await repository.select_artifact_version("workspace_1", "artifact_1", "version_2")
 
-        return await repository.list_artifact_versions("workspace_1", "artifact_1")
-
-    import asyncio
-
-    versions = asyncio.run(run_scenario())
+    versions = await repository.list_artifact_versions("workspace_1", "artifact_1")
     statuses = {version["version_id"]: version["status"] for version in versions}
 
     assert statuses == {"version_1": "candidate", "version_2": "selected"}

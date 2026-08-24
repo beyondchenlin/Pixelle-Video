@@ -465,7 +465,10 @@ def wait_for_accelerator_mutex_release() -> None:
     assert result.returncode == 0, result.stderr
 
 
-def kill_fake_comfyui_processes(comfyui_root: Path) -> None:
+def kill_fake_comfyui_processes(
+    comfyui_root: Path,
+    *processes: subprocess.Popen | None,
+) -> None:
     escaped = str(comfyui_root / "main.py").replace("'", "''")
     cleanup = (
         f"$target = '{escaped}'; "
@@ -487,6 +490,14 @@ def kill_fake_comfyui_processes(comfyui_root: Path) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+    for process in processes:
+        if process is None:
+            continue
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10)
     wait_for_accelerator_mutex_release()
 
 
@@ -529,7 +540,11 @@ def start_fake_listening_comfyui(
     process = subprocess.Popen(
         fake_listening_comfyui_command(comfyui_root, data_root, port)
     )
-    wait_for_port(port)
+    try:
+        wait_for_port(port)
+    except Exception:
+        kill_fake_comfyui_processes(comfyui_root, process)
+        raise
     return process
 
 
@@ -1862,6 +1877,7 @@ def test_stop_backend_preserves_matching_listener_without_pid_file(tmp_path: Pat
     runtime_dir = tmp_path / "runtime"
     port = reserve_free_port()
 
+    process = None
     try:
         process = start_fake_listening_comfyui(comfyui_root, data_root, port)
         result = run_fake_backend_stop(
@@ -1880,7 +1896,7 @@ def test_stop_backend_preserves_matching_listener_without_pid_file(tmp_path: Pat
         assert payload["reason"] == "pid_file_missing"
         assert process.poll() is None
     finally:
-        kill_fake_comfyui_processes(comfyui_root)
+        kill_fake_comfyui_processes(comfyui_root, process)
 
 
 def test_stop_backend_removes_invalid_pid_files(tmp_path: Path) -> None:
@@ -1925,6 +1941,7 @@ def test_stop_backend_preserves_matching_listener_when_pid_file_is_invalid(
     )
     port = reserve_free_port()
 
+    process = None
     try:
         process = start_fake_listening_comfyui(comfyui_root, data_root, port)
         result = run_fake_backend_stop(
@@ -1941,7 +1958,7 @@ def test_stop_backend_preserves_matching_listener_when_pid_file_is_invalid(
         assert payload["reason"] == "pid_file_invalid"
         assert process.poll() is None
     finally:
-        kill_fake_comfyui_processes(comfyui_root)
+        kill_fake_comfyui_processes(comfyui_root, process)
 
 
 def test_stop_backend_preserves_matching_listener_when_pid_file_is_stale(
@@ -1954,6 +1971,7 @@ def test_stop_backend_preserves_matching_listener_when_pid_file_is_stale(
     (runtime_dir / "comfyui-backend.pid").write_text("999999", encoding="ascii")
     port = reserve_free_port()
 
+    process = None
     try:
         process = start_fake_listening_comfyui(comfyui_root, data_root, port)
         result = run_fake_backend_stop(
@@ -1971,7 +1989,7 @@ def test_stop_backend_preserves_matching_listener_when_pid_file_is_stale(
         assert payload["pid"] == 999999
         assert process.poll() is None
     finally:
-        kill_fake_comfyui_processes(comfyui_root)
+        kill_fake_comfyui_processes(comfyui_root, process)
 
 
 def test_stop_backend_preserves_matching_listener_when_pid_file_points_elsewhere(
@@ -1987,6 +2005,7 @@ def test_stop_backend_preserves_matching_listener_when_pid_file_points_elsewhere
     )
     port = reserve_free_port()
 
+    process = None
     try:
         process = start_fake_listening_comfyui(comfyui_root, data_root, port)
         result = run_fake_backend_stop(
@@ -2004,7 +2023,7 @@ def test_stop_backend_preserves_matching_listener_when_pid_file_points_elsewhere
         assert payload["pid"] == os.getpid()
         assert process.poll() is None
     finally:
-        kill_fake_comfyui_processes(comfyui_root)
+        kill_fake_comfyui_processes(comfyui_root, process)
 
 
 def test_check_backend_reports_clear_port_without_side_effects(tmp_path: Path) -> None:
@@ -2632,7 +2651,7 @@ def test_stop_backend_preserves_legacy_pid_record_without_ownership_file(
         assert check.returncode == 0, check.stderr
         assert json.loads(check.stdout)["listener_present"] is True
     finally:
-        kill_fake_comfyui_processes(comfyui_root)
+        kill_fake_comfyui_processes(comfyui_root, process)
 
 
 def test_stop_backend_preserves_matching_pid_when_creation_time_changed(
@@ -2708,7 +2727,7 @@ def test_stop_backend_preserves_matching_pid_when_creation_time_changed(
         )
         assert process.poll() is None
     finally:
-        kill_fake_comfyui_processes(comfyui_root)
+        kill_fake_comfyui_processes(comfyui_root, process)
 
 
 def test_stop_backend_does_not_kill_unmanaged_parent_launcher(tmp_path: Path) -> None:
