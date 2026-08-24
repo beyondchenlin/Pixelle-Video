@@ -263,6 +263,10 @@ def _prompt_plan_payload(**overrides) -> dict[str, Any]:
         "image_prompt_draft_id": "draft_1",
         "prompt_sections": {"visual_goal": "Show Luna in the lab."},
         "final_prompt": "Show Luna in the lab.",
+        "final_negative_prompt": "blurry, duplicate subjects",
+        "identity_content_sha256": "a" * 64,
+        "contract_content_sha256": "b" * 64,
+        "contract_version": "series_visual_signature_v46",
         "source_trace_id": "trace_1",
         "metadata": {"source": "stage1a"},
     }
@@ -1065,6 +1069,14 @@ def test_prompt_plan_projection_api_returns_preview_through_repositories():
     assert body["success"] is True
     assert body["projection"]["prompt_plan"]["prompt_plan_id"] == "prompt_plan_1"
     assert body["projection"]["prompt_plan"]["final_prompt"] == "Show Luna in the lab."
+    assert body["projection"]["prompt_plan"]["final_negative_prompt"] == (
+        "blurry, duplicate subjects"
+    )
+    assert body["projection"]["prompt_plan"]["identity_content_sha256"] == "a" * 64
+    assert body["projection"]["prompt_plan"]["contract_content_sha256"] == "b" * 64
+    assert body["projection"]["prompt_plan"]["contract_version"] == (
+        "series_visual_signature_v46"
+    )
     assert body["projection"]["prompt_plan"]["character_ids"] == ["char_luna"]
     assert body["projection"]["prompt_plan"]["scene_id"] == "scene_lab"
     assert body["projection"]["prompt_plan"]["prop_ids"] == ["prop_compass"]

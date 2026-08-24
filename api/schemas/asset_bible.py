@@ -630,6 +630,16 @@ class PromptPlanProjectionPromptPlanResponse(BaseModel):
     image_prompt_draft_id: str
     prompt_sections: dict[str, str]
     final_prompt: str
+    final_negative_prompt: str | None = None
+    identity_content_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    contract_content_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    contract_version: str | None = None
     source_trace_id: str | None = None
     character_ids: list[str] = Field(default_factory=list)
     scene_id: str | None = None
@@ -655,6 +665,20 @@ class PromptPlanProjectionPromptPlanResponse(BaseModel):
     def validate_final_prompt(cls, value: str) -> str:
         if _contains_path_or_url_reference(value):
             raise ValueError("final_prompt must not contain path-like references")
+        return value
+
+    @field_validator("final_negative_prompt")
+    @classmethod
+    def validate_final_negative_prompt(cls, value: str | None) -> str | None:
+        if value is not None and _contains_path_or_url_reference(value):
+            raise ValueError("final_negative_prompt must not contain path-like references")
+        return value
+
+    @field_validator("contract_version")
+    @classmethod
+    def validate_contract_version(cls, value: str | None) -> str | None:
+        if value is not None and _contains_path_or_url_reference(value):
+            raise ValueError("contract_version must not contain path-like references")
         return value
 
     @field_validator("source_trace_id", "scene_id", "style_id")
