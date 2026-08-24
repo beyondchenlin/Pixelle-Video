@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -126,10 +127,25 @@ class VisibleTextPolicy(BaseModel):
 
 
 class ContentFact(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     category: ContentFactCategory
     statement: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_legacy_fields(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            return value
+        normalized = dict(value)
+        for field_name in (
+            "fact_id",
+            "subject_ids",
+            "source_evidence",
+            "pure_content_prompt_evidence",
+        ):
+            normalized.pop(field_name, None)
+        return normalized
 
     @field_validator("statement", mode="before")
     @classmethod
@@ -176,13 +192,29 @@ def _decode_flattened_content_facts(value: object) -> object:
 
 
 class ContentStageSubject(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     category: ContentSubjectCategory
     name: str
     identity: str
     quantity: int = Field(gt=0)
     action: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_legacy_fields(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            return value
+        normalized = dict(value)
+        for field_name in (
+            "subject_id",
+            "role",
+            "source_evidence",
+            "pure_content_prompt_evidence",
+            "protected_facts",
+        ):
+            normalized.pop(field_name, None)
+        return normalized
 
     @field_validator("name", "identity", mode="before")
     @classmethod
@@ -195,10 +227,14 @@ class ContentStageSubject(BaseModel):
         return _optional_text(value, "action")
 
 
+class ContentSubject(ContentStageSubject):
+    """Compatibility name for persisted subjects without server-owned fields."""
+
+
 class ContentStageModelOutput(BaseModel):
     """Identifier-free response contract for the content-stage model call."""
 
-    model_config = ConfigDict(extra="ignore", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     core_claim: str
     primary_subject: ContentStageSubject
@@ -214,6 +250,23 @@ class ContentStageModelOutput(BaseModel):
     adjustable_non_core_content: list[str] = Field(default_factory=list)
     pure_content_prompt: str
 
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_legacy_fields(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            return value
+        normalized = dict(value)
+        legacy_facts = normalized.pop("protected_facts", None)
+        if "scene_facts" not in normalized and isinstance(legacy_facts, (list, tuple)):
+            normalized["scene_facts"] = [
+                dict(fact)
+                for fact in legacy_facts
+                if isinstance(fact, Mapping)
+            ]
+        normalized.pop("self_check", None)
+        normalized.pop("self_check_failures", None)
+        return normalized
+
     @field_validator("core_claim", "pure_content_prompt", mode="before")
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
@@ -228,40 +281,6 @@ class ContentStageModelOutput(BaseModel):
     @classmethod
     def _validate_list(cls, value: list[str], info) -> list[str]:
         return _text_list(value, info.field_name)
-
-class ContentSubject(BaseModel):
-    """Server-owned subject contract used after deterministic materialization."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    subject_id: str
-    role: Literal["primary", "secondary"]
-    category: ContentSubjectCategory
-    name: str
-    identity: str
-    quantity: int = Field(gt=0)
-    action: str
-
-    @model_validator(mode="before")
-    @classmethod
-    def _discard_legacy_proof_fields(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        normalized = dict(value)
-        normalized.pop("source_evidence", None)
-        normalized.pop("pure_content_prompt_evidence", None)
-        return normalized
-
-    @field_validator("subject_id", "name", "identity", mode="before")
-    @classmethod
-    def _validate_text(cls, value: object, info) -> str:
-        return _text(value, info.field_name)
-
-    @field_validator("action", mode="before")
-    @classmethod
-    def _validate_action(cls, value: object) -> str:
-        return _optional_text(value, "action")
-
 
 class ContentStageInput(BaseModel):
     """Identity-free input boundary for the content-only language-model call."""
@@ -285,59 +304,8 @@ class ContentStageInput(BaseModel):
         return _text(value, info.field_name)
 
 
-class ContentStageOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    core_claim: str
-    scene_facts: list[ContentFact] = Field(default_factory=list)
-    primary_subject: ContentSubject
-    secondary_subjects: list[ContentSubject] = Field(default_factory=list)
-    adjustable_non_core_content: list[str] = Field(default_factory=list)
-    pure_content_prompt: str
-
-    @model_validator(mode="before")
-    @classmethod
-    def _discard_legacy_proof_fields(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        normalized = dict(value)
-        legacy_facts = normalized.pop("protected_facts", None)
-        if "scene_facts" not in normalized and isinstance(legacy_facts, list):
-            normalized["scene_facts"] = [
-                {
-                    "category": fact.get("category"),
-                    "statement": fact.get("statement"),
-                }
-                for fact in legacy_facts
-                if isinstance(fact, dict)
-            ]
-        normalized.pop("self_check", None)
-        normalized.pop("self_check_failures", None)
-        return normalized
-
-    @field_validator("core_claim", "pure_content_prompt", mode="before")
-    @classmethod
-    def _validate_text(cls, value: object, info) -> str:
-        return _text(value, info.field_name)
-
-    @field_validator("adjustable_non_core_content")
-    @classmethod
-    def _validate_list(cls, value: list[str], info) -> list[str]:
-        return _text_list(value, info.field_name)
-
-    @model_validator(mode="after")
-    def _validate_result(self) -> "ContentStageOutput":
-        if self.primary_subject.role != "primary":
-            raise ValueError("primary_subject must have the primary role")
-        if any(subject.role != "secondary" for subject in self.secondary_subjects):
-            raise ValueError("secondary_subjects must all have the secondary role")
-        subject_ids = [
-            self.primary_subject.subject_id,
-            *(subject.subject_id for subject in self.secondary_subjects),
-        ]
-        if len(set(subject_ids)) != len(subject_ids):
-            raise ValueError("content subject ids must be unique")
-        return self
+class ContentStageOutput(ContentStageModelOutput):
+    """Persisted content-stage result with the same contract as the model output."""
 
 
 class VisualAnchorIdentityProfile(BaseModel):
@@ -524,7 +492,7 @@ class FusionStageInput(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _discard_legacy_review_feedback(cls, value: object) -> object:
-        if not isinstance(value, dict):
+        if not isinstance(value, Mapping):
             return value
         normalized = dict(value)
         normalized.pop("review_feedback", None)
@@ -564,7 +532,7 @@ class FusionStageInput(BaseModel):
 
 
 class FusionStageOutput(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     selected_fusion_method: str
     final_manifestation: str
@@ -573,6 +541,30 @@ class FusionStageOutput(BaseModel):
     continuity_change_reason: str
     final_positive_prompt: str
     final_negative_prompt: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_legacy_fields(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            return value
+        normalized = dict(value)
+        for field_name in (
+            "unselected_candidate_summaries",
+            "content_stage_deviations",
+            "non_core_reconstruction_summary",
+            "protected_fact_checks",
+            "primary_subject_preserved",
+            "primary_subject_final_prompt_evidence",
+            "visual_anchor_replaces_primary_subject",
+            "identity_trait_checks",
+            "target_visual_anchor_instance_count",
+            "other_scene_elements_inherit_identity_features",
+            "single_instance_prompt_evidence",
+            "self_check",
+            "self_check_failures",
+        ):
+            normalized.pop(field_name, None)
+        return normalized
 
     @field_validator(
         "selected_fusion_method",
@@ -656,7 +648,7 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _discard_legacy_review_fields(cls, value: object) -> object:
-        if not isinstance(value, dict):
+        if not isinstance(value, Mapping):
             return value
         normalized = dict(value)
         normalized.pop("preflight_review_prompt_version", None)
@@ -723,7 +715,7 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _discard_legacy_review_fields(cls, value: object) -> object:
-        if not isinstance(value, dict):
+        if not isinstance(value, Mapping):
             return value
         normalized = dict(value)
         normalized.pop("preflight_review_input", None)

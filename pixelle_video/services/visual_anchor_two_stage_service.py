@@ -128,12 +128,32 @@ class VisualAnchorTwoStageService:
         trace_recorder=None,
         stage_callback=None,
     ) -> VisualAnchorTwoStageBatchResult:
+        if not isinstance(storyboard_plan, StoryboardPlan):
+            raise TypeError("storyboard_plan must be a StoryboardPlan")
         if not storyboard_plan.frames:
             raise VisualAnchorTwoStageError("storyboard plan has no frames")
         if not isinstance(expected_execution, ImageWorkflowExecutionContract):
             raise TypeError(
                 "expected_execution must be an ImageWorkflowExecutionContract"
             )
+        if not isinstance(identity_profile, VisualAnchorIdentityProfile):
+            raise TypeError("identity_profile must be a VisualAnchorIdentityProfile")
+        if identity_reference_condition is not None and not isinstance(
+            identity_reference_condition,
+            IdentityReferenceCondition,
+        ):
+            raise TypeError(
+                "identity_reference_condition must be an IdentityReferenceCondition"
+            )
+        if visible_text_policy is not None and not isinstance(
+            visible_text_policy,
+            VisibleTextPolicy,
+        ):
+            raise TypeError("visible_text_policy must be a VisibleTextPolicy")
+        if not isinstance(target_visual_style, (TargetVisualStyle, str)):
+            raise TypeError("target_visual_style must be a TargetVisualStyle or string")
+        if type(negative_prompt_supported) is not bool:
+            raise TypeError("negative_prompt_supported must be a boolean")
         resolved_style = (
             target_visual_style
             if isinstance(target_visual_style, TargetVisualStyle)
@@ -155,20 +175,57 @@ class VisualAnchorTwoStageService:
             raise VisualAnchorTwoStageError(
                 "identity conditioning mode must match workflow capabilities"
             )
-        resolved_condition_summary = _normalized_text(
+        if resolved_identity_conditioning_mode == "reference_image":
+            if identity_reference_condition is None:
+                raise VisualAnchorTwoStageError(
+                    "reference-image conditioning requires a real reference condition"
+                )
+            if (
+                identity_reference_condition.resource_version
+                not in identity_profile.source_asset_ids
+            ):
+                raise VisualAnchorTwoStageError(
+                    "identity profile must be bound to the reference resource"
+                )
+        elif identity_reference_condition is not None:
+            raise VisualAnchorTwoStageError(
+                "text-profile conditioning cannot include a reference condition"
+            )
+        resolved_task_id = _required_text(task_id, "task_id")
+        resolved_workflow_key = _required_text(workflow_key, "workflow_key")
+        resolved_prompt_language = _required_text(
+            target_image_prompt_language,
+            "target_image_prompt_language",
+        )
+        resolved_workflow_version = _normalized_text(workflow_version_sha256).lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", resolved_workflow_version):
+            raise VisualAnchorTwoStageError(
+                "workflow_version_sha256 must be a lowercase SHA-256 digest"
+            )
+        resolved_condition_summary = _required_text(
             workflow_identity_condition_summary
             or (
                 "当前工作流使用真实参考图绑定与文字身份档案共同保持身份"
                 if resolved_identity_conditioning_mode == "reference_image"
                 else "当前工作流仅支持文字提示；使用身份档案名称、核心识别特征和禁止变化项作为真实身份条件"
-            )
+            ),
+            "workflow_identity_condition_summary",
         )
+        if not isinstance(random_seeds_by_frame, Mapping):
+            raise VisualAnchorTwoStageError("random_seeds_by_frame must be a mapping")
         if set(random_seeds_by_frame) != {
             frame.frame_id for frame in storyboard_plan.frames
         }:
             raise VisualAnchorTwoStageError(
                 "random seeds must be registered for every storyboard frame and no others"
             )
+        registered_seeds = {
+            frame.frame_id: _seed_value(
+                random_seeds_by_frame[frame.frame_id],
+                f"seed for {frame.frame_id}",
+            )
+            for frame in storyboard_plan.frames
+        }
 
         scene_ids = _continuous_scene_ids(storyboard_plan.frames)
         decisions_by_scene: dict[str, FusionStageOutput] = {}
@@ -187,12 +244,12 @@ class VisualAnchorTwoStageService:
                 workflow_identity_condition_summary=resolved_condition_summary,
                 target_visual_style=resolved_style,
                 visible_text_policy=resolved_text_policy,
-                target_image_prompt_language=target_image_prompt_language,
-                task_id=task_id,
-                workflow_key=workflow_key,
-                workflow_version_sha256=workflow_version_sha256,
+                target_image_prompt_language=resolved_prompt_language,
+                task_id=resolved_task_id,
+                workflow_key=resolved_workflow_key,
+                workflow_version_sha256=resolved_workflow_version,
                 expected_execution=expected_execution,
-                random_seed=random_seeds_by_frame[frame.frame_id],
+                random_seed=registered_seeds[frame.frame_id],
                 negative_prompt_supported=negative_prompt_supported,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
@@ -426,9 +483,8 @@ class VisualAnchorTwoStageService:
             temperature=0.0,
             call_audit=resolved_call_audit,
         )
-        output = _materialize_content_stage_output(
-            frame_id=stage_input.frame_id,
-            model_output=model_output,
+        output = ContentStageOutput.model_validate(
+            model_output.model_dump(mode="json")
         )
         return output
 
@@ -509,43 +565,6 @@ def _emit_stage(callback, *, stage: str, event: str, **fields: Any) -> None:
     )
 
 
-def _materialize_content_stage_output(
-    *,
-    frame_id: str,
-    model_output: ContentStageModelOutput,
-) -> ContentStageOutput:
-    """Assign server-owned subject identifiers without semantic judgment."""
-
-    primary_subject_id = f"{frame_id}-subject-primary"
-    primary_subject = {
-        **model_output.primary_subject.model_dump(mode="json"),
-        "subject_id": primary_subject_id,
-        "role": "primary",
-    }
-
-    secondary_subjects: list[dict[str, Any]] = []
-    for subject_index, subject in enumerate(
-        model_output.secondary_subjects,
-        start=1,
-    ):
-        subject_id = f"{frame_id}-subject-secondary-{subject_index}"
-        secondary_subjects.append(
-            {
-                **subject.model_dump(mode="json"),
-                "subject_id": subject_id,
-                "role": "secondary",
-            }
-        )
-    return ContentStageOutput(
-        core_claim=model_output.core_claim,
-        scene_facts=model_output.scene_facts,
-        primary_subject=primary_subject,
-        secondary_subjects=secondary_subjects,
-        adjustable_non_core_content=model_output.adjustable_non_core_content,
-        pure_content_prompt=model_output.pure_content_prompt,
-    )
-
-
 def _continuous_scene_ids(
     frames: Sequence[StoryboardPlanFrame],
 ) -> tuple[str, ...]:
@@ -583,6 +602,15 @@ def _continuous_fusion_decision(output: FusionStageOutput) -> str:
 
 def _normalized_text(value: object) -> str:
     return " ".join(str(value or "").split())
+
+
+def _required_text(value: object, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise VisualAnchorTwoStageError(f"{field_name} must be a non-empty string")
+    normalized = " ".join(value.split())
+    if not normalized:
+        raise VisualAnchorTwoStageError(f"{field_name} must be a non-empty string")
+    return normalized
 
 
 def resolve_registered_random_seeds(

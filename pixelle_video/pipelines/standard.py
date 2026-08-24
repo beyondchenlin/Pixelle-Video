@@ -274,7 +274,7 @@ def _validate_single_pass_z_image_signature_batch(
         snapshot["visual_anchor_final_prompt_lineage"] = {
             "schema_version": "visual_anchor_final_prompt_lineage.v1",
             "validated": True,
-            "source": "validated_fusion_generation_request",
+            "source": "structured_fusion_generation_request",
             "frame_count": len(generation_requests),
         }
         return StyledImagePromptBatch(

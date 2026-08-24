@@ -43,6 +43,20 @@ def prepare_visual_anchor_regeneration(
         raise ValueError(
             "visual-anchor prompt-plan metadata must be a mapping"
         )
+    raw_request = raw.get("generation_request")
+    if not isinstance(raw_request, Mapping):
+        raise ValueError(
+            "visual-anchor prompt-plan metadata must contain a generation request"
+        )
+    if prompt_plan.contract_version != raw_request.get("request_version"):
+        raise ValueError(
+            "visual-anchor regeneration contract version differs from prompt plan"
+        )
+    if prompt_plan.contract_content_sha256 != _contract_sha256(raw):
+        raise ValueError(
+            "visual-anchor regeneration contract digest differs from prompt plan"
+        )
+
     source_result = VisualAnchorTwoStageFrameResult.model_validate(raw)
     source_request = source_result.generation_request
     if prompt_plan.frame_id != source_result.frame_id:
@@ -59,15 +73,6 @@ def prepare_visual_anchor_regeneration(
         raise ValueError(
             "visual-anchor regeneration identity digest differs from prompt plan"
         )
-    if prompt_plan.contract_version != source_request.request_version:
-        raise ValueError(
-            "visual-anchor regeneration contract version differs from prompt plan"
-        )
-    if prompt_plan.contract_content_sha256 != _contract_sha256(source_result):
-        raise ValueError(
-            "visual-anchor regeneration contract digest differs from prompt plan"
-        )
-
     cloned_payload = source_result.model_dump(mode="json")
     cloned_payload["generation_request"] = {
         **cloned_payload["generation_request"],
@@ -118,6 +123,8 @@ def _inherit_reference_asset(
     if source_request.identity_reference_condition != target_request.identity_reference_condition:
         raise ValueError("visual-anchor regeneration changed the reference condition")
     condition = target_request.identity_reference_condition
+    if condition is None:
+        return
     source_task_root = Path(get_task_path(source_request.task_id)).resolve()
     source_path = (
         source_task_root / condition.workflow_asset_relative_path
@@ -188,14 +195,25 @@ def _inherit_reference_asset(
     _write_immutable_json(asset_path, asset_payload)
 
 
-def _contract_sha256(frame_result: VisualAnchorTwoStageFrameResult) -> str:
+def _contract_sha256(frame_result: Mapping[str, object]) -> str:
     payload = json.dumps(
-        frame_result.model_dump(mode="json"),
+        _json_compatible_copy(frame_result),
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _json_compatible_copy(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _json_compatible_copy(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_json_compatible_copy(item) for item in value]
+    return value
 
 
 def _write_immutable_json(path: Path, payload: Mapping[str, object]) -> None:

@@ -21,7 +21,6 @@ from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.visual_anchor_two_stage_service import (
     VisualAnchorTwoStageService,
-    _materialize_content_stage_output,
 )
 from pixelle_video.services.visual_prompt_composer import (
     VisualPromptComposer,
@@ -424,11 +423,8 @@ async def _run_jobs_sample():
     plan = _jobs_plan()
     model_contents = _content_outputs(plan)
     contents = [
-        _materialize_content_stage_output(
-            frame_id=frame.frame_id,
-            model_output=model_output,
-        )
-        for frame, model_output in zip(plan.frames, model_contents)
+        ContentStageOutput.model_validate(model_output.model_dump(mode="json"))
+        for model_output in model_contents
     ]
     fusions = _fusion_outputs(contents)
     llm = _QueuedLLM(

@@ -1,21 +1,26 @@
 import hashlib
+import json
 
 import pytest
 from pydantic import ValidationError
 
+from pixelle_video.models.prompt_plan import PromptPlan
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
     ContentStageModelOutput,
+    ContentStageOutput,
+    ContentSubject,
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
 )
+from pixelle_video.services import visual_anchor_regeneration
 from pixelle_video.services.visual_anchor_two_stage_service import (
+    VisualAnchorTwoStageError,
     VisualAnchorTwoStageService,
-    _materialize_content_stage_output,
     identity_profile_from_snapshot,
     resolve_registered_random_seeds,
 )
@@ -159,7 +164,63 @@ def _fusion(frame_id, *, inherited=False, negative_prompt=""):
     )
 
 
-async def _run(plan, *, fusions=None, stage_callback=None):
+_DEFAULT_REFERENCE = object()
+
+
+async def _run_service(
+    plan,
+    llm,
+    *,
+    stage_callback=None,
+    identity_conditioning_mode="reference_image",
+    identity_reference_condition=_DEFAULT_REFERENCE,
+    random_seeds_by_frame=None,
+):
+    reference_condition = identity_reference_condition
+    if reference_condition is _DEFAULT_REFERENCE:
+        reference_condition = (
+            _reference()
+            if identity_conditioning_mode == "reference_image"
+            else None
+        )
+    seeds = (
+        random_seeds_by_frame
+        if random_seeds_by_frame is not None
+        else {
+            frame.frame_id: 101 + index
+            for index, frame in enumerate(plan.frames)
+        }
+    )
+    return await VisualAnchorTwoStageService().run_batch(
+        llm_service=llm,
+        storyboard_plan=plan,
+        identity_profile=_identity(),
+        identity_reference_condition=reference_condition,
+        identity_conditioning_mode=identity_conditioning_mode,
+        workflow_identity_condition_summary=(
+            "真实参考资源已绑定到首次工作流"
+            if identity_conditioning_mode == "reference_image"
+            else "工作流使用文字身份档案"
+        ),
+        target_visual_style="真实电影感",
+        target_image_prompt_language="中文",
+        task_id="task-two-stage",
+        workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
+        workflow_version_sha256="c" * 64,
+        expected_execution=_execution(),
+        random_seeds_by_frame=seeds,
+        negative_prompt_supported=False,
+        stage_callback=stage_callback,
+    )
+
+
+async def _run(
+    plan,
+    *,
+    fusions=None,
+    stage_callback=None,
+    identity_conditioning_mode="reference_image",
+):
     contents = [_content(frame.frame_id, frame.source_text) for frame in plan.frames]
     fusion_outputs = fusions or [
         _fusion(frame.frame_id, inherited=index > 0)
@@ -171,21 +232,10 @@ async def _run(plan, *, fusions=None, stage_callback=None):
             FusionStageOutput: fusion_outputs,
         }
     )
-    result = await VisualAnchorTwoStageService().run_batch(
-        llm_service=llm,
-        storyboard_plan=plan,
-        identity_profile=_identity(),
-        identity_reference_condition=_reference(),
-        target_visual_style="真实电影感",
-        target_image_prompt_language="中文",
-        task_id="task-two-stage",
-        workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
-        workflow_version_sha256="c" * 64,
-        expected_execution=_execution(),
-        random_seeds_by_frame={
-            frame.frame_id: 101 + index for index, frame in enumerate(plan.frames)
-        },
-        negative_prompt_supported=False,
+    result = await _run_service(
+        plan,
+        llm,
+        identity_conditioning_mode=identity_conditioning_mode,
         stage_callback=stage_callback,
     )
     return result, llm
@@ -249,14 +299,42 @@ def test_legacy_proof_fields_are_dropped_at_parse_boundary():
     assert REMOVED_PROOF_FIELDS.isdisjoint(fusion.model_dump(mode="json"))
 
 
-def test_content_materialization_assigns_ids_without_semantic_judgment():
-    output = _materialize_content_stage_output(
-        frame_id="frame-a",
-        model_output=_content("frame-a", "与输出主体完全无关的原文"),
+def test_unknown_model_output_fields_are_rejected_instead_of_silently_dropped():
+    content_payload = _content("frame-a", "原文").model_dump(mode="json")
+    content_payload["unexpected_contract_field"] = "不得静默忽略"
+    with pytest.raises(ValidationError, match="unexpected_contract_field"):
+        ContentStageModelOutput.model_validate(content_payload)
+
+    fusion_payload = _fusion("frame-a").model_dump(mode="json")
+    fusion_payload["unexpected_contract_field"] = "不得静默忽略"
+    with pytest.raises(ValidationError, match="unexpected_contract_field"):
+        FusionStageOutput.model_validate(fusion_payload)
+
+
+def test_content_output_preserves_model_fields_without_server_owned_subject_ids():
+    output = ContentStageOutput.model_validate(
+        _content("frame-a", "与输出主体完全无关的原文").model_dump(mode="json")
     )
-    assert output.primary_subject.subject_id == "frame-a-subject-primary"
     assert output.primary_subject.name == "由模型判断的主体"
     assert output.scene_facts[0].statement == "与输出主体完全无关的原文"
+    assert "subject_id" not in output.primary_subject.model_dump(mode="json")
+
+
+def test_legacy_content_subject_import_drops_removed_server_fields():
+    subject = ContentSubject.model_validate(
+        {
+            "subject_id": "legacy-subject",
+            "role": "primary",
+            "category": "person",
+            "name": "旧主体",
+            "identity": "旧身份",
+            "quantity": 1,
+            "action": "",
+        }
+    )
+
+    assert subject.name == "旧主体"
+    assert "subject_id" not in subject.model_dump(mode="json")
 
 
 @pytest.mark.asyncio
@@ -298,6 +376,71 @@ async def test_each_stage_emits_one_start_and_one_end_event():
 
 
 @pytest.mark.asyncio
+async def test_invalid_reference_configuration_fails_before_any_model_call():
+    plan = _plan()
+    llm = _QueuedLLM(
+        {
+            ContentStageModelOutput: [_content("frame-a", plan.frames[0].source_text)],
+            FusionStageOutput: [_fusion("frame-a")],
+        }
+    )
+
+    with pytest.raises(VisualAnchorTwoStageError, match="requires a real reference"):
+        await _run_service(
+            plan,
+            llm,
+            identity_conditioning_mode="reference_image",
+            identity_reference_condition=None,
+        )
+
+    assert llm.calls == []
+
+
+@pytest.mark.asyncio
+async def test_invalid_seed_fails_before_any_model_call():
+    plan = _plan()
+    llm = _QueuedLLM(
+        {
+            ContentStageModelOutput: [_content("frame-a", plan.frames[0].source_text)],
+            FusionStageOutput: [_fusion("frame-a")],
+        }
+    )
+
+    with pytest.raises(VisualAnchorTwoStageError, match="between 1 and"):
+        await _run_service(
+            plan,
+            llm,
+            random_seeds_by_frame={"frame-a": 0},
+        )
+
+    assert llm.calls == []
+
+
+@pytest.mark.asyncio
+async def test_structural_model_failure_stops_after_one_call_without_retry():
+    plan = _plan()
+    llm = _QueuedLLM(
+        {
+            ContentStageModelOutput: [
+                {"core_claim": "缺少必填结构"},
+                _content("frame-a", plan.frames[0].source_text),
+            ],
+            FusionStageOutput: [_fusion("frame-a")],
+        }
+    )
+    events = []
+
+    with pytest.raises(ValidationError):
+        await _run_service(plan, llm, stage_callback=events.append)
+
+    assert len(llm.calls) == 1
+    assert [
+        (event["event"], event.get("llm_call_count"), event.get("retry_count"))
+        for event in events
+    ] == [("start", None, None), ("fail", 1, 0)]
+
+
+@pytest.mark.asyncio
 async def test_continuous_scene_decisions_are_inputs_but_not_locally_judged():
     fusions = [_fusion("frame-a"), _fusion("frame-b", inherited=False)]
     result, _ = await _run(_plan(continuous=True), fusions=fusions)
@@ -323,3 +466,176 @@ def test_seed_registration_is_complete_and_deterministic():
         hashlib.sha256(b"task-seed:frame-a").digest()[:8], "big"
     )
     assert first["frame-a"] == max(1, expected)
+
+
+def _contract_digest(payload):
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _prompt_plan(frame_payload, *, contract_digest=None):
+    request = frame_payload["generation_request"]
+    return PromptPlan(
+        prompt_plan_id="prompt-plan-a",
+        storyboard_plan_id="storyboard-plan-a",
+        frame_id=frame_payload["frame_id"],
+        image_prompt_draft_id="draft-a",
+        prompt_sections={"scene": request["final_positive_prompt"]},
+        final_prompt=request["final_positive_prompt"],
+        final_negative_prompt=request["final_negative_prompt"] or None,
+        identity_content_sha256=request["identity_content_sha256"],
+        contract_content_sha256=contract_digest or _contract_digest(frame_payload),
+        contract_version=request["request_version"],
+        metadata={"visual_anchor_two_stage": frame_payload},
+    )
+
+
+def _as_legacy_v4_payload(frame_payload):
+    payload = json.loads(json.dumps(frame_payload, ensure_ascii=False))
+    payload["content_stage_input"]["prompt_version"] = (
+        "visual_anchor_content_stage.v12"
+    )
+    payload["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v9"
+    )
+    request = payload["generation_request"]
+    request["request_version"] = "visual_anchor_generation_request.v4"
+    request["content_stage_prompt_version"] = "visual_anchor_content_stage.v12"
+    request["fusion_stage_prompt_version"] = "visual_anchor_fusion_stage.v9"
+    request.update(
+        {
+            "protected_fact_checks": [],
+            "primary_subject_name": "旧主体",
+            "primary_subject_preserved": False,
+            "identity_trait_checks": [],
+            "single_instance_prompt_evidence": "旧证明",
+        }
+    )
+
+    content_payload = payload["content_stage_output"]
+    legacy_facts = []
+    for index, fact in enumerate(content_payload.pop("scene_facts"), start=1):
+        legacy_facts.append(
+            {
+                **fact,
+                "fact_id": f"fact-{index}",
+                "subject_ids": ["subject-primary"],
+                "source_evidence": "旧来源证明",
+                "pure_content_prompt_evidence": "旧提示词证明",
+            }
+        )
+    content_payload["protected_facts"] = legacy_facts
+    content_payload.update({"self_check": "fail", "self_check_failures": ["旧字段"]})
+    content_payload["primary_subject"].update(
+        {
+            "subject_id": "subject-primary",
+            "role": "primary",
+            "source_evidence": "旧来源证明",
+            "pure_content_prompt_evidence": "旧提示词证明",
+        }
+    )
+    payload["fusion_stage_input"]["content_stage_output"] = json.loads(
+        json.dumps(content_payload, ensure_ascii=False)
+    )
+    payload["fusion_stage_input"].update(
+        {
+            "review_feedback": ["旧反馈"],
+            "required_single_instance_prompt_fragment": "旧约束",
+        }
+    )
+    payload["fusion_stage_output"].update(
+        {
+            "unselected_candidate_summaries": [],
+            "content_stage_deviations": [],
+            "non_core_reconstruction_summary": [],
+            "protected_fact_checks": [],
+            "primary_subject_preserved": False,
+            "primary_subject_final_prompt_evidence": "旧证明",
+            "visual_anchor_replaces_primary_subject": True,
+            "identity_trait_checks": [],
+            "target_visual_anchor_instance_count": 2,
+            "other_scene_elements_inherit_identity_features": True,
+            "single_instance_prompt_evidence": "旧证明",
+            "self_check": "fail",
+            "self_check_failures": ["旧字段"],
+        }
+    )
+    payload.update(
+        {
+            "content_attempt_count": 2,
+            "content_retry_validation_codes": ["旧代码"],
+            "fusion_attempt_count": 2,
+        }
+    )
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_regeneration_verifies_legacy_contract_before_upgrading_it(
+    monkeypatch,
+    tmp_path,
+):
+    batch, _ = await _run(
+        _plan(),
+        identity_conditioning_mode="text_profile",
+    )
+    legacy_payload = _as_legacy_v4_payload(
+        batch.frames[0].model_dump(mode="json")
+    )
+    prompt_plan = _prompt_plan(legacy_payload)
+    monkeypatch.setattr(
+        visual_anchor_regeneration,
+        "get_task_path",
+        lambda task_id: str(tmp_path / task_id),
+    )
+
+    context = visual_anchor_regeneration.prepare_visual_anchor_regeneration(
+        prompt_plan=prompt_plan,
+        task_id="regenerated-task",
+    )
+
+    assert context is not None
+    assert context.generation_request.task_id == "regenerated-task"
+    assert (
+        context.generation_request.request_version
+        == "visual_anchor_generation_request.v5"
+    )
+    assert context.generation_request.identity_reference_condition is None
+    assert not (context.task_root / "reference_image").exists()
+
+
+@pytest.mark.asyncio
+async def test_regeneration_rejects_tampered_raw_contract_before_normalization(
+    monkeypatch,
+    tmp_path,
+):
+    batch, _ = await _run(
+        _plan(),
+        identity_conditioning_mode="text_profile",
+    )
+    original_payload = _as_legacy_v4_payload(
+        batch.frames[0].model_dump(mode="json")
+    )
+    original_digest = _contract_digest(original_payload)
+    tampered_payload = json.loads(json.dumps(original_payload, ensure_ascii=False))
+    tampered_payload["fusion_stage_output"]["self_check_failures"] = ["已篡改"]
+    prompt_plan = _prompt_plan(
+        tampered_payload,
+        contract_digest=original_digest,
+    )
+    monkeypatch.setattr(
+        visual_anchor_regeneration,
+        "get_task_path",
+        lambda task_id: str(tmp_path / task_id),
+    )
+
+    with pytest.raises(ValueError, match="contract digest differs"):
+        visual_anchor_regeneration.prepare_visual_anchor_regeneration(
+            prompt_plan=prompt_plan,
+            task_id="regenerated-task",
+        )

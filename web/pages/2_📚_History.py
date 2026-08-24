@@ -41,6 +41,7 @@ from pixelle_video.services.visual_anchor_generation_binding import (
 from pixelle_video.services.visual_anchor_manual_acceptance import (
     VisualAnchorManualAcceptanceChecks,
     VisualAnchorManualAcceptanceRecord,
+    identity_condition_binding_succeeded,
     manual_acceptance_artifact_relative_path,
     record_visual_anchor_manual_acceptance,
 )
@@ -470,23 +471,34 @@ def _render_visual_anchor_manual_acceptance_form(
         return
 
     audit_checks = _mapping(audit.get("checks"))
-    actual_execution = _mapping(binding_audit.get("actual_execution"))
+    identity_conditioning_mode = generation_request.get(
+        "identity_conditioning_mode"
+    )
+    identity_condition_bound = identity_condition_binding_succeeded(
+        generation_request=generation_request,
+        reference_condition=reference_condition,
+        binding_audit=binding_audit,
+    )
+    if identity_conditioning_mode == "reference_image":
+        identity_condition_label = "真实参考已进入首次生成"
+    else:
+        identity_condition_label = "文字身份条件已进入首次生成"
+    final_plan_submitted = bool(generation_request.get("selected_fusion_method")) and (
+        generation_request.get("generation_attempt") == 1
+    )
+    generation_audits_complete = (
+        bool(generation_request.get("final_positive_prompt"))
+        and binding_audit.get("status") == "passed"
+        and audit.get("status") == "passed"
+    )
+    original_generation_preserved = (
+        audit_checks.get("downloaded_image_matches_first_comfyui_output") is True
+    )
     deterministic_checks = {
-        "最终方案已下发": bool(generation_request.get("selected_fusion_method"))
-        and generation_request.get("generation_attempt") == 1,
-        "真实参考已进入首次生成": (
-            binding_audit.get("status") == "passed"
-            and actual_execution.get("uploaded_reference_sha256")
-            == reference_condition.get("asset_sha256")
-        ),
-        "生成绑定与生成后链路审计完整": (
-            bool(generation_request.get("final_positive_prompt"))
-            and binding_audit.get("status") == "passed"
-            and audit.get("status") == "passed"
-        ),
-        "原图与本地首次生成输出一致": (
-            audit_checks.get("downloaded_image_matches_first_comfyui_output") is True
-        ),
+        "最终方案已下发": final_plan_submitted,
+        identity_condition_label: identity_condition_bound,
+        "生成绑定与生成后链路审计完整": generation_audits_complete,
+        "原图与本地首次生成输出一致": original_generation_preserved,
     }
     st.markdown("**逐图片人工视觉验收**")
     st.json(deterministic_checks, expanded=False)
@@ -559,16 +571,10 @@ def _render_visual_anchor_manual_acceptance_form(
     ]
     checks = VisualAnchorManualAcceptanceChecks(
         **visual_values,
-        unique_final_plan_submitted=deterministic_checks["唯一方案已下发"],
-        first_generation_reference_bound=deterministic_checks[
-            "真实参考已进入首次生成"
-        ],
-        generation_binding_and_post_audit_complete=deterministic_checks[
-            "生成绑定与生成后链路审计完整"
-        ],
-        original_first_generation_unmodified=deterministic_checks[
-            "原图与本地首次生成输出一致"
-        ],
+        unique_final_plan_submitted=final_plan_submitted,
+        identity_condition_bound_to_first_request=identity_condition_bound,
+        generation_binding_and_post_audit_complete=generation_audits_complete,
+        original_first_generation_unmodified=original_generation_preserved,
     )
     try:
         seed = int(random_seed)
