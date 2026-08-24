@@ -85,7 +85,6 @@ def test_visual_story_execution_prompt_module_exposes_content_frame_planning_onl
     }
     assert functions == {
         "render_frame_visual_plan_batch_prompt",
-        "render_frame_visual_plan_batch_repair_prompt",
     }
 
 

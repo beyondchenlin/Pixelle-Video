@@ -17,8 +17,12 @@ class Storyboard:
 
 
 class NoopLLM:
+    def __init__(self):
+        self.call_count = 0
+
     async def __call__(self, *args, **kwargs):
-        raise RuntimeError("force deterministic fallback")
+        self.call_count += 1
+        raise RuntimeError("model failure")
 
 
 class SequenceLLM:
@@ -33,33 +37,30 @@ class SequenceLLM:
 
 
 @pytest.mark.asyncio
-async def test_batch_orchestrator_returns_prompt_context_with_fallbacks():
-    result = await VisualStoryBatchOrchestrator().prepare(
-        llm_service=NoopLLM(),
-        source_text="source",
-        storyboard_plan=Storyboard(),
-        visual_story_plan={
-            "plan_id": "plan-1",
-            "article": {"summary": "summary"},
-            "selected_visual_route": {
-                "route_id": "route-1",
-                "recommended_ip_role": "silent_witness",
+async def test_batch_orchestrator_propagates_model_failure_without_retry_or_fallback():
+    llm = NoopLLM()
+
+    with pytest.raises(RuntimeError, match="model failure"):
+        await VisualStoryBatchOrchestrator().prepare(
+            llm_service=llm,
+            source_text="source",
+            storyboard_plan=Storyboard(),
+            visual_story_plan={
+                "plan_id": "plan-1",
+                "article": {"summary": "summary"},
+                "selected_visual_route": {
+                    "route_id": "route-1",
+                    "recommended_ip_role": "silent_witness",
+                },
+                "style_harmonization": {"mode": "hybrid_layered"},
             },
-            "style_harmonization": {"mode": "hybrid_layered"},
-        },
-        ip_profile={"name": "dog", "visual_summary": "spotty dog"},
-        batch_size=2,
-        trace_context=None,
-        trace_recorder=None,
-    )
-    assert result.execution_plan.frame_count == 5
-    assert len(result.frame_visual_plans) == 5
-    assert len(result.frame_ip_fusion_plans) == 5
-    assert result.prompt_context["selected_visual_route"]["route_id"] == "route-1"
-    assert all(
-        batch["visual_plan_fallback_used"] for batch in result.diagnostics["batch_diagnostics"]
-    )
-    assert all(plan["required_subjects"] for plan in result.frame_visual_plans)
+            ip_profile={"name": "dog", "visual_summary": "spotty dog"},
+            batch_size=2,
+            trace_context=None,
+            trace_recorder=None,
+        )
+
+    assert llm.call_count == 1
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from pixelle_video.services.frame_batch_contract import FrameBatchContractError
 from pixelle_video.services.visual_story_frame_services import (
     FrameVisualPlanBatchService,
 )
@@ -98,30 +101,26 @@ async def test_frame_plan_service_accepts_bounded_provider_wrapper_without_fallb
     assert [plan["frame_id"] for plan in outcome.plans] == ["frame-1"]
 
 
-async def test_frame_plan_service_repairs_one_contract_failure_before_fallback():
+async def test_frame_plan_service_rejects_contract_failure_without_second_model_call():
     llm = _RepairableFramePlanLLM()
 
-    outcome = await FrameVisualPlanBatchService().plan_with_diagnostics(
-        **_request_kwargs(llm),
-    )
+    with pytest.raises(FrameBatchContractError) as exc_info:
+        await FrameVisualPlanBatchService().plan_with_diagnostics(
+            **_request_kwargs(llm),
+        )
 
-    assert outcome.fallback_used is False
-    assert outcome.source == "model_content_only"
-    assert len(llm.calls) == 2
-    assert [call["temperature"] for call in llm.calls] == [0.2, 0.0]
-    assert "frame_visual_plans" in llm.calls[1]["prompt"]
-    assert "missing_frame_collection" in llm.calls[1]["prompt"]
-    assert "unexpected" not in llm.calls[1]["prompt"]
+    assert exc_info.value.code == "missing_frame_collection"
+    assert len(llm.calls) == 1
+    assert llm.calls[0]["temperature"] == 0.2
 
 
-async def test_frame_plan_service_repairs_empty_required_subjects():
+async def test_frame_plan_service_rejects_empty_subjects_without_second_model_call():
     llm = _RepairableMissingSubjectsLLM()
 
-    outcome = await FrameVisualPlanBatchService().plan_with_diagnostics(
-        **_request_kwargs(llm),
-    )
+    with pytest.raises(FrameBatchContractError) as exc_info:
+        await FrameVisualPlanBatchService().plan_with_diagnostics(
+            **_request_kwargs(llm),
+        )
 
-    assert outcome.fallback_used is False
-    assert outcome.plans[0]["required_subjects"] == ["worker"]
-    assert len(llm.calls) == 2
-    assert "missing_required_subjects" in llm.calls[1]["prompt"]
+    assert exc_info.value.code == "missing_required_subjects"
+    assert len(llm.calls) == 1
