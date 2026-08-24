@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import re
-from typing import Literal, get_args
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from pydantic.json_schema import SkipJsonSchema
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v12"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v9"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v4"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v13"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v10"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v5"
 ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v5",
     "visual_anchor_content_stage.v6",
@@ -17,6 +15,7 @@ ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v9",
     "visual_anchor_content_stage.v10",
     "visual_anchor_content_stage.v11",
+    "visual_anchor_content_stage.v12",
     CONTENT_STAGE_PROMPT_VERSION,
 ]
 FusionStagePromptVersion = Literal[
@@ -25,10 +24,10 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v6",
     "visual_anchor_fusion_stage.v7",
     "visual_anchor_fusion_stage.v8",
+    "visual_anchor_fusion_stage.v9",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 
-StageSelfCheckDecision = Literal["pass", "fail"]
 ContentSubjectCategory = Literal[
     "person",
     "animal",
@@ -37,7 +36,7 @@ ContentSubjectCategory = Literal[
     "place",
     "event",
 ]
-ProtectedFactCategory = Literal[
+ContentFactCategory = Literal[
     "person",
     "animal",
     "object",
@@ -52,126 +51,6 @@ ProtectedFactCategory = Literal[
     "theme",
     "other",
 ]
-ContentStageValidationCode = Literal[
-    "schema_contract_invalid",
-    "self_check_failed",
-    "subject_source_evidence_invalid",
-    "subject_prompt_evidence_invalid",
-    "concrete_fact_missing",
-    "fact_subject_reference_invalid",
-    "fact_subject_evidence_mismatch",
-    "subject_fact_missing",
-    "fact_source_evidence_invalid",
-    "fact_prompt_evidence_invalid",
-    "identity_isolation_failed",
-    "server_control_leaked",
-]
-_CONTENT_STAGE_VALIDATION_CODES = get_args(ContentStageValidationCode)
-
-_FORBIDDEN_IMAGE_PROMPT_TERMS = (
-    "视觉锚点",
-    "知识产权角色",
-    "受保护事实",
-    "融合方案",
-    "候选方案",
-    "未选方案",
-    "分析过程",
-    "修改理由",
-    "审查结论",
-    "自检结论",
-    "失败项",
-    "唯一实例核对",
-    "连续场景核对",
-    "非核心重构摘要",
-    "方案一",
-    "方案二",
-    "或者",
-    "也可以",
-    "另一种形式",
-    "可选择",
-    "同时还可以",
-    "visual anchor",
-    "protected fact",
-    "fusion option",
-    "final manifestation",
-    "identity trait checks",
-    "single instance prompt evidence",
-    "candidate option",
-    "unselected option",
-    "analysis process",
-    "review result",
-    "content_stage",
-    "fusion_stage",
-    "preflight_review",
-    "protected_facts",
-    "adjustable_non_core_content",
-    "selected_fusion_method",
-    "final_manifestation",
-    "non_core_reconstruction_summary",
-    "unselected_candidate_summaries",
-    "protected_fact_checks",
-    "identity_trait_checks",
-    "final_prompt_evidence",
-    "single_instance_prompt_evidence",
-    "identity_core_traits",
-    "target_visual_anchor_instance_count",
-    "other_scene_elements_inherit_identity_features",
-    "inherited_existing_fusion_decision",
-    "continuity_change_reason",
-    "self_check",
-    "review_feedback",
-    "server_validation",
-    "validation_codes",
-    *_CONTENT_STAGE_VALIDATION_CODES,
-    "alternatively",
-    "another option",
-    "could also",
-    "or it could",
-)
-_SINGLE_INSTANCE_PROMPT_TERMS = (
-    "只有一个",
-    "仅有一个",
-    "唯一一个",
-    "只有一只",
-    "仅有一只",
-    "唯一一只",
-    "只有一名",
-    "仅有一名",
-    "唯一一名",
-    "exactly one",
-    "only one",
-    "a single",
-)
-_PLACEHOLDER_SUBJECT_PATTERNS = (
-    re.compile(r"表达.*第?[一二三四五六七八九十0-9]+个?分镜", re.IGNORECASE),
-    re.compile(r"第?[一二三四五六七八九十0-9]+个?分镜段落", re.IGNORECASE),
-    re.compile(r"visuali[sz]e\s+(?:the\s+)?(?:frame|segment)", re.IGNORECASE),
-    re.compile(r"show\s+(?:the\s+)?(?:frame|segment)", re.IGNORECASE),
-)
-
-
-def _contains_required_prompt_fragment_contract(prompt: str, required: str) -> bool:
-    normalized_prompt = " ".join(str(prompt or "").split()).casefold()
-    fragments = [
-        " ".join(fragment.split()).casefold()
-        for fragment in re.split(r"[,，;；]+", str(required or ""))
-        if " ".join(fragment.split())
-    ]
-    return bool(fragments) and all(fragment in normalized_prompt for fragment in fragments)
-
-
-def _contains_forbidden_term(value: str, term: str) -> bool:
-    """Match planning terms without treating English word fragments as hits."""
-
-    if term.isascii() and any(character.isalnum() for character in term):
-        return re.search(
-            rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])",
-            value,
-            flags=re.IGNORECASE,
-        ) is not None
-    return term.casefold() in value.casefold()
-
-
 def _text(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
@@ -191,22 +70,12 @@ def _text_list(values: list[str], field_name: str) -> list[str]:
     return result
 
 
-def _concrete_subject_text(value: object, field_name: str) -> str:
-    text = _text(value, field_name)
-    if any(pattern.search(text) for pattern in _PLACEHOLDER_SUBJECT_PATTERNS):
-        raise ValueError(f"{field_name} cannot use a storyboard placeholder")
-    return text
-
-
-def _optional_concrete_subject_text(value: object, field_name: str) -> str:
+def _optional_text(value: object, field_name: str) -> str:
     if value is None:
         return ""
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string")
-    text = " ".join(value.split())
-    if text and any(pattern.search(text) for pattern in _PLACEHOLDER_SUBJECT_PATTERNS):
-        raise ValueError(f"{field_name} cannot use a storyboard placeholder")
-    return text
+    return " ".join(value.split())
 
 
 class TargetVisualStyle(BaseModel):
@@ -257,37 +126,23 @@ class VisibleTextPolicy(BaseModel):
 
 
 class ContentFact(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
-    category: ProtectedFactCategory
+    category: ContentFactCategory
     statement: str
-    source_evidence: str = Field(
-        description="从原始分镜文案或文章背景中逐字复制的最短连续片段"
-    )
-    pure_content_prompt_evidence: str = Field(
-        description=(
-            "从 pure_content_prompt 中逐字复制、足以证明事实存在的最短连续片段；"
-            "不得改写或跨过其他词语拼接"
-        )
-    )
 
-    @field_validator(
-        "statement",
-        "source_evidence",
-        "pure_content_prompt_evidence",
-        mode="before",
-    )
+    @field_validator("statement", mode="before")
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
-        return _concrete_subject_text(value, info.field_name)
+        return _text(value, info.field_name)
 
 
 _FLATTENED_CONTENT_FACT_FIELDS = (
     "category",
     "statement",
-    "source_evidence",
-    "pure_content_prompt_evidence",
 )
+
+
 def _decode_flattened_content_facts(value: object) -> object:
     """Decode only complete key-value fact groups emitted by JSON-mode LLMs."""
 
@@ -321,58 +176,29 @@ def _decode_flattened_content_facts(value: object) -> object:
 
 
 class ContentStageSubject(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
     category: ContentSubjectCategory
     name: str
     identity: str
     quantity: int = Field(gt=0)
     action: str
-    source_evidence: str = Field(
-        description="从原始分镜文案或文章背景中逐字复制的最短连续片段"
-    )
-    pure_content_prompt_evidence: str = Field(
-        description=(
-            "从 pure_content_prompt 中逐字复制的最短连续片段；优先只复制主体名称，"
-            "不得跨过其他词语拼接名称、身份和动作"
-        )
-    )
-    protected_facts: SkipJsonSchema[list[ContentFact]] = Field(
-        default_factory=list,
-        description=(
-            "直接描述该主体且必须由后续阶段保留的事实对象数组；"
-            "每项必须是 ContentFact 对象，不能是字符串"
-        ),
-    )
 
-    @field_validator("protected_facts", mode="before")
-    @classmethod
-    def _decode_protected_facts(cls, value: object) -> object:
-        if isinstance(value, list) and value and all(item is None for item in value):
-            return []
-        return _decode_flattened_content_facts(value)
-
-    @field_validator(
-        "name",
-        "identity",
-        "source_evidence",
-        "pure_content_prompt_evidence",
-        mode="before",
-    )
+    @field_validator("name", "identity", mode="before")
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
-        return _concrete_subject_text(value, info.field_name)
+        return _text(value, info.field_name)
 
     @field_validator("action", mode="before")
     @classmethod
     def _validate_action(cls, value: object) -> str:
-        return _optional_concrete_subject_text(value, "action")
+        return _optional_text(value, "action")
 
 
 class ContentStageModelOutput(BaseModel):
     """Identifier-free response contract for the content-stage model call."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
     core_claim: str
     primary_subject: ContentStageSubject
@@ -387,8 +213,6 @@ class ContentStageModelOutput(BaseModel):
     )
     adjustable_non_core_content: list[str] = Field(default_factory=list)
     pure_content_prompt: str
-    self_check: SkipJsonSchema[StageSelfCheckDecision] = "pass"
-    self_check_failures: SkipJsonSchema[list[str]] = Field(default_factory=list)
 
     @field_validator("core_claim", "pure_content_prompt", mode="before")
     @classmethod
@@ -400,19 +224,10 @@ class ContentStageModelOutput(BaseModel):
     def _decode_scene_facts(cls, value: object) -> object:
         return _decode_flattened_content_facts(value)
 
-    @field_validator("adjustable_non_core_content", "self_check_failures")
+    @field_validator("adjustable_non_core_content")
     @classmethod
     def _validate_list(cls, value: list[str], info) -> list[str]:
         return _text_list(value, info.field_name)
-
-    @model_validator(mode="after")
-    def _validate_result(self) -> "ContentStageModelOutput":
-        if self.self_check == "pass" and self.self_check_failures:
-            raise ValueError("a passed content-stage result cannot contain failures")
-        if self.self_check == "fail" and not self.self_check_failures:
-            raise ValueError("a failed content-stage result must contain failures")
-        return self
-
 
 class ContentSubject(BaseModel):
     """Server-owned subject contract used after deterministic materialization."""
@@ -426,49 +241,26 @@ class ContentSubject(BaseModel):
     identity: str
     quantity: int = Field(gt=0)
     action: str
-    source_evidence: str = Field(
-        description="从原始分镜文案或文章背景中逐字复制的最短连续片段"
-    )
-    pure_content_prompt_evidence: str = Field(
-        description=(
-            "从 pure_content_prompt 中逐字复制的最短连续片段；优先只复制主体名称，"
-            "不得跨过其他词语拼接名称、身份和动作"
-        )
-    )
 
-    @field_validator(
-        "subject_id",
-        "name",
-        "identity",
-        "source_evidence",
-        "pure_content_prompt_evidence",
-        mode="before",
-    )
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_legacy_proof_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        normalized.pop("source_evidence", None)
+        normalized.pop("pure_content_prompt_evidence", None)
+        return normalized
+
+    @field_validator("subject_id", "name", "identity", mode="before")
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
-        return _concrete_subject_text(value, info.field_name)
+        return _text(value, info.field_name)
 
     @field_validator("action", mode="before")
     @classmethod
     def _validate_action(cls, value: object) -> str:
-        return _optional_concrete_subject_text(value, "action")
-
-
-class ProtectedFact(ContentFact):
-    """Server-owned fact contract with deterministic internal identifiers."""
-
-    fact_id: str
-    subject_ids: list[str]
-
-    @field_validator("fact_id", mode="before")
-    @classmethod
-    def _validate_fact_id(cls, value: object) -> str:
-        return _concrete_subject_text(value, "fact_id")
-
-    @field_validator("subject_ids")
-    @classmethod
-    def _validate_subject_ids(cls, value: list[str]) -> list[str]:
-        return _text_list(value, "subject_ids")
+        return _optional_text(value, "action")
 
 
 class ContentStageInput(BaseModel):
@@ -497,29 +289,44 @@ class ContentStageOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     core_claim: str
-    protected_facts: list[ProtectedFact] = Field(min_length=1)
+    scene_facts: list[ContentFact] = Field(default_factory=list)
     primary_subject: ContentSubject
     secondary_subjects: list[ContentSubject] = Field(default_factory=list)
     adjustable_non_core_content: list[str] = Field(default_factory=list)
     pure_content_prompt: str
-    self_check: StageSelfCheckDecision
-    self_check_failures: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_legacy_proof_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        legacy_facts = normalized.pop("protected_facts", None)
+        if "scene_facts" not in normalized and isinstance(legacy_facts, list):
+            normalized["scene_facts"] = [
+                {
+                    "category": fact.get("category"),
+                    "statement": fact.get("statement"),
+                }
+                for fact in legacy_facts
+                if isinstance(fact, dict)
+            ]
+        normalized.pop("self_check", None)
+        normalized.pop("self_check_failures", None)
+        return normalized
 
     @field_validator("core_claim", "pure_content_prompt", mode="before")
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
 
-    @field_validator("adjustable_non_core_content", "self_check_failures")
+    @field_validator("adjustable_non_core_content")
     @classmethod
     def _validate_list(cls, value: list[str], info) -> list[str]:
         return _text_list(value, info.field_name)
 
     @model_validator(mode="after")
     def _validate_result(self) -> "ContentStageOutput":
-        fact_ids = [fact.fact_id for fact in self.protected_facts]
-        if len(set(fact_ids)) != len(fact_ids):
-            raise ValueError("protected fact ids must be unique")
         if self.primary_subject.role != "primary":
             raise ValueError("primary_subject must have the primary role")
         if any(subject.role != "secondary" for subject in self.secondary_subjects):
@@ -530,10 +337,6 @@ class ContentStageOutput(BaseModel):
         ]
         if len(set(subject_ids)) != len(subject_ids):
             raise ValueError("content subject ids must be unique")
-        if self.self_check == "pass" and self.self_check_failures:
-            raise ValueError("a passed content-stage result cannot contain failures")
-        if self.self_check == "fail" and not self.self_check_failures:
-            raise ValueError("a failed content-stage result must contain failures")
         return self
 
 
@@ -716,7 +519,6 @@ class FusionStageInput(BaseModel):
     visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
     negative_prompt_supported: bool
     target_image_prompt_language: str
-    required_single_instance_prompt_fragment: str
     prompt_version: FusionStagePromptVersion = FUSION_STAGE_PROMPT_VERSION
 
     @model_validator(mode="before")
@@ -726,6 +528,7 @@ class FusionStageInput(BaseModel):
             return value
         normalized = dict(value)
         normalized.pop("review_feedback", None)
+        normalized.pop("required_single_instance_prompt_fragment", None)
         return normalized
 
     @field_validator(
@@ -733,7 +536,6 @@ class FusionStageInput(BaseModel):
         "original_storyboard_text",
         "workflow_identity_condition_summary",
         "target_image_prompt_language",
-        "required_single_instance_prompt_fragment",
         mode="before",
     )
     @classmethod
@@ -741,9 +543,7 @@ class FusionStageInput(BaseModel):
         return _text(value, info.field_name)
 
     @model_validator(mode="after")
-    def _require_passed_content(self) -> "FusionStageInput":
-        if self.content_stage_output.self_check != "pass":
-            raise ValueError("content stage must pass before fusion")
+    def _validate_identity_conditioning(self) -> "FusionStageInput":
         if self.identity_conditioning_mode == "reference_image":
             if self.identity_reference_condition is None:
                 raise ValueError(
@@ -763,92 +563,20 @@ class FusionStageInput(BaseModel):
         return self
 
 
-class ProtectedFactCheck(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    fact_id: str
-    preserved: bool
-    final_image_evidence: str = Field(
-        description="从 final_positive_prompt 中逐字复制的最短连续事实证据"
-    )
-
-    @field_validator("fact_id", "final_image_evidence", mode="before")
-    @classmethod
-    def _validate_text(cls, value: object, info) -> str:
-        return _text(value, info.field_name)
-
-
-class IdentityTraitCheck(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    trait: str
-    preserved: bool
-    final_prompt_evidence: str = Field(
-        description=(
-            "从 final_positive_prompt 中逐字复制、实际描述该身份特征的最短连续片段；"
-            "不得跨过其他词语拼接"
-        )
-    )
-
-    @field_validator("trait", "final_prompt_evidence", mode="before")
-    @classmethod
-    def _validate_text(cls, value: object, info) -> str:
-        return _text(value, info.field_name)
-
-
-class UnselectedCandidateSummary(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    manifestation: str
-    audit_summary: str
-
-    @field_validator("manifestation", "audit_summary", mode="before")
-    @classmethod
-    def _validate_text(cls, value: object, info) -> str:
-        return _text(value, info.field_name)
-
-
 class FusionStageOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
     selected_fusion_method: str
-    unselected_candidate_summaries: list[UnselectedCandidateSummary] = Field(
-        min_length=1
-    )
-    content_stage_deviations: list[str] = Field(default_factory=list)
-    non_core_reconstruction_summary: list[str] = Field(min_length=1)
-    protected_fact_checks: list[ProtectedFactCheck] = Field(min_length=1)
-    primary_subject_preserved: bool
-    primary_subject_final_prompt_evidence: str = Field(
-        description=(
-            "必须逐字等于 content_stage_output.primary_subject.name；该名称也必须逐字"
-            "存在于 final_positive_prompt"
-        )
-    )
-    visual_anchor_replaces_primary_subject: Literal[False]
-    identity_trait_checks: list[IdentityTraitCheck] = Field(min_length=1)
     final_manifestation: str
-    target_visual_anchor_instance_count: Literal[1]
-    other_scene_elements_inherit_identity_features: Literal[False]
-    single_instance_prompt_evidence: str = Field(
-        description=(
-            "从 final_positive_prompt 中逐字复制、明确表示全画面只有一个身份实例的"
-            "连续片段，例如“画面中只有一只斑点狗”"
-        )
-    )
     spatial_contact_and_lighting_relation: str
     inherited_existing_fusion_decision: bool
     continuity_change_reason: str
     final_positive_prompt: str
     final_negative_prompt: str
-    self_check: StageSelfCheckDecision
-    self_check_failures: list[str] = Field(default_factory=list)
 
     @field_validator(
         "selected_fusion_method",
         "final_manifestation",
-        "single_instance_prompt_evidence",
-        "primary_subject_final_prompt_evidence",
         "spatial_contact_and_lighting_relation",
         "final_positive_prompt",
         mode="before",
@@ -870,43 +598,6 @@ class FusionStageOutput(BaseModel):
         if not isinstance(value, str):
             raise ValueError("final_negative_prompt must be a string")
         return " ".join(value.split())
-
-    @field_validator(
-        "non_core_reconstruction_summary",
-        "content_stage_deviations",
-        "self_check_failures",
-    )
-    @classmethod
-    def _validate_lists(cls, value: list[str], info) -> list[str]:
-        return _text_list(value, info.field_name)
-
-    @model_validator(mode="after")
-    def _validate_result(self) -> "FusionStageOutput":
-        candidate_manifestations = [
-            candidate.manifestation.casefold()
-            for candidate in self.unselected_candidate_summaries
-        ]
-        if len(set(candidate_manifestations)) != len(candidate_manifestations):
-            raise ValueError(
-                "unselected candidate manifestations must be unique"
-            )
-        selected_values = {
-            self.selected_fusion_method.casefold(),
-            self.final_manifestation.casefold(),
-        }
-        if any(
-            manifestation in selected_values
-            for manifestation in candidate_manifestations
-        ):
-            raise ValueError(
-                "an unselected candidate cannot equal the selected fusion result"
-            )
-        if self.self_check == "pass" and self.self_check_failures:
-            raise ValueError("a passed fusion result cannot contain failures")
-        if self.self_check == "fail" and not self.self_check_failures:
-            raise ValueError("a failed fusion result must contain failures")
-        return self
-
 
 class ImageWorkflowExecutionContract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -942,16 +633,8 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     frame_id: str
     generation_attempt: Literal[1] = 1
     random_seed: int = Field(ge=1, le=2**64 - 1)
-    target_visual_anchor_instance_count: Literal[1] = 1
     selected_fusion_method: str
     final_manifestation: str
-    protected_fact_checks: list[ProtectedFactCheck] = Field(min_length=1)
-    primary_subject_name: str
-    primary_subject_preserved: Literal[True]
-    primary_subject_final_prompt_evidence: str
-    visual_anchor_replaces_primary_subject: Literal[False]
-    identity_trait_checks: list[IdentityTraitCheck] = Field(min_length=1)
-    single_instance_prompt_evidence: str
     final_positive_prompt: str
     final_negative_prompt: str
     identity_profile_id: str
@@ -978,7 +661,21 @@ class VisualAnchorImageGenerationRequest(BaseModel):
         normalized = dict(value)
         normalized.pop("preflight_review_prompt_version", None)
         normalized.pop("preflight_review_decision", None)
-        if normalized.get("request_version") == "visual_anchor_generation_request.v3":
+        for field_name in (
+            "target_visual_anchor_instance_count",
+            "protected_fact_checks",
+            "primary_subject_name",
+            "primary_subject_preserved",
+            "primary_subject_final_prompt_evidence",
+            "visual_anchor_replaces_primary_subject",
+            "identity_trait_checks",
+            "single_instance_prompt_evidence",
+        ):
+            normalized.pop(field_name, None)
+        if normalized.get("request_version") in {
+            "visual_anchor_generation_request.v3",
+            "visual_anchor_generation_request.v4",
+        }:
             normalized["request_version"] = GENERATION_REQUEST_VERSION
         return normalized
 
@@ -987,9 +684,6 @@ class VisualAnchorImageGenerationRequest(BaseModel):
         "frame_id",
         "selected_fusion_method",
         "final_manifestation",
-        "single_instance_prompt_evidence",
-        "primary_subject_name",
-        "primary_subject_final_prompt_evidence",
         "final_positive_prompt",
         "identity_profile_id",
         "identity_display_name",
@@ -1016,138 +710,6 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             raise ValueError("identity_core_traits must not be empty")
         return result
 
-    @model_validator(mode="after")
-    def _validate_image_model_boundary(self) -> "VisualAnchorImageGenerationRequest":
-        prompt_boundary = (
-            f"{self.final_positive_prompt}\n{self.final_negative_prompt}"
-        ).casefold()
-        if any(
-            _contains_forbidden_term(prompt_boundary, term)
-            for term in _FORBIDDEN_IMAGE_PROMPT_TERMS
-        ):
-            raise ValueError(
-                "image generation prompts cannot contain candidate or planning language"
-            )
-        normalized_positive = " ".join(self.final_positive_prompt.split()).casefold()
-        if any(not check.preserved for check in self.protected_fact_checks):
-            raise ValueError(
-                "image generation request cannot contain an unpreserved protected fact"
-            )
-        for check in self.protected_fact_checks:
-            evidence = " ".join(check.final_image_evidence.split()).casefold()
-            if evidence not in normalized_positive:
-                raise ValueError(
-                    "protected-fact evidence must be present in the image prompt"
-                )
-        trait_names = [check.trait.casefold() for check in self.identity_trait_checks]
-        expected_trait_names = [trait.casefold() for trait in self.identity_core_traits]
-        if (
-            len(set(trait_names)) != len(trait_names)
-            or set(trait_names) != set(expected_trait_names)
-            or len(trait_names) != len(expected_trait_names)
-        ):
-            raise ValueError(
-                "image generation request identity-trait checks must exactly cover the identity profile"
-            )
-        identity_evidence_values: list[str] = []
-        normalized_identity_name = self.identity_display_name.casefold()
-        for check in self.identity_trait_checks:
-            if not check.preserved:
-                raise ValueError(
-                    "image generation request cannot drop a core identity trait"
-                )
-            evidence = " ".join(check.final_prompt_evidence.split()).casefold()
-            normalized_trait = " ".join(check.trait.split()).casefold()
-            if (
-                (
-                    evidence == normalized_identity_name
-                    and normalized_trait != normalized_identity_name
-                )
-                or evidence not in normalized_positive
-            ):
-                raise ValueError(
-                    "identity-trait evidence must be present in the image prompt"
-                )
-            identity_evidence_values.append(evidence)
-        if len(set(identity_evidence_values)) != len(identity_evidence_values):
-            raise ValueError(
-                "each identity trait must have distinct visible prompt evidence"
-            )
-        instance_evidence = " ".join(
-            self.single_instance_prompt_evidence.split()
-        ).casefold()
-        if instance_evidence not in normalized_positive or not any(
-            _contains_forbidden_term(instance_evidence, term)
-            for term in _SINGLE_INSTANCE_PROMPT_TERMS
-        ):
-            raise ValueError(
-                "image generation request must explicitly describe exactly one identity instance"
-            )
-        if not _contains_forbidden_term(
-            instance_evidence,
-            normalized_identity_name,
-        ):
-            raise ValueError(
-                "image generation request single-instance evidence must identify the selected identity"
-            )
-        primary_evidence = " ".join(
-            self.primary_subject_final_prompt_evidence.split()
-        ).casefold()
-        if not primary_evidence or primary_evidence not in normalized_positive:
-            raise ValueError(
-                "primary-subject evidence must be present in the image prompt"
-            )
-        if self.identity_conditioning_mode == "reference_image":
-            if self.identity_reference_condition is None:
-                raise ValueError(
-                    "reference-image generation requires a real reference condition"
-                )
-            expected_reference_version = (
-                f"reference-image:{self.identity_reference_condition.asset_sha256}"
-            )
-            if (
-                self.identity_reference_condition.resource_version
-                != expected_reference_version
-            ):
-                raise ValueError(
-                    "identity reference resource version must match its immutable digest"
-                )
-        elif self.identity_reference_condition is not None:
-            raise ValueError(
-                "text-profile generation cannot include a reference-image condition"
-            )
-        for fragment in self.target_visual_style.required_final_prompt_fragments:
-            if fragment.casefold() not in normalized_positive:
-                raise ValueError(
-                    "image generation prompt dropped a required global style fragment"
-                )
-        normalized_negative = " ".join(self.final_negative_prompt.split()).casefold()
-        if self.negative_prompt_supported:
-            for fragment in self.target_visual_style.required_negative_prompt_fragments:
-                if fragment.casefold() not in normalized_negative:
-                    raise ValueError(
-                        "image generation prompt dropped a required negative style fragment"
-                    )
-        if self.visible_text_policy.suppress_visible_text:
-            if (
-                not _contains_required_prompt_fragment_contract(
-                    normalized_positive,
-                    self.visible_text_policy.required_positive_prompt_fragment,
-                )
-                or (
-                    self.negative_prompt_supported
-                    and not _contains_required_prompt_fragment_contract(
-                        normalized_negative,
-                        self.visible_text_policy.required_negative_prompt_fragment,
-                    )
-                )
-            ):
-                raise ValueError(
-                    "image generation prompt dropped visible-text suppression"
-                )
-        return self
-
-
 class VisualAnchorTwoStageFrameResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1157,22 +719,6 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     fusion_stage_input: FusionStageInput
     fusion_stage_output: FusionStageOutput
     generation_request: VisualAnchorImageGenerationRequest
-    content_attempt_count: int = Field(
-        default=1,
-        ge=1,
-        le=2,
-        description="旧版审计字段；新生成结果固定为 1",
-    )
-    content_retry_validation_codes: list[ContentStageValidationCode] = Field(
-        default_factory=list,
-        description="旧版审计字段；新生成结果固定为空",
-    )
-    fusion_attempt_count: int = Field(
-        default=1,
-        ge=1,
-        le=2,
-        description="旧版审计字段；新生成结果固定为 1",
-    )
 
     @model_validator(mode="before")
     @classmethod
@@ -1182,6 +728,9 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
         normalized = dict(value)
         normalized.pop("preflight_review_input", None)
         normalized.pop("preflight_review_output", None)
+        normalized.pop("content_attempt_count", None)
+        normalized.pop("content_retry_validation_codes", None)
+        normalized.pop("fusion_attempt_count", None)
         return normalized
 
     @field_validator("frame_id", mode="before")
@@ -1189,32 +738,8 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     def _validate_frame_id(cls, value: object) -> str:
         return _text(value, "frame_id")
 
-    @field_validator("content_retry_validation_codes")
-    @classmethod
-    def _validate_content_retry_validation_codes(
-        cls,
-        value: list[ContentStageValidationCode],
-    ) -> list[ContentStageValidationCode]:
-        requested = set(value)
-        canonical = [
-            code for code in _CONTENT_STAGE_VALIDATION_CODES if code in requested
-        ]
-        if value != canonical:
-            raise ValueError(
-                "content retry validation codes must be unique and canonical"
-            )
-        return value
-
     @model_validator(mode="after")
     def _validate_cross_stage_contract(self) -> "VisualAnchorTwoStageFrameResult":
-        if self.content_attempt_count == 1 and self.content_retry_validation_codes:
-            raise ValueError(
-                "a single content attempt cannot contain retry validation codes"
-            )
-        if self.content_attempt_count > 1 and not self.content_retry_validation_codes:
-            raise ValueError(
-                "a retried content stage must record validation codes"
-            )
         frame_ids = {
             self.frame_id,
             self.content_stage_input.frame_id,
@@ -1261,32 +786,13 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
         ):
             raise ValueError("generation prompts must exactly match fusion output")
         if (
-            self.fusion_stage_output.target_visual_anchor_instance_count
-            != self.generation_request.target_visual_anchor_instance_count
-        ):
-            raise ValueError("fusion and generation instance counts must match")
-        if (
             self.generation_request.selected_fusion_method
             != self.fusion_stage_output.selected_fusion_method
             or self.generation_request.final_manifestation
             != self.fusion_stage_output.final_manifestation
-            or self.generation_request.protected_fact_checks
-            != self.fusion_stage_output.protected_fact_checks
-            or self.generation_request.identity_trait_checks
-            != self.fusion_stage_output.identity_trait_checks
-            or self.generation_request.single_instance_prompt_evidence
-            != self.fusion_stage_output.single_instance_prompt_evidence
-            or self.generation_request.primary_subject_name
-            != self.content_stage_output.primary_subject.name
-            or self.generation_request.primary_subject_preserved
-            != self.fusion_stage_output.primary_subject_preserved
-            or self.generation_request.primary_subject_final_prompt_evidence
-            != self.fusion_stage_output.primary_subject_final_prompt_evidence
-            or self.generation_request.visual_anchor_replaces_primary_subject
-            != self.fusion_stage_output.visual_anchor_replaces_primary_subject
         ):
             raise ValueError(
-                "generation request must preserve the selected fusion, fact, identity, and single-instance evidence"
+                "generation request must preserve the selected fusion result"
             )
         identity = self.fusion_stage_input.identity_profile
         if (

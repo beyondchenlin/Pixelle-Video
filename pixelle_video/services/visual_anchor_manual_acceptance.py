@@ -11,14 +11,14 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-MANUAL_ACCEPTANCE_SCHEMA_VERSION = "visual_anchor_manual_acceptance.v2"
+MANUAL_ACCEPTANCE_SCHEMA_VERSION = "visual_anchor_manual_acceptance.v3"
 _SAFE_FRAME_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 class VisualAnchorManualAcceptanceChecks(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    protected_facts_visible: bool
+    story_content_visible: bool
     identity_present: bool
     identity_instance_count_one: bool
     identity_traits_recognizable: bool
@@ -28,7 +28,7 @@ class VisualAnchorManualAcceptanceChecks(BaseModel):
     size_and_position_fit_current_composition: bool
     unique_final_plan_submitted: bool
     first_generation_reference_bound: bool
-    deterministic_fusion_and_post_audit_complete: bool
+    generation_binding_and_post_audit_complete: bool
     continuous_scene_consistency: bool
     original_first_generation_unmodified: bool
 
@@ -38,13 +38,19 @@ class VisualAnchorManualAcceptanceChecks(BaseModel):
         if not isinstance(value, dict):
             return value
         normalized = dict(value)
+        legacy_story_check = normalized.pop("protected_facts_visible", None)
+        normalized.setdefault("story_content_visible", legacy_story_check)
         legacy_value = normalized.pop(
             "preflight_and_post_audit_complete",
             None,
         )
-        normalized.setdefault(
+        deterministic_value = normalized.pop(
             "deterministic_fusion_and_post_audit_complete",
-            legacy_value,
+            None,
+        )
+        normalized.setdefault(
+            "generation_binding_and_post_audit_complete",
+            deterministic_value if deterministic_value is not None else legacy_value,
         )
         return normalized
 
@@ -83,7 +89,10 @@ class VisualAnchorManualAcceptanceRecord(BaseModel):
         if not isinstance(value, dict):
             return value
         normalized = dict(value)
-        if normalized.get("schema_version") == "visual_anchor_manual_acceptance.v1":
+        if normalized.get("schema_version") in {
+            "visual_anchor_manual_acceptance.v1",
+            "visual_anchor_manual_acceptance.v2",
+        }:
             normalized["schema_version"] = MANUAL_ACCEPTANCE_SCHEMA_VERSION
         return normalized
 

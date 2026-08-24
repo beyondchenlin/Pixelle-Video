@@ -1533,7 +1533,7 @@ class StandardPipeline(LinearVideoPipeline):
         audit = VisualAnchorRenderedOutputAudit(task_dir=ctx.task_dir)
         ctx.media_generation_max_attempts = 1
         policy = {
-            "schema_version": "visual_anchor_rendered_output_policy.v2",
+            "schema_version": "visual_anchor_rendered_output_policy.v3",
             "mode": "required",
             "max_generation_attempts": 1,
             "post_generation_role": "technical_execution_integrity_only",
@@ -1553,7 +1553,6 @@ class StandardPipeline(LinearVideoPipeline):
                 "workflow_key_and_version",
                 "first_request_workflow_binding_provenance",
                 "single_generation_attempt",
-                "passed_deterministic_fusion_validation",
             ],
         }
         snapshot = dict(ctx.planning_snapshot or {})

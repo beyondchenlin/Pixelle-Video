@@ -61,7 +61,7 @@ class VisualAnchorRenderedOutputAuditResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_rendered_output_audit.v3",
+            "schema_version": "visual_anchor_rendered_output_audit.v4",
             "status": self.status,
             "reason": self.reason,
             "audit_scope": self.audit_scope,
@@ -229,10 +229,6 @@ class VisualAnchorRenderedOutputAudit:
             ("single_generation_attempt", binding.get("generation_attempt") == 1),
             ("random_seed_preserved", binding.get("random_seed") == request.random_seed),
             (
-                "target_instance_count_one",
-                binding.get("target_visual_anchor_instance_count") == 1,
-            ),
-            (
                 "selected_fusion_method_preserved",
                 binding.get("selected_fusion_method")
                 == request.selected_fusion_method,
@@ -240,27 +236,6 @@ class VisualAnchorRenderedOutputAudit:
             (
                 "final_manifestation_preserved",
                 binding.get("final_manifestation") == request.final_manifestation,
-            ),
-            (
-                "protected_fact_checks_preserved",
-                binding.get("protected_fact_checks")
-                == [
-                    check.model_dump(mode="json")
-                    for check in request.protected_fact_checks
-                ],
-            ),
-            (
-                "identity_trait_checks_preserved",
-                binding.get("identity_trait_checks")
-                == [
-                    check.model_dump(mode="json")
-                    for check in request.identity_trait_checks
-                ],
-            ),
-            (
-                "single_instance_evidence_preserved",
-                binding.get("single_instance_prompt_evidence")
-                == request.single_instance_prompt_evidence,
             ),
             (
                 "prompt_versions_preserved",
@@ -531,37 +506,6 @@ class VisualAnchorRenderedOutputAudit:
             ("frame_id_preserved", binding.get("frame_id") == request.frame_id),
             ("single_generation_attempt", binding.get("generation_attempt") == 1),
             ("random_seed_preserved", binding.get("random_seed") == request.random_seed),
-            (
-                "target_instance_count_one",
-                binding.get("target_visual_anchor_instance_count") == 1,
-            ),
-            (
-                "protected_fact_checks_preserved",
-                binding.get("protected_fact_checks")
-                == [
-                    item.model_dump(mode="json")
-                    for item in request.protected_fact_checks
-                ],
-            ),
-            (
-                "primary_subject_preserved",
-                binding.get("primary_subject_name") == request.primary_subject_name
-                and binding.get("primary_subject_preserved") is True
-                and binding.get("visual_anchor_replaces_primary_subject") is False,
-            ),
-            (
-                "identity_trait_checks_preserved",
-                binding.get("identity_trait_checks")
-                == [
-                    item.model_dump(mode="json")
-                    for item in request.identity_trait_checks
-                ],
-            ),
-            (
-                "single_instance_evidence_preserved",
-                binding.get("single_instance_prompt_evidence")
-                == request.single_instance_prompt_evidence,
-            ),
             (
                 "prompt_versions_preserved",
                 binding.get("prompt_versions") == expected_prompt_versions,

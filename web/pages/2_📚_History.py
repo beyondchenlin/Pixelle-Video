@@ -472,16 +472,14 @@ def _render_visual_anchor_manual_acceptance_form(
     audit_checks = _mapping(audit.get("checks"))
     actual_execution = _mapping(binding_audit.get("actual_execution"))
     deterministic_checks = {
-        "唯一方案已下发": (
-            generation_request.get("target_visual_anchor_instance_count") == 1
-            and generation_request.get("generation_attempt") == 1
-        ),
+        "最终方案已下发": bool(generation_request.get("selected_fusion_method"))
+        and generation_request.get("generation_attempt") == 1,
         "真实参考已进入首次生成": (
             binding_audit.get("status") == "passed"
             and actual_execution.get("uploaded_reference_sha256")
             == reference_condition.get("asset_sha256")
         ),
-        "融合确定性校验与生成后链路审计完整": (
+        "生成绑定与生成后链路审计完整": (
             bool(generation_request.get("final_positive_prompt"))
             and binding_audit.get("status") == "passed"
             and audit.get("status") == "passed"
@@ -497,7 +495,7 @@ def _render_visual_anchor_manual_acceptance_form(
         return
 
     visual_fields = (
-        ("protected_facts_visible", "文案核心事实完整可见"),
+        ("story_content_visible", "文案核心内容完整可见"),
         ("identity_present", "目标身份真实存在"),
         ("identity_instance_count_one", "目标身份只有一个实例"),
         ("identity_traits_recognizable", "核心身份特征可识别"),
@@ -565,8 +563,8 @@ def _render_visual_anchor_manual_acceptance_form(
         first_generation_reference_bound=deterministic_checks[
             "真实参考已进入首次生成"
         ],
-        deterministic_fusion_and_post_audit_complete=deterministic_checks[
-            "融合确定性校验与生成后链路审计完整"
+        generation_binding_and_post_audit_complete=deterministic_checks[
+            "生成绑定与生成后链路审计完整"
         ],
         original_first_generation_unmodified=deterministic_checks[
             "原图与本地首次生成输出一致"
@@ -709,7 +707,7 @@ def render_visual_anchor_two_stage_evidence(
         with st.expander(
             f"分镜 {frame_number} ｜ {frame_id} ｜ 随机种子 "
             f"{generation_request.get('random_seed', 'N/A')} ｜ "
-            f"融合确定性校验 已通过 ｜ 生成后链路审计 {audit_status} ｜ "
+            f"融合结果 已生成 ｜ 生成后链路审计 {audit_status} ｜ "
             f"人工图像验收 {visual_acceptance_status}",
             expanded=False,
         ):
@@ -731,9 +729,7 @@ def render_visual_anchor_two_stage_evidence(
                     f"**随机种子：** {generation_request.get('random_seed', 'N/A')}  \n"
                     f"**生成次数：** {generation_request.get('generation_attempt', 'N/A')}  \n"
                     f"**首次生成记录时间：** "
-                    f"{binding_audit.get('recorded_at_utc') or audit.get('recorded_at_utc') or 'N/A'}  \n"
-                    f"**目标锚点实例数：** "
-                    f"{generation_request.get('target_visual_anchor_instance_count', 'N/A')}"
+                    f"{binding_audit.get('recorded_at_utc') or audit.get('recorded_at_utc') or 'N/A'}"
                 )
                 if manual_acceptance:
                     st.markdown(
@@ -756,8 +752,8 @@ def render_visual_anchor_two_stage_evidence(
                     "第一阶段纯内容画面提示词",
                     content_output.get("pure_content_prompt"),
                 )
-                st.markdown("**受保护事实**")
-                st.json(content_output.get("protected_facts") or [], expanded=True)
+                st.markdown("**场景事实**")
+                st.json(content_output.get("scene_facts") or [], expanded=True)
                 st.markdown("**可调整的非核心内容**")
                 st.json(
                     content_output.get("adjustable_non_core_content") or [],
@@ -771,33 +767,9 @@ def render_visual_anchor_two_stage_evidence(
                     "第二阶段目标画面风格",
                     fusion_input.get("target_visual_style"),
                 )
-                st.markdown("**未进入图片模型的候选摘要**")
-                st.json(
-                    fusion_output.get("unselected_candidate_summaries") or [],
-                    expanded=False,
-                )
-                st.markdown("**第二阶段非核心重构摘要**")
-                st.json(
-                    fusion_output.get("non_core_reconstruction_summary") or [],
-                    expanded=True,
-                )
-                st.markdown("**第一阶段偏差及纠正记录**")
-                st.json(
-                    fusion_output.get("content_stage_deviations") or [],
-                    expanded=True,
-                )
                 _render_prompt_evidence(
                     "视觉锚点最终表现形态",
                     fusion_output.get("final_manifestation"),
-                )
-                st.markdown("**核心身份特征与最终提示词证据**")
-                st.json(
-                    generation_request.get("identity_trait_checks") or [],
-                    expanded=True,
-                )
-                _render_prompt_evidence(
-                    "单实例提示词证据",
-                    generation_request.get("single_instance_prompt_evidence"),
                 )
                 _render_prompt_evidence(
                     "最终生图正向提示词",
@@ -884,7 +856,7 @@ def render_visual_anchor_two_stage_evidence(
                     f"{' → '.join(reference_condition.get('binding_path_node_ids') or []) or 'N/A'}"
                 )
 
-            st.markdown("**融合确定性校验与生成后审计**")
+            st.markdown("**生成绑定与生成后审计**")
             st.json(
                 {
                     "融合后图片生成请求": generation_request,
