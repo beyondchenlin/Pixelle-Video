@@ -520,6 +520,7 @@ def test_signature_enabled_requires_non_none_role():
         ({"role": SeriesVisualSignatureRole.GUIDE}, "role"),
         ({"profile": _signature_profile()}, "profile"),
         ({"max_area_ratio": 0.1}, "max_area_ratio"),
+        ({"relative_size": "medium"}, "relative_size"),
     ],
 )
 def test_signature_disabled_rejects_contradictory_presence_fields(

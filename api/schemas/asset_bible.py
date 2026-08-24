@@ -639,7 +639,12 @@ class PromptPlanProjectionPromptPlanResponse(BaseModel):
         default=None,
         pattern=r"^[0-9a-f]{64}$",
     )
-    contract_version: str | None = None
+    contract_version: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+    )
     source_trace_id: str | None = None
     character_ids: list[str] = Field(default_factory=list)
     scene_id: str | None = None
@@ -672,13 +677,6 @@ class PromptPlanProjectionPromptPlanResponse(BaseModel):
     def validate_final_negative_prompt(cls, value: str | None) -> str | None:
         if value is not None and _contains_path_or_url_reference(value):
             raise ValueError("final_negative_prompt must not contain path-like references")
-        return value
-
-    @field_validator("contract_version")
-    @classmethod
-    def validate_contract_version(cls, value: str | None) -> str | None:
-        if value is not None and _contains_path_or_url_reference(value):
-            raise ValueError("contract_version must not contain path-like references")
         return value
 
     @field_validator("source_trace_id", "scene_id", "style_id")
