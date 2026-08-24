@@ -15,17 +15,17 @@ from pixelle_video.models.llm_interaction_trace import (
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
+    CONTENT_PROMPT_PASSTHROUGH_VERSION,
     CONTENT_STAGE_PROMPT_VERSION,
+    FUSION_PROMPT_PASSTHROUGH_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
-    RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION,
-    RAW_FUSION_PROMPT_PASSTHROUGH_VERSION,
     ContentStageInput,
+    ContentStagePromptPassthrough,
     ContinuousSceneContext,
     FusionStageInput,
+    FusionStagePromptPassthrough,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
-    RawContentStageOutput,
-    RawFusionStageOutput,
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
@@ -74,7 +74,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v7",
+            "schema_version": "visual_anchor_two_stage_batch.v8",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -246,7 +246,7 @@ class VisualAnchorTwoStageService:
         }
 
         scene_ids = _continuous_scene_ids(storyboard_plan.frames)
-        decisions_by_scene: dict[str, RawFusionStageOutput] = {}
+        decisions_by_scene: dict[str, FusionStagePromptPassthrough] = {}
         results: list[VisualAnchorTwoStageFrameResult] = []
         for index, frame in enumerate(storyboard_plan.frames):
             frame_result = await self._run_frame(
@@ -285,7 +285,7 @@ class VisualAnchorTwoStageService:
         frame: StoryboardPlanFrame,
         frame_index: int,
         scene_id: str,
-        existing_fusion_decision: RawFusionStageOutput | None,
+        existing_fusion_decision: FusionStagePromptPassthrough | None,
         identity_profile: VisualAnchorIdentityProfile,
         identity_reference_condition: IdentityReferenceCondition | None,
         identity_conditioning_mode: str,
@@ -368,7 +368,7 @@ class VisualAnchorTwoStageService:
             next_frame_summary=next_summary,
             continuity_anchors=list(frame.continuity_anchors),
             existing_fusion_decision=(
-                existing_fusion_decision.final_positive_prompt
+                existing_fusion_decision.raw_prompt
                 if existing_fusion_decision is not None
                 else "无既有融合结果（当前连续场景首镜或独立镜头）"
             ),
@@ -433,8 +433,8 @@ class VisualAnchorTwoStageService:
             selected_fusion_method="",
             final_manifestation="",
             prompt_assembly_trace=None,
-            final_positive_prompt=fusion_output.final_positive_prompt,
-            final_negative_prompt=fusion_output.final_negative_prompt,
+            final_positive_prompt=fusion_output.raw_prompt,
+            final_negative_prompt="",
             identity_profile_id=identity_profile.profile_id,
             identity_display_name=identity_profile.display_name,
             identity_core_traits=identity_profile.core_identity_traits,
@@ -470,7 +470,7 @@ class VisualAnchorTwoStageService:
         trace_context: LLMTraceContext | None,
         trace_recorder,
         call_audit: _SinglePassStageCallAudit | None = None,
-    ) -> RawContentStageOutput:
+    ) -> ContentStagePromptPassthrough:
         resolved_call_audit = call_audit or _SinglePassStageCallAudit(
             stage="visual_anchor_content_stage",
             frame_id=stage_input.frame_id,
@@ -486,9 +486,9 @@ class VisualAnchorTwoStageService:
             max_tokens=4096,
             call_audit=resolved_call_audit,
         )
-        return RawContentStageOutput(
-            prompt_assembly_version=RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION,
-            pure_content_prompt=raw_prompt,
+        return ContentStagePromptPassthrough(
+            passthrough_version=CONTENT_PROMPT_PASSTHROUGH_VERSION,
+            raw_prompt=raw_prompt,
         )
 
     async def _run_fusion_stage(
@@ -499,7 +499,7 @@ class VisualAnchorTwoStageService:
         trace_context: LLMTraceContext | None,
         trace_recorder,
         call_audit: _SinglePassStageCallAudit,
-    ) -> RawFusionStageOutput:
+    ) -> FusionStagePromptPassthrough:
         raw_prompt = await self._call_text(
             llm_service=llm_service,
             prompt_id="visual_anchor_fusion_stage",
@@ -511,11 +511,9 @@ class VisualAnchorTwoStageService:
             max_tokens=4096,
             call_audit=call_audit,
         )
-        return RawFusionStageOutput(
-            prompt_assembly_version=RAW_FUSION_PROMPT_PASSTHROUGH_VERSION,
-            base_content_prompt=stage_input.content_stage_output.pure_content_prompt,
-            final_positive_prompt=raw_prompt,
-            final_negative_prompt="",
+        return FusionStagePromptPassthrough(
+            passthrough_version=FUSION_PROMPT_PASSTHROUGH_VERSION,
+            raw_prompt=raw_prompt,
         )
 
     @staticmethod
@@ -552,6 +550,7 @@ class VisualAnchorTwoStageService:
             trace_context=call_trace_context,
             trace_recorder=trace_recorder,
             single_request=True,
+            allow_blank_text_response=True,
         )
         return response
 

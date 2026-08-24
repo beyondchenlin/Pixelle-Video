@@ -774,6 +774,7 @@ class FrameProcessor:
             workflow_param_trace = build_workflow_params_trace(
                 workflow_params_for_trace,
                 prompt=frame.image_prompt or "",
+                preserve_prompt_verbatim=visual_anchor_request is not None,
             )
             if workflow_param_trace:
                 media_params["media_prompt_trace_context"] = (
@@ -819,6 +820,7 @@ class FrameProcessor:
                         },
                         workflow_params=workflow_params_for_trace,
                         task_root=trace_context.get("task_root"),
+                        preserve_prompt_verbatim=visual_anchor_request is not None,
                     )
                 )
             else:
@@ -833,6 +835,7 @@ class FrameProcessor:
                     media_width=config.media_width,
                     media_height=config.media_height,
                     task_root=trace_context.get("task_root"),
+                    preserve_prompt_verbatim=visual_anchor_request is not None,
                 )
 
         # Call Media generation

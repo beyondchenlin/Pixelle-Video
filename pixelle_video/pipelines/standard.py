@@ -163,10 +163,6 @@ from pixelle_video.services.video_cover import ensure_video_cover
 from pixelle_video.services.visual_anchor_reference_condition import (
     inspect_identity_reference_workflow,
 )
-from pixelle_video.services.visual_anchor_rendered_output_audit import (
-    VisualAnchorRenderedOutputAudit,
-    VisualAnchorRenderedOutputAuditError,
-)
 from pixelle_video.services.visual_anchor_two_stage_service import (
     resolve_registered_random_seeds,
 )
@@ -867,12 +863,14 @@ class StandardPipeline(LinearVideoPipeline):
         visual_story_context = None
         if series_visual_signature_request.enabled:
             ctx.observability["visual_anchor_visual_planning"] = {
-                "schema_version": "visual_anchor_visual_planning.v4",
+                "schema_version": "visual_anchor_visual_planning.v5",
                 "route_model_call_count": 0,
                 "frame_planning_model_call_count": 0,
                 "prompt_chain": "content_raw_response_then_fusion_raw_response",
                 "minimum_prompt_model_calls_per_frame": 2,
                 "image_generation_attempts_per_frame": 1,
+                "model_output_passthrough_enabled": True,
+                "post_generation_local_validation_enabled": False,
                 "post_generation_local_content_validation_enabled": False,
             }
         elif bool(ctx.params.get("visual_story_engine_enabled", True)):
@@ -1377,7 +1375,7 @@ class StandardPipeline(LinearVideoPipeline):
         snapshot = dict(ctx.planning_snapshot or {})
         two_stage_payload = snapshot.get("visual_anchor_two_stage")
         if isinstance(two_stage_payload, Mapping) and two_stage_payload.get("frames"):
-            self._configure_visual_anchor_two_stage_output_audit(
+            self._configure_visual_anchor_two_stage_passthrough_policy(
                 ctx,
                 media_type=media_type,
                 payload=two_stage_payload,
@@ -1503,7 +1501,7 @@ class StandardPipeline(LinearVideoPipeline):
             "series_visual_signature_single_pass_policy"
         ] = policy_audit
 
-    def _configure_visual_anchor_two_stage_output_audit(
+    def _configure_visual_anchor_two_stage_passthrough_policy(
         self,
         ctx: PipelineContext,
         *,
@@ -1530,105 +1528,34 @@ class StandardPipeline(LinearVideoPipeline):
                 "visual-anchor output audit contract coverage must match runtime frames"
             )
 
-        audit = VisualAnchorRenderedOutputAudit(task_dir=ctx.task_dir)
         ctx.media_generation_max_attempts = 1
+        ctx.generated_media_validator = None
         policy = {
-            "schema_version": "visual_anchor_rendered_output_policy.v3",
-            "mode": "required",
+            "schema_version": "visual_anchor_two_stage_passthrough_policy.v1",
+            "mode": "pre_generation_prompt_only",
             "max_generation_attempts": 1,
-            "post_generation_role": "technical_execution_integrity_only",
+            "model_output_passthrough_enabled": True,
+            "post_generation_local_validation_enabled": False,
             "semantic_quality_judgment_enabled": False,
             "vision_model_call_enabled": False,
             "prompt_repair_enabled": False,
             "regeneration_enabled": False,
             "seed_replacement_enabled": False,
             "fixed_size_or_position_rule": False,
-            "deterministic_checks": [
-                "generated_image_hash",
-                "identity_conditioning_mode",
-                "task_frame_seed_binding",
-                "prompt_hashes",
-                "prompt_versions",
-                "identity_profile_and_optional_reference_versions",
-                "workflow_key_and_version",
-                "first_request_workflow_binding_provenance",
-                "single_generation_attempt",
+            "pre_generation_integrity_checks": [
+                "stable_unique_frame_ids",
+                "complete_generation_request_coverage",
             ],
         }
         snapshot = dict(ctx.planning_snapshot or {})
-        snapshot["visual_anchor_rendered_output_policy"] = policy
+        snapshot["visual_anchor_two_stage_passthrough_policy"] = policy
         ctx.planning_snapshot = snapshot
         ctx.storyboard.planning_snapshot = dict(
             ctx.storyboard.planning_snapshot or {}
         )
-        ctx.storyboard.planning_snapshot["visual_anchor_rendered_output_policy"] = policy
-
-        async def validate_generated_frame(
-            frame: StoryboardFrame,
-            generation_attempt: int,
-        ) -> bool:
-            if generation_attempt != 0:
-                raise ValueError(
-                    "visual-anchor rendered output audit cannot run on a retry image"
-                )
-            frame_id = str(frame.frame_id or "").strip()
-            contract = frame_contracts.get(frame_id)
-            if contract is None:
-                raise ValueError(
-                    "visual-anchor rendered output audit received an unknown frame"
-                )
-            if not frame.image_path:
-                raise ValueError(
-                    "visual-anchor rendered output audit requires a generated image"
-                )
-            try:
-                result = await audit.evaluate(
-                    image_path=frame.image_path,
-                    frame_result=contract,
-                )
-            except VisualAnchorRenderedOutputAuditError as exc:
-                if exc.result is not None:
-                    self._record_visual_anchor_two_stage_output_audit(
-                        ctx,
-                        frame_id=frame_id,
-                        result=exc.result.to_dict(),
-                    )
-                raise
-            self._record_visual_anchor_two_stage_output_audit(
-                ctx,
-                frame_id=frame_id,
-                result=result.to_dict(),
-            )
-            return True
-
-        ctx.generated_media_validator = validate_generated_frame
-
-    @staticmethod
-    def _record_visual_anchor_two_stage_output_audit(
-        ctx: PipelineContext,
-        *,
-        frame_id: str,
-        result: Mapping[str, Any],
-    ) -> None:
-        snapshot = dict(ctx.planning_snapshot or {})
-        audits = {
-            str(key): dict(value)
-            for key, value in dict(
-                snapshot.get("visual_anchor_rendered_output_audit_by_frame") or {}
-            ).items()
-            if isinstance(value, Mapping)
-        }
-        audits[frame_id] = dict(result)
-        snapshot["visual_anchor_rendered_output_audit_by_frame"] = audits
-        ctx.planning_snapshot = snapshot
-        ctx.observability["visual_anchor_rendered_output_audit_by_frame"] = audits
-        if ctx.storyboard is not None:
-            ctx.storyboard.planning_snapshot = dict(
-                ctx.storyboard.planning_snapshot or {}
-            )
-            ctx.storyboard.planning_snapshot[
-                "visual_anchor_rendered_output_audit_by_frame"
-            ] = audits
+        ctx.storyboard.planning_snapshot[
+            "visual_anchor_two_stage_passthrough_policy"
+        ] = policy
 
     def _write_series_visual_signature_trace_artifacts(self, ctx: PipelineContext) -> None:
         if not ctx.task_dir or not ctx.planning_snapshot:

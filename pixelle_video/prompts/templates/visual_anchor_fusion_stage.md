@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_fusion_stage
-version: visual_anchor_fusion_stage.v14
+version: visual_anchor_fusion_stage.v15
 stage: visual_anchor_fusion_stage
 purpose: 直接生成包含视觉身份融合结果的最终图片提示词
 output_contract: raw_image_prompt_text
@@ -10,7 +10,7 @@ output_contract: raw_image_prompt_text
 输入数据：
 {input_json}
 
-请直接写出一段能够送入图片模型的最终图片提示词。完整保留 content_stage_output.pure_content_prompt 的画面主旨和关键事实，再把 identity_profile 所描述的唯一视觉身份自然融合到当前场景中。
+请直接写出一段能够送入图片模型的最终图片提示词。完整保留 content_stage_output.raw_prompt 的画面主旨和关键事实，再把 identity_profile 所描述的唯一视觉身份自然融合到当前场景中。
 
 不可改变的边界：
 1. 保留原始分镜和纯内容提示词中的人物、身份、数量、关键动作、关键物品、事件关系、时间和地点。

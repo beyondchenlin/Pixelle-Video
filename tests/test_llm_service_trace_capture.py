@@ -214,6 +214,40 @@ async def test_llm_service_records_successful_text_calls_at_gateway(monkeypatch)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("raw_response", ["", "   \n"])
+async def test_llm_service_preserves_blank_text_only_for_explicit_passthrough(
+    monkeypatch,
+    raw_response,
+):
+    fake_client, _ = _fake_client(
+        base_url="https://api.deepseek.com/v1",
+        content=raw_response,
+    )
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    recorder, raw_store, trace_repository = _recorder(
+        f"trace_blank_passthrough_{len(raw_response)}"
+    )
+
+    result = await service(
+        prompt="Return the final prompt verbatim",
+        model="deepseek-chat",
+        allow_blank_text_response=True,
+        trace_context=LLMTraceContext(
+            workspace_id="workspace_1",
+            task_id="task_123",
+            operation="visual_anchor_generation",
+            stage="fusion",
+        ),
+        trace_recorder=recorder,
+    )
+
+    assert result == raw_response
+    assert raw_store.payloads[1]["payload"]["content"] == raw_response
+    assert trace_repository.appended[0]["trace"]["status"] == "success"
+
+
+@pytest.mark.asyncio
 async def test_llm_service_records_and_sanitizes_client_initialization_failure(monkeypatch):
     service = LLMService({})
 

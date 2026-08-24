@@ -182,6 +182,7 @@ class LLMService:
         trace_context: Optional[LLMTraceContext] = None,
         trace_recorder: Optional[LLMInteractionRecorder] = None,
         single_request: bool = False,
+        allow_blank_text_response: bool = False,
         **kwargs
     ) -> Union[str, T, dict[str, Any]]:
         """
@@ -200,6 +201,8 @@ class LLMService:
                           - If None, returns raw text string
             single_request: Require one provider request by disabling transport retries
                             and structured-output fallback requests
+            allow_blank_text_response: Preserve an empty or whitespace-only provider text
+                                      response. Only valid for unstructured text output.
             **kwargs: Additional provider-specific parameters
 
         Returns:
@@ -236,6 +239,12 @@ class LLMService:
             raise LLMTraceRequiredError(LLM_TRACE_REQUIRED_MESSAGE)
         if not isinstance(single_request, bool):
             raise TypeError("single_request must be a boolean")
+        if not isinstance(allow_blank_text_response, bool):
+            raise TypeError("allow_blank_text_response must be a boolean")
+        if allow_blank_text_response and response_type is not None:
+            raise ValueError(
+                "allow_blank_text_response is only valid for unstructured text output"
+            )
         _validate_llm_call_arguments(
             prompt=prompt,
             temperature=temperature,
@@ -269,6 +278,7 @@ class LLMService:
                     trace_context=trace_context,
                     trace_recorder=trace_recorder,
                     single_request=single_request,
+                    allow_blank_text_response=allow_blank_text_response,
                     **kwargs,
                 )
         except LLMTraceRecordingError:
@@ -311,6 +321,7 @@ class LLMService:
         trace_context: LLMTraceContext,
         trace_recorder: LLMInteractionRecorder,
         single_request: bool,
+        allow_blank_text_response: bool,
         **kwargs: Any,
     ) -> Union[str, T, dict[str, Any]]:
         final_model = model
@@ -416,6 +427,7 @@ class LLMService:
                     await self._normalize_response_with_trace(
                         response=response,
                         require_text=True,
+                        allow_blank_text=allow_blank_text_response,
                         provider=str(client.base_url or ""),
                         model=final_model,
                         request_payload=request_payload,
@@ -424,7 +436,11 @@ class LLMService:
                         started_at=started_at,
                     )
                 )
-                result = normalized.require_text(model=final_model)
+                result = (
+                    normalized.require_content(model=final_model)
+                    if allow_blank_text_response
+                    else normalized.require_text(model=final_model)
+                )
                 logger.debug(f"LLM response length: {len(result)} chars")
                 await self._record_llm_trace(
                     trace_context=trace_context,
@@ -1091,6 +1107,7 @@ class LLMService:
         *,
         response: Any,
         require_text: bool,
+        allow_blank_text: bool = False,
         provider: str,
         model: str,
         request_payload: Mapping[str, Any],
@@ -1107,7 +1124,10 @@ class LLMService:
         try:
             normalized = normalize_chat_completion(response, model=model)
             if require_text:
-                normalized.require_text(model=model)
+                if allow_blank_text:
+                    normalized.require_content(model=model)
+                else:
+                    normalized.require_text(model=model)
         except LLMResponseContractError as exc:
             await self._record_llm_trace(
                 trace_context=trace_context,

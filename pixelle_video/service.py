@@ -1234,13 +1234,28 @@ def _validate_comfykit_media_prompt_trace_boundary(
             )
         return None
 
-    trace_prompt = _extract_prompt_from_workflow_params(workflow_params)
-    if not trace_prompt:
-        trace_prompt = str(media_prompt_trace_context.get("prompt") or "").strip()
-    if not trace_prompt:
-        raise ValueError(
-            "media_prompt_trace_context prompt is required before media workflow execution"
+    preserve_prompt_verbatim = (
+        media_prompt_trace_context.get("preserve_prompt_verbatim") is True
+    )
+    if preserve_prompt_verbatim:
+        workflow_prompt = _workflow_param_value(workflow_params, ("prompt",))
+        trace_prompt = (
+            workflow_prompt
+            if isinstance(workflow_prompt, str)
+            else media_prompt_trace_context.get("prompt")
         )
+        if not isinstance(trace_prompt, str):
+            raise ValueError(
+                "media_prompt_trace_context prompt must be a string before media workflow execution"
+            )
+    else:
+        trace_prompt = _extract_prompt_from_workflow_params(workflow_params)
+        if not trace_prompt:
+            trace_prompt = str(media_prompt_trace_context.get("prompt") or "").strip()
+        if not trace_prompt:
+            raise ValueError(
+                "media_prompt_trace_context prompt is required before media workflow execution"
+            )
 
     resolved_media_type = (
         str(effective_media_type or "").strip()
@@ -1269,6 +1284,7 @@ def _validate_comfykit_media_prompt_trace_boundary(
     workflow_param_trace = build_workflow_params_trace(
         trace_params,
         prompt=trace_prompt,
+        preserve_prompt_verbatim=preserve_prompt_verbatim,
     )
     trace_context = require_media_prompt_trace_context(
         media_prompt_trace_context,

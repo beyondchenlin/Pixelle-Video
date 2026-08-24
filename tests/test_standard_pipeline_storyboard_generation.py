@@ -407,6 +407,48 @@ def test_standard_pipeline_uses_single_pass_without_output_inspection(
     assert policy["prompt_repair_enabled"] is False
 
 
+def test_visual_anchor_passthrough_has_no_post_generation_local_validator(
+    tmp_path,
+) -> None:
+    frame_id = "frame-raw-passthrough"
+    ctx = PipelineContext(input_text="Scene.", params={})
+    ctx.task_id = "task-raw-passthrough"
+    ctx.task_dir = str(tmp_path)
+    config = StoryboardConfig(
+        task_id=ctx.task_id,
+        media_width=1024,
+        media_height=1024,
+    )
+    ctx.storyboard = Storyboard(
+        title="Test",
+        config=config,
+        frames=[
+            StoryboardFrame(
+                index=0,
+                frame_id=frame_id,
+                narration="Scene.",
+                image_prompt="   \n",
+            )
+        ],
+    )
+    ctx.planning_snapshot = {
+        "visual_anchor_two_stage": {"frames": [{"frame_id": frame_id}]}
+    }
+
+    StandardPipeline(_DummyCore())._configure_series_visual_signature_single_pass_policy(
+        ctx,
+        media_type="image",
+    )
+
+    assert ctx.generated_media_validator is None
+    assert ctx.media_generation_max_attempts == 1
+    policy = ctx.planning_snapshot["visual_anchor_two_stage_passthrough_policy"]
+    assert policy["model_output_passthrough_enabled"] is True
+    assert policy["post_generation_local_validation_enabled"] is False
+    assert policy["vision_model_call_enabled"] is False
+    assert "visual_anchor_rendered_output_policy" not in ctx.planning_snapshot
+
+
 def test_output_validation_rejects_missing_runtime_frame_identity_before_media(
     tmp_path,
 ) -> None:
@@ -813,12 +855,14 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
     assert list(scene_casts_by_frame) == [plan.frames[0].frame_id]
     assert scene_casts_by_frame[plan.frames[0].frame_id]["metadata"]["ip_presence_type"] == "scene_integrated"
     assert ctx.observability["visual_anchor_visual_planning"] == {
-        "schema_version": "visual_anchor_visual_planning.v4",
+        "schema_version": "visual_anchor_visual_planning.v5",
         "route_model_call_count": 0,
         "frame_planning_model_call_count": 0,
         "prompt_chain": "content_raw_response_then_fusion_raw_response",
         "minimum_prompt_model_calls_per_frame": 2,
         "image_generation_attempts_per_frame": 1,
+        "model_output_passthrough_enabled": True,
+        "post_generation_local_validation_enabled": False,
         "post_generation_local_content_validation_enabled": False,
     }
 

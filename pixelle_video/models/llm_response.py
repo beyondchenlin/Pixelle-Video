@@ -38,14 +38,20 @@ class NormalizedChatCompletion:
     finish_reason: str | None
     has_tool_calls: bool
 
-    def require_text(self, *, model: str) -> str:
+    def require_content(self, *, model: str) -> str:
+        """Return provider text verbatim, including an empty or whitespace-only string."""
+
         if self.content is None:
             reason = "tool_call_only" if self.has_tool_calls else "content_missing"
             raise LLMEmptyResponseError(
                 _empty_response_message(model=model, reason=reason, finish_reason=self.finish_reason),
                 reason=reason,
             )
-        if not self.content.strip():
+        return self.content
+
+    def require_text(self, *, model: str) -> str:
+        content = self.require_content(model=model)
+        if not content.strip():
             raise LLMEmptyResponseError(
                 _empty_response_message(
                     model=model,
@@ -54,7 +60,7 @@ class NormalizedChatCompletion:
                 ),
                 reason="content_blank",
             )
-        return self.content
+        return content
 
 
 def normalize_chat_completion(response: Any, *, model: str) -> NormalizedChatCompletion:
