@@ -57,8 +57,11 @@ def test_quality_gate_rejects_replacement_language():
         )
 
 
-def test_quality_gate_accepts_content_bound_action_contract():
-    VisualStoryQualityGate().assert_valid(_plan_with_fusion("operate the explanatory model"))
+def test_quality_gate_rejects_active_content_bound_action_contract():
+    with pytest.raises(ValueError, match="active recurring-IP planning is forbidden"):
+        VisualStoryQualityGate().assert_valid(
+            _plan_with_fusion("operate the explanatory model")
+        )
 
 
 def test_quality_gate_rejects_missing_expected_frame_coverage():

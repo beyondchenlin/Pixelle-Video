@@ -78,14 +78,12 @@ async def test_batch_orchestrator_preserves_bare_single_frame_batch_response():
                     for frame_id in first_batch_ids
                 ]
             },
-            {"frame_ip_fusion_plans": [{"frame_id": frame_id} for frame_id in first_batch_ids]},
             {
                 "frame_id": "frame-5",
                 "source_text": "frame-5",
                 "visual_task": "explain",
                 "required_subjects": ["frame-5"],
             },
-            {"frame_id": "frame-5"},
         ]
     )
 
@@ -106,7 +104,7 @@ async def test_batch_orchestrator_preserves_bare_single_frame_batch_response():
         batch_size=4,
     )
 
-    assert llm.call_count == 4
+    assert llm.call_count == 2
     assert [item["frame_id"] for item in result.frame_visual_plans] == [
         "frame-1",
         "frame-2",
