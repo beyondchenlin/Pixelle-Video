@@ -191,18 +191,58 @@ class FinalVisualPromptContract:
 
 
 @dataclass(frozen=True)
+class RawModelPromptContract:
+    """A model-produced prompt retained without local content interpretation."""
+
+    raw_prompt: str
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    version: str = "raw_model_prompt_contract.v1"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.raw_prompt, str):
+            raise TypeError("raw_prompt must be a string")
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata or {}))
+        object.__setattr__(self, "version", _require_non_empty("version", self.version))
+
+    def prompt_sections(self) -> dict[str, str]:
+        return {"scene": self.raw_prompt}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "raw_prompt": self.raw_prompt,
+            "metadata": _detach_metadata(self.metadata),
+        }
+
+
+@dataclass(frozen=True)
 class RenderedMediaPrompt:
     prompt: str
     negative_prompt: str | None
-    prompt_contract: FinalVisualPromptContract | FinalVisualPromptContractV46
+    prompt_contract: (
+        FinalVisualPromptContract
+        | FinalVisualPromptContractV46
+        | RawModelPromptContract
+    )
     renderer_id: str
     renderer_version: str
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    preserve_prompt_verbatim: bool = False
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "prompt", _require_non_empty("prompt", self.prompt))
+        if not isinstance(self.preserve_prompt_verbatim, bool):
+            raise TypeError("preserve_prompt_verbatim must be a boolean")
+        if self.preserve_prompt_verbatim:
+            if not isinstance(self.prompt, str):
+                raise TypeError("prompt must be a string")
+        else:
+            object.__setattr__(self, "prompt", _require_non_empty("prompt", self.prompt))
         if self.negative_prompt is not None:
-            object.__setattr__(self, "negative_prompt", _optional_prompt(self.negative_prompt))
+            if self.preserve_prompt_verbatim:
+                if not isinstance(self.negative_prompt, str):
+                    raise TypeError("negative_prompt must be a string")
+            else:
+                object.__setattr__(self, "negative_prompt", _optional_prompt(self.negative_prompt))
         object.__setattr__(self, "renderer_id", _require_non_empty("renderer_id", self.renderer_id))
         object.__setattr__(self, "renderer_version", _require_non_empty("renderer_version", self.renderer_version))
         object.__setattr__(
@@ -221,7 +261,7 @@ class RenderedMediaPrompt:
         return _detach_metadata(self.metadata, allow_trace_keys=True)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "prompt": self.prompt,
             "negative_prompt": self.negative_prompt,
             "prompt_contract": self.prompt_contract.to_dict(),
@@ -229,6 +269,9 @@ class RenderedMediaPrompt:
             "renderer_version": self.renderer_version,
             "metadata": self.metadata_to_dict(),
         }
+        if self.preserve_prompt_verbatim:
+            payload["preserve_prompt_verbatim"] = True
+        return payload
 
 
 def join_rendered_negative_prompts(rendered_prompts: Sequence[RenderedMediaPrompt]) -> str | None:
@@ -434,7 +477,11 @@ def _sanitize_v44_contract_metadata(value: Any) -> dict[str, Any]:
 
 def _rendered_prompt_metadata(
     metadata: Mapping[str, Any],
-    prompt_contract: FinalVisualPromptContract | FinalVisualPromptContractV46,
+    prompt_contract: (
+        FinalVisualPromptContract
+        | FinalVisualPromptContractV46
+        | RawModelPromptContract
+    ),
 ) -> dict[str, Any]:
     _reject_rendered_trace_metadata(metadata)
     rendered_metadata = _detach_metadata(metadata)
@@ -498,6 +545,7 @@ __all__ = [
     "FinalVisualPromptContract",
     "FinalVisualPromptContractV44",
     "ProjectedPromptPart",
+    "RawModelPromptContract",
     "RenderedMediaPrompt",
     "attach_v44_contract_metadata",
     "join_rendered_negative_prompts",

@@ -272,9 +272,9 @@ def _validate_single_pass_z_image_signature_batch(
                     "two-stage visual-anchor final prompt lineage is inconsistent"
                 )
         snapshot["visual_anchor_final_prompt_lineage"] = {
-            "schema_version": "visual_anchor_final_prompt_lineage.v1",
+            "schema_version": "visual_anchor_final_prompt_lineage.v2",
             "validated": True,
-            "source": "structured_fusion_generation_request",
+            "source": "fusion_stage_raw_response",
             "frame_count": len(generation_requests),
         }
         return StyledImagePromptBatch(
@@ -867,13 +867,13 @@ class StandardPipeline(LinearVideoPipeline):
         visual_story_context = None
         if series_visual_signature_request.enabled:
             ctx.observability["visual_anchor_visual_planning"] = {
-                "schema_version": "visual_anchor_visual_planning.v3",
+                "schema_version": "visual_anchor_visual_planning.v4",
                 "route_model_call_count": 0,
                 "frame_planning_model_call_count": 0,
-                "prompt_chain": "content_stage_then_fusion_rewrite",
+                "prompt_chain": "content_raw_response_then_fusion_raw_response",
                 "minimum_prompt_model_calls_per_frame": 2,
                 "image_generation_attempts_per_frame": 1,
-                "post_generation_model_validation_enabled": False,
+                "post_generation_local_content_validation_enabled": False,
             }
         elif bool(ctx.params.get("visual_story_engine_enabled", True)):
             route_trace_collector = LLMTraceCollector(self._llm_trace_recorder(ctx))

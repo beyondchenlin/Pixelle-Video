@@ -813,13 +813,13 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
     assert list(scene_casts_by_frame) == [plan.frames[0].frame_id]
     assert scene_casts_by_frame[plan.frames[0].frame_id]["metadata"]["ip_presence_type"] == "scene_integrated"
     assert ctx.observability["visual_anchor_visual_planning"] == {
-        "schema_version": "visual_anchor_visual_planning.v3",
+        "schema_version": "visual_anchor_visual_planning.v4",
         "route_model_call_count": 0,
         "frame_planning_model_call_count": 0,
-        "prompt_chain": "content_stage_then_fusion_rewrite",
+        "prompt_chain": "content_raw_response_then_fusion_raw_response",
         "minimum_prompt_model_calls_per_frame": 2,
         "image_generation_attempts_per_frame": 1,
-        "post_generation_model_validation_enabled": False,
+        "post_generation_local_content_validation_enabled": False,
     }
 
 
