@@ -49,7 +49,6 @@ def build_prompt_plan_bundle(
     llm_trace_refs = _llm_trace_refs(planning_snapshot)
     final_prompt_template = _final_visual_prompt_template(planning_snapshot)
     for frame, rendered_prompt in zip(storyboard_plan.frames, rendered_items):
-        prompt = _normalize_prompt(rendered_prompt.prompt)
         v46_fields = _series_visual_signature_v46_prompt_plan_fields(rendered_prompt)
         visual_anchor_fields = _visual_anchor_two_stage_prompt_plan_fields(
             rendered_prompt
@@ -58,6 +57,12 @@ def build_prompt_plan_bundle(
             raise ValueError(
                 "a prompt plan cannot contain both legacy and two-stage visual-anchor contracts"
             )
+        preserve_prompt_verbatim = bool(visual_anchor_fields)
+        prompt = (
+            rendered_prompt.prompt
+            if preserve_prompt_verbatim
+            else _normalize_prompt(rendered_prompt.prompt)
+        )
         projected_fields = visual_anchor_fields or v46_fields
         frame_source_trace_id = trace_ids_by_frame.get(frame.frame_id) or source_trace_id
         draft_id = _stable_id(
@@ -85,6 +90,7 @@ def build_prompt_plan_bundle(
                 frame_index=frame.index,
                 llm_trace_refs=llm_trace_refs,
             ),
+            preserve_prompt_verbatim=preserve_prompt_verbatim,
         )
         plan = PromptPlan(
             prompt_plan_id=prompt_plan_id,
@@ -113,6 +119,7 @@ def build_prompt_plan_bundle(
                     "visual_anchor_two_stage"
                 ),
             ),
+            preserve_prompt_verbatim=preserve_prompt_verbatim,
         )
         drafts.append(draft)
         plans.append(plan)
