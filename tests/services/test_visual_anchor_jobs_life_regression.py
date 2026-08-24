@@ -113,7 +113,7 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
         (
             "乔布斯和苹果团队",
             "乔布斯回到苹果，带领团队",
-            1,
+            4,
             "推出多代苹果产品",
             "iMac、iPod和iPhone",
             "iMac、iPod和iPhone",
@@ -130,10 +130,64 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
         ),
     )
     pure_prompts = (
-        "乔布斯和沃兹尼亚克在车库工作台组装苹果一号电脑，苹果公司的技术道路由此开启。",
-        "乔布斯在发布会上展示麦金塔电脑，产品与图形界面成为清晰相连的关键技术事件。",
-        "乔布斯和苹果团队推出iMac、iPod和iPhone，产品节点沿一条道路串联。",
-        "年轻人站在起跑线上，苹果产品和关键事件形成的未来道路向前延伸。",
+        "平视中景中，乔布斯和沃兹尼亚克在车库工作台两侧同时连接苹果一号电脑的电路板，前景散落焊锡和工具，中景双手与电路连接处成为视觉焦点，背景车库门和储物架建立创业环境。",
+        "略低机位中景中，乔布斯在发布台上单手揭开麦金塔电脑，前景观众肩部形成框景，中景电脑屏幕与他的展示手势成为视觉焦点，背景舞台灯光建立发布事件。",
+        "斜侧广角中，乔布斯和苹果团队把iMac、iPod和iPhone模型依次放上延伸的展示台，前景最新产品、中景正在放置产品的团队、背景较早产品形成清晰时间层次。",
+        "低机位广角中，年轻人的前脚刚越过起跑线，手臂向前摆动，前景起跑线、中景迈步人物、背景由苹果产品和关键事件组成的道路共同指向前方。",
+    )
+    shot_purposes = (
+        "让观众看清两位创始人通过共同组装电脑开启创业行动",
+        "让观众看清乔布斯把新电脑正式展示给市场",
+        "让观众看清团队用连续产品推动技术道路前进",
+        "把乔布斯故事转化为普通人开始行动的具体瞬间",
+    )
+    frozen_moments = (
+        "两人的手同时停在刚接通的苹果一号电路板两侧",
+        "乔布斯掀开遮布后手掌指向已经亮起的麦金塔电脑",
+        "团队成员正把三代产品分别放入展示台的连续节点",
+        "年轻人的前脚刚越过起跑线，后脚仍压在线后",
+    )
+    subject_interactions = (
+        "两位创始人共同操作工作台上的同一台苹果一号电脑",
+        "乔布斯以展示手势把观众注意力引向麦金塔电脑",
+        "乔布斯和团队共同摆放三代产品形成前后承接关系",
+        "年轻人的脚步跨过起跑线并进入产品事件形成的道路",
+    )
+    composition_plans = (
+        {
+            "shot_scale_and_camera": "平视中景，工作台横向贯穿画面",
+            "foreground": "散落的焊锡、螺丝和工具",
+            "midground": "两位创始人与苹果一号电脑",
+            "background": "车库门、储物架和暖色工作灯",
+            "visual_focus": "两人的手与刚接通的电路板",
+        },
+        {
+            "shot_scale_and_camera": "略低机位中景，发布台形成视觉中心",
+            "foreground": "虚化的观众肩部轮廓",
+            "midground": "乔布斯、展示手势和麦金塔电脑",
+            "background": "简洁舞台与定向灯光",
+            "visual_focus": "亮起的电脑屏幕与乔布斯手势",
+        },
+        {
+            "shot_scale_and_camera": "斜侧广角，展示台向画面深处延伸",
+            "foreground": "最新一代产品",
+            "midground": "正在摆放产品的乔布斯和团队",
+            "background": "较早产品和延伸的展示空间",
+            "visual_focus": "团队手部与三个产品节点的连接关系",
+        },
+        {
+            "shot_scale_and_camera": "贴近地面的低机位广角",
+            "foreground": "被前脚跨过的起跑线",
+            "midground": "开始迈步的年轻人",
+            "background": "由产品和关键事件形成的未来道路",
+            "visual_focus": "越过起跑线的前脚",
+        },
+    )
+    adjacent_differences = (
+        "以双人手部组装动作建立开端，区别于后一镜的单人公开展示",
+        "以舞台揭幕和观众视角区别于前一镜的车库协作与后一镜的团队产品序列",
+        "以多人共同摆放产品和纵深时间线区别于相邻镜头的单一事件",
+        "从乔布斯本人切换为普通年轻人，并以跨线动作完成主题落点",
     )
     event_specs = (
         (
@@ -158,11 +212,26 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
         ),
     )
     outputs = []
-    for _frame, spec, pure_prompt, event_spec in zip(
+    for (
+        _frame,
+        spec,
+        pure_prompt,
+        event_spec,
+        shot_purpose,
+        frozen_moment,
+        subject_interaction,
+        composition_plan,
+        adjacent_difference,
+    ) in zip(
         plan.frames,
         subject_specs,
         pure_prompts,
         event_specs,
+        shot_purposes,
+        frozen_moments,
+        subject_interactions,
+        composition_plans,
+        adjacent_differences,
     ):
         (
             primary_name,
@@ -177,6 +246,9 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
         outputs.append(
             ContentStageModelOutput(
                 core_claim=pure_prompt,
+                shot_purpose=shot_purpose,
+                visual_evidence=[frozen_moment, subject_interaction],
+                frozen_moment=frozen_moment,
                 primary_subject={
                     "category": "person",
                     "name": primary_name,
@@ -193,6 +265,9 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
                         "action": secondary_action,
                     }
                 ],
+                subject_interaction=subject_interaction,
+                composition_plan=composition_plan,
+                adjacent_frame_difference=adjacent_difference,
                 scene_facts=[
                     {
                         "category": event_category,
@@ -301,6 +376,20 @@ def test_content_template_requests_no_proof_or_self_check_fields():
     ).read_text(encoding="utf-8")
 
     assert "每项只包含 category 和 statement" in template
+    for required_planning_field in (
+        "shot_purpose",
+        "visual_evidence",
+        "frozen_moment",
+        "subject_interaction",
+        "composition_plan",
+        "shot_scale_and_camera",
+        "foreground",
+        "midground",
+        "background",
+        "visual_focus",
+        "adjacent_frame_difference",
+    ):
+        assert required_planning_field in template
     for removed_field in (
         "source_evidence",
         "pure_content_prompt_evidence",
@@ -362,6 +451,14 @@ def test_fusion_template_explicitly_allows_material_and_interactive_forms():
     ):
         assert manifestation in template
     assert "整幅画只出现一个可识别的视觉身份实例" in template
+    for required_fusion_field in (
+        "identity_prompt_clause",
+        "relative_scale_and_visual_weight",
+        "carrier_and_material_relation",
+        "scene_interaction",
+    ):
+        assert required_fusion_field in template
+    assert "必须原样出现在 final_positive_prompt 中" in template
 
 
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
@@ -385,19 +482,63 @@ def _fusion_outputs(
     contents: list[ContentStageOutput],
 ) -> list[FusionStageOutput]:
     style_positive = "，".join(_STYLE_POSITIVE)
+    fusion_specs = (
+        (
+            "服装刺绣",
+            "沃兹尼亚克工作衬衫胸袋上的斑点狗刺绣",
+            "巴掌大小，视觉权重低于两位创始人的手部和苹果一号电脑",
+            "棉质衬衫胸袋上的黑白线迹刺绣，随布料褶皱弯曲",
+            "刺绣随沃兹尼亚克俯身组装电脑的姿态产生自然形变",
+            "一枚巴掌大小的斑点狗头像以黑白线迹刺绣在沃兹尼亚克工作衬衫胸袋上，黑色墨镜清晰可辨，刺绣随棉质布料褶皱自然弯曲，只出现这一处",
+        ),
+        (
+            "讲台金属压印",
+            "发布台侧面板上的斑点狗浅浮雕压印",
+            "手掌大小，作为低权重舞台细节，不与麦金塔电脑争夺焦点",
+            "拉丝金属发布台侧面板上的浅浮雕压印，边缘反射舞台侧光",
+            "压印固定在乔布斯展示手势下方的发布台表面",
+            "发布台侧面板上有一枚手掌大小的斑点狗浅浮雕压印，斑点轮廓和黑色墨镜清晰，压印服从拉丝金属透视并反射舞台侧光，只出现这一处",
+        ),
+        (
+            "产品展示摆件",
+            "产品展示台上的斑点狗小型摆件",
+            "约为iPod高度的一半，视觉权重低于三代产品和团队动作",
+            "哑光陶瓷摆件由展示台支撑，底部形成短小接触阴影",
+            "摆件位于产品节点之间，朝向团队正在放置的最新产品",
+            "展示台上放着一只约为iPod高度一半的哑光陶瓷斑点狗摆件，黑色墨镜和斑点特征清晰，底部有短小接触阴影，朝向团队正在放置的最新产品，只出现这一只",
+        ),
+        (
+            "背包织物贴章",
+            "年轻人背包肩带上的斑点狗织物贴章",
+            "两指宽，作为随人物行动的低权重身份细节",
+            "织物贴章缝在背包肩带外侧，随肩带弧度弯曲并承接晨光",
+            "贴章随年轻人跨过起跑线时摆动的肩带一起向前倾斜",
+            "年轻人背包肩带外侧缝着一枚两指宽的斑点狗织物贴章，斑点和黑色墨镜清晰，贴章随肩带弧度与迈步摆动自然弯曲，只出现这一处",
+        ),
+    )
     outputs = []
-    for content in contents:
+    for content, fusion_spec in zip(contents, fusion_specs):
+        (
+            method,
+            manifestation,
+            scale_and_weight,
+            carrier_and_material,
+            interaction,
+            identity_clause,
+        ) = fusion_spec
         positive = (
             f"{content.pure_content_prompt} {style_positive}。"
-            "画面中只有一只斑点狗，斑点狗特征与黑色墨镜清晰可辨，"
-            "它根据当前叙事自然融入空间，不继承主要人物的动作或职责，"
-            "并服从整张图的透视、光照、材质和空间关系。"
+            f"{identity_clause}。"
             f"{_NO_TEXT_POSITIVE}。"
         )
         outputs.append(
             FusionStageOutput(
-                selected_fusion_method="让视觉锚点根据当前内容关系自然参与",
-                final_manifestation="服从当前场景关系的斑点狗单一实体",
+                selected_fusion_method=method,
+                final_manifestation=manifestation,
+                identity_prompt_clause=identity_clause,
+                relative_scale_and_visual_weight=scale_and_weight,
+                carrier_and_material_relation=carrier_and_material,
+                scene_interaction=interaction,
                 spatial_contact_and_lighting_relation=(
                     "根据当前画面的透视、光照、材质、支撑和遮挡关系自然融合"
                 ),
@@ -537,9 +678,21 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
         assert content.scene_facts
         assert "表达乔布斯人生第" not in content.primary_subject.name
         assert expected_primary in request.final_positive_prompt
+        assert content.shot_purpose
+        assert content.visual_evidence
+        assert content.frozen_moment
+        assert content.subject_interaction
+        assert content.composition_plan.visual_focus
+        assert content.adjacent_frame_difference
         assert request.identity_conditioning_mode == "text_profile"
         assert request.identity_reference_condition is None
-        assert "画面中只有一只斑点狗" in request.final_positive_prompt
+        assert (
+            frame_result.fusion_stage_output.identity_prompt_clause
+            in request.final_positive_prompt
+        )
+        assert frame_result.fusion_stage_output.relative_scale_and_visual_weight
+        assert frame_result.fusion_stage_output.carrier_and_material_relation
+        assert frame_result.fusion_stage_output.scene_interaction
         assert _NO_TEXT_POSITIVE in request.final_positive_prompt
         assert request.final_negative_prompt == ""
         for fragment in _STYLE_POSITIVE:
@@ -547,13 +700,16 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
         for forbidden_fixed_rule in (
             "大尺寸",
             "居中",
-            "前景",
             "固定位置",
             "画面占比",
             "左上角",
             "右下角",
         ):
             assert forbidden_fixed_rule not in request.final_positive_prompt
+
+    assert [
+        frame.fusion_stage_output.selected_fusion_method for frame in result.frames
+    ] == ["服装刺绣", "讲台金属压印", "产品展示摆件", "背包织物贴章"]
 
     composer_source = inspect.getsource(VisualPromptComposer.compose)
     assert "base_image_prompt" not in composer_source

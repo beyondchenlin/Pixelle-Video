@@ -138,6 +138,9 @@ def _execution():
 def _content(frame_id, source_text):
     return ContentStageModelOutput(
         core_claim=f"处理 {frame_id}",
+        shot_purpose=f"让观众看懂 {frame_id} 的具体事件",
+        visual_evidence=["工作台上的电脑部件正在被组装"],
+        frozen_moment="两人的手同时停在正在连接的电脑部件上",
         primary_subject={
             "category": "person",
             "name": "由模型判断的主体",
@@ -146,6 +149,15 @@ def _content(frame_id, source_text):
             "action": "",
         },
         secondary_subjects=[],
+        subject_interaction="两人共同操作工作台上的电脑部件",
+        composition_plan={
+            "shot_scale_and_camera": "平视中景，工作台形成横向视觉轴",
+            "foreground": "散开的电路板和工具",
+            "midground": "两位创业者与正在组装的电脑",
+            "background": "车库门和储物架",
+            "visual_focus": "两人的手与电脑部件的连接处",
+        },
+        adjacent_frame_difference="本镜以共同组装动作区别于相邻镜头",
         scene_facts=[{"category": "event", "statement": source_text}],
         adjustable_non_core_content=["背景"],
         pure_content_prompt="由模型直接生成的纯内容画面",
@@ -153,13 +165,21 @@ def _content(frame_id, source_text):
 
 
 def _fusion(frame_id, *, inherited=False, negative_prompt=""):
+    identity_clause = (
+        f"一枚巴掌大小的圆形白脸蓝色短耳形象以布面刺绣呈现在工作服胸前，"
+        f"随衣料褶皱自然弯曲，只出现这一处，并承接现场侧光 {frame_id}"
+    )
     return FusionStageOutput(
         selected_fusion_method=f"模型选择的融合方式 {frame_id}",
         final_manifestation=f"模型选择的表现形态 {frame_id}",
+        identity_prompt_clause=identity_clause,
+        relative_scale_and_visual_weight="巴掌大小，低于人物面部和手部的视觉权重",
+        carrier_and_material_relation="工作服胸前的布面刺绣，服从衣料褶皱",
+        scene_interaction="随人物操作电脑时产生的衣物姿态变化参与场景",
         spatial_contact_and_lighting_relation="模型判断的空间和光照关系",
         inherited_existing_fusion_decision=inherited,
         continuity_change_reason="",
-        final_positive_prompt="模型直接给出的最终图片提示词",
+        final_positive_prompt=f"模型直接给出的最终图片提示词。{identity_clause}",
         final_negative_prompt=negative_prompt,
     )
 
@@ -338,17 +358,51 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 
 
 @pytest.mark.asyncio
-async def test_model_output_flows_directly_to_generation_without_semantic_validation():
+async def test_validated_model_output_flows_directly_to_generation():
     result, llm = await _run(
         _plan(),
         fusions=[_fusion("frame-a", negative_prompt="模型仍然输出了反向提示词")],
     )
     frame = result.frames[0]
-    assert frame.generation_request.final_positive_prompt == "模型直接给出的最终图片提示词"
+    assert (
+        frame.fusion_stage_output.identity_prompt_clause
+        in frame.generation_request.final_positive_prompt
+    )
     assert frame.generation_request.final_negative_prompt == "模型仍然输出了反向提示词"
     assert len(llm.calls) == 2
     assert all(call["kwargs"]["temperature"] == 0.0 for call in llm.calls)
     assert all(call["kwargs"]["single_request"] is True for call in llm.calls)
+
+
+@pytest.mark.asyncio
+async def test_missing_identity_clause_in_final_prompt_fails_without_retry():
+    plan = _plan()
+    invalid_fusion = _fusion("frame-a").model_dump(mode="json")
+    invalid_fusion["identity_prompt_clause"] = "这段视觉身份子句没有进入最终提示词"
+    llm = _QueuedLLM(
+        {
+            ContentStageModelOutput: [_content("frame-a", plan.frames[0].source_text)],
+            FusionStageOutput: [invalid_fusion, _fusion("frame-a")],
+        }
+    )
+    events = []
+
+    with pytest.raises(
+        ValidationError,
+        match="identity_prompt_clause must appear verbatim",
+    ):
+        await _run_service(plan, llm, stage_callback=events.append)
+
+    assert len(llm.calls) == 2
+    assert [
+        (event["stage"], event["event"], event.get("llm_call_count"))
+        for event in events
+    ] == [
+        ("visual_anchor_content_stage", "start", None),
+        ("visual_anchor_content_stage", "end", 1),
+        ("visual_anchor_fusion_stage", "start", None),
+        ("visual_anchor_fusion_stage", "fail", 1),
+    ]
 
 
 @pytest.mark.asyncio

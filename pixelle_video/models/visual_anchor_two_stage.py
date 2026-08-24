@@ -5,8 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v13"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v11"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v14"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v12"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v5"
 ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v5",
@@ -17,6 +17,7 @@ ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v10",
     "visual_anchor_content_stage.v11",
     "visual_anchor_content_stage.v12",
+    "visual_anchor_content_stage.v13",
     CONTENT_STAGE_PROMPT_VERSION,
 ]
 FusionStagePromptVersion = Literal[
@@ -27,6 +28,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v8",
     "visual_anchor_fusion_stage.v9",
     "visual_anchor_fusion_stage.v10",
+    "visual_anchor_fusion_stage.v11",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 
@@ -232,14 +234,37 @@ class ContentSubject(ContentStageSubject):
     """Compatibility name for persisted subjects without server-owned fields."""
 
 
+class ContentCompositionPlan(BaseModel):
+    """Concrete single-frame composition choices owned by the content stage."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    shot_scale_and_camera: str
+    foreground: str
+    midground: str
+    background: str
+    visual_focus: str
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _text(value, info.field_name)
+
+
 class ContentStageModelOutput(BaseModel):
     """Identifier-free response contract for the content-stage model call."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     core_claim: str
+    shot_purpose: str
+    visual_evidence: list[str] = Field(min_length=1)
+    frozen_moment: str
     primary_subject: ContentStageSubject
     secondary_subjects: list[ContentStageSubject] = Field(default_factory=list)
+    subject_interaction: str
+    composition_plan: ContentCompositionPlan
+    adjacent_frame_difference: str
     scene_facts: list[ContentFact] = Field(
         default_factory=list,
         description=(
@@ -268,10 +293,26 @@ class ContentStageModelOutput(BaseModel):
         normalized.pop("self_check_failures", None)
         return normalized
 
-    @field_validator("core_claim", "pure_content_prompt", mode="before")
+    @field_validator(
+        "core_claim",
+        "shot_purpose",
+        "frozen_moment",
+        "subject_interaction",
+        "adjacent_frame_difference",
+        "pure_content_prompt",
+        mode="before",
+    )
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
+
+    @field_validator("visual_evidence")
+    @classmethod
+    def _validate_visual_evidence(cls, value: list[str]) -> list[str]:
+        result = _text_list(value, "visual_evidence")
+        if not result:
+            raise ValueError("visual_evidence must not be empty")
+        return result
 
     @field_validator("scene_facts", mode="before")
     @classmethod
@@ -537,6 +578,10 @@ class FusionStageOutput(BaseModel):
 
     selected_fusion_method: str
     final_manifestation: str
+    identity_prompt_clause: str
+    relative_scale_and_visual_weight: str
+    carrier_and_material_relation: str
+    scene_interaction: str
     spatial_contact_and_lighting_relation: str
     inherited_existing_fusion_decision: bool
     continuity_change_reason: str
@@ -570,6 +615,10 @@ class FusionStageOutput(BaseModel):
     @field_validator(
         "selected_fusion_method",
         "final_manifestation",
+        "identity_prompt_clause",
+        "relative_scale_and_visual_weight",
+        "carrier_and_material_relation",
+        "scene_interaction",
         "spatial_contact_and_lighting_relation",
         "final_positive_prompt",
         mode="before",
@@ -591,6 +640,14 @@ class FusionStageOutput(BaseModel):
         if not isinstance(value, str):
             raise ValueError("final_negative_prompt must be a string")
         return " ".join(value.split())
+
+    @model_validator(mode="after")
+    def _validate_identity_prompt_clause(self) -> "FusionStageOutput":
+        if self.identity_prompt_clause not in self.final_positive_prompt:
+            raise ValueError(
+                "identity_prompt_clause must appear verbatim in final_positive_prompt"
+            )
+        return self
 
 class ImageWorkflowExecutionContract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -703,6 +760,77 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             raise ValueError("identity_core_traits must not be empty")
         return result
 
+
+def _upgrade_legacy_content_stage_output(value: object) -> object:
+    if not isinstance(value, Mapping):
+        return value
+    normalized = dict(value)
+    pure_prompt = str(normalized.get("pure_content_prompt") or "").strip()
+    core_claim = str(normalized.get("core_claim") or pure_prompt).strip()
+    legacy_detail = pure_prompt or core_claim or "旧契约未记录完整画面"
+    facts = normalized.get("scene_facts")
+    visible_facts = (
+        [
+            str(fact.get("statement") or "").strip()
+            for fact in facts
+            if isinstance(fact, Mapping)
+        ]
+        if isinstance(facts, (list, tuple))
+        else []
+    )
+    visible_facts = [fact for fact in visible_facts if fact]
+    normalized.setdefault("shot_purpose", core_claim or legacy_detail)
+    normalized.setdefault("visual_evidence", visible_facts or [legacy_detail])
+    normalized.setdefault("frozen_moment", legacy_detail)
+    normalized.setdefault(
+        "subject_interaction",
+        f"旧契约未单独记录互动关系；完整关系见纯内容提示词：{legacy_detail}",
+    )
+    legacy_composition = (
+        f"旧契约未单独记录该构图字段；完整构图见纯内容提示词：{legacy_detail}"
+    )
+    normalized.setdefault(
+        "composition_plan",
+        {
+            "shot_scale_and_camera": legacy_composition,
+            "foreground": legacy_composition,
+            "midground": legacy_composition,
+            "background": legacy_composition,
+            "visual_focus": legacy_composition,
+        },
+    )
+    normalized.setdefault(
+        "adjacent_frame_difference",
+        "旧契约未单独记录相邻镜头差异",
+    )
+    return normalized
+
+
+def _upgrade_legacy_fusion_stage_output(value: object) -> object:
+    if not isinstance(value, Mapping):
+        return value
+    normalized = dict(value)
+    final_prompt = str(normalized.get("final_positive_prompt") or "").strip()
+    manifestation = str(normalized.get("final_manifestation") or "").strip()
+    spatial_relation = str(
+        normalized.get("spatial_contact_and_lighting_relation") or ""
+    ).strip()
+    normalized.setdefault("identity_prompt_clause", final_prompt)
+    normalized.setdefault(
+        "relative_scale_and_visual_weight",
+        f"旧契约未单独记录相对尺度与视觉权重；表现形态：{manifestation}",
+    )
+    normalized.setdefault(
+        "carrier_and_material_relation",
+        f"旧契约未单独记录载体与材质关系；表现形态：{manifestation}",
+    )
+    normalized.setdefault(
+        "scene_interaction",
+        f"旧契约未单独记录场景互动关系；空间关系：{spatial_relation}",
+    )
+    return normalized
+
+
 class VisualAnchorTwoStageFrameResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -724,6 +852,34 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
         normalized.pop("content_attempt_count", None)
         normalized.pop("content_retry_validation_codes", None)
         normalized.pop("fusion_attempt_count", None)
+        content_input = normalized.get("content_stage_input")
+        content_version = (
+            content_input.get("prompt_version")
+            if isinstance(content_input, Mapping)
+            else None
+        )
+        fusion_input = normalized.get("fusion_stage_input")
+        fusion_version = (
+            fusion_input.get("prompt_version")
+            if isinstance(fusion_input, Mapping)
+            else None
+        )
+        if content_version != CONTENT_STAGE_PROMPT_VERSION:
+            normalized["content_stage_output"] = _upgrade_legacy_content_stage_output(
+                normalized.get("content_stage_output")
+            )
+            if isinstance(fusion_input, Mapping):
+                normalized_fusion_input = dict(fusion_input)
+                normalized_fusion_input["content_stage_output"] = (
+                    _upgrade_legacy_content_stage_output(
+                        normalized_fusion_input.get("content_stage_output")
+                    )
+                )
+                normalized["fusion_stage_input"] = normalized_fusion_input
+        if fusion_version != FUSION_STAGE_PROMPT_VERSION:
+            normalized["fusion_stage_output"] = _upgrade_legacy_fusion_stage_output(
+                normalized.get("fusion_stage_output")
+            )
         return normalized
 
     @field_validator("frame_id", mode="before")

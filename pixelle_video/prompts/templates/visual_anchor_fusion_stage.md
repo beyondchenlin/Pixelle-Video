@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_fusion_stage
-version: visual_anchor_fusion_stage.v11
+version: visual_anchor_fusion_stage.v12
 stage: visual_anchor_fusion_stage
 purpose: 在保持画面主旨和事实的前提下自由选择视觉身份的场景化表现
 output_contract: FusionStageOutput
@@ -28,9 +28,16 @@ output_contract: FusionStageOutput
 9. 不得因为独立实体最容易生成，就默认把视觉身份安排在内容主体脚边、画面角落或空白区域静坐。只有当这种实体存在确实是当前场景最协调的唯一方案时才能采用。
 10. 同一连续场景优先保持既有表现形态和空间关系；需要改变时，在 continuity_change_reason 中写明原因。独立场景必须根据当前画面重新判断，不得机械沿用上一镜头。没有既有决策或直接继承时输出空字符串。
 
+具体化要求：
+11. relative_scale_and_visual_weight 必须写清视觉身份相对人物、服装、道具或环境结构的尺寸，以及它在画面中的视觉权重；这里要求作出具体选择，不设置固定大小或固定占比。
+12. carrier_and_material_relation 必须写清视觉身份依附、存在或接触的具体载体和材质关系。没有载体的实体形态也要写清脚下支撑、遮挡或空间接触，不能只写“自然融入”。
+13. scene_interaction 必须写清视觉身份与人物、道具或环境发生的具体关系。自然存在时也要说明它为什么属于该位置以及如何响应当前场景。
+14. 如果采用服装图形，必须写清位于哪件服装的哪个区域、采用印刷、刺绣、压印或何种真实工艺、相对衣物的尺寸，以及如何服从衣物褶皱、透视和光照。如果采用独立实体，必须写清它相对人物或道具的尺寸、支撑面、接触关系和当前姿态。
+15. identity_prompt_clause 输出一段可直接进入图片生成器的纯视觉句子，完整承载最终形态、核心身份特征、相对尺度、载体材质、位置、互动、透视光照和单实例关系。它必须原样出现在 final_positive_prompt 中，不能改写、缩写或只保留“自然融入场景”。
+
 输出要求：
-11. selected_fusion_method、final_manifestation 和 spatial_contact_and_lighting_relation 只描述最终采用的唯一方案，不输出候选、比较过程、证明、自检或审查字段。
-12. final_positive_prompt 输出一段完整、连贯、确定的最终画面描述，遵守 target_visual_style、visible_text_policy、target_image_prompt_language 和 workflow_identity_condition_summary。不要输出规则、分析、候选或审查语言。
-13. negative_prompt_supported 为 true 时输出适合图片模型的 final_negative_prompt；为 false 时必须输出空字符串，并把必要的画面约束自然写入 final_positive_prompt。
+16. selected_fusion_method、final_manifestation、relative_scale_and_visual_weight、carrier_and_material_relation、scene_interaction 和 spatial_contact_and_lighting_relation 只描述最终采用的唯一方案，不输出候选、比较过程、证明、自检或审查字段。
+17. final_positive_prompt 输出一段完整、连贯、确定的最终画面描述，必须原样包含 identity_prompt_clause，并遵守 target_visual_style、visible_text_policy、target_image_prompt_language 和 workflow_identity_condition_summary。不要输出规则、分析、候选或审查语言。
+18. negative_prompt_supported 为 true 时输出适合图片模型的 final_negative_prompt；为 false 时必须输出空字符串，并把必要的画面约束自然写入 final_positive_prompt。
 
 只输出 FusionStageOutput 结构，不输出分析过程或其他顶级字段。

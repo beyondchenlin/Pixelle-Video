@@ -80,6 +80,9 @@ def _frame_result(tmp_path):
     )
     content_output = ContentStageOutput(
         core_claim="两位创作者组装电脑",
+        shot_purpose="让观众看清两位创作者共同组装电脑的行动",
+        visual_evidence=["两人的手同时连接工作台上的电脑部件"],
+        frozen_moment="两人的手同时停在刚接通的电脑部件两侧",
         scene_facts=[
             {"category": "person", "statement": "两位创作者组装电脑"},
             {"category": "product", "statement": "电脑正在被组装"},
@@ -104,6 +107,15 @@ def _frame_result(tmp_path):
                 "action": "正在被组装",
             }
         ],
+        subject_interaction="两位创作者共同操作同一台电脑",
+        composition_plan={
+            "shot_scale_and_camera": "平视中景",
+            "foreground": "焊锡和散开的电子元件",
+            "midground": "两位创作者与正在组装的电脑",
+            "background": "车库门与储物架",
+            "visual_focus": "两人的手与刚接通的电脑部件",
+        },
+        adjacent_frame_difference="独立镜头以共同组装动作建立事件",
         adjustable_non_core_content=["工作台工具"],
         pure_content_prompt="两位创作者在车库工作台组装电脑。",
     )
@@ -130,12 +142,20 @@ def _frame_result(tmp_path):
     fusion_output = FusionStageOutput(
         selected_fusion_method="小皮作为工作台旁的唯一实体参与现场",
         final_manifestation="小皮的单一实体形态",
+        identity_prompt_clause=(
+            "一只膝盖高度的小皮以圆形白色脸和蓝色短耳的单一实体站在工作台旁，"
+            "前爪搭住工作台下沿，只出现这一只小皮"
+        ),
+        relative_scale_and_visual_weight="膝盖高度，视觉权重低于两位创作者和电脑",
+        carrier_and_material_relation="由车库地面支撑，前爪接触工作台下沿",
+        scene_interaction="靠近并观察两位创作者组装电脑",
         spatial_contact_and_lighting_relation="接触地面并共享车库光照",
         inherited_existing_fusion_decision=False,
         continuity_change_reason="独立镜头没有既有决定",
         final_positive_prompt=(
-            "两位创作者在车库组装电脑。画面中只有一只小皮，"
-            "它以圆形白色脸和蓝色短耳的单一实体自然参与现场。"
+            "两位创作者在车库组装电脑。"
+            "一只膝盖高度的小皮以圆形白色脸和蓝色短耳的单一实体站在工作台旁，"
+            "前爪搭住工作台下沿，只出现这一只小皮"
         ),
         final_negative_prompt="",
     )

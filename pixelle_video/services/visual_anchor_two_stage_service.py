@@ -596,6 +596,9 @@ def _continuous_fusion_decision(output: FusionStageOutput) -> str:
     return (
         f"所选融合方式：{output.selected_fusion_method}；"
         f"最终表现形态：{output.final_manifestation}；"
+        f"相对尺度与视觉权重：{output.relative_scale_and_visual_weight}；"
+        f"载体与材质关系：{output.carrier_and_material_relation}；"
+        f"场景互动关系：{output.scene_interaction}；"
         f"空间、接触与光照关系：{output.spatial_contact_and_lighting_relation}"
     )
 
