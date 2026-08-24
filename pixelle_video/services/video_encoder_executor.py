@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 import threading
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -25,8 +27,9 @@ class UnifiedVideoEncoder:
 
     Hardware discovery is handled by ``ffmpeg_encoder``. This executor adds a
     second, workload-level safety layer: when a backend passes the tiny probe but
-    fails a real encode, it is disabled for the rest of the process and the
-    current operation immediately falls through to the next runnable backend.
+    then reports an explicit hardware-initialization failure, it is disabled for
+    the rest of the process. Input, filter, and output failures still fall back
+    for the current operation without poisoning later hardware attempts.
     """
 
     def run_ffmpeg_python(
@@ -57,10 +60,11 @@ class UnifiedVideoEncoder:
                 backend = _known_backend(codec)
                 if backend is None or not backend.hardware:
                     raise
-                self.disable_hardware_backend(
-                    codec,
-                    reason="real ffmpeg-python workload failed",
-                )
+                if _is_hardware_backend_unavailable(codec, exc.stderr):
+                    self.disable_hardware_backend(
+                        codec,
+                        reason="hardware initialization failed during real workload",
+                    )
                 logger.warning(
                     "hardware encoder {} failed real workload; trying next backend",
                     codec,
@@ -80,43 +84,53 @@ class UnifiedVideoEncoder:
     ) -> str:
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
+        temporary_output = _temporary_output_path(output)
         last_error: subprocess.CalledProcessError | None = None
-        for backend in self.runtime_backend_candidates():
-            command = self._png_sequence_command(
-                backend=backend,
-                frame_pattern=Path(frame_pattern),
-                fps=fps,
-                output_path=output,
-                duration=duration,
-                audio_path=Path(audio_path) if audio_path else None,
+        try:
+            for backend in self.runtime_backend_candidates():
+                command = self._png_sequence_command(
+                    backend=backend,
+                    frame_pattern=Path(frame_pattern),
+                    fps=fps,
+                    output_path=temporary_output,
+                    duration=duration,
+                    audio_path=Path(audio_path) if audio_path else None,
+                )
+                if command is None:
+                    continue
+                try:
+                    subprocess.run(
+                        command,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    temporary_output.replace(output)
+                    return str(output)
+                except subprocess.CalledProcessError as exc:
+                    last_error = exc
+                    if not backend.hardware:
+                        raise
+                    if _is_hardware_backend_unavailable(backend.codec, exc.stderr):
+                        self.disable_hardware_backend(
+                            backend.codec,
+                            reason=(
+                                "hardware initialization failed during "
+                                "PNG-sequence workload"
+                            ),
+                        )
+                    _unlink_if_exists(temporary_output)
+                    logger.warning(
+                        "hardware encoder {} failed PNG sequence workload; trying next backend",
+                        backend.codec,
+                    )
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError(
+                "no H.264 encoder candidate could encode the PNG sequence"
             )
-            if command is None:
-                continue
-            try:
-                subprocess.run(
-                    command,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-                return str(output)
-            except subprocess.CalledProcessError as exc:
-                last_error = exc
-                if not backend.hardware:
-                    raise
-                self.disable_hardware_backend(
-                    backend.codec,
-                    reason="real PNG-sequence workload failed",
-                )
-                if output.exists():
-                    output.unlink()
-                logger.warning(
-                    "hardware encoder {} failed PNG sequence workload; trying next backend",
-                    backend.codec,
-                )
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("no H.264 encoder candidate could encode the PNG sequence")
+        finally:
+            _unlink_if_exists(temporary_output)
 
     def runtime_backend_candidates(self) -> tuple[H264EncoderBackend, ...]:
         result: list[H264EncoderBackend] = []
@@ -246,6 +260,62 @@ def _known_backend(codec: str) -> H264EncoderBackend | None:
         return get_h264_backend(codec)
     except ValueError:
         return None
+
+
+def _temporary_output_path(output: Path) -> Path:
+    suffix = output.suffix or ".mp4"
+    file_descriptor, raw_path = tempfile.mkstemp(
+        prefix=f".{output.stem or 'video'}.",
+        suffix=suffix,
+        dir=output.parent,
+    )
+    os.close(file_descriptor)
+    return Path(raw_path)
+
+
+def _unlink_if_exists(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("failed to remove temporary video output {}", path.name)
+
+
+def _is_hardware_backend_unavailable(codec: str, stderr: str | bytes | None) -> bool:
+    if isinstance(stderr, bytes):
+        diagnostic = stderr.decode("utf-8", errors="replace").lower()
+    else:
+        diagnostic = str(stderr or "").lower()
+    common_markers = (
+        "cannot load libnvidia-encode",
+        "driver does not support",
+        "no device available",
+        "no capable devices found",
+        "unsupported device",
+    )
+    backend_markers = {
+        "h264_nvenc": (
+            "no nvenc capable devices found",
+            "cannot init cuda",
+            "cuda_error",
+            "openencodesessionex failed",
+            "initializeencoder failed",
+        ),
+        "h264_qsv": (
+            "mfx session",
+            "qsv device",
+            "failed to initialise qsv",
+            "failed to initialize qsv",
+        ),
+        "h264_vaapi": (
+            "vaapi device",
+            "vaapi connection",
+            "failed to initialise vaapi",
+            "failed to initialize vaapi",
+        ),
+    }
+    return any(marker in diagnostic for marker in common_markers) or any(
+        marker in diagnostic for marker in backend_markers.get(codec, ())
+    )
 
 
 def _dedupe_backends(
