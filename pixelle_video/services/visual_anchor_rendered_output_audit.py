@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pixelle_video.models.visual_anchor_two_stage import (
+    VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
 )
 from pixelle_video.services.visual_anchor_generation_binding import (
@@ -24,6 +25,20 @@ from pixelle_video.services.visual_anchor_reference_condition import (
 )
 
 _SAFE_FRAME_ID_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _prompt_versions(
+    request: VisualAnchorImageGenerationRequest,
+) -> dict[str, str]:
+    versions = {
+        "content_stage": request.content_stage_prompt_version,
+        "fusion_stage": request.fusion_stage_prompt_version,
+    }
+    if request.finalization_stage_prompt_version is not None:
+        versions["finalization_stage"] = request.finalization_stage_prompt_version
+    return versions
+
+
 class VisualAnchorRenderedOutputAuditError(RuntimeError):
     def __init__(
         self,
@@ -165,10 +180,7 @@ class VisualAnchorRenderedOutputAudit:
         else:
             checks["first_request_binding_is_object"] = False
 
-        expected_prompt_versions = {
-            "content_stage": request.content_stage_prompt_version,
-            "fusion_stage": request.fusion_stage_prompt_version,
-        }
+        expected_prompt_versions = _prompt_versions(request)
         expected_reference = request.identity_reference_condition.model_dump(
             mode="json"
         )
@@ -469,10 +481,7 @@ class VisualAnchorRenderedOutputAudit:
             if captured_output_path is not None
             else ""
         )
-        expected_prompt_versions = {
-            "content_stage": request.content_stage_prompt_version,
-            "fusion_stage": request.fusion_stage_prompt_version,
-        }
+        expected_prompt_versions = _prompt_versions(request)
         expected_execution = request.expected_execution.model_dump(mode="json")
         expected_sampler_config = {
             "seed": request.random_seed,

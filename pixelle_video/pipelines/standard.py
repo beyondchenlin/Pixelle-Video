@@ -246,14 +246,14 @@ def _validate_single_pass_z_image_signature_batch(
     }
     if generation_requests:
         if len(generation_requests) != len(prompt_plan_bundle.prompt_plans):
-            raise ValueError("two-stage visual-anchor request coverage mismatch")
+            raise ValueError("three-stage visual-anchor request coverage mismatch")
         for rendered_prompt, prompt_plan in zip(
             rendered,
             prompt_plan_bundle.prompt_plans,
         ):
             request = generation_requests.get(prompt_plan.frame_id)
             if request is None:
-                raise ValueError("two-stage visual-anchor request frame mismatch")
+                raise ValueError("three-stage visual-anchor request frame mismatch")
             if (
                 rendered_prompt.prompt
                 != request.get("final_positive_prompt")
@@ -265,12 +265,12 @@ def _validate_single_pass_z_image_signature_batch(
                 != str(request.get("final_negative_prompt") or "")
             ):
                 raise ValueError(
-                    "two-stage visual-anchor final prompt lineage is inconsistent"
+                    "three-stage visual-anchor final prompt lineage is inconsistent"
                 )
         snapshot["visual_anchor_final_prompt_lineage"] = {
-            "schema_version": "visual_anchor_final_prompt_lineage.v2",
+            "schema_version": "visual_anchor_final_prompt_lineage.v3",
             "validated": True,
-            "source": "fusion_stage_raw_response",
+            "source": "finalization_stage_raw_response",
             "frame_count": len(generation_requests),
         }
         return StyledImagePromptBatch(
@@ -863,11 +863,14 @@ class StandardPipeline(LinearVideoPipeline):
         visual_story_context = None
         if series_visual_signature_request.enabled:
             ctx.observability["visual_anchor_visual_planning"] = {
-                "schema_version": "visual_anchor_visual_planning.v5",
+                "schema_version": "visual_anchor_visual_planning.v6",
                 "route_model_call_count": 0,
                 "frame_planning_model_call_count": 0,
-                "prompt_chain": "content_raw_response_then_fusion_raw_response",
-                "minimum_prompt_model_calls_per_frame": 2,
+                "prompt_chain": (
+                    "content_raw_response_then_fusion_draft_then_"
+                    "finalization_raw_response"
+                ),
+                "minimum_prompt_model_calls_per_frame": 3,
                 "image_generation_attempts_per_frame": 1,
                 "model_output_passthrough_enabled": True,
                 "post_generation_local_validation_enabled": False,
@@ -1521,7 +1524,7 @@ class StandardPipeline(LinearVideoPipeline):
     ) -> None:
         if media_type != "image" or not ctx.task_dir or ctx.storyboard is None:
             raise ValueError(
-                "visual-anchor two-stage output audit requires an initialized image storyboard"
+                "visual-anchor three-stage output audit requires an initialized image storyboard"
             )
         raw_frames = payload.get("frames")
         if not isinstance(raw_frames, list) or not raw_frames:
@@ -1542,8 +1545,9 @@ class StandardPipeline(LinearVideoPipeline):
         ctx.media_generation_max_attempts = 1
         ctx.generated_media_validator = None
         policy = {
-            "schema_version": "visual_anchor_two_stage_passthrough_policy.v1",
-            "mode": "pre_generation_prompt_only",
+            "schema_version": "visual_anchor_two_stage_passthrough_policy.v2",
+            "mode": "pre_generation_three_stage_prompt_only",
+            "model_stages_per_frame": 3,
             "max_generation_attempts": 1,
             "model_output_passthrough_enabled": True,
             "post_generation_local_validation_enabled": False,
@@ -1703,6 +1707,8 @@ class StandardPipeline(LinearVideoPipeline):
                     "content_stage_output",
                     "fusion_stage_input",
                     "fusion_stage_output",
+                    "finalization_stage_input",
+                    "finalization_stage_output",
                     "generation_request",
                 )
             }
@@ -1718,7 +1724,7 @@ class StandardPipeline(LinearVideoPipeline):
             for frame_id, paths in frame_artifacts.items()
         }
         record = {
-            "schema_version": "visual_anchor_two_stage_artifacts.v3",
+            "schema_version": "visual_anchor_two_stage_artifacts.v4",
             "directory": str(artifact_dir.relative_to(root)),
             "artifacts": artifacts,
             "artifact_sha256": artifact_sha256,

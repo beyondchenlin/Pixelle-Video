@@ -6,14 +6,18 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v20"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v19"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v7"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v20"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v1"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v8"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
 RAW_FUSION_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_fusion_raw_passthrough.v1"
 CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_prompt_passthrough.v2"
 FUSION_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_fusion_prompt_passthrough.v2"
+FINALIZATION_PROMPT_PASSTHROUGH_VERSION = (
+    "visual_anchor_finalization_prompt_passthrough.v1"
+)
 _PLANNING_TEXT_MAX_LENGTH = 1200
 _PROMPT_TEXT_MAX_LENGTH = 12000
 HistoricalContentStagePromptVersion = Literal[
@@ -48,7 +52,12 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v14",
     "visual_anchor_fusion_stage.v17",
     "visual_anchor_fusion_stage.v18",
+    "visual_anchor_fusion_stage.v19",
     FUSION_STAGE_PROMPT_VERSION,
+]
+GenerationRequestVersion = Literal[
+    "visual_anchor_generation_request.v7",
+    GENERATION_REQUEST_VERSION,
 ]
 
 ContentSubjectCategory = Literal[
@@ -102,7 +111,7 @@ def _optional_text(value: object, field_name: str) -> str:
 
 
 class TargetVisualStyle(BaseModel):
-    """The single global style contract shared by both prompt stages."""
+    """The single global style contract shared by all prompt stages."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1017,6 +1026,66 @@ ReadableFusionStageOutput = (
     | LegacyFusionStageOutput
 )
 
+
+class FinalizationStageInput(BaseModel):
+    """Fixed third-stage input; the model reviews and rewrites the fusion draft."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    frame_id: str
+    original_storyboard_text: str
+    fusion_stage_input: FusionStageInput
+    fusion_stage_output: ReadableFusionStageOutput
+    series_final_prompt_history: list[str] = Field(default_factory=list, max_length=3)
+    prompt_version: Literal[FINALIZATION_STAGE_PROMPT_VERSION] = (
+        FINALIZATION_STAGE_PROMPT_VERSION
+    )
+
+    @field_validator("frame_id", "original_storyboard_text", mode="before")
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _text(value, info.field_name)
+
+    @model_validator(mode="after")
+    def _validate_exact_draft_chain(self) -> "FinalizationStageInput":
+        if self.frame_id != self.fusion_stage_input.frame_id:
+            raise ValueError("finalization frame id must match the fusion input")
+        if (
+            self.original_storyboard_text
+            != self.fusion_stage_input.original_storyboard_text
+        ):
+            raise ValueError(
+                "finalization storyboard text must match the fusion input"
+            )
+        return self
+
+
+class FinalizationStagePromptPassthrough(BaseModel):
+    """One finalizer response retained verbatim as the image prompt."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    passthrough_version: Literal[FINALIZATION_PROMPT_PASSTHROUGH_VERSION]
+    raw_prompt: str
+
+    @field_validator("raw_prompt", mode="before")
+    @classmethod
+    def _preserve_raw_prompt(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("raw_prompt must be a string")
+        return value
+
+    @property
+    def final_positive_prompt(self) -> str:
+        return self.raw_prompt
+
+    @property
+    def final_negative_prompt(self) -> str:
+        return ""
+
+
+RawFinalizationStageOutput = FinalizationStagePromptPassthrough
+
 class ImageWorkflowExecutionContract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1079,7 +1148,7 @@ class VisualAnchorPromptAssemblyTrace(BaseModel):
 class VisualAnchorImageGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    request_version: Literal[GENERATION_REQUEST_VERSION] = GENERATION_REQUEST_VERSION
+    request_version: GenerationRequestVersion = GENERATION_REQUEST_VERSION
     task_id: str
     frame_id: str
     generation_attempt: Literal[1] = 1
@@ -1101,6 +1170,9 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
     content_stage_prompt_version: ContentStagePromptVersion
     fusion_stage_prompt_version: FusionStagePromptVersion
+    finalization_stage_prompt_version: (
+        Literal[FINALIZATION_STAGE_PROMPT_VERSION] | None
+    ) = None
     negative_prompt_supported: bool
     target_image_prompt_language: str | None = None
     workflow_key: str
@@ -1132,7 +1204,7 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             "visual_anchor_generation_request.v5",
             "visual_anchor_generation_request.v6",
         }:
-            normalized["request_version"] = GENERATION_REQUEST_VERSION
+            normalized["request_version"] = "visual_anchor_generation_request.v7"
         return normalized
 
     @field_validator(
@@ -1199,6 +1271,20 @@ class VisualAnchorImageGenerationRequest(BaseModel):
         elif self.identity_reference_condition is not None:
             raise ValueError(
                 "text-profile generation cannot include a reference condition"
+            )
+        if (
+            self.request_version == GENERATION_REQUEST_VERSION
+            and self.finalization_stage_prompt_version is None
+        ):
+            raise ValueError(
+                "current generation requests require the finalization stage version"
+            )
+        if (
+            self.request_version == "visual_anchor_generation_request.v7"
+            and self.finalization_stage_prompt_version is not None
+        ):
+            raise ValueError(
+                "historical two-stage requests cannot declare a finalization stage"
             )
         return self
 
@@ -1484,6 +1570,8 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     content_stage_output: ReadableContentStageOutput
     fusion_stage_input: FusionStageInput
     fusion_stage_output: ReadableFusionStageOutput
+    finalization_stage_input: FinalizationStageInput | None = None
+    finalization_stage_output: FinalizationStagePromptPassthrough | None = None
     generation_request: VisualAnchorImageGenerationRequest
 
     @model_validator(mode="before")
@@ -1503,3 +1591,54 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     @classmethod
     def _validate_frame_id(cls, value: object) -> str:
         return _text(value, "frame_id")
+
+    @model_validator(mode="after")
+    def _validate_current_three_stage_chain(self) -> "VisualAnchorTwoStageFrameResult":
+        if self.generation_request.request_version != GENERATION_REQUEST_VERSION:
+            return self
+        if not (
+            self.frame_id
+            == self.content_stage_input.frame_id
+            == self.fusion_stage_input.frame_id
+            == self.generation_request.frame_id
+        ):
+            raise ValueError("current visual-anchor frame ids must match")
+        if self.fusion_stage_input.content_stage_output != self.content_stage_output:
+            raise ValueError("fusion input must contain the exact content output")
+        if (
+            self.generation_request.content_stage_prompt_version
+            != self.content_stage_input.prompt_version
+        ):
+            raise ValueError(
+                "generation request content version must match its stage input"
+            )
+        if (
+            self.generation_request.fusion_stage_prompt_version
+            != self.fusion_stage_input.prompt_version
+        ):
+            raise ValueError(
+                "generation request fusion version must match its stage input"
+            )
+        if self.finalization_stage_input is None or self.finalization_stage_output is None:
+            raise ValueError(
+                "current visual-anchor results require one finalization input and output"
+            )
+        if self.finalization_stage_input.fusion_stage_input != self.fusion_stage_input:
+            raise ValueError("finalization input must contain the exact fusion input")
+        if self.finalization_stage_input.fusion_stage_output != self.fusion_stage_output:
+            raise ValueError("finalization input must contain the exact fusion output")
+        if (
+            self.generation_request.finalization_stage_prompt_version
+            != self.finalization_stage_input.prompt_version
+        ):
+            raise ValueError(
+                "generation request finalization version must match its stage input"
+            )
+        if (
+            self.generation_request.final_positive_prompt
+            != self.finalization_stage_output.raw_prompt
+        ):
+            raise ValueError(
+                "generation prompt must exactly match the finalization response"
+            )
+        return self

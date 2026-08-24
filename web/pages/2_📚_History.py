@@ -619,7 +619,7 @@ def render_visual_anchor_two_stage_evidence(
     storyboard: object,
     planning_snapshot: dict,
 ) -> None:
-    """Render screenshot-ready evidence from persisted two-stage task records."""
+    """Render screenshot-ready evidence from persisted visual-anchor task records."""
 
     batch = _mapping(planning_snapshot.get("visual_anchor_two_stage"))
     raw_frames = batch.get("frames")
@@ -645,7 +645,7 @@ def render_visual_anchor_two_stage_evidence(
     model_label = "\n".join(str(item) for item in model_files or []) or "N/A"
 
     st.divider()
-    st.markdown("## 视觉锚点二次融合验收证据")
+    st.markdown("## 视觉锚点三轮生成验收证据")
     st.caption(
         f"任务编号：{task_id} ｜ 验收批次编号：{task_title} ｜ "
         f"开始时间：{created_at} ｜ 完成时间：{completed_at}"
@@ -653,7 +653,8 @@ def render_visual_anchor_two_stage_evidence(
     st.caption(
         "提示词版本："
         f"第一阶段 {prompt_versions.get('content_stage', 'N/A')} ｜ "
-        f"第二阶段 {prompt_versions.get('fusion_stage', 'N/A')}"
+        f"第二阶段 {prompt_versions.get('fusion_stage', 'N/A')} ｜ "
+        f"第三阶段 {prompt_versions.get('finalization_stage', 'N/A')}"
     )
 
     for frame_number, raw_frame in enumerate(raw_frames, start=1):
@@ -665,6 +666,9 @@ def render_visual_anchor_two_stage_evidence(
         content_output = _mapping(frame_record.get("content_stage_output"))
         fusion_input = _mapping(frame_record.get("fusion_stage_input"))
         fusion_output = _mapping(frame_record.get("fusion_stage_output"))
+        finalization_output = _mapping(
+            frame_record.get("finalization_stage_output")
+        )
         generation_request = _mapping(frame_record.get("generation_request"))
         identity_profile = _mapping(fusion_input.get("identity_profile"))
         reference_condition = _mapping(
@@ -756,7 +760,8 @@ def render_visual_anchor_two_stage_evidence(
                 )
                 _render_prompt_evidence(
                     "第一阶段纯内容画面提示词",
-                    content_output.get("pure_content_prompt"),
+                    content_output.get("raw_prompt")
+                    or content_output.get("pure_content_prompt"),
                 )
                 st.markdown("**场景事实**")
                 st.json(content_output.get("scene_facts") or [], expanded=True)
@@ -766,16 +771,17 @@ def render_visual_anchor_two_stage_evidence(
                     expanded=True,
                 )
                 _render_prompt_evidence(
-                    "第二阶段选中的唯一融合方式",
-                    fusion_output.get("selected_fusion_method"),
+                    "第二阶段融合提示词草稿",
+                    fusion_output.get("raw_prompt")
+                    or fusion_output.get("final_positive_prompt"),
                 )
                 _render_prompt_evidence(
                     "第二阶段目标画面风格",
                     fusion_input.get("target_visual_style"),
                 )
                 _render_prompt_evidence(
-                    "视觉锚点最终表现形态",
-                    fusion_output.get("final_manifestation"),
+                    "第三阶段审查重写结果",
+                    finalization_output.get("raw_prompt"),
                 )
                 _render_prompt_evidence(
                     "最终生图正向提示词",
@@ -800,6 +806,8 @@ def render_visual_anchor_two_stage_evidence(
                     f"{generation_request.get('content_stage_prompt_version', 'N/A')}  \n"
                     f"**第二阶段提示词版本：** "
                     f"{generation_request.get('fusion_stage_prompt_version', 'N/A')}  \n"
+                    f"**第三阶段提示词版本：** "
+                    f"{generation_request.get('finalization_stage_prompt_version', 'N/A')}  \n"
                     f"**参考资源标识：** "
                     f"{', '.join(identity_profile.get('source_asset_ids') or []) or 'N/A'}  \n"
                     f"**参考图校验值：** "

@@ -37,23 +37,26 @@ def test_series_visual_signature_trace_artifacts_write_structure_and_participati
     assert participation_payload["participation_decision"] == "The IP guides the workflow."
 
 
-def test_visual_anchor_two_stage_writes_both_stages_and_generation_request(tmp_path):
+def test_visual_anchor_three_stage_writes_all_stages_and_generation_request(tmp_path):
     frame = {
         "frame_id": "frame-a",
         "content_stage_input": {"original_storyboard_text": "原始分镜"},
         "content_stage_output": {"pure_content_prompt": "纯内容画面"},
         "fusion_stage_input": {"identity_profile": {"profile_id": "bird-v1"}},
         "fusion_stage_output": {"selected_fusion_method": "唯一实体"},
+        "finalization_stage_input": {"series_final_prompt_history": []},
+        "finalization_stage_output": {"raw_prompt": "最终图片提示词"},
         "generation_request": {"random_seed": 2026082201},
     }
     ctx = PipelineContext(input_text="demo", params={})
     ctx.task_dir = str(tmp_path)
     ctx.planning_snapshot = {
         "visual_anchor_two_stage": {
-            "schema_version": "visual_anchor_two_stage_batch.v6",
+            "schema_version": "visual_anchor_two_stage_batch.v9",
             "prompt_versions": {
                 "content_stage": "visual_anchor_content_stage.v10",
                 "fusion_stage": "visual_anchor_fusion_stage.v7",
+                "finalization_stage": "visual_anchor_finalization_stage.v1",
             },
             "frames": [frame],
         },
@@ -75,9 +78,11 @@ def test_visual_anchor_two_stage_writes_both_stages_and_generation_request(tmp_p
         "content_stage_output",
         "fusion_stage_input",
         "fusion_stage_output",
+        "finalization_stage_input",
+        "finalization_stage_output",
         "generation_request",
     }
-    assert record["schema_version"] == "visual_anchor_two_stage_artifacts.v3"
+    assert record["schema_version"] == "visual_anchor_two_stage_artifacts.v4"
     for relative_path in record["frames"]["frame-a"].values():
         assert (tmp_path / relative_path).is_file()
     generation_request = json.loads(
