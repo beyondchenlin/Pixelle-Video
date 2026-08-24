@@ -455,6 +455,8 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
         "只处理 original_storyboard_text 当前分镜明确要表达的内容",
         "只补足成像必需的最少外观信息",
         "选择一个物理上能够同时成立的决定性瞬间",
+        "让本镜至少在决定性动作、可见物证、主体关系、景别、机位、构图或视觉焦点中的一项与相邻镜头形成明确区别",
+        "禁止连续镜头机械重复",
         "不得依靠日记、书页、屏幕、招牌、标题、字幕、水印或乱码传达信息",
         "在输出前消除冲突",
         "本阶段完全不包含、暗示或预留任何系列角色",
@@ -481,7 +483,7 @@ def test_fusion_template_requests_only_final_result_fields():
         assert removed_field not in template
 
 
-def test_fusion_template_keeps_subject_facts_fixed_and_selects_one_renderable_form():
+def test_fusion_template_keeps_subject_facts_fixed_and_restores_scene_bound_choice():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
@@ -491,10 +493,34 @@ def test_fusion_template_keeps_subject_facts_fixed_and_selects_one_renderable_fo
         "原始分镜明确的人物、身份、数量、关键动作、关键物品",
         "只选择一种结构简单、边界清楚、位置可精确描述",
         "不得在最终提示词中枚举候选方案",
-        "只添加承载视觉身份所必需的元素",
+        "不为任何合法形态设置默认优先级",
+        "不能只是无意义地摆在旁边",
+        "不得因为独立实体最容易生成",
+        "“不干扰主体”不能单独构成场景职责",
         "保持同一表现形态、载体、相对位置、尺寸和互动关系",
+        "不得机械复用相邻镜头的通用陪伴关系",
     ):
         assert required_rule in template
+
+
+def test_fusion_template_explicitly_allows_material_and_interactive_forms():
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
+    ).read_text(encoding="utf-8")
+
+    for manifestation in (
+        "服装印刷",
+        "刺绣",
+        "压印",
+        "材质图形",
+        "道具",
+        "摆件",
+        "雕刻",
+        "环境结构",
+        "互动角色",
+    ):
+        assert manifestation in template
 
 
 def test_fusion_template_enforces_single_instance_style_and_positive_exclusions():

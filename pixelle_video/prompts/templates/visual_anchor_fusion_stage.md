@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_fusion_stage
-version: visual_anchor_fusion_stage.v15
+version: visual_anchor_fusion_stage.v16
 stage: visual_anchor_fusion_stage
 purpose: 直接生成包含视觉身份融合结果的最终图片提示词
 output_contract: raw_image_prompt_text
@@ -10,7 +10,7 @@ output_contract: raw_image_prompt_text
 输入数据：
 {input_json}
 
-请先在内部选择一种最容易被当前图片工作流一次生成正确的融合方案，再直接写出一段能够送入图片模型的最终图片提示词。保留 original_storyboard_text 和 content_stage_output.raw_prompt 的画面主旨与关键事实，把 identity_profile 所描述的唯一视觉身份自然融合到当前场景中。
+请先在内部判断视觉身份在本镜中能够承担的具体场景职责，再选择一种既服务当前画面主旨、又容易被当前图片工作流一次生成正确的融合方案，最后直接写出一段能够送入图片模型的最终图片提示词。保留 original_storyboard_text 和 content_stage_output.raw_prompt 的画面主旨与关键事实，把 identity_profile 所描述的唯一视觉身份从一开始就组织进当前场景，而不是在纯内容提示词末尾追加一个陪伴物。
 
 不可改变的边界：
 1. 原始分镜明确的人物、身份、数量、关键动作、关键物品、事件关系、时间、地点和空间关系不得删除、替换或篡改。纯内容提示词中为成像补充的非核心细节可以压缩，但不得改变原始事实。
@@ -18,18 +18,20 @@ output_contract: raw_image_prompt_text
 3. 整幅画只出现一个可识别的视觉身份实例，并且只采用一种表现形态。最终提示词必须把 identity_profile.display_name 的实际值代入“画面中仅出现一个〈身份名称〉”，不得输出“该视觉身份”之类的内部称呼，并明确排除第二实例、重复图案、连续纹样、镜像复制、背景复制以及其他主体继承其核心特征。
 4. identity_profile.core_identity_traits 中的每一项都要原样写入最终提示词且只写一次；supporting_identity_traits 只在不制造冲突和过载时使用；forbidden_traits 必须改写成图片模型能直接执行的禁止项。
 
-可生成性要求：
-5. 只选择一种结构简单、边界清楚、位置可精确描述、符合 workflow_identity_condition_summary 和当前工作流能力的表现形态，不得在最终提示词中枚举候选方案。优先利用场景已经存在的主体、服装、道具或环境载体；只添加承载视觉身份所必需的元素，不得新增无关人物、事件或抢占主旨的复杂道具。
-6. 采用服装、道具或环境图形时，必须写明它是单个、独立、非重复的图形，写清唯一载体、具体区域、工艺、相对尺寸、透视、褶皱、光照和遮挡关系，禁止满版印花、散点纹样和多处复制。
-7. 采用实体角色时，必须写清唯一实体、相对尺寸、支撑面、接触点、朝向、当前动作、光照和阴影；互动只能辅助当前主旨，不得让视觉身份替代内容主体完成关键动作。
-8. identity_conditioning_mode 为 reference_image 时，以已绑定参考图保持身份外观，不得用文字重新发明冲突外观；为 text_profile 时，只依据 display_name、core_identity_traits、supporting_identity_traits 和 forbidden_traits 描述身份，不得声称存在参考图。
-9. 同一连续场景存在 continuous_scene_context.existing_fusion_decision 时，保持同一表现形态、载体、相对位置、尺寸和互动关系；只有当前分镜明确事实无法兼容时才调整，并且最终只写调整后的方案。
+场景化选择与可生成性要求：
+5. 只选择一种结构简单、边界清楚、位置可精确描述、符合 workflow_identity_condition_summary 和当前工作流能力的表现形态，不得在最终提示词中枚举候选方案。除不可改变的边界外，不预设视觉身份的形态、大小、位置、朝向、载体、画面占比或叙事职责，也不为任何合法形态设置默认优先级。
+6. 合法形态包括实体角色、服装印刷、刺绣、压印、材质图形、道具、摆件、雕刻、画内图形、环境结构或互动角色。优先利用场景已有的服装、道具、表面或环境结构；现有画面没有自然载体或互动关系时，可以新增一个不改变主旨的简单载体或互动元素，但不得新增无关人物、事件或抢占主旨的复杂道具。
+7. 先让视觉身份承担与当前主张相关的场景职责，例如附着、承载、使用、观察、操作、回应、指引、连接、对照、解释或提供尺度，再确定表现形态。最终画面必须写清视觉身份与人物、服装、道具或环境之间具体且可见的关系；自然存在也必须服务构图或叙事，不能只是无意义地摆在旁边。
+8. 不得因为独立实体最容易生成，就默认把视觉身份安排在内容主体脚边、身旁、画面角落或空白区域静坐、站立、观看或陪伴。只有当前场景没有更自然的载体或互动关系，并且该实体具有本镜独有的具体动作、接触或叙事作用时，才能采用这种方案；“不干扰主体”不能单独构成场景职责。
+9. 采用服装、道具或环境图形时，必须写明它是单个、独立、非重复的图形，写清唯一载体、具体区域、工艺、相对尺寸、透视、褶皱、光照和遮挡关系，禁止满版印花、散点纹样和多处复制。采用实体角色时，必须写清唯一实体、相对尺寸、支撑面、接触点、朝向、当前动作、互动目标、光照和阴影，不得让视觉身份替代内容主体完成关键动作。
+10. identity_conditioning_mode 为 reference_image 时，以已绑定参考图保持身份外观，不得用文字重新发明冲突外观；为 text_profile 时，只依据 display_name、core_identity_traits、supporting_identity_traits 和 forbidden_traits 描述身份，不得声称存在参考图。
+11. 同一连续场景存在 continuous_scene_context.existing_fusion_decision 时，保持同一表现形态、载体、相对位置、尺寸和互动关系；只有当前分镜明确事实无法兼容时才调整，并且最终只写调整后的方案。没有既有融合结果的独立镜头必须依据本镜主张重新选择，不得机械复用相邻镜头的通用陪伴关系。
 
 风格、文字与冲突处理：
-10. target_visual_style.required_final_prompt_fragments 中的每一项必须原样、完整、各出现一次，不得翻译、改写、拆散或用近义词替代。把目标风格作为整幅画的统一渲染方式，不得并列互斥的媒介、色彩、光照或质感要求；纯内容提示词中与目标风格冲突且不是原文明确事实的渲染细节应服从目标风格。
-11. visible_text_policy.suppress_visible_text 为真时，必须原样写入 required_positive_prompt_fragment，并把 required_negative_prompt_fragment 改写成正向提示词中的直接排除句；同时删除纯内容提示词中不是原文核心事实的可见文字。为假时，只保留原始分镜明确要求的准确可读文字，禁止自行新增文字。
-12. 当前阶段只输出正向提示词，因此 target_visual_style.required_negative_prompt_fragments、visible_text_policy、identity_profile.forbidden_traits 和工作流限制中的所有禁止项，都必须转换成正向提示词末尾的直接排除句，不得遗漏到负向字段。
-13. 发现机位、景别、主体朝向、可见表情、动作、数量、材质或目标风格互相冲突时，在不改变原始分镜明确事实的前提下选择一个物理上能够同时成立的方案，不得把矛盾要求并列写入最终提示词。
-14. 最终提示词按“内容场景与主体、视觉身份及空间关系、目标风格原文片段、直接排除项”的顺序书写，只保留影响像素的内容，避免重复陈述、抽象评价和内部术语。使用 target_image_prompt_language 指定的语言，但必须原样保留要求逐字出现的片段。
+12. target_visual_style.required_final_prompt_fragments 中的每一项必须原样、完整、各出现一次，不得翻译、改写、拆散或用近义词替代。把目标风格作为整幅画的统一渲染方式，不得并列互斥的媒介、色彩、光照或质感要求；纯内容提示词中与目标风格冲突且不是原文明确事实的渲染细节应服从目标风格。
+13. visible_text_policy.suppress_visible_text 为真时，必须原样写入 required_positive_prompt_fragment，并把 required_negative_prompt_fragment 改写成正向提示词中的直接排除句；同时删除纯内容提示词中不是原文核心事实的可见文字。为假时，只保留原始分镜明确要求的准确可读文字，禁止自行新增文字。
+14. 当前阶段只输出正向提示词，因此 target_visual_style.required_negative_prompt_fragments、visible_text_policy、identity_profile.forbidden_traits 和工作流限制中的所有禁止项，都必须转换成正向提示词末尾的直接排除句，不得遗漏到负向字段。
+15. 发现机位、景别、主体朝向、可见表情、动作、数量、材质或目标风格互相冲突时，在不改变原始分镜明确事实的前提下选择一个物理上能够同时成立的方案，不得把矛盾要求并列写入最终提示词。
+16. 最终提示词按“内容场景与主体、视觉身份及空间关系、目标风格原文片段、直接排除项”的顺序书写，只保留影响像素的内容，避免重复陈述、抽象评价和内部术语。使用 target_image_prompt_language 指定的语言，但必须原样保留要求逐字出现的片段。
 
 只输出最终图片提示词原文。不要输出结构化数据、字段名、标题、分析、解释、候选方案、代码块或引号。
