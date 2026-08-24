@@ -452,15 +452,19 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "只处理 original_storyboard_text 当前分镜明确要表达的内容",
+        "original_storyboard_text 是当前分镜的硬边界",
+        "article_context 是原文叙事上下文",
         "只补足成像必需的最少外观信息",
         "选择一个物理上能够同时成立的决定性瞬间",
         "可以设计一个有原文依据、物理上成立的具象化视觉隐喻",
         "不得把隐喻伪装成原文真实发生的事件",
+        "不得无依据换成泛化人物",
+        "原文存在迭代样品、失败原型、修改痕迹、草稿、工具、结果物等专属证据时",
         "为当前分镜选择与相邻内容不同的可见证据类型",
         "让本镜至少在决定性动作、可见物证、主体关系、景别、机位、构图或视觉焦点中的一项与相邻镜头形成明确区别",
         "禁止连续镜头机械重复",
         "不得依靠日记、书页、屏幕、招牌、标题、字幕、水印或乱码传达信息",
+        "空白表面、无字符的简单线条或非文字几何图形",
         "在输出前消除冲突",
         "本阶段完全不包含、暗示或预留任何系列角色",
     ):
@@ -496,14 +500,18 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "original_storyboard_text 是画面主旨与事实边界",
         "content_stage_output.raw_prompt 是不含视觉身份的创作草稿",
         "可以增加、删除、替换、移动或重写任何背景、道具、服装细节",
-        "不预设视觉身份的形态、大小、位置、朝向、载体",
-        "不为任何表现方式设置默认优先级",
-        "先判断当前画面的叙事重点",
-        "不能只是无意义地摆在旁边",
-        "不得因为独立实体最容易生成",
-        "脚边、身旁、画面角落或空白区域静坐、站立、观看或陪伴",
-        "不得机械沿用相邻镜头的表现方式",
+        "不预设视觉身份的大小、位置、朝向、画面占比或叙事职责",
+        "按下述正向优先顺序结合当前场景选择",
+        "优先成为现有场景表面或环境载体的一部分",
+        "静坐、站立、观看或陪伴的被动实体是最后选择",
+        "这是选择顺序，不是禁用清单",
+        "关键叙事物品可以承载视觉身份",
+        "series_fusion_history 是此前画面的原始最终提示词",
+        "continuous_scene_context.existing_fusion_decision 的连续性要求优先于系列差异化",
         "不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子",
+        "最终提示词第一句先确立 target_visual_style 的目标媒介与画风",
+        "所有人物（包括名人及其面部）、服装、道具、环境和视觉身份",
+        "写出最终提示词前，在内部确认",
     ):
         assert required_rule in template
 
@@ -538,7 +546,7 @@ def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
 
     for required_rule in (
         "整幅画只出现一个可识别的视觉身份实例",
-        "先在内部依次确定唯一的融合方式、最终表现形态以及空间接触与光照关系",
+        "先在内部依次确定目标画风、唯一的融合方式、最终表现形态以及空间接触与光照关系",
         "任何能够在当前场景中真实成立的单一表现方式都合法",
         "target_visual_style.required_final_prompt_fragments",
     ):

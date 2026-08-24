@@ -114,6 +114,27 @@ def _plan(*, continuous=False):
     )
 
 
+def _independent_plan(frame_count=5):
+    frames = [
+        StoryboardPlanFrame(
+            index=index,
+            frame_id=f"frame-{index}",
+            source_text=f"第{index}个独立画面的原文。",
+            visual_goal=f"表现第{index}个独立事件",
+            prompt_intent=f"第{index}个独立画面",
+            continuity_anchors=(),
+        )
+        for index in range(1, frame_count + 1)
+    ]
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=" ".join(frame.source_text for frame in frames),
+        frames=frames,
+    )
+
+
 def _identity():
     return VisualAnchorIdentityProfile(
         profile_id="profile-pixelle",
@@ -508,6 +529,18 @@ async def test_article_context_is_bounded_around_the_current_source_span():
 
 
 @pytest.mark.asyncio
+async def test_content_stage_receives_current_frame_and_original_article_context():
+    plan = _plan(continuous=True)
+
+    result, _ = await _run(plan)
+
+    first_input = result.frames[0].content_stage_input
+    assert first_input.original_storyboard_text == plan.frames[0].source_text
+    assert first_input.article_context == plan.source_text
+    assert first_input.next_frame_summary == plan.frames[1].source_text
+
+
+@pytest.mark.asyncio
 async def test_oversized_frame_fails_before_any_model_call():
     source_text = "过长分镜内容" * 1001
     plan = StoryboardPlan.build(
@@ -765,6 +798,29 @@ async def test_continuous_scene_passes_the_previous_raw_prompt_as_context():
     assert result.frames[1].generation_request.final_positive_prompt == (
         fusions[1].model_dump_json()
     )
+
+
+@pytest.mark.asyncio
+async def test_independent_frames_receive_only_the_last_three_raw_fusion_prompts():
+    plan = _independent_plan()
+    fusions = [f"  原始融合结果::{frame.frame_id}\n" for frame in plan.frames]
+
+    result, llm = await _run(plan, fusions=fusions)
+
+    histories = [
+        frame.fusion_stage_input.series_fusion_history for frame in result.frames
+    ]
+    assert histories == [
+        [],
+        [fusions[0]],
+        fusions[:2],
+        fusions[:3],
+        fusions[1:4],
+    ]
+    assert len(llm.calls) == len(plan.frames) * 2
+    assert [
+        frame.fusion_stage_output.raw_prompt for frame in result.frames
+    ] == fusions
 
 
 @pytest.mark.asyncio
