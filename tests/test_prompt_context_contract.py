@@ -35,6 +35,7 @@ def test_image_prompt_template_requires_frame_aware_context():
         min_words=30,
         max_words=60,
         prompt_contexts=_prompt_contexts(),
+        prompt_scope="ordinary_content_only",
     )
 
     assert '"current_storyboard"' in prompt
@@ -74,6 +75,7 @@ def test_legacy_prompt_contexts_are_projected_to_current_frame_fields():
         min_words=30,
         max_words=60,
         prompt_contexts=_legacy_prompt_contexts(),
+        prompt_scope="ordinary_content_only",
     )
 
     assert "plan_context" not in prompt
@@ -87,6 +89,7 @@ def test_image_prompt_template_can_request_chinese_output():
         min_words=30,
         max_words=60,
         prompt_language="zh_CN",
+        prompt_scope="ordinary_content_only",
     )
 
     assert "必须使用中文" in prompt

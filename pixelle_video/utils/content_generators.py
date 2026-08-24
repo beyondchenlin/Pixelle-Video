@@ -1169,6 +1169,7 @@ async def generate_image_prompts(
     series_visual_signature_identity_traits: str = "",
     series_visual_signature_role_description: str = "",
     visual_anchor_preparation_enabled: bool = False,
+    prompt_scope: Literal["full_context", "ordinary_content_only"] = "full_context",
 ) -> List[str]:
     """
     Generate image prompts from narrations (with batching and retry)
@@ -1227,6 +1228,7 @@ async def generate_image_prompts(
             prompt_contexts=_slice_prompt_contexts(normalized_prompt_contexts, 0, len(sample_items)),
             prompt_language=prompt_language,
             visual_anchor_preparation_enabled=visual_anchor_preparation_enabled,
+            prompt_scope=prompt_scope,
         )
         est_tokens = estimate_input_tokens(sample_prompt.text)
         if est_tokens > _LLM_BATCH_SAFE_TOKENS:
@@ -1267,6 +1269,7 @@ async def generate_image_prompts(
             series_visual_signature_identity_traits=series_visual_signature_identity_traits,
             series_visual_signature_role_description=series_visual_signature_role_description,
             visual_anchor_preparation_enabled=visual_anchor_preparation_enabled,
+            prompt_scope=prompt_scope,
         )
 
         response: ImagePromptBatchResponse = await llm_service(
@@ -1379,7 +1382,8 @@ async def generate_styled_image_prompt_batch(
     prompt_contexts: Optional[PromptContextInput] = None,
     prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
     prompt_prefix: Optional[str] = None,
-    prompt_prefix_id: Optional[str] = None,
+    image_style_id: Optional[str] = None,
+    image_style_revision: Optional[str] = None,
     workflow: Optional[str] = None,
     media_service=None,
     media_type: Literal["image", "video"] = "image",
@@ -1520,18 +1524,18 @@ async def generate_styled_image_prompt_batch(
         if storyboard_enabled
         else None
     )
-    source = (
-        resolve_style_source(
-            image_config,
-            prompt_prefix_override=prompt_prefix,
-            prompt_prefix_id_override=prompt_prefix_id,
-        )
-        if prompt_prefix_id
-        else resolve_style_source(
+    if image_style_id is None and image_style_revision is None:
+        source = resolve_style_source(
             image_config,
             prompt_prefix_override=prompt_prefix,
         )
-    )
+    else:
+        source = resolve_style_source(
+            image_config,
+            prompt_prefix_override=prompt_prefix,
+            image_style_id_override=image_style_id,
+            image_style_revision_override=image_style_revision,
+        )
     resolved_style = None
     style_profile = None
     planning_snapshot = None
@@ -1838,6 +1842,11 @@ async def generate_styled_image_prompt_batch(
             series_visual_signature_identity_traits=_sv_identity_traits,
             series_visual_signature_role_description=_sv_role_description,
             visual_anchor_preparation_enabled=visual_anchor_preparation_enabled,
+            prompt_scope=(
+                "full_context"
+                if visual_anchor_preparation_enabled
+                else "ordinary_content_only"
+            ),
         )
 
     if trace_collector is not None:
@@ -1890,14 +1899,14 @@ async def generate_styled_image_prompt_batch(
         prompt_contexts_for_generation,
         len(base_prompts),
     )
-    active_style_item = (
+    selected_style_item = (
         get_image_prompt_prefix_item(image_config, source.item_id)
         if source is not None and source.item_id
         else None
     )
     visual_style_contract = VisualStyleContractResolver().resolve(
         resolved_style=resolved_style,
-        active_style_item=active_style_item,
+        selected_style_item=selected_style_item,
         fallback_to_default_world=bool(generation_world_profile or world_preset),
     )
     provider_negative_rules = _provider_negative_rules_for_projection(

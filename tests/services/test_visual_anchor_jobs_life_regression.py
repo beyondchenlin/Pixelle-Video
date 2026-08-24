@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from pixelle_video.config.prompt_prefix_library import image_prompt_prefix_revision
 from pixelle_video.models.storyboard import StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
@@ -345,7 +346,10 @@ def test_requested_style_id_preserves_complete_contract_when_active_style_change
             }
         },
         prompt_prefix=None,
-        prompt_prefix_id="builtin_line_art_emotion_minimal",
+        image_style_id="builtin_line_art_emotion_minimal",
+        image_style_revision=image_prompt_prefix_revision(
+            "minimal line art, negative space, monochrome illustration"
+        ),
         frame_count=1,
     )
 

@@ -291,6 +291,33 @@ def test_inprocess_video_client_uses_fingerprint_and_returns_persisted_snapshot(
     assert client.get("../../secret") is None
 
 
+def test_inprocess_video_client_fingerprint_includes_image_style_revision():
+    calls = []
+
+    class Submitter:
+        async def reserve_video_generation(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(
+                task_id="0f32fbe0-6ac3-4bb0-a673-6f98deae3528",
+                created=True,
+                reused_reason=None,
+            )
+
+    client = InProcessVideoGenerationClient(
+        submitter=Submitter(),
+        async_runner=run_coroutine_in_isolated_thread,
+    )
+
+    shared_params = {
+        "text": "demo",
+        "image_style_id": "builtin-flat-style",
+    }
+    client.submit({**shared_params, "image_style_revision": "a" * 64})
+    client.submit({**shared_params, "image_style_revision": "b" * 64})
+
+    assert calls[0]["generation_fingerprint"] != calls[1]["generation_fingerprint"]
+
+
 @pytest.mark.asyncio
 async def test_task_submitter_returns_projection_without_request_parameters(tmp_path):
     task_id = "0f32fbe0-6ac3-4bb0-a673-6f98deae3528"

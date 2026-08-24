@@ -139,6 +139,8 @@ def build_video_generation_params(
         "video_fps": request_body.video_fps,
         "frame_template": raw_resource_params.get("frame_template"),
         "prompt_prefix": raw_resource_params.get("prompt_prefix"),
+        "image_style_id": raw_resource_params.get("image_style_id"),
+        "image_style_revision": raw_resource_params.get("image_style_revision"),
         "world_preset_id": request_body.world_preset_id,
         "generation_world_hint": request_body.generation_world_hint,
         "shot_preset_id": request_body.shot_preset_id,
@@ -295,6 +297,8 @@ def _build_raw_resource_params(
 ) -> dict[str, str | None]:
     raw_params = {
         "prompt_prefix": getattr(request_body, "prompt_prefix", None),
+        "image_style_id": getattr(request_body, "image_style_id", None),
+        "image_style_revision": getattr(request_body, "image_style_revision", None),
         "frame_template": getattr(request_body, "frame_template", None),
         "voice_id": getattr(request_body, "voice_id", None),
         "bgm_path": getattr(request_body, "bgm_path", None),

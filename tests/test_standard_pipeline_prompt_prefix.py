@@ -1,6 +1,6 @@
 import pytest
 
-from pixelle_video.config import config_manager
+from pixelle_video.config.prompt_prefix_library import image_prompt_prefix_revision
 from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.storyboard_planning import FramePlan
@@ -228,7 +228,8 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured["prompt_prefix"] = kwargs["prompt_prefix"]
-        captured["prompt_prefix_id"] = kwargs["prompt_prefix_id"]
+        captured["image_style_id"] = kwargs["image_style_id"]
+        captured["image_style_revision"] = kwargs["image_style_revision"]
         captured["image_config"] = kwargs["image_config"]
         captured["batch_size"] = kwargs.get("batch_size")
         captured["max_concurrency"] = kwargs.get("max_concurrency")
@@ -245,7 +246,25 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
         fake_generate_styled_image_prompt_batch,
     )
 
-    pipeline = StandardPipeline(_DummyCore({"comfyui": {"image": {"prompt_prefix": "legacy"}}}))
+    core = _DummyCore(
+        {
+            "comfyui": {
+                "image": {
+                    "prompt_prefix": "legacy",
+                    "prompt_prefix_library": {
+                        "active_prefix_id": "builtin_line_art_emotion_minimal",
+                        "items": [
+                            {
+                                "id": "builtin_line_art_emotion_minimal",
+                                "content": "minimal line art",
+                            }
+                        ],
+                    },
+                }
+            }
+        }
+    )
+    pipeline = StandardPipeline(core)
     ctx = PipelineContext(
         input_text="topic",
         params={
@@ -272,7 +291,8 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
     await pipeline.plan_visuals(ctx)
 
     assert captured["prompt_prefix"] == "explicit override"
-    assert captured["prompt_prefix_id"] is None
+    assert captured["image_style_id"] is None
+    assert captured["image_style_revision"] is None
     assert captured["batch_size"] == 8
     assert captured["max_concurrency"] == 3
     assert captured["text_rendering"] == {
@@ -291,7 +311,10 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
         input_text="topic",
         params={
             "frame_template": "1080x1920/image_default.html",
-            "prompt_prefix_id": "builtin_line_art_emotion_minimal",
+            "image_style_id": "builtin_line_art_emotion_minimal",
+            "image_style_revision": image_prompt_prefix_revision(
+                "minimal line art"
+            ),
         },
     )
     id_ctx.storyboard_plan = _storyboard_plan()
@@ -300,8 +323,11 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
     await pipeline.plan_visuals(id_ctx)
 
     assert captured["prompt_prefix"] is None
-    assert captured["prompt_prefix_id"] == "builtin_line_art_emotion_minimal"
-    assert captured["image_config"] is config_manager.config.comfyui.image
+    assert captured["image_style_id"] == "builtin_line_art_emotion_minimal"
+    assert captured["image_style_revision"] == image_prompt_prefix_revision(
+        "minimal line art"
+    )
+    assert captured["image_config"] is core.config["comfyui"]["image"]
 
 
 @pytest.mark.asyncio

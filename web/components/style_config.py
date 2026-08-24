@@ -41,6 +41,7 @@ from pixelle_video.config.prompt_prefix_library import (
     get_effective_image_prompt_prefix,
     get_prompt_prefix_category_label,
     get_prompt_prefix_workflow_preview_asset_path,
+    image_prompt_prefix_revision,
     resolve_prompt_prefix_gallery_cover,
 )
 from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
@@ -2327,10 +2328,7 @@ def _render_image_prompt_prefix_library(
     active_prefix_id = library.get("active_prefix_id")
     active_item = library_items_by_id.get(active_prefix_id)
     effective_prefix = get_effective_image_prompt_prefix(image_config)
-    st.session_state["prompt_prefix_effective_value"] = effective_prefix
-    st.session_state["prompt_prefix_effective_id"] = (
-        active_item.get("id") if active_item is not None else None
-    )
+    _store_effective_image_style_selection(active_item, effective_prefix)
 
     style_options, scene_options = get_localized_prompt_prefix_category_options(language=language)
     style_label_map = {option["id"]: option["label"] for option in style_options}
@@ -2935,11 +2933,8 @@ def _render_image_prompt_prefix_library_on_demand(
     """Render only the active style summary until the user opens the library."""
     image_config = config_manager.config.comfyui.image
     effective_prefix = get_effective_image_prompt_prefix(image_config)
-    st.session_state["prompt_prefix_effective_value"] = effective_prefix
     active_item = get_active_image_prompt_prefix_item(image_config)
-    st.session_state["prompt_prefix_effective_id"] = (
-        active_item.get("id") if active_item is not None else None
-    )
+    _store_effective_image_style_selection(active_item, effective_prefix)
 
     st.markdown(f"**{tr('style.prompt_prefix')}**")
     if active_item is not None:
@@ -2969,6 +2964,23 @@ def _render_image_prompt_prefix_library_on_demand(
         media_height=media_height,
         prompt_language=prompt_language,
         workflow_display_map=workflow_display_map,
+    )
+
+
+def _store_effective_image_style_selection(
+    active_item: dict[str, Any] | None,
+    effective_prefix: str,
+) -> None:
+    """Store the immutable style identity used by task fingerprints and workers."""
+
+    st.session_state["prompt_prefix_effective_value"] = effective_prefix
+    if active_item is None:
+        st.session_state["image_style_id"] = None
+        st.session_state["image_style_revision"] = None
+        return
+    st.session_state["image_style_id"] = active_item["id"]
+    st.session_state["image_style_revision"] = image_prompt_prefix_revision(
+        active_item["content"]
     )
 
 
@@ -3642,7 +3654,8 @@ def render_style_config(
     # Check if current template requires media generation
     template_media_type = st.session_state.get('template_media_type', 'image')
     template_requires_media = st.session_state.get('template_requires_media', True)
-    prompt_prefix_id = None
+    image_style_id = None
+    image_style_revision = None
     if template_requires_media:
         # Template requires media - show Media Generation Section
         if template_media_type == "video":
@@ -3785,7 +3798,8 @@ def render_style_config(
                     workflow_display_map=workflow_display_map,
                 )
                 prompt_prefix = ""
-                prompt_prefix_id = st.session_state.get("prompt_prefix_effective_id")
+                image_style_id = st.session_state.get("image_style_id")
+                image_style_revision = st.session_state.get("image_style_revision")
         
     
     else:
@@ -3843,7 +3857,8 @@ def render_style_config(
         "media_workflow": workflow_key,
         "storyboard_prompt_language": storyboard_prompt_language,
         "prompt_prefix": prompt_prefix if prompt_prefix else "",
-        "prompt_prefix_id": prompt_prefix_id,
+        "image_style_id": image_style_id,
+        "image_style_revision": image_style_revision,
         **size_contract.to_params(),
         **reference_image_settings,
         "media_placement": st.session_state.get(

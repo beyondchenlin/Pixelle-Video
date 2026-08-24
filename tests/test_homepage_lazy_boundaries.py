@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from pixelle_video.config.prompt_prefix_library import image_prompt_prefix_revision
 from web.components import settings, style_config
 
 
@@ -59,7 +60,10 @@ def test_prompt_prefix_library_is_not_built_by_default(monkeypatch):
 
     assert value == "cinematic"
     assert session_state["prompt_prefix_effective_value"] == "cinematic"
-    assert session_state["prompt_prefix_effective_id"] == "active"
+    assert session_state["image_style_id"] == "active"
+    assert session_state["image_style_revision"] == image_prompt_prefix_revision(
+        "cinematic"
+    )
 
 
 def test_prompt_prefix_pagination_is_bounded_and_clamped():

@@ -10,16 +10,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Prompt prefix library defaults and pure helpers.
-"""
+"""Prompt-prefix library defaults, validation, and pure lookup helpers."""
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from pixelle_video.models.image_style_selection import (
+    IMAGE_STYLE_ID_PATTERN,
+    IMAGE_STYLE_REVISION_PATTERN,
+    image_style_revision,
+    normalize_image_style_id,
+    normalize_image_style_revision,
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_PROMPT_PREFIX_PLACEHOLDER = "resources/prompt_prefix_previews/placeholder.svg"
+PROMPT_PREFIX_ID_PATTERN = IMAGE_STYLE_ID_PATTERN
+PROMPT_PREFIX_REVISION_PATTERN = IMAGE_STYLE_REVISION_PATTERN
 
 
 STYLE_CATEGORY_LABELS = {
@@ -165,6 +173,28 @@ def get_prompt_prefix_category_label(category_id: str, category_type: str, langu
     return category.get(language) or category.get("en_US") or category_id
 
 
+def normalize_prompt_prefix_id(prefix_id: Any, *, allow_none: bool = False) -> str | None:
+    """Compatibility name for the canonical image-style id validator."""
+
+    return normalize_image_style_id(prefix_id, allow_none=allow_none)
+
+
+def image_prompt_prefix_revision(content: Any) -> str:
+    """Compatibility name for the canonical image-style revision."""
+
+    return image_style_revision(content)
+
+
+def normalize_prompt_prefix_revision(
+    revision: Any,
+    *,
+    allow_none: bool = False,
+) -> str | None:
+    """Compatibility name for the canonical image-style revision validator."""
+
+    return normalize_image_style_revision(revision, allow_none=allow_none)
+
+
 def _read_mapping_or_attr(container: Any, key: str, default: Any = None) -> Any:
     if isinstance(container, dict):
         return container.get(key, default)
@@ -283,8 +313,8 @@ def get_image_prompt_prefix_item(
 ) -> Optional[dict[str, Any]]:
     """Return one image style library item by its stable id."""
 
-    normalized_prefix_id = str(prefix_id or "").strip()
-    if not normalized_prefix_id:
+    normalized_prefix_id = normalize_prompt_prefix_id(prefix_id, allow_none=True)
+    if normalized_prefix_id is None:
         return None
 
     library = _read_mapping_or_attr(image_config, "prompt_prefix_library", None)

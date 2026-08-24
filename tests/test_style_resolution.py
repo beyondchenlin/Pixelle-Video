@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 import pixelle_video.utils.style_resolution as style_resolution_module
+from pixelle_video.config.prompt_prefix_library import image_prompt_prefix_revision
 from pixelle_video.models.style_resolution import (
     StyleResolutionProfileResponse,
     StyleResolutionResponse,
@@ -65,7 +66,10 @@ def test_resolve_style_source_uses_requested_library_id_instead_of_current_activ
                 ],
             }
         },
-        prompt_prefix_id_override="minimal-line",
+        image_style_id_override="minimal-line",
+        image_style_revision_override=image_prompt_prefix_revision(
+            "minimal monochrome line art"
+        ),
     )
 
     assert source is not None
@@ -80,15 +84,60 @@ def test_resolve_style_source_rejects_raw_text_and_library_id_together():
         resolve_style_source(
             {"prompt_prefix_library": {"active_prefix_id": None, "items": []}},
             prompt_prefix_override="raw style",
-            prompt_prefix_id_override="minimal-line",
+            image_style_id_override="minimal-line",
+            image_style_revision_override=image_prompt_prefix_revision("raw style"),
         )
 
 
 def test_resolve_style_source_rejects_unknown_requested_library_id():
-    with pytest.raises(ValueError, match="unknown image prompt prefix id"):
+    with pytest.raises(ValueError, match="unknown image style id"):
         resolve_style_source(
             {"prompt_prefix_library": {"active_prefix_id": None, "items": []}},
-            prompt_prefix_id_override="missing-style",
+            image_style_id_override="missing-style",
+            image_style_revision_override=image_prompt_prefix_revision("missing style"),
+        )
+
+
+def test_resolve_style_source_requires_revision_with_library_id():
+    with pytest.raises(ValueError, match="must be provided together"):
+        resolve_style_source(
+            {
+                "prompt_prefix_library": {
+                    "active_prefix_id": "minimal-line",
+                    "items": [
+                        {"id": "minimal-line", "content": "minimal line art"},
+                    ],
+                }
+            },
+            image_style_id_override="minimal-line",
+        )
+
+
+def test_resolve_style_source_rejects_style_changed_after_task_submission():
+    with pytest.raises(ValueError, match="changed after task submission"):
+        resolve_style_source(
+            {
+                "prompt_prefix_library": {
+                    "active_prefix_id": "minimal-line",
+                    "items": [
+                        {"id": "minimal-line", "content": "edited minimal line art"},
+                    ],
+                }
+            },
+            image_style_id_override="minimal-line",
+            image_style_revision_override=image_prompt_prefix_revision(
+                "original minimal line art"
+            ),
+        )
+
+
+@pytest.mark.parametrize("invalid_id", [7, " spaced ", "../style", "style/one", ""])
+def test_resolve_style_source_rejects_malformed_style_ids(invalid_id):
+    with pytest.raises(ValueError, match="image style id"):
+        resolve_style_source(
+            {"prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+            image_style_id_override=invalid_id,
+            image_style_revision_override=image_prompt_prefix_revision("style"),
         )
 
 

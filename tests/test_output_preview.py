@@ -5,6 +5,7 @@ from urllib.parse import unquote
 import pytest
 from PIL import Image
 
+from pixelle_video.config.prompt_prefix_library import image_prompt_prefix_revision
 from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.series_visual_signature import SeriesVisualSignatureRequest
 from pixelle_video.models.size_contract import GenerationSizeContract
@@ -267,7 +268,10 @@ def test_build_single_generation_request_includes_render_backend():
             "media_workflow": "runninghub/image_flux.json",
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "",
-            "prompt_prefix_id": "builtin_flat_knowledge_clean",
+            "image_style_id": "builtin_flat_knowledge_clean",
+            "image_style_revision": image_prompt_prefix_revision(
+                "flat illustration"
+            ),
             "bgm_path": None,
             "bgm_volume": 0.3,
             "tts_inference_mode": "local",
@@ -285,7 +289,38 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["tts_audio_strategy"] == "master_track"
     assert request["progress_callback"] is _progress
     assert request["prompt_prefix"] == ""
-    assert request["prompt_prefix_id"] == "builtin_flat_knowledge_clean"
+    assert request["image_style_id"] == "builtin_flat_knowledge_clean"
+    assert request["image_style_revision"] == image_prompt_prefix_revision(
+        "flat illustration"
+    )
+
+
+def test_generation_request_builders_reject_partial_image_style_selection():
+    with pytest.raises(ValueError, match="must be provided together"):
+        output_preview.build_single_generation_request(
+            {"text": "demo", "image_style_id": "flat-style"},
+            progress_callback=None,
+            session_state={},
+        )
+
+    with pytest.raises(ValueError, match="must be provided together"):
+        output_preview.build_batch_shared_config(
+            {"image_style_revision": "a" * 64}
+        )
+
+
+def test_build_batch_shared_config_includes_versioned_image_style_selection():
+    revision = image_prompt_prefix_revision("flat illustration")
+
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "image_style_id": "flat-style",
+            "image_style_revision": revision,
+        }
+    )
+
+    assert shared_config["image_style_id"] == "flat-style"
+    assert shared_config["image_style_revision"] == revision
 
 
 def test_build_single_generation_request_includes_series_visual_signature_controls():

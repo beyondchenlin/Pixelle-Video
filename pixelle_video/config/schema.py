@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from pixelle_video.config.prompt_prefix_library import (
     build_builtin_prompt_prefix_library_dict,
+    normalize_prompt_prefix_id,
     normalize_prompt_prefix_workflow_preview_assets,
     normalize_prompt_prefix_workflow_preview_entry,
 )
@@ -170,6 +171,23 @@ class PromptPrefixItemConfig(BaseModel):
     negative_rules: list[str] = Field(default_factory=list)
     created_at: Optional[str] = Field(default=None)
 
+    @field_validator("id")
+    @classmethod
+    def validate_stable_id(cls, value: Any) -> str:
+        try:
+            normalized = normalize_prompt_prefix_id(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+        assert normalized is not None
+        return normalized
+
+    @field_validator("name", "content")
+    @classmethod
+    def validate_required_text(cls, value: Any, info) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"image style {info.field_name} must not be empty")
+        return value.strip()
+
     @model_validator(mode="before")
     @classmethod
     def normalize_workflow_preview_assets(cls, data: Any):
@@ -188,6 +206,23 @@ class PromptPrefixLibraryConfig(BaseModel):
 
     active_prefix_id: Optional[str] = Field(default=None)
     items: list[PromptPrefixItemConfig] = Field(default_factory=list)
+
+    @field_validator("active_prefix_id")
+    @classmethod
+    def validate_active_id(cls, value: Any) -> str | None:
+        try:
+            return normalize_prompt_prefix_id(value, allow_none=True)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+
+    @model_validator(mode="after")
+    def validate_library_integrity(self) -> "PromptPrefixLibraryConfig":
+        item_ids = [item.id for item in self.items]
+        if len(item_ids) != len(set(item_ids)):
+            raise ValueError("image style library item ids must be unique")
+        if self.active_prefix_id is not None and self.active_prefix_id not in set(item_ids):
+            raise ValueError("active image style id must reference an existing library item")
+        return self
 
 
 class ImageSubConfig(BaseModel):

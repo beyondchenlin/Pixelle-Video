@@ -9,6 +9,7 @@ import web.components.storyboard_planning_controls as storyboard_planning_contro
 import web.components.style_config as style_config
 import web.components.text_rendering_config as text_rendering_config
 import web.pipelines.standard as standard_pipeline
+from pixelle_video.config.prompt_prefix_library import image_prompt_prefix_revision
 from pixelle_video.config.storyboard_preset_library import (
     BUILTIN_SHOT_PRESETS,
     BUILTIN_WORLD_PRESETS,
@@ -2188,10 +2189,11 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     assert result["media_workflow"] == "selfhost/image_z_image_turbo_gguf.json"
     assert result["frame_template"] == "1080x1920/image_default.html"
     assert result["prompt_prefix"] == ""
-    assert result["prompt_prefix_id"] == fake_st.session_state[
-        "prompt_prefix_effective_id"
-    ]
-    assert result["prompt_prefix_id"]
+    assert result["image_style_id"] == fake_st.session_state["image_style_id"]
+    assert result["image_style_id"]
+    assert result["image_style_revision"] == image_prompt_prefix_revision(
+        style_config.config_manager.config.comfyui.image.prompt_prefix_library.items[0].content
+    )
     assert ("section.image", False) in fake_st.expanders
     assert fake_st.nested_expanders == []
     assert all("orientation.portrait" not in labels for labels in fake_st.tab_label_sets)

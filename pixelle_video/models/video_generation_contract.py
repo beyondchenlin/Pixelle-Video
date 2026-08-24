@@ -8,6 +8,7 @@ from pixelle_video.models.article_concretization import (
     ARTICLE_CONCRETIZATION_FLAT_OPTION_KEYS,
     ArticleConcretizationRequest,
 )
+from pixelle_video.models.image_style_selection import normalize_image_style_selection
 from pixelle_video.models.mode_resolution import (
     ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,
     ArticleVisualPlanningRequest,
@@ -417,6 +418,11 @@ def validate_standard_video_generation_params(
     config: Any | None = None,
     limits: StoryboardGenerationLimits | None = None,
 ) -> None:
+    normalize_image_style_selection(
+        params.get("image_style_id"),
+        params.get("image_style_revision"),
+        prompt_prefix=params.get("prompt_prefix"),
+    )
     effective_limits = limits or storyboard_generation_limits_from_config(config)
     legacy_fields = sorted(
         name

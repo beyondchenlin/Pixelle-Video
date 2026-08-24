@@ -30,6 +30,7 @@ from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.contracts.ip_generation_request import (
     build_formal_content_ip_world_payload,
 )
+from pixelle_video.models.image_style_selection import normalize_image_style_selection
 from pixelle_video.models.layered_template import LayeredTemplateSpec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.progress import ProgressEvent
@@ -1241,6 +1242,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     storyboard_contract = _storyboard_controls_contract(video_params)
     size_contract = GenerationSizeContract.from_params(video_params)
     business_context = resolve_business_context(session_state, video_params)
+    image_style_fields = _versioned_image_style_request_fields(video_params)
     request = {
         "text": video_params.get("text", ""),
         "mode": video_params.get("mode", "generate"),
@@ -1248,7 +1250,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "media_workflow": video_params.get("media_workflow"),
         "frame_template": video_params.get("frame_template"),
         "prompt_prefix": video_params.get("prompt_prefix", ""),
-        "prompt_prefix_id": video_params.get("prompt_prefix_id"),
+        **image_style_fields,
         "bgm_path": video_params.get("bgm_path"),
         "bgm_volume": video_params.get("bgm_volume", 0.2) if video_params.get("bgm_path") else 0.2,
         **size_contract.to_params(),
@@ -1333,12 +1335,13 @@ def build_batch_shared_config(video_params):
     storyboard_contract = _storyboard_controls_contract(video_params)
     size_contract = GenerationSizeContract.from_params(video_params)
     business_context = resolve_business_context(video_params)
+    image_style_fields = _versioned_image_style_request_fields(video_params)
     shared_config = {
         "title_prefix": video_params.get("title_prefix"),
         "media_workflow": video_params.get("media_workflow"),
         "frame_template": video_params.get("frame_template"),
         "prompt_prefix": video_params.get("prompt_prefix") or "",
-        "prompt_prefix_id": video_params.get("prompt_prefix_id"),
+        **image_style_fields,
         "bgm_path": video_params.get("bgm_path"),
         "bgm_volume": video_params.get("bgm_volume") or 0.2,
         "tts_inference_mode": _resolve_video_tts_mode(video_params),
@@ -1412,6 +1415,18 @@ def build_batch_shared_config(video_params):
     if video_params.get("selected_template_preset_id") and layered_template_spec is not None:
         shared_config["selected_template_preset_id"] = video_params["selected_template_preset_id"]
     return shared_config
+
+
+def _versioned_image_style_request_fields(video_params):
+    selection = normalize_image_style_selection(
+        video_params.get("image_style_id"),
+        video_params.get("image_style_revision"),
+        prompt_prefix=video_params.get("prompt_prefix"),
+    )
+    return {
+        "image_style_id": selection.style_id if selection is not None else None,
+        "image_style_revision": selection.revision if selection is not None else None,
+    }
 
 
 def render_single_output(pixelle_video, video_params):
