@@ -15,7 +15,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
-    assemble_content_stage_prompt,
 )
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.services.frame_processor import FrameProcessor
@@ -364,7 +363,7 @@ def test_fusion_template_allows_required_style_and_text_prohibitions():
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "遵守 target_visual_style" in template
+    assert "确定性加入唯一的身份子句、视觉风格和文字策略" in template
     assert "不输出候选、比较过程、证明、自检或审查字段" in template
 
 
@@ -423,7 +422,7 @@ def test_fusion_template_keeps_subject_facts_fixed_while_opening_manifestation()
 
     for required_rule in (
         "是画面主旨与事实边界",
-        "可以增加、删除、替换、移动或重写任何背景、道具、服装细节",
+        "可以为视觉身份新增任何不改变主旨的背景细节、道具、服装细节",
         "不为任何表现方式设置默认优先级",
         "任何能够在当前场景中真实成立的单一表现方式都合法",
         "如果现有构图没有自然载体或互动关系，可以新增不改变主旨的道具",
@@ -524,10 +523,6 @@ def _fusion_outputs(
             interaction,
             _identity_clause_example,
         ) = fusion_spec
-        content_prompt = assemble_content_stage_prompt(
-            content,
-            target_visual_style=_style(),
-        )
         outputs.append(
             FusionStageModelOutput(
                 selected_fusion_method=method,
@@ -540,8 +535,6 @@ def _fusion_outputs(
                 ),
                 inherited_existing_fusion_decision=False,
                 continuity_change_reason="",
-                final_scene_prompt_prefix=content_prompt,
-                final_scene_prompt_suffix="保持内容主体和视觉焦点不变",
                 scene_negative_prompt="",
             )
         )

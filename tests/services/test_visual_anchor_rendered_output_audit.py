@@ -84,7 +84,6 @@ def _frame_result(tmp_path):
         article_context="两位创作者在车库组装电脑。",
         previous_frame_summary="首镜，无前一镜",
         next_frame_summary="末镜，无后一镜",
-        target_visual_style=target_style,
         target_image_prompt_language="中文",
     )
     content_model_output = ContentStageModelOutput(
@@ -132,7 +131,6 @@ def _frame_result(tmp_path):
         prompt_assembly_version=CONTENT_PROMPT_ASSEMBLY_VERSION,
         pure_content_prompt=assemble_content_stage_prompt(
             content_model_output,
-            target_visual_style=target_style,
         ),
     )
     continuity = ContinuousSceneContext(
@@ -164,8 +162,6 @@ def _frame_result(tmp_path):
         spatial_contact_and_lighting_relation="接触地面并共享车库光照",
         inherited_existing_fusion_decision=False,
         continuity_change_reason="",
-        final_scene_prompt_prefix="两位创作者在车库组装电脑",
-        final_scene_prompt_suffix="工作台是画面视觉焦点",
         scene_negative_prompt="",
     )
     identity_prompt_clause = assemble_identity_prompt_clause(
@@ -176,9 +172,11 @@ def _frame_result(tmp_path):
     fusion_output = FusionStageOutput(
         **fusion_model_output.model_dump(mode="json"),
         prompt_assembly_version=FUSION_PROMPT_ASSEMBLY_VERSION,
+        base_content_prompt=content_output.pure_content_prompt,
         identity_prompt_clause=identity_prompt_clause,
         final_positive_prompt=assemble_fusion_positive_prompt(
             fusion_model_output,
+            content_stage_output=content_output,
             identity_prompt_clause=identity_prompt_clause,
             identity_profile=identity,
             target_visual_style=target_style,
@@ -206,6 +204,7 @@ def _frame_result(tmp_path):
         identity_profile_id=identity.profile_id,
         identity_display_name=identity.display_name,
         identity_core_traits=identity.core_identity_traits,
+        identity_forbidden_traits=identity.forbidden_traits,
         identity_resource_version=identity.identity_resource_version,
         identity_content_sha256=identity.identity_content_sha256,
         identity_conditioning_mode="reference_image",
@@ -214,6 +213,7 @@ def _frame_result(tmp_path):
         content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
         fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
         negative_prompt_supported=False,
+        target_image_prompt_language="中文",
         workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
         workflow_version_sha256="c" * 64,
         expected_execution=ImageWorkflowExecutionContract(
@@ -330,8 +330,10 @@ def _write_passed_binding(
                 "identity_profile_id": request.identity_profile_id,
                 "identity_display_name": request.identity_display_name,
                 "identity_core_traits": list(request.identity_core_traits),
+                "identity_forbidden_traits": list(request.identity_forbidden_traits),
                 "identity_resource_version": request.identity_resource_version,
                 "identity_content_sha256": request.identity_content_sha256,
+                "target_image_prompt_language": request.target_image_prompt_language,
                 "reference_condition": (
                     request.identity_reference_condition.model_dump(mode="json")
                 ),

@@ -12,7 +12,7 @@ CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 _PLANNING_TEXT_MAX_LENGTH = 1200
 _PROMPT_TEXT_MAX_LENGTH = 12000
-ContentStagePromptVersion = Literal[
+HistoricalContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v5",
     "visual_anchor_content_stage.v6",
     "visual_anchor_content_stage.v7",
@@ -23,7 +23,9 @@ ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v12",
     "visual_anchor_content_stage.v13",
     "visual_anchor_content_stage.v14",
-    CONTENT_STAGE_PROMPT_VERSION,
+]
+ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
+    CONTENT_STAGE_PROMPT_VERSION
 ]
 FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v4",
@@ -268,6 +270,23 @@ class ContentCompositionPlan(BaseModel):
         return self
 
 
+class LegacyContentCompositionPlan(BaseModel):
+    """Exact v14 composition shape without current output limits or optional layers."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    shot_scale_and_camera: str
+    foreground: str
+    midground: str
+    background: str
+    visual_focus: str
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _text(value, info.field_name)
+
+
 class _ContentStageCommonOutput(BaseModel):
     """Shared factual boundary for current and historical content outputs."""
 
@@ -275,23 +294,16 @@ class _ContentStageCommonOutput(BaseModel):
 
     core_claim: str
     primary_subject: ContentStageSubject
-    secondary_subjects: list[ContentStageSubject] = Field(
-        default_factory=list,
-        max_length=8,
-    )
+    secondary_subjects: list[ContentStageSubject] = Field(default_factory=list)
     scene_facts: list[ContentFact] = Field(
         default_factory=list,
-        max_length=16,
         description=(
             "只保存纯内容画面直接呈现的跨主体或全场景事实对象数组；"
             "抽象事实若已转换成结果、隐喻或氛围且原事实不再直接出现，必须省略；"
             "每项必须是 ContentFact 对象，不能是字符串"
         ),
     )
-    adjustable_non_core_content: list[str] = Field(
-        default_factory=list,
-        max_length=12,
-    )
+    adjustable_non_core_content: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -344,7 +356,7 @@ class LegacyContentStageOutputV14(_ContentStageCommonOutput):
     visual_evidence: list[str] = Field(min_length=1)
     frozen_moment: str
     subject_interaction: str
-    composition_plan: ContentCompositionPlan
+    composition_plan: LegacyContentCompositionPlan
     adjacent_frame_difference: str
     pure_content_prompt: str
 
@@ -372,6 +384,16 @@ class LegacyContentStageOutputV14(_ContentStageCommonOutput):
 class ContentStageModelOutput(_ContentStageCommonOutput):
     """Current model response: visual decisions only, without a free-form final prompt."""
 
+    core_claim: str = Field(max_length=_PLANNING_TEXT_MAX_LENGTH)
+    secondary_subjects: list[ContentStageSubject] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+    scene_facts: list[ContentFact] = Field(default_factory=list, max_length=16)
+    adjustable_non_core_content: list[str] = Field(
+        default_factory=list,
+        max_length=12,
+    )
     shot_purpose: str = Field(max_length=_PLANNING_TEXT_MAX_LENGTH)
     renderable_story_beats: list[str] = Field(min_length=1, max_length=6)
     decisive_moment: str = Field(max_length=_PLANNING_TEXT_MAX_LENGTH)
@@ -415,8 +437,8 @@ ReadableContentStageOutput = (
     ContentStageOutput | LegacyContentStageOutputV14 | LegacyContentStageOutput
 )
 
-class ContentStageInput(BaseModel):
-    """Identity-free input boundary for the content-only language-model call."""
+class _ContentStageInputCommon(BaseModel):
+    """Fields shared by current and historical content-stage inputs."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -425,9 +447,7 @@ class ContentStageInput(BaseModel):
     article_context: str
     previous_frame_summary: str
     next_frame_summary: str
-    target_visual_style: TargetVisualStyle
     target_image_prompt_language: str
-    prompt_version: ContentStagePromptVersion = CONTENT_STAGE_PROMPT_VERSION
 
     @field_validator("*", mode="before")
     @classmethod
@@ -435,6 +455,22 @@ class ContentStageInput(BaseModel):
         if info.field_name in {"prompt_version", "target_visual_style"}:
             return value
         return _text(value, info.field_name)
+
+
+class LegacyContentStageInput(_ContentStageInputCommon):
+    """Historical style-aware input retained only for persisted artifacts."""
+
+    target_visual_style: TargetVisualStyle
+    prompt_version: HistoricalContentStagePromptVersion
+
+
+class ContentStageInput(_ContentStageInputCommon):
+    """Current style-neutral input boundary for the content-only model call."""
+
+    prompt_version: Literal[CONTENT_STAGE_PROMPT_VERSION] = CONTENT_STAGE_PROMPT_VERSION
+
+
+ReadableContentStageInput = ContentStageInput | LegacyContentStageInput
 
 
 class VisualAnchorIdentityProfile(BaseModel):
@@ -792,6 +828,12 @@ class LegacyFusionStageOutputV12(_FusionStageCommonOutput):
 class FusionStageModelOutput(_FusionStageCommonOutput):
     """Current model response: one manifestation decision plus prompt insertion context."""
 
+    selected_fusion_method: str = Field(max_length=_PLANNING_TEXT_MAX_LENGTH)
+    final_manifestation: str = Field(max_length=_PLANNING_TEXT_MAX_LENGTH)
+    spatial_contact_and_lighting_relation: str = Field(
+        max_length=_PLANNING_TEXT_MAX_LENGTH
+    )
+    continuity_change_reason: str = Field(max_length=_PLANNING_TEXT_MAX_LENGTH)
     relative_scale_and_visual_weight: str = Field(
         max_length=_PLANNING_TEXT_MAX_LENGTH
     )
@@ -801,25 +843,17 @@ class FusionStageModelOutput(_FusionStageCommonOutput):
     visual_identity_scene_interaction: str = Field(
         max_length=_PLANNING_TEXT_MAX_LENGTH
     )
-    final_scene_prompt_prefix: str = Field(max_length=_PROMPT_TEXT_MAX_LENGTH)
-    final_scene_prompt_suffix: str = Field(default="", max_length=_PROMPT_TEXT_MAX_LENGTH)
     scene_negative_prompt: str = Field(default="", max_length=_PROMPT_TEXT_MAX_LENGTH)
 
     @field_validator(
         "relative_scale_and_visual_weight",
         "support_carrier_and_material_relation",
         "visual_identity_scene_interaction",
-        "final_scene_prompt_prefix",
         mode="before",
     )
     @classmethod
     def _validate_current_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
-
-    @field_validator("final_scene_prompt_suffix", mode="before")
-    @classmethod
-    def _validate_optional_suffix(cls, value: object) -> str:
-        return _optional_text(value, "final_scene_prompt_suffix")
 
     @field_validator("scene_negative_prompt", mode="before")
     @classmethod
@@ -831,11 +865,17 @@ class FusionStageOutput(FusionStageModelOutput):
     """Persisted current result with deterministic identity and prompt assembly."""
 
     prompt_assembly_version: Literal[FUSION_PROMPT_ASSEMBLY_VERSION]
+    base_content_prompt: str = Field(max_length=_PROMPT_TEXT_MAX_LENGTH)
     identity_prompt_clause: str = Field(max_length=_PROMPT_TEXT_MAX_LENGTH)
     final_positive_prompt: str = Field(max_length=_PROMPT_TEXT_MAX_LENGTH)
     final_negative_prompt: str = Field(default="", max_length=_PROMPT_TEXT_MAX_LENGTH)
 
-    @field_validator("identity_prompt_clause", "final_positive_prompt", mode="before")
+    @field_validator(
+        "base_content_prompt",
+        "identity_prompt_clause",
+        "final_positive_prompt",
+        mode="before",
+    )
     @classmethod
     def _validate_assembled_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
@@ -890,9 +930,8 @@ class VisualAnchorPromptAssemblyTrace(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     assembly_version: Literal[FUSION_PROMPT_ASSEMBLY_VERSION]
-    final_scene_prompt_prefix: str
+    base_content_prompt: str
     identity_prompt_clause: str
-    final_scene_prompt_suffix: str
     relative_scale_and_visual_weight: str
     support_carrier_and_material_relation: str
     visual_identity_scene_interaction: str
@@ -900,7 +939,7 @@ class VisualAnchorPromptAssemblyTrace(BaseModel):
     scene_negative_prompt: str = ""
 
     @field_validator(
-        "final_scene_prompt_prefix",
+        "base_content_prompt",
         "identity_prompt_clause",
         "relative_scale_and_visual_weight",
         "support_carrier_and_material_relation",
@@ -911,11 +950,6 @@ class VisualAnchorPromptAssemblyTrace(BaseModel):
     @classmethod
     def _validate_required_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
-
-    @field_validator("final_scene_prompt_suffix", mode="before")
-    @classmethod
-    def _validate_suffix(cls, value: object) -> str:
-        return _optional_text(value, "final_scene_prompt_suffix")
 
     @field_validator("scene_negative_prompt", mode="before")
     @classmethod
@@ -939,6 +973,7 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     identity_profile_id: str
     identity_display_name: str
     identity_core_traits: list[str] = Field(min_length=1)
+    identity_forbidden_traits: list[str] = Field(default_factory=list)
     identity_resource_version: str
     identity_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     identity_conditioning_mode: Literal["text_profile", "reference_image"]
@@ -948,6 +983,7 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     content_stage_prompt_version: ContentStagePromptVersion
     fusion_stage_prompt_version: FusionStagePromptVersion
     negative_prompt_supported: bool
+    target_image_prompt_language: str | None = None
     workflow_key: str
     workflow_version_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     expected_execution: ImageWorkflowExecutionContract
@@ -1010,6 +1046,18 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             raise ValueError("identity_core_traits must not be empty")
         return result
 
+    @field_validator("identity_forbidden_traits")
+    @classmethod
+    def _validate_identity_forbidden_traits(cls, value: list[str]) -> list[str]:
+        return _text_list(value, "identity_forbidden_traits")
+
+    @field_validator("target_image_prompt_language", mode="before")
+    @classmethod
+    def _validate_target_image_prompt_language(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return _text(value, "target_image_prompt_language")
+
     @model_validator(mode="after")
     def _validate_prompt_assembly_trace(self) -> "VisualAnchorImageGenerationRequest":
         if self.fusion_stage_prompt_version == FUSION_STAGE_PROMPT_VERSION:
@@ -1017,6 +1065,11 @@ class VisualAnchorImageGenerationRequest(BaseModel):
                 raise ValueError(
                     "current fusion prompt version requires prompt_assembly_trace"
                 )
+            if self.target_image_prompt_language is None:
+                raise ValueError(
+                    "current fusion prompt version requires target_image_prompt_language"
+                )
+            self._validate_current_prompt_assembly()
         if (
             self.prompt_assembly_trace is not None
             and self.prompt_assembly_trace.identity_prompt_clause
@@ -1026,6 +1079,61 @@ class VisualAnchorImageGenerationRequest(BaseModel):
                 "generation request prompt must contain its identity prompt clause"
             )
         return self
+
+    def _validate_current_prompt_assembly(self) -> None:
+        trace = self.prompt_assembly_trace
+        language = self.target_image_prompt_language
+        if trace is None or language is None:
+            raise ValueError("current prompt assembly metadata is incomplete")
+        expected_identity_clause = assemble_identity_prompt_clause_from_fields(
+            final_manifestation=self.final_manifestation,
+            identity_display_name=self.identity_display_name,
+            identity_core_traits=self.identity_core_traits,
+            relative_scale_and_visual_weight=(
+                trace.relative_scale_and_visual_weight
+            ),
+            support_carrier_and_material_relation=(
+                trace.support_carrier_and_material_relation
+            ),
+            visual_identity_scene_interaction=(
+                trace.visual_identity_scene_interaction
+            ),
+            spatial_contact_and_lighting_relation=(
+                trace.spatial_contact_and_lighting_relation
+            ),
+            target_image_prompt_language=language,
+        )
+        if trace.identity_prompt_clause != expected_identity_clause:
+            raise ValueError(
+                "generation request identity clause differs from its assembly trace"
+            )
+        expected_positive_prompt = assemble_positive_prompt_from_trace(
+            trace,
+            identity_forbidden_traits=self.identity_forbidden_traits,
+            target_visual_style=self.target_visual_style,
+            visible_text_policy=self.visible_text_policy,
+            negative_prompt_supported=self.negative_prompt_supported,
+            target_image_prompt_language=language,
+        )
+        expected_negative_prompt = assemble_negative_prompt_from_trace(
+            trace,
+            identity_forbidden_traits=self.identity_forbidden_traits,
+            target_visual_style=self.target_visual_style,
+            visible_text_policy=self.visible_text_policy,
+            negative_prompt_supported=self.negative_prompt_supported,
+        )
+        if len(expected_positive_prompt) > _PROMPT_TEXT_MAX_LENGTH:
+            raise ValueError("generation request positive prompt exceeds current limit")
+        if len(expected_negative_prompt) > _PROMPT_TEXT_MAX_LENGTH:
+            raise ValueError("generation request negative prompt exceeds current limit")
+        if self.final_positive_prompt != expected_positive_prompt:
+            raise ValueError(
+                "generation request positive prompt differs from its assembly trace"
+            )
+        if self.final_negative_prompt != expected_negative_prompt:
+            raise ValueError(
+                "generation request negative prompt differs from its assembly trace"
+            )
 
 
 def _join_prompt_fragments(values: list[str]) -> str:
@@ -1040,20 +1148,23 @@ def _join_prompt_fragments(values: list[str]) -> str:
             continue
         seen.add(key)
         fragments.append(normalized)
-    return "；".join(fragments)
+    return ", ".join(fragments)
 
 
 def assemble_content_stage_prompt(
     output: ContentStageModelOutput,
-    *,
-    target_visual_style: TargetVisualStyle,
 ) -> str:
     """Build the content prompt exclusively from validated visual decisions."""
 
     composition = output.composition_plan
     subject_fragments: list[str] = []
     for subject in (output.primary_subject, *output.secondary_subjects):
-        subject_fragments.extend((subject.name, subject.identity, subject.action))
+        subject_name = (
+            subject.name
+            if subject.quantity == 1
+            else f"{subject.quantity}× {subject.name}"
+        )
+        subject_fragments.extend((subject_name, subject.identity, subject.action))
     return _join_prompt_fragments(
         [
             composition.shot_scale_and_camera,
@@ -1061,12 +1172,11 @@ def assemble_content_stage_prompt(
             output.decisive_moment,
             output.content_subject_interaction,
             *output.renderable_story_beats,
+            *(fact.statement for fact in output.scene_facts),
             composition.foreground,
             composition.midground,
             composition.background,
             composition.visual_focus,
-            target_visual_style.description,
-            *target_visual_style.required_final_prompt_fragments,
         ]
     )
 
@@ -1079,23 +1189,52 @@ def assemble_identity_prompt_clause(
 ) -> str:
     """Build one prompt-ready manifestation clause from the chosen relationships."""
 
+    return assemble_identity_prompt_clause_from_fields(
+        final_manifestation=output.final_manifestation,
+        identity_display_name=identity_profile.display_name,
+        identity_core_traits=identity_profile.core_identity_traits,
+        relative_scale_and_visual_weight=output.relative_scale_and_visual_weight,
+        support_carrier_and_material_relation=(
+            output.support_carrier_and_material_relation
+        ),
+        visual_identity_scene_interaction=(
+            output.visual_identity_scene_interaction
+        ),
+        spatial_contact_and_lighting_relation=(
+            output.spatial_contact_and_lighting_relation
+        ),
+        target_image_prompt_language=target_image_prompt_language,
+    )
+
+
+def assemble_identity_prompt_clause_from_fields(
+    *,
+    final_manifestation: str,
+    identity_display_name: str,
+    identity_core_traits: list[str],
+    relative_scale_and_visual_weight: str,
+    support_carrier_and_material_relation: str,
+    visual_identity_scene_interaction: str,
+    spatial_contact_and_lighting_relation: str,
+    target_image_prompt_language: str,
+) -> str:
     normalized_language = target_image_prompt_language.casefold()
     single_instance = (
-        f"整幅画只出现一个可识别的{identity_profile.display_name}视觉身份实例"
+        f"整幅画只出现一个可识别的{identity_display_name}视觉身份实例"
         if "中文" in normalized_language or "chinese" in normalized_language
         else (
             "exactly one recognizable visual identity instance of "
-            f"{identity_profile.display_name} in the entire image"
+            f"{identity_display_name} in the entire image"
         )
     )
     return _join_prompt_fragments(
         [
-            output.final_manifestation,
-            *identity_profile.core_identity_traits,
-            output.relative_scale_and_visual_weight,
-            output.support_carrier_and_material_relation,
-            output.visual_identity_scene_interaction,
-            output.spatial_contact_and_lighting_relation,
+            final_manifestation,
+            *identity_core_traits,
+            relative_scale_and_visual_weight,
+            support_carrier_and_material_relation,
+            visual_identity_scene_interaction,
+            spatial_contact_and_lighting_relation,
             single_instance,
         ]
     )
@@ -1104,6 +1243,7 @@ def assemble_identity_prompt_clause(
 def assemble_fusion_positive_prompt(
     output: FusionStageModelOutput,
     *,
+    content_stage_output: ContentStageOutput,
     identity_prompt_clause: str,
     identity_profile: VisualAnchorIdentityProfile,
     target_visual_style: TargetVisualStyle,
@@ -1113,11 +1253,45 @@ def assemble_fusion_positive_prompt(
 ) -> str:
     """Insert the identity decision inside the scene and append deterministic policies."""
 
+    trace = VisualAnchorPromptAssemblyTrace(
+        assembly_version=FUSION_PROMPT_ASSEMBLY_VERSION,
+        base_content_prompt=content_stage_output.pure_content_prompt,
+        identity_prompt_clause=identity_prompt_clause,
+        relative_scale_and_visual_weight=output.relative_scale_and_visual_weight,
+        support_carrier_and_material_relation=(
+            output.support_carrier_and_material_relation
+        ),
+        visual_identity_scene_interaction=(
+            output.visual_identity_scene_interaction
+        ),
+        spatial_contact_and_lighting_relation=(
+            output.spatial_contact_and_lighting_relation
+        ),
+        scene_negative_prompt=output.scene_negative_prompt,
+    )
+    return assemble_positive_prompt_from_trace(
+        trace,
+        identity_forbidden_traits=identity_profile.forbidden_traits,
+        target_visual_style=target_visual_style,
+        visible_text_policy=visible_text_policy,
+        negative_prompt_supported=negative_prompt_supported,
+        target_image_prompt_language=target_image_prompt_language,
+    )
+
+
+def assemble_positive_prompt_from_trace(
+    trace: VisualAnchorPromptAssemblyTrace,
+    *,
+    identity_forbidden_traits: list[str],
+    target_visual_style: TargetVisualStyle,
+    visible_text_policy: VisibleTextPolicy,
+    negative_prompt_supported: bool,
+    target_image_prompt_language: str,
+) -> str:
     return _join_prompt_fragments(
         [
-            output.final_scene_prompt_prefix,
-            identity_prompt_clause,
-            output.final_scene_prompt_suffix,
+            trace.base_content_prompt,
+            trace.identity_prompt_clause,
             target_visual_style.description,
             *target_visual_style.required_final_prompt_fragments,
             visible_text_policy.required_positive_prompt_fragment,
@@ -1125,7 +1299,7 @@ def assemble_fusion_positive_prompt(
                 []
                 if negative_prompt_supported
                 else _positive_identity_avoidance_fragments(
-                    identity_profile,
+                    identity_forbidden_traits,
                     target_image_prompt_language=target_image_prompt_language,
                 )
             ),
@@ -1141,27 +1315,61 @@ def assemble_fusion_negative_prompt(
     visible_text_policy: VisibleTextPolicy,
     negative_prompt_supported: bool,
 ) -> str:
+    return assemble_negative_prompt_from_fields(
+        scene_negative_prompt=output.scene_negative_prompt,
+        identity_forbidden_traits=identity_profile.forbidden_traits,
+        target_visual_style=target_visual_style,
+        visible_text_policy=visible_text_policy,
+        negative_prompt_supported=negative_prompt_supported,
+    )
+
+
+def assemble_negative_prompt_from_fields(
+    *,
+    scene_negative_prompt: str,
+    identity_forbidden_traits: list[str],
+    target_visual_style: TargetVisualStyle,
+    visible_text_policy: VisibleTextPolicy,
+    negative_prompt_supported: bool,
+) -> str:
     if not negative_prompt_supported:
         return ""
     return _join_prompt_fragments(
         [
-            output.scene_negative_prompt,
-            *identity_profile.forbidden_traits,
+            scene_negative_prompt,
+            *identity_forbidden_traits,
             *target_visual_style.required_negative_prompt_fragments,
             visible_text_policy.required_negative_prompt_fragment,
         ]
     )
 
 
+def assemble_negative_prompt_from_trace(
+    trace: VisualAnchorPromptAssemblyTrace,
+    *,
+    identity_forbidden_traits: list[str],
+    target_visual_style: TargetVisualStyle,
+    visible_text_policy: VisibleTextPolicy,
+    negative_prompt_supported: bool,
+) -> str:
+    return assemble_negative_prompt_from_fields(
+        scene_negative_prompt=trace.scene_negative_prompt,
+        identity_forbidden_traits=identity_forbidden_traits,
+        target_visual_style=target_visual_style,
+        visible_text_policy=visible_text_policy,
+        negative_prompt_supported=negative_prompt_supported,
+    )
+
+
 def _positive_identity_avoidance_fragments(
-    identity_profile: VisualAnchorIdentityProfile,
+    identity_forbidden_traits: list[str],
     *,
     target_image_prompt_language: str,
 ) -> list[str]:
     normalized_language = target_image_prompt_language.casefold()
     use_chinese = "中文" in normalized_language or "chinese" in normalized_language
     result: list[str] = []
-    for trait in identity_profile.forbidden_traits:
+    for trait in identity_forbidden_traits:
         normalized = " ".join(trait.split())
         if not normalized:
             continue
@@ -1185,9 +1393,8 @@ def prompt_assembly_trace_from_fusion_output(
 ) -> VisualAnchorPromptAssemblyTrace:
     return VisualAnchorPromptAssemblyTrace(
         assembly_version=FUSION_PROMPT_ASSEMBLY_VERSION,
-        final_scene_prompt_prefix=output.final_scene_prompt_prefix,
+        base_content_prompt=output.base_content_prompt,
         identity_prompt_clause=output.identity_prompt_clause,
-        final_scene_prompt_suffix=output.final_scene_prompt_suffix,
         relative_scale_and_visual_weight=output.relative_scale_and_visual_weight,
         support_carrier_and_material_relation=(
             output.support_carrier_and_material_relation
@@ -1206,7 +1413,7 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     frame_id: str
-    content_stage_input: ContentStageInput
+    content_stage_input: ReadableContentStageInput
     content_stage_output: ReadableContentStageOutput
     fusion_stage_input: FusionStageInput
     fusion_stage_output: ReadableFusionStageOutput
@@ -1265,7 +1472,6 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
                 )
             expected_content_prompt = assemble_content_stage_prompt(
                 self.content_stage_output,
-                target_visual_style=self.content_stage_input.target_visual_style,
             )
             if self.content_stage_output.pure_content_prompt != expected_content_prompt:
                 raise ValueError(
@@ -1292,6 +1498,7 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             )
             expected_positive_prompt = assemble_fusion_positive_prompt(
                 self.fusion_stage_output,
+                content_stage_output=self.content_stage_output,
                 identity_prompt_clause=identity_clause,
                 identity_profile=self.fusion_stage_input.identity_profile,
                 target_visual_style=self.fusion_stage_input.target_visual_style,
@@ -1315,6 +1522,13 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             if self.fusion_stage_output.identity_prompt_clause != identity_clause:
                 raise ValueError(
                     "identity prompt clause differs from deterministic manifestation assembly"
+                )
+            if (
+                self.fusion_stage_output.base_content_prompt
+                != self.content_stage_output.pure_content_prompt
+            ):
+                raise ValueError(
+                    "fusion output must preserve the exact assembled content prompt"
                 )
             if (
                 self.fusion_stage_output.final_positive_prompt
@@ -1380,6 +1594,19 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             != identity.identity_content_sha256
         ):
             raise ValueError("generation identity version must match the fusion input")
+        if fusion_version == FUSION_STAGE_PROMPT_VERSION:
+            if (
+                self.generation_request.identity_forbidden_traits
+                != identity.forbidden_traits
+            ):
+                raise ValueError(
+                    "generation forbidden identity traits must match the fusion input"
+                )
+            if (
+                self.generation_request.target_image_prompt_language
+                != self.fusion_stage_input.target_image_prompt_language
+            ):
+                raise ValueError("generation prompt language must match the fusion input")
         if (
             self.fusion_stage_input.target_visual_style
             != self.generation_request.target_visual_style

@@ -47,6 +47,10 @@ class VisualAnchorTwoStageError(RuntimeError):
     pass
 
 
+_FRAME_SOURCE_MAX_CHARS = 6000
+_ARTICLE_CONTEXT_MAX_CHARS = 6000
+
+
 @dataclass(slots=True)
 class _SinglePassStageCallAudit:
     """Enforce and report the one-call, zero-retry stage invariant."""
@@ -140,6 +144,19 @@ class VisualAnchorTwoStageService:
             raise TypeError("storyboard_plan must be a StoryboardPlan")
         if not storyboard_plan.frames:
             raise VisualAnchorTwoStageError("storyboard plan has no frames")
+        oversized_frame = next(
+            (
+                frame
+                for frame in storyboard_plan.frames
+                if len(frame.source_text) > _FRAME_SOURCE_MAX_CHARS
+            ),
+            None,
+        )
+        if oversized_frame is not None:
+            raise VisualAnchorTwoStageError(
+                "storyboard frame source text exceeds 6000 characters; split the frame "
+                f"before visual planning: {oversized_frame.frame_id}"
+            )
         if not isinstance(expected_execution, ImageWorkflowExecutionContract):
             raise TypeError(
                 "expected_execution must be an ImageWorkflowExecutionContract"
@@ -306,10 +323,12 @@ class VisualAnchorTwoStageService:
         content_input = ContentStageInput(
             frame_id=frame.frame_id,
             original_storyboard_text=frame.source_text,
-            article_context=storyboard_plan.source_text,
+            article_context=_relevant_article_context(
+                source_text=storyboard_plan.source_text,
+                frame=frame,
+            ),
             previous_frame_summary=previous_summary,
             next_frame_summary=next_summary,
-            target_visual_style=target_visual_style,
             target_image_prompt_language=target_image_prompt_language,
         )
         _emit_stage(
@@ -356,7 +375,7 @@ class VisualAnchorTwoStageService:
             next_frame_summary=next_summary,
             continuity_anchors=list(frame.continuity_anchors),
             existing_fusion_decision=(
-                _continuous_fusion_decision(existing_fusion_decision)
+                "已有融合决策见下列结构化字段"
                 if existing_fusion_decision is not None
                 else None
             )
@@ -464,6 +483,7 @@ class VisualAnchorTwoStageService:
             identity_profile_id=identity_profile.profile_id,
             identity_display_name=identity_profile.display_name,
             identity_core_traits=identity_profile.core_identity_traits,
+            identity_forbidden_traits=identity_profile.forbidden_traits,
             identity_resource_version=identity_profile.identity_resource_version,
             identity_content_sha256=identity_profile.identity_content_sha256,
             identity_conditioning_mode=identity_conditioning_mode,
@@ -473,6 +493,7 @@ class VisualAnchorTwoStageService:
             content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
             fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
             negative_prompt_supported=negative_prompt_supported,
+            target_image_prompt_language=target_image_prompt_language,
             workflow_key=workflow_key,
             workflow_version_sha256=workflow_version_sha256,
             expected_execution=expected_execution,
@@ -517,7 +538,6 @@ class VisualAnchorTwoStageService:
                 "prompt_assembly_version": CONTENT_PROMPT_ASSEMBLY_VERSION,
                 "pure_content_prompt": assemble_content_stage_prompt(
                     model_output,
-                    target_visual_style=stage_input.target_visual_style,
                 ),
             }
         )
@@ -558,6 +578,7 @@ class VisualAnchorTwoStageService:
         )
         final_positive_prompt = assemble_fusion_positive_prompt(
             model_output,
+            content_stage_output=stage_input.content_stage_output,
             identity_prompt_clause=identity_prompt_clause,
             identity_profile=stage_input.identity_profile,
             target_visual_style=stage_input.target_visual_style,
@@ -576,6 +597,9 @@ class VisualAnchorTwoStageService:
             {
                 **model_output.model_dump(mode="json"),
                 "prompt_assembly_version": FUSION_PROMPT_ASSEMBLY_VERSION,
+                "base_content_prompt": (
+                    stage_input.content_stage_output.pure_content_prompt
+                ),
                 "identity_prompt_clause": identity_prompt_clause,
                 "final_positive_prompt": final_positive_prompt,
                 "final_negative_prompt": final_negative_prompt,
@@ -687,15 +711,41 @@ def _continuous_scene_ids(
     return tuple(result)
 
 
-def _continuous_fusion_decision(output: FusionStageOutput) -> str:
-    return (
-        f"所选融合方式：{output.selected_fusion_method}；"
-        f"最终表现形态：{output.final_manifestation}；"
-        f"相对尺度与视觉权重：{output.relative_scale_and_visual_weight}；"
-        f"支撑载体与材质关系：{output.support_carrier_and_material_relation}；"
-        f"视觉身份场景互动：{output.visual_identity_scene_interaction}；"
-        f"空间、接触与光照关系：{output.spatial_contact_and_lighting_relation}"
-    )
+def _relevant_article_context(
+    *,
+    source_text: str,
+    frame: StoryboardPlanFrame,
+) -> str:
+    """Keep local article evidence without repeating an unbounded article per frame."""
+
+    if len(source_text) <= _ARTICLE_CONTEXT_MAX_CHARS:
+        return source_text
+    if frame.source_start is not None and frame.source_end is not None:
+        anchor_start = frame.source_start
+        anchor_end = frame.source_end
+    else:
+        anchor_start = source_text.find(frame.source_text)
+        anchor_end = (
+            anchor_start + len(frame.source_text)
+            if anchor_start >= 0
+            else -1
+        )
+    if anchor_start < 0 or anchor_end < anchor_start:
+        separator = "\n…\n"
+        side_length = (_ARTICLE_CONTEXT_MAX_CHARS - len(separator)) // 2
+        return (
+            source_text[:side_length]
+            + separator
+            + source_text[-(_ARTICLE_CONTEXT_MAX_CHARS - side_length - len(separator)) :]
+        )
+
+    available_context = _ARTICLE_CONTEXT_MAX_CHARS - (anchor_end - anchor_start)
+    left_budget = max(0, available_context // 2)
+    window_start = max(0, anchor_start - left_budget)
+    window_end = min(len(source_text), window_start + _ARTICLE_CONTEXT_MAX_CHARS)
+    if window_end - window_start < _ARTICLE_CONTEXT_MAX_CHARS:
+        window_start = max(0, window_end - _ARTICLE_CONTEXT_MAX_CHARS)
+    return source_text[window_start:window_end]
 
 
 def _normalized_text(value: object) -> str:
