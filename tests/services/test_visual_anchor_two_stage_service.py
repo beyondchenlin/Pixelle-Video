@@ -469,7 +469,7 @@ async def test_negative_capable_workflow_preserves_required_negative_fragments()
 
 
 @pytest.mark.asyncio
-async def test_fusion_restores_server_owned_literal_style_fragments():
+async def test_fusion_rejects_missing_required_positive_style_fragments():
     required_fragments = [
         "minimal line art",
         "elegant contour drawing",
@@ -482,41 +482,34 @@ async def test_fusion_restores_server_owned_literal_style_fragments():
         required_final_prompt_fragments=required_fragments,
     )
     fusion = _fusion("frame-a")
-    expected_positive = (
-        f"{fusion.final_positive_prompt}，{', '.join(required_fragments)}"
-    )
-    result, llm = await _run(
-        _plan(),
-        fusion_outputs=[fusion],
-        target_visual_style=style,
-    )
-
-    frame = result.frames[0]
-    assert len(llm.calls) == 2
-    assert frame.fusion_stage_output.final_positive_prompt == expected_positive
-    assert frame.generation_request.final_positive_prompt == expected_positive
-    assert all(
-        fragment in frame.generation_request.final_positive_prompt
-        for fragment in required_fragments
-    )
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="fusion dropped a required global style fragment",
+    ):
+        await _run(
+            _plan(),
+            fusion_outputs=[fusion],
+            target_visual_style=style,
+        )
 
 
 @pytest.mark.asyncio
-async def test_fusion_restores_required_negative_style_fragments_when_supported():
+async def test_fusion_rejects_missing_required_negative_style_fragments():
     style = TargetVisualStyle(
         description="真实电影感",
         required_negative_prompt_fragments=["low quality", "duplicate subject"],
     )
     fusion = _fusion("frame-a", negative_prompt="低质量")
-    expected_negative = "低质量，low quality, duplicate subject"
-    result, _ = await _run(
-        _plan(),
-        fusion_outputs=[fusion],
-        target_visual_style=style,
-        negative_prompt_supported=True,
-    )
-
-    assert result.frames[0].generation_request.final_negative_prompt == expected_negative
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="fusion dropped a required negative style fragment",
+    ):
+        await _run(
+            _plan(),
+            fusion_outputs=[fusion],
+            target_visual_style=style,
+            negative_prompt_supported=True,
+        )
 
 
 @pytest.mark.asyncio
@@ -1763,7 +1756,7 @@ async def test_fusion_allows_semantically_equivalent_identity_wording():
 
 
 @pytest.mark.asyncio
-async def test_recorded_single_instance_evidence_expands_over_identity_modifiers():
+async def test_fusion_rejects_single_instance_evidence_absent_from_prompt():
     positive = (
         "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。"
         "画面中只有一只拥有圆形白色脸和蓝色短耳的小皮，"
@@ -1775,69 +1768,53 @@ async def test_recorded_single_instance_evidence_expands_over_identity_modifiers
         single_instance_evidence="画面中只有一只小皮",
     )
 
-    result, llm = await _run(_plan(), fusion_outputs=[fusion])
-
-    expected_evidence = "只有一只拥有圆形白色脸和蓝色短耳的小皮"
-    frame = result.frames[0]
-    assert frame.fusion_stage_output.single_instance_prompt_evidence == (
-        expected_evidence
-    )
-    assert frame.generation_request.single_instance_prompt_evidence == (
-        expected_evidence
-    )
-    assert len(llm.calls) == 2
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="single-instance evidence is not present",
+    ):
+        await _run(_plan(), fusion_outputs=[fusion])
 
 
 @pytest.mark.asyncio
-async def test_recorded_local_instance_clause_is_promoted_to_global_uniqueness():
+async def test_fusion_does_not_promote_local_instance_clause():
     positive = (
         "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。"
         "在画面的一角，有一只拥有圆形白色脸和蓝色短耳的小皮静静坐着。"
     )
-    expected_positive = positive.replace("有一只", "只有一只")
-    expected_evidence = "只有一只拥有圆形白色脸和蓝色短耳的小皮"
     fusion = _fusion(
         "frame-a",
         positive=positive,
         single_instance_evidence="画面中只有一只小皮",
     )
-    result, llm = await _run(
-        _plan(),
-        fusion_outputs=[fusion],
-    )
-
-    frame = result.frames[0]
-    assert frame.generation_request.final_positive_prompt == expected_positive
-    assert frame.generation_request.single_instance_prompt_evidence == (
-        expected_evidence
-    )
-    assert len(llm.calls) == 2
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="single-instance evidence is not present",
+    ):
+        await _run(
+            _plan(),
+            fusion_outputs=[fusion],
+        )
 
 
 @pytest.mark.asyncio
-async def test_recorded_bare_instance_clause_is_promoted_to_global_uniqueness():
+async def test_fusion_does_not_promote_bare_instance_clause():
     positive = (
         "车库内，乔布斯和沃兹尼亚克在工作台组装电脑。"
         "一只拥有圆形白色脸和蓝色短耳的小皮安静地坐在工作台旁。"
     )
-    expected_positive = positive.replace("一只", "只有一只", 1)
-    expected_evidence = "只有一只拥有圆形白色脸和蓝色短耳的小皮"
     fusion = _fusion(
         "frame-a",
         positive=positive,
         single_instance_evidence="画面中只有一只小皮",
     )
-    result, llm = await _run(
-        _plan(),
-        fusion_outputs=[fusion],
-    )
-
-    frame = result.frames[0]
-    assert frame.generation_request.final_positive_prompt == expected_positive
-    assert frame.generation_request.single_instance_prompt_evidence == (
-        expected_evidence
-    )
-    assert len(llm.calls) == 2
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="single-instance evidence is not present",
+    ):
+        await _run(
+            _plan(),
+            fusion_outputs=[fusion],
+        )
 
 
 @pytest.mark.asyncio
@@ -1917,7 +1894,7 @@ async def test_negated_single_instance_clause_is_not_accepted_as_evidence():
 
 
 @pytest.mark.asyncio
-async def test_recorded_protected_fact_evidence_uses_exact_content_evidence():
+async def test_fusion_rejects_protected_fact_evidence_absent_from_prompt():
     base = _fusion("frame-a")
     fusion = base.model_copy(
         update={
@@ -1930,18 +1907,15 @@ async def test_recorded_protected_fact_evidence_uses_exact_content_evidence():
         }
     )
 
-    result, llm = await _run(_plan(), fusion_outputs=[fusion])
-
-    fact_checks = result.frames[0].fusion_stage_output.protected_fact_checks
-    assert [check.final_image_evidence for check in fact_checks] == [
-        "乔布斯和沃兹尼亚克在工作台组装电脑",
-        "电脑",
-    ]
-    assert len(llm.calls) == 2
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="protected fact .* evidence is not present",
+    ):
+        await _run(_plan(), fusion_outputs=[fusion])
 
 
 @pytest.mark.asyncio
-async def test_fusion_restores_missing_server_owned_protected_fact_fragment():
+async def test_fusion_rejects_missing_protected_fact_fragment():
     source_text = "乔布斯和沃兹尼亚克在车库组装一台电脑。"
     fact_evidence = "乔布斯和沃兹尼亚克在车库工作台前组装一台电脑"
     base_content = _content("frame-a", source_text)
@@ -1982,20 +1956,15 @@ async def test_fusion_restores_missing_server_owned_protected_fact_fragment():
             ],
         }
     )
-    expected_positive = f"{fusion.final_positive_prompt}；{fact_evidence}"
-    result, llm = await _run(
-        _plan(),
-        content_outputs=[content],
-        fusion_outputs=[fusion],
-    )
-
-    frame = result.frames[0]
-    assert len(llm.calls) == 2
-    assert frame.fusion_stage_output.final_positive_prompt == expected_positive
-    assert frame.generation_request.final_positive_prompt == expected_positive
-    assert frame.fusion_stage_output.protected_fact_checks[-1].final_image_evidence == (
-        fact_evidence
-    )
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="protected fact .* evidence is not present",
+    ):
+        await _run(
+            _plan(),
+            content_outputs=[content],
+            fusion_outputs=[fusion],
+        )
 
 
 @pytest.mark.asyncio
