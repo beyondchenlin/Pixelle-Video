@@ -13,7 +13,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     ContentStageOutput,
     FusionStageOutput,
     ImageWorkflowExecutionContract,
-    PreflightReviewOutput,
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
@@ -21,7 +20,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.visual_anchor_two_stage_service import (
-    VisualAnchorTwoStageError,
     VisualAnchorTwoStageService,
     _contains_required_prompt_fragment_contract,
     _materialize_content_stage_output,
@@ -357,21 +355,6 @@ def test_fusion_template_requires_exact_single_instance_and_trait_evidence():
     assert "例如片段是英文时必须保留英文" in template
 
 
-def test_preflight_template_keeps_primary_subject_and_visual_anchor_roles_distinct():
-    template = (
-        Path(__file__).resolve().parents[2]
-        / "pixelle_video/prompts/templates/visual_anchor_preflight_review.md"
-    ).read_text(encoding="utf-8")
-
-    assert "允许共存且职责不同的两个主体" in template
-    assert "不得拿来与 primary_subject 的身份或外观比较" in template
-    assert "不得仅因视觉锚点也被具体描述，就推断它替代了主要主体" in template
-    assert "系列视觉锚点出现在严肃题材中不自动构成戏谑" in template
-    assert "作为唯一外部主体加入画面" in template
-    assert "未被原文提及" in template
-    assert "均不得记为失败项" in template
-
-
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
     policy = _visible_text_policy(
         {"image_text": {"suppress_embedded_text": True}},
@@ -519,20 +502,10 @@ async def _run_jobs_sample():
         for frame, model_output in zip(plan.frames, model_contents)
     ]
     fusions = _fusion_outputs(contents)
-    reviews = [
-        PreflightReviewOutput(
-            decision="pass",
-            failures=[],
-            allowed_final_positive_prompt=fusion.final_positive_prompt,
-            allowed_final_negative_prompt="",
-        )
-        for fusion in fusions
-    ]
     llm = _QueuedLLM(
         {
             ContentStageModelOutput: model_contents,
             FusionStageOutput: fusions,
-            PreflightReviewOutput: reviews,
         }
     )
     result = await VisualAnchorTwoStageService().run_batch(
@@ -564,7 +537,7 @@ async def _run_jobs_sample():
 async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_policy():
     plan, result, llm = await _run_jobs_sample()
 
-    assert len(llm.calls) == len(plan.frames) * 3
+    assert len(llm.calls) == len(plan.frames) * 2
     content_calls = [
         call
         for call in llm.calls
@@ -623,14 +596,13 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
             "右下角",
         ):
             assert forbidden_fixed_rule not in request.final_positive_prompt
-        assert frame_result.preflight_review_output.decision == "pass"
 
     composer_source = inspect.getsource(VisualPromptComposer.compose)
     assert "base_image_prompt" not in composer_source
 
 
 @pytest.mark.asyncio
-async def test_jobs_life_passed_preflight_generates_each_frame_exactly_once(
+async def test_jobs_life_validated_fusion_generates_each_frame_exactly_once(
     monkeypatch,
     tmp_path,
 ):
@@ -694,60 +666,3 @@ async def test_jobs_life_passed_preflight_generates_each_frame_exactly_once(
         call["_visual_anchor_generation_request"]["generation_attempt"] == 1
         for call in media_calls
     )
-
-
-@pytest.mark.asyncio
-async def test_rejected_preflight_exposes_no_image_generation_request():
-    plan = _jobs_plan()
-    model_content = _content_outputs(plan)[0]
-    content = _materialize_content_stage_output(
-        frame_id=plan.frames[0].frame_id,
-        model_output=model_content,
-    )
-    fusion = _fusion_outputs([content])[0]
-    failed_review = PreflightReviewOutput(
-        decision="fail",
-        failures=["主要主体未通过首次出图前审查"],
-        allowed_final_positive_prompt="",
-        allowed_final_negative_prompt="",
-    )
-    llm = _QueuedLLM(
-        {
-            ContentStageModelOutput: [model_content],
-            FusionStageOutput: [fusion],
-            PreflightReviewOutput: [failed_review],
-        }
-    )
-    image_generation_calls = []
-
-    with pytest.raises(VisualAnchorTwoStageError, match="preflight review rejected"):
-        await VisualAnchorTwoStageService().run_batch(
-            llm_service=llm,
-            storyboard_plan=StoryboardPlan.build(
-                mode="sentence",
-                count_mode="auto",
-                requested_scene_count=None,
-                source_text=plan.frames[0].source_text,
-                frames=[plan.frames[0]],
-            ),
-            identity_profile=_identity(),
-            identity_reference_condition=None,
-            identity_conditioning_mode="text_profile",
-            workflow_identity_condition_summary="文生图工作流使用文字身份档案",
-            target_visual_style=_style(),
-            visible_text_policy=_text_policy(),
-            target_image_prompt_language="中文",
-            task_id="task-rejected-preflight",
-            workflow_key="selfhost/image_z_image_turbo_gguf.json",
-            workflow_version_sha256="c" * 64,
-            expected_execution=_execution(),
-            random_seeds_by_frame={"jobs-1": 101},
-            negative_prompt_supported=False,
-        )
-
-    assert image_generation_calls == []
-    assert [call["response_type"] for call in llm.calls] == [
-        ContentStageModelOutput,
-        FusionStageOutput,
-        PreflightReviewOutput,
-    ]

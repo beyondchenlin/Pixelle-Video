@@ -15,7 +15,6 @@ from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanF
 from pixelle_video.models.visual_anchor_two_stage import (
     CONTENT_STAGE_PROMPT_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
-    PREFLIGHT_REVIEW_PROMPT_VERSION,
     ContentStageInput,
     ContentStageModelOutput,
     ContentStageOutput,
@@ -23,7 +22,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
-    PreflightReviewOutput,
     TargetVisualStyle,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
@@ -314,23 +312,11 @@ def _fusion(
     )
 
 
-def _review(fusion, *, negative_supported=False):
-    return PreflightReviewOutput(
-        decision="pass",
-        failures=[],
-        allowed_final_positive_prompt=fusion.final_positive_prompt,
-        allowed_final_negative_prompt=(
-            fusion.final_negative_prompt if negative_supported else ""
-        ),
-    )
-
-
 async def _run(
     plan,
     *,
     content_outputs=None,
     fusion_outputs=None,
-    review_outputs=None,
     target_visual_style="真实电影感",
     negative_prompt_supported=False,
     llm=None,
@@ -344,15 +330,10 @@ async def _run(
             _fusion(frame.frame_id, inherited=index > 0)
             for index, frame in enumerate(plan.frames)
         ]
-        reviews = review_outputs or [
-            _review(fusion, negative_supported=negative_prompt_supported)
-            for fusion in fusions
-        ]
         llm = _QueuedLLM(
             {
                 ContentStageModelOutput: contents,
                 FusionStageOutput: fusions,
-                PreflightReviewOutput: reviews,
             }
         )
     result = await VisualAnchorTwoStageService().run_batch(
@@ -380,9 +361,19 @@ async def test_positive_only_workflow_requires_an_empty_negative_prompt():
     frame = result.frames[0]
     assert frame.fusion_stage_input.negative_prompt_supported is False
     assert frame.fusion_stage_output.final_negative_prompt == ""
-    assert frame.preflight_review_output.allowed_final_negative_prompt == ""
     assert frame.generation_request.final_negative_prompt == ""
-    assert len(llm.calls) == 3
+    assert len(llm.calls) == 2
+
+
+def test_fusion_output_allows_empty_continuity_reason_without_existing_decision():
+    output = _fusion("frame-a").model_copy(
+        update={"continuity_change_reason": ""}
+    )
+
+    restored = FusionStageOutput.model_validate(output.model_dump(mode="json"))
+
+    assert restored.inherited_existing_fusion_decision is False
+    assert restored.continuity_change_reason == ""
 
 
 @pytest.mark.asyncio
@@ -390,7 +381,6 @@ async def test_contract_bound_stages_use_zero_temperature():
     _, llm = await _run(_plan())
 
     assert [call["kwargs"]["temperature"] for call in llm.calls] == [
-        0.0,
         0.0,
         0.0,
     ]
@@ -408,9 +398,8 @@ async def test_terminal_stage_events_report_each_real_call_zero_retries_and_late
     assert [event["stage"] for event in terminal_events] == [
         "visual_anchor_content_stage",
         "visual_anchor_fusion_stage",
-        "visual_anchor_preflight_review",
     ]
-    assert len(llm.calls) == 3
+    assert len(llm.calls) == 2
     assert all(event["llm_call_count"] == 1 for event in terminal_events)
     assert all(event["retry_count"] == 0 for event in terminal_events)
     assert all(event["latency_ms"] >= 0 for event in terminal_events)
@@ -496,19 +485,14 @@ async def test_fusion_restores_server_owned_literal_style_fragments():
     expected_positive = (
         f"{fusion.final_positive_prompt}，{', '.join(required_fragments)}"
     )
-    normalized_fusion = fusion.model_copy(
-        update={"final_positive_prompt": expected_positive}
-    )
-
     result, llm = await _run(
         _plan(),
         fusion_outputs=[fusion],
-        review_outputs=[_review(normalized_fusion)],
         target_visual_style=style,
     )
 
     frame = result.frames[0]
-    assert len(llm.calls) == 3
+    assert len(llm.calls) == 2
     assert frame.fusion_stage_output.final_positive_prompt == expected_positive
     assert frame.generation_request.final_positive_prompt == expected_positive
     assert all(
@@ -525,14 +509,9 @@ async def test_fusion_restores_required_negative_style_fragments_when_supported(
     )
     fusion = _fusion("frame-a", negative_prompt="低质量")
     expected_negative = "低质量，low quality, duplicate subject"
-    normalized_fusion = fusion.model_copy(
-        update={"final_negative_prompt": expected_negative}
-    )
-
     result, _ = await _run(
         _plan(),
         fusion_outputs=[fusion],
-        review_outputs=[_review(normalized_fusion, negative_supported=True)],
         target_visual_style=style,
         negative_prompt_supported=True,
     )
@@ -588,7 +567,6 @@ async def test_content_stage_rejects_identity_bearing_style_before_any_model_cal
                 _content("frame-a", plan.frames[0].source_text)
             ],
             FusionStageOutput: [_fusion("frame-a")],
-            PreflightReviewOutput: [_review(_fusion("frame-a"))],
         }
     )
 
@@ -1546,7 +1524,7 @@ def test_server_materializes_deterministic_internal_identifiers():
         ("visual_anchor_content_stage.v10", "visual_anchor_fusion_stage.v7"),
     ],
 )
-async def test_previous_prompt_versions_and_retry_audit_remain_readable(
+async def test_previous_prompt_versions_and_review_fields_are_migrated_on_read(
     content_prompt_version,
     fusion_prompt_version,
 ):
@@ -1561,13 +1539,32 @@ async def test_previous_prompt_versions_and_retry_audit_remain_readable(
     payload["generation_request"]["fusion_stage_prompt_version"] = (
         fusion_prompt_version
     )
+    payload["generation_request"]["request_version"] = (
+        "visual_anchor_generation_request.v3"
+    )
+    payload["generation_request"]["preflight_review_prompt_version"] = (
+        "visual_anchor_preflight_review.v6"
+    )
+    payload["generation_request"]["preflight_review_decision"] = "pass"
+    payload["preflight_review_input"] = {"legacy": True}
+    payload["preflight_review_output"] = {"decision": "pass"}
     payload["content_attempt_count"] = 2
     payload["content_retry_validation_codes"] = ["schema_contract_invalid"]
     payload["fusion_attempt_count"] = 2
 
     restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
 
-    assert restored.model_dump(mode="json") == payload
+    restored_payload = restored.model_dump(mode="json")
+    assert restored.generation_request.request_version == (
+        "visual_anchor_generation_request.v4"
+    )
+    assert restored.content_attempt_count == 2
+    assert restored.fusion_attempt_count == 2
+    assert "review_feedback" not in restored_payload["fusion_stage_input"]
+    assert "preflight_review_input" not in restored_payload
+    assert "preflight_review_output" not in restored_payload
+    assert "preflight_review_prompt_version" not in restored_payload["generation_request"]
+    assert "preflight_review_decision" not in restored_payload["generation_request"]
 
 
 def test_content_stage_input_rejects_callers_forging_server_validation_feedback():
@@ -1725,7 +1722,7 @@ async def test_final_prompt_rejects_candidate_language():
 
 
 @pytest.mark.asyncio
-async def test_missing_identity_semantics_stop_before_preflight_without_retry():
+async def test_missing_identity_semantics_stop_after_fusion_without_retry():
     plan = _plan()
     content = _content("frame-a", plan.frames[0].source_text)
     incomplete = _fusion(
@@ -1737,7 +1734,6 @@ async def test_missing_identity_semantics_stop_before_preflight_without_retry():
         {
             ContentStageModelOutput: [content],
             FusionStageOutput: [incomplete, complete],
-            PreflightReviewOutput: [_review(complete)],
         }
     )
 
@@ -1751,7 +1747,7 @@ async def test_missing_identity_semantics_stop_before_preflight_without_retry():
 
 
 @pytest.mark.asyncio
-async def test_preflight_allows_semantically_equivalent_identity_wording():
+async def test_fusion_allows_semantically_equivalent_identity_wording():
     fusion = _fusion(
         "frame-a",
         positive=(
@@ -1789,7 +1785,7 @@ async def test_recorded_single_instance_evidence_expands_over_identity_modifiers
     assert frame.generation_request.single_instance_prompt_evidence == (
         expected_evidence
     )
-    assert len(llm.calls) == 3
+    assert len(llm.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -1805,17 +1801,9 @@ async def test_recorded_local_instance_clause_is_promoted_to_global_uniqueness()
         positive=positive,
         single_instance_evidence="画面中只有一只小皮",
     )
-    normalized_fusion = fusion.model_copy(
-        update={
-            "final_positive_prompt": expected_positive,
-            "single_instance_prompt_evidence": expected_evidence,
-        }
-    )
-
     result, llm = await _run(
         _plan(),
         fusion_outputs=[fusion],
-        review_outputs=[_review(normalized_fusion)],
     )
 
     frame = result.frames[0]
@@ -1823,7 +1811,7 @@ async def test_recorded_local_instance_clause_is_promoted_to_global_uniqueness()
     assert frame.generation_request.single_instance_prompt_evidence == (
         expected_evidence
     )
-    assert len(llm.calls) == 3
+    assert len(llm.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -1839,17 +1827,9 @@ async def test_recorded_bare_instance_clause_is_promoted_to_global_uniqueness():
         positive=positive,
         single_instance_evidence="画面中只有一只小皮",
     )
-    normalized_fusion = fusion.model_copy(
-        update={
-            "final_positive_prompt": expected_positive,
-            "single_instance_prompt_evidence": expected_evidence,
-        }
-    )
-
     result, llm = await _run(
         _plan(),
         fusion_outputs=[fusion],
-        review_outputs=[_review(normalized_fusion)],
     )
 
     frame = result.frames[0]
@@ -1857,7 +1837,7 @@ async def test_recorded_bare_instance_clause_is_promoted_to_global_uniqueness():
     assert frame.generation_request.single_instance_prompt_evidence == (
         expected_evidence
     )
-    assert len(llm.calls) == 3
+    assert len(llm.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -1957,7 +1937,7 @@ async def test_recorded_protected_fact_evidence_uses_exact_content_evidence():
         "乔布斯和沃兹尼亚克在工作台组装电脑",
         "电脑",
     ]
-    assert len(llm.calls) == 3
+    assert len(llm.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -2003,19 +1983,14 @@ async def test_fusion_restores_missing_server_owned_protected_fact_fragment():
         }
     )
     expected_positive = f"{fusion.final_positive_prompt}；{fact_evidence}"
-    normalized_fusion = fusion.model_copy(
-        update={"final_positive_prompt": expected_positive}
-    )
-
     result, llm = await _run(
         _plan(),
         content_outputs=[content],
         fusion_outputs=[fusion],
-        review_outputs=[_review(normalized_fusion)],
     )
 
     frame = result.frames[0]
-    assert len(llm.calls) == 3
+    assert len(llm.calls) == 2
     assert frame.fusion_stage_output.final_positive_prompt == expected_positive
     assert frame.generation_request.final_positive_prompt == expected_positive
     assert frame.fusion_stage_output.protected_fact_checks[-1].final_image_evidence == (
@@ -2030,7 +2005,6 @@ async def test_generation_request_contains_only_one_instance_and_clean_prompt():
 
     assert request.target_visual_anchor_instance_count == 1
     assert request.generation_attempt == 1
-    assert request.preflight_review_decision == "pass"
     assert request.selected_fusion_method
     assert "non_core_reconstruction_summary" not in request.model_dump()
     assert "unselected_candidate_summaries" not in request.model_dump()
@@ -2112,35 +2086,6 @@ def test_unselected_candidate_cannot_equal_selected_manifestation():
 
 
 @pytest.mark.asyncio
-async def test_failed_preflight_stops_without_reexecuting_fusion():
-    plan = _plan()
-    content = _content("frame-a", plan.frames[0].source_text)
-    fusion = _fusion("frame-a")
-    failed_review = PreflightReviewOutput(
-        decision="fail",
-        failures=["空间接触关系证据不足"],
-        allowed_final_positive_prompt="",
-        allowed_final_negative_prompt="",
-    )
-    llm = _QueuedLLM(
-        {
-            ContentStageModelOutput: [content],
-            FusionStageOutput: [fusion, fusion],
-            PreflightReviewOutput: [failed_review, _review(fusion)],
-        }
-    )
-
-    with pytest.raises(VisualAnchorTwoStageError, match="空间接触关系证据不足"):
-        await _run(plan, llm=llm)
-
-    assert [call["response_type"] for call in llm.calls] == [
-        ContentStageModelOutput,
-        FusionStageOutput,
-        PreflightReviewOutput,
-    ]
-
-
-@pytest.mark.asyncio
 async def test_invalid_fusion_stops_without_a_second_fusion_call():
     plan = _plan()
     content = _content("frame-a", plan.frames[0].source_text)
@@ -2153,7 +2098,6 @@ async def test_invalid_fusion_stops_without_a_second_fusion_call():
         {
             ContentStageModelOutput: [content],
             FusionStageOutput: [invalid_fusion, valid_fusion],
-            PreflightReviewOutput: [_review(valid_fusion)],
         }
     )
 
@@ -2186,19 +2130,6 @@ def test_missing_reference_condition_fails_before_fusion():
                 },
                 "target_visual_style": "真实电影感",
                 "target_image_prompt_language": "中文",
-            }
-        )
-
-
-@pytest.mark.parametrize("decision", ["unknown", "skipped", "timeout"])
-def test_unknown_skipped_or_timeout_review_state_cannot_pass(decision):
-    with pytest.raises(ValidationError):
-        PreflightReviewOutput.model_validate(
-            {
-                "decision": decision,
-                "failures": [],
-                "allowed_final_positive_prompt": "小皮在场景中",
-                "allowed_final_negative_prompt": "",
             }
         )
 
@@ -2492,8 +2423,6 @@ def test_first_generation_binding_validates_actual_task_local_reference(tmp_path
         target_visual_style=TargetVisualStyle(description="真实电影感"),
         content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
         fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
-        preflight_review_prompt_version=PREFLIGHT_REVIEW_PROMPT_VERSION,
-        preflight_review_decision="pass",
         negative_prompt_supported=False,
         workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
         workflow_version_sha256="c" * 64,

@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_fusion_stage
-version: visual_anchor_fusion_stage.v8
+version: visual_anchor_fusion_stage.v9
 stage: visual_anchor_fusion_stage
 purpose: 在保护原文事实的前提下将唯一视觉锚点原生融合进完整画面
 output_contract: FusionStageOutput
@@ -17,7 +17,7 @@ output_contract: FusionStageOutput
 2. 不预设身份的大小、位置、朝向、景别、占比、载体或叙事职责。根据当前完整场景自由选择唯一一种协调表现。
 3. 最终全画面必须有且只有一个该身份实例。只能有一种表现形态；不得出现副本、分身、克隆、镜像、倒影、重复印刷、连续花纹、背景复制，也不得让其他场景元素继承核心身份特征。
 4. 保留可识别的核心身份特征，并服从场景透视、光源、阴影、材质、色彩、景深、支撑、接触、附着和遮挡关系。不得成为水印、界面角标、悬浮图层或后贴效果，不得替代、遮挡或挤出 primary_subject、secondary_subjects 或任何受保护事实。视觉锚点只是系列记忆点，不默认成为主角，不得继承真正主体的身份、动作或叙事职责。
-5. 同一连续场景默认继承既有表现形态和基本空间关系；继承时 selected_fusion_method、final_manifestation 和 spatial_contact_and_lighting_relation 必须分别逐字复制输入中的对应既有字段。只有镜头切换、时间跳跃、地点变化或明确叙事需要才可改变，并写明依据。
+5. 同一连续场景默认继承既有表现形态和基本空间关系；继承时 selected_fusion_method、final_manifestation 和 spatial_contact_and_lighting_relation 必须分别逐字复制输入中的对应既有字段。当前镜头没有既有融合决策，或完整继承既有决策时，continuity_change_reason 必须输出空字符串；只有因镜头切换、时间跳跃、地点变化或明确叙事需要而改变既有决策时，才填写非空的改变依据。
 6. 原文主体与该身份是同一对象时，把原文主体身份和系列身份合并为同一个实例，不得为了区分业务身份再复制一个对象。
 7. 严肃、历史或灾难内容采用克制且不稀释事实的场景内存在方式；抽象图、时间线和信息结构只允许一个自然元素。不得选择会自然产生复制的壁纸、连续花纹、镜面阵列、多屏幕墙或重复印刷载体。
 8. 无法同时保护全部事实、保持身份可识别、维持单实例并自然融合时，self_check 必须为 fail，不能牺牲事实继续生成。

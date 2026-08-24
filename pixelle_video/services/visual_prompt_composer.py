@@ -126,7 +126,7 @@ class VisualPromptComposer:
     Historical product controls are normalized before reaching this service.
     When recurring identity is enabled, every frame first receives an
     identity-free content call, then a full identity-fusion rewrite and a
-    blocking preflight review before the only image workflow request.
+    deterministic fusion validation before the only image workflow request.
     """
 
     async def compose(
@@ -497,10 +497,8 @@ class VisualPromptComposer:
                 for item in two_stage_result.frames
             }
             planning_snapshot["visual_anchor_two_stage_prompt_policy"] = {
-                "schema_version": "visual_anchor_two_stage_prompt_policy.v3",
-                "prompt_chain": (
-                    "content_stage_then_fusion_rewrite_then_preflight_review"
-                ),
+                "schema_version": "visual_anchor_two_stage_prompt_policy.v4",
+                "prompt_chain": "content_stage_then_fusion_rewrite",
                 "image_generation_attempts_per_frame": 1,
                 "post_generation_model_validation_enabled": False,
                 "post_generation_prompt_repair_enabled": False,

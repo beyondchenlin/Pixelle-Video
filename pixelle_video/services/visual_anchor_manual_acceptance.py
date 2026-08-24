@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-MANUAL_ACCEPTANCE_SCHEMA_VERSION = "visual_anchor_manual_acceptance.v1"
+MANUAL_ACCEPTANCE_SCHEMA_VERSION = "visual_anchor_manual_acceptance.v2"
 _SAFE_FRAME_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
@@ -28,9 +28,25 @@ class VisualAnchorManualAcceptanceChecks(BaseModel):
     size_and_position_fit_current_composition: bool
     unique_final_plan_submitted: bool
     first_generation_reference_bound: bool
-    preflight_and_post_audit_complete: bool
+    deterministic_fusion_and_post_audit_complete: bool
     continuous_scene_consistency: bool
     original_first_generation_unmodified: bool
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_preflight_check(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        legacy_value = normalized.pop(
+            "preflight_and_post_audit_complete",
+            None,
+        )
+        normalized.setdefault(
+            "deterministic_fusion_and_post_audit_complete",
+            legacy_value,
+        )
+        return normalized
 
     @property
     def all_passed(self) -> bool:
@@ -60,6 +76,16 @@ class VisualAnchorManualAcceptanceRecord(BaseModel):
         default_factory=lambda: datetime.now(UTC).isoformat()
     )
     artifact_relative_path: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_legacy_schema_version(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if normalized.get("schema_version") == "visual_anchor_manual_acceptance.v1":
+            normalized["schema_version"] = MANUAL_ACCEPTANCE_SCHEMA_VERSION
+        return normalized
 
     @field_validator(
         "task_id",

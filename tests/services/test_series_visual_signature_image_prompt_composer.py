@@ -572,7 +572,7 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
 
         def to_dict(self):
             return {
-                "schema_version": "visual_anchor_two_stage_batch.v5",
+                "schema_version": "visual_anchor_two_stage_batch.v6",
                 "frames": [self.frames[0].model_dump(mode="json")],
             }
 
@@ -633,8 +633,8 @@ async def test_default_text_to_image_visual_anchor_uses_two_stage_text_profile_w
     assert result.negative_prompt is None
     assert "visual_anchor_two_stage" in result.planning_snapshot
     assert result.planning_snapshot["visual_anchor_two_stage_prompt_policy"] == {
-        "schema_version": "visual_anchor_two_stage_prompt_policy.v3",
-        "prompt_chain": "content_stage_then_fusion_rewrite_then_preflight_review",
+        "schema_version": "visual_anchor_two_stage_prompt_policy.v4",
+        "prompt_chain": "content_stage_then_fusion_rewrite",
         "image_generation_attempts_per_frame": 1,
         "post_generation_model_validation_enabled": False,
         "post_generation_prompt_repair_enabled": False,

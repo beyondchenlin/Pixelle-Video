@@ -168,7 +168,6 @@ class VisualAnchorRenderedOutputAudit:
         expected_prompt_versions = {
             "content_stage": request.content_stage_prompt_version,
             "fusion_stage": request.fusion_stage_prompt_version,
-            "preflight_review": request.preflight_review_prompt_version,
         }
         expected_reference = request.identity_reference_condition.model_dump(
             mode="json"
@@ -314,10 +313,6 @@ class VisualAnchorRenderedOutputAudit:
             (
                 "expected_execution_preserved",
                 binding.get("expected_execution") == expected_execution,
-            ),
-            (
-                "preflight_review_passed",
-                binding.get("preflight_review_decision") == "pass",
             ),
             (
                 "actual_comfyui_prompt_recorded",
@@ -502,7 +497,6 @@ class VisualAnchorRenderedOutputAudit:
         expected_prompt_versions = {
             "content_stage": request.content_stage_prompt_version,
             "fusion_stage": request.fusion_stage_prompt_version,
-            "preflight_review": request.preflight_review_prompt_version,
         }
         expected_execution = request.expected_execution.model_dump(mode="json")
         expected_sampler_config = {
@@ -615,10 +609,6 @@ class VisualAnchorRenderedOutputAudit:
             (
                 "expected_execution_preserved",
                 binding.get("expected_execution") == expected_execution,
-            ),
-            (
-                "preflight_review_passed",
-                binding.get("preflight_review_decision") == "pass",
             ),
             (
                 "actual_comfyui_prompt_recorded",
