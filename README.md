@@ -718,6 +718,31 @@ scripts\comfyui\stop_backend.bat
 - 正式生成时只使用一个当前前缀，预览时可以同时比较多个前缀
 - 还可以复用系统里已配置的大模型生成候选前缀，并加入前缀库
 
+#### 高级：微调核心提示词模板
+
+以下三个文件是分镜与视觉锚点流程实际读取的提示词模板，源码部署用户可以直接编辑：
+
+| 流程阶段 | 模板文件 | 主要控制内容 |
+| --- | --- | --- |
+| 智能分镜生成 | [`storyboard_generation.md`](pixelle_video/prompts/templates/storyboard_generation.md) | 分镜数量、原文覆盖顺序、每帧视觉目标，以及主要与次要可见主体 |
+| 视觉锚点内容阶段 | [`visual_anchor_content_stage.md`](pixelle_video/prompts/templates/visual_anchor_content_stage.md) | 不含视觉锚点的纯内容画面、主体识别、受保护事实和可调整的画面细节 |
+| 视觉锚点融合阶段 | [`visual_anchor_fusion_stage.md`](pixelle_video/prompts/templates/visual_anchor_fusion_stage.md) | 将唯一视觉锚点自然融入完整画面，同时保护原文事实、主体和连续性 |
+
+调用顺序为：智能分镜生成 → 视觉锚点内容阶段 → 视觉锚点融合阶段 → 图片生成。只有选择智能分镜模式时才读取第一个模板；后两个模板只在启用视觉锚点的两阶段图片生成流程中读取。
+
+微调时请遵守以下边界：
+
+1. 只调整第二个 `---` 分隔线之后的提示词正文。保留文件头中的 `prompt_id`、`version`、`stage`、`purpose` 和 `output_contract`；视觉锚点模板的版本号还与代码合同绑定，不能单独修改。
+2. 不要删除或改名 `{input_json}`、`{source_text_json}` 等占位符，也不要改动 `<!-- if ... -->` 条件块及用于输出字面量花括号的 `{{`、`}}`。
+3. 不要删除或改名输出结构字段、逐字证据要求、原文覆盖规则、单实例规则和必需风格片段。服务端会确定性校验这些合同；任一输出解析或合同校验失败都会立即终止，不会自动重试或修复。
+4. 建议一次只改一个模板并保留小幅改动。模板在每次调用时从文件读取，保存后会从下一次生成任务开始生效。
+
+修改后可运行以下检查：
+
+```bash
+uv run pytest tests/test_prompt_template_registry.py tests/services/test_visual_anchor_two_stage_service.py -q
+```
+
 #### 视频模板
 决定视频画面的布局和设计。
 
