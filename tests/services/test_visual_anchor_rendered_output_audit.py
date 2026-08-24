@@ -7,7 +7,6 @@ from PIL import Image
 from pixelle_video.models.visual_anchor_two_stage import (
     CONTENT_STAGE_PROMPT_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
-    PREFLIGHT_REVIEW_PROMPT_VERSION,
     ContentStageInput,
     ContentStageOutput,
     ContinuousSceneContext,
@@ -15,8 +14,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
-    PreflightReviewInput,
-    PreflightReviewOutput,
     TargetVisualStyle,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
@@ -146,7 +143,7 @@ def _frame_result(tmp_path):
         workflow_identity_condition_summary="当前工作流使用真实参考图绑定身份",
         continuous_scene_context=continuity,
         target_visual_style=target_style,
-        negative_prompt_supported=True,
+        negative_prompt_supported=False,
         target_image_prompt_language="中文",
         required_single_instance_prompt_fragment="画面中只有一只小皮",
     )
@@ -198,26 +195,8 @@ def _frame_result(tmp_path):
             "两位创作者在车库组装电脑。画面中只有一只小皮，"
             "它以圆形白色脸和蓝色短耳的单一实体自然参与现场。"
         ),
-        final_negative_prompt="重复的小皮，镜像，倒影，悬浮，穿模",
+        final_negative_prompt="",
         self_check="pass",
-    )
-    review_input = PreflightReviewInput(
-        frame_id="frame-a",
-        original_storyboard_text=content_input.original_storyboard_text,
-        content_stage_output=content_output,
-        identity_profile=identity,
-        identity_conditioning_mode="reference_image",
-        identity_reference_condition=reference,
-        continuous_scene_context=continuity,
-        target_visual_style=target_style,
-        fusion_stage_output=fusion_output,
-        negative_prompt_supported=False,
-    )
-    review_output = PreflightReviewOutput(
-        decision="pass",
-        failures=[],
-        allowed_final_positive_prompt=fusion_output.final_positive_prompt,
-        allowed_final_negative_prompt="",
     )
     request = VisualAnchorImageGenerationRequest(
         task_id="task-two-stage",
@@ -248,8 +227,6 @@ def _frame_result(tmp_path):
         target_visual_style=target_style,
         content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
         fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
-        preflight_review_prompt_version=PREFLIGHT_REVIEW_PROMPT_VERSION,
-        preflight_review_decision="pass",
         negative_prompt_supported=False,
         workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
         workflow_version_sha256="c" * 64,
@@ -274,8 +251,6 @@ def _frame_result(tmp_path):
         content_stage_output=content_output,
         fusion_stage_input=fusion_input,
         fusion_stage_output=fusion_output,
-        preflight_review_input=review_input,
-        preflight_review_output=review_output,
         generation_request=request,
     )
 
@@ -344,7 +319,7 @@ def _write_passed_binding(
     binding_path.write_text(
         json.dumps(
             {
-                "schema_version": "visual_anchor_first_generation_binding_audit.v2",
+                "schema_version": "visual_anchor_first_generation_binding_audit.v4",
                 "request_version": request.request_version,
                 "status": "passed",
                 "task_id": request.task_id,
@@ -374,7 +349,6 @@ def _write_passed_binding(
                 "prompt_versions": {
                     "content_stage": request.content_stage_prompt_version,
                     "fusion_stage": request.fusion_stage_prompt_version,
-                    "preflight_review": request.preflight_review_prompt_version,
                 },
                 "identity_profile_id": request.identity_profile_id,
                 "identity_display_name": request.identity_display_name,
@@ -389,7 +363,6 @@ def _write_passed_binding(
                 "expected_execution": request.expected_execution.model_dump(
                     mode="json"
                 ),
-                "preflight_review_decision": "pass",
                 "actual_execution": {
                     "comfyui_prompt_id": "prompt-101",
                     "execution_status": "success",

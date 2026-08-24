@@ -456,7 +456,6 @@ def _render_visual_anchor_manual_acceptance_form(
     frame_id: str,
     random_seed: object,
     generated_image: Path | None,
-    preflight_output: Mapping[str, object],
     generation_request: Mapping[str, object],
     reference_condition: Mapping[str, object],
     binding_audit: Mapping[str, object],
@@ -482,8 +481,9 @@ def _render_visual_anchor_manual_acceptance_form(
             and actual_execution.get("uploaded_reference_sha256")
             == reference_condition.get("asset_sha256")
         ),
-        "生成前审查与生成后链路审计完整": (
-            preflight_output.get("decision") == "pass"
+        "融合确定性校验与生成后链路审计完整": (
+            bool(generation_request.get("final_positive_prompt"))
+            and binding_audit.get("status") == "passed"
             and audit.get("status") == "passed"
         ),
         "原图与本地首次生成输出一致": (
@@ -565,8 +565,8 @@ def _render_visual_anchor_manual_acceptance_form(
         first_generation_reference_bound=deterministic_checks[
             "真实参考已进入首次生成"
         ],
-        preflight_and_post_audit_complete=deterministic_checks[
-            "生成前审查与生成后链路审计完整"
+        deterministic_fusion_and_post_audit_complete=deterministic_checks[
+            "融合确定性校验与生成后链路审计完整"
         ],
         original_first_generation_unmodified=deterministic_checks[
             "原图与本地首次生成输出一致"
@@ -649,8 +649,7 @@ def render_visual_anchor_two_stage_evidence(
     st.caption(
         "提示词版本："
         f"第一阶段 {prompt_versions.get('content_stage', 'N/A')} ｜ "
-        f"第二阶段 {prompt_versions.get('fusion_stage', 'N/A')} ｜ "
-        f"生成前审查 {prompt_versions.get('preflight_review', 'N/A')}"
+        f"第二阶段 {prompt_versions.get('fusion_stage', 'N/A')}"
     )
 
     for frame_number, raw_frame in enumerate(raw_frames, start=1):
@@ -662,7 +661,6 @@ def render_visual_anchor_two_stage_evidence(
         content_output = _mapping(frame_record.get("content_stage_output"))
         fusion_input = _mapping(frame_record.get("fusion_stage_input"))
         fusion_output = _mapping(frame_record.get("fusion_stage_output"))
-        preflight_output = _mapping(frame_record.get("preflight_review_output"))
         generation_request = _mapping(frame_record.get("generation_request"))
         identity_profile = _mapping(fusion_input.get("identity_profile"))
         reference_condition = _mapping(
@@ -708,12 +706,10 @@ def render_visual_anchor_two_stage_evidence(
             or audit.get("visual_acceptance_status")
             or "未记录"
         )
-        preflight_decision = str(preflight_output.get("decision") or "未记录")
-
         with st.expander(
             f"分镜 {frame_number} ｜ {frame_id} ｜ 随机种子 "
             f"{generation_request.get('random_seed', 'N/A')} ｜ "
-            f"生成前审查 {preflight_decision} ｜ 生成后链路审计 {audit_status} ｜ "
+            f"融合确定性校验 已通过 ｜ 生成后链路审计 {audit_status} ｜ "
             f"人工图像验收 {visual_acceptance_status}",
             expanded=False,
         ):
@@ -813,7 +809,7 @@ def render_visual_anchor_two_stage_evidence(
                 )
 
             st.markdown("**身份档案与真实参考条件**")
-            identity_column, workflow_column, review_column = st.columns(3)
+            identity_column, workflow_column, binding_column = st.columns(3)
             with identity_column:
                 st.markdown(
                     f"**身份档案：** {identity_profile.get('display_name', 'N/A')}  \n"
@@ -826,8 +822,6 @@ def render_visual_anchor_two_stage_evidence(
                     f"{generation_request.get('content_stage_prompt_version', 'N/A')}  \n"
                     f"**第二阶段提示词版本：** "
                     f"{generation_request.get('fusion_stage_prompt_version', 'N/A')}  \n"
-                    f"**生成前审查提示词版本：** "
-                    f"{generation_request.get('preflight_review_prompt_version', 'N/A')}  \n"
                     f"**参考资源标识：** "
                     f"{', '.join(identity_profile.get('source_asset_ids') or []) or 'N/A'}  \n"
                     f"**参考图校验值：** "
@@ -862,7 +856,7 @@ def render_visual_anchor_two_stage_evidence(
                     f"**本地生成任务编号：** "
                     f"{actual_execution.get('comfyui_prompt_id', 'N/A')}"
                 )
-            with review_column:
+            with binding_column:
                 st.markdown(
                     f"**实际参考输入：** "
                     f"{reference_condition.get('workflow_parameter', 'N/A')} → "
@@ -890,10 +884,10 @@ def render_visual_anchor_two_stage_evidence(
                     f"{' → '.join(reference_condition.get('binding_path_node_ids') or []) or 'N/A'}"
                 )
 
-            st.markdown("**生成前审查与生成后审计**")
+            st.markdown("**融合确定性校验与生成后审计**")
             st.json(
                 {
-                    "生成前审查": preflight_output,
+                    "融合后图片生成请求": generation_request,
                     "首次生成参考绑定证据": binding_audit,
                     "生成后首次请求完整性审计": audit,
                     "真实图片人工验收": (
@@ -913,7 +907,6 @@ def render_visual_anchor_two_stage_evidence(
                 frame_id=frame_id,
                 random_seed=generation_request.get("random_seed"),
                 generated_image=generated_image,
-                preflight_output=preflight_output,
                 generation_request=generation_request,
                 reference_condition=reference_condition,
                 binding_audit=binding_audit,

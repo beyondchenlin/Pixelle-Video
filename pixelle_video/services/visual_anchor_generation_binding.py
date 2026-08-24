@@ -167,7 +167,7 @@ def validate_visual_anchor_first_generation_binding(
 
     if failures:
         failed_audit = {
-            "schema_version": "visual_anchor_first_generation_binding_audit.v2",
+            "schema_version": "visual_anchor_first_generation_binding_audit.v4",
             "request_version": request.request_version,
             "recorded_at_utc": datetime.now(UTC).isoformat(),
             "status": "failed",
@@ -196,7 +196,6 @@ def validate_visual_anchor_first_generation_binding(
             "prompt_versions": {
                 "content_stage": request.content_stage_prompt_version,
                 "fusion_stage": request.fusion_stage_prompt_version,
-                "preflight_review": request.preflight_review_prompt_version,
             },
             "identity_profile_id": request.identity_profile_id,
             "identity_display_name": request.identity_display_name,
@@ -208,7 +207,6 @@ def validate_visual_anchor_first_generation_binding(
             "workflow_key": request.workflow_key,
             "workflow_version_sha256": request.workflow_version_sha256,
             "expected_execution": expected_execution.model_dump(mode="json"),
-            "preflight_review_decision": request.preflight_review_decision,
             "actual_binding": {
                 "injection_mode": binding.get("injection_mode"),
                 "status": binding.get("status"),
@@ -230,7 +228,7 @@ def validate_visual_anchor_first_generation_binding(
         )
 
     audit = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v2",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v4",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": "ready_to_submit",
@@ -253,7 +251,6 @@ def validate_visual_anchor_first_generation_binding(
         "prompt_versions": {
             "content_stage": request.content_stage_prompt_version,
             "fusion_stage": request.fusion_stage_prompt_version,
-            "preflight_review": request.preflight_review_prompt_version,
         },
         "identity_profile_id": request.identity_profile_id,
         "identity_display_name": request.identity_display_name,
@@ -265,7 +262,6 @@ def validate_visual_anchor_first_generation_binding(
         "workflow_key": request.workflow_key,
         "workflow_version_sha256": request.workflow_version_sha256,
         "expected_execution": expected_execution.model_dump(mode="json"),
-        "preflight_review_decision": request.preflight_review_decision,
         "actual_binding": {
             "injection_mode": binding.get("injection_mode"),
             "status": binding.get("status"),
@@ -335,7 +331,7 @@ def _first_generation_binding_audit_payload(
     actual_binding: Mapping[str, Any],
 ) -> dict[str, Any]:
     payload = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v3",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v4",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": status,
@@ -366,7 +362,6 @@ def _first_generation_binding_audit_payload(
         "prompt_versions": {
             "content_stage": request.content_stage_prompt_version,
             "fusion_stage": request.fusion_stage_prompt_version,
-            "preflight_review": request.preflight_review_prompt_version,
         },
         "identity_profile_id": request.identity_profile_id,
         "identity_display_name": request.identity_display_name,
@@ -380,7 +375,6 @@ def _first_generation_binding_audit_payload(
         "workflow_key": request.workflow_key,
         "workflow_version_sha256": request.workflow_version_sha256,
         "expected_execution": request.expected_execution.model_dump(mode="json"),
-        "preflight_review_decision": request.preflight_review_decision,
         "actual_binding": dict(actual_binding),
     }
     if failure_codes:

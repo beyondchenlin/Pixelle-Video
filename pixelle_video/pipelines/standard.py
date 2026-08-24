@@ -274,7 +274,7 @@ def _validate_single_pass_z_image_signature_batch(
         snapshot["visual_anchor_final_prompt_lineage"] = {
             "schema_version": "visual_anchor_final_prompt_lineage.v1",
             "validated": True,
-            "source": "passed_preflight_generation_request",
+            "source": "validated_fusion_generation_request",
             "frame_count": len(generation_requests),
         }
         return StyledImagePromptBatch(
@@ -867,13 +867,11 @@ class StandardPipeline(LinearVideoPipeline):
         visual_story_context = None
         if series_visual_signature_request.enabled:
             ctx.observability["visual_anchor_visual_planning"] = {
-                "schema_version": "visual_anchor_visual_planning.v2",
+                "schema_version": "visual_anchor_visual_planning.v3",
                 "route_model_call_count": 0,
                 "frame_planning_model_call_count": 0,
-                "prompt_chain": (
-                    "content_stage_then_fusion_rewrite_then_preflight_review"
-                ),
-                "minimum_prompt_model_calls_per_frame": 3,
+                "prompt_chain": "content_stage_then_fusion_rewrite",
+                "minimum_prompt_model_calls_per_frame": 2,
                 "image_generation_attempts_per_frame": 1,
                 "post_generation_model_validation_enabled": False,
             }
@@ -1555,7 +1553,7 @@ class StandardPipeline(LinearVideoPipeline):
                 "workflow_key_and_version",
                 "first_request_workflow_binding_provenance",
                 "single_generation_attempt",
-                "passed_preflight_review",
+                "passed_deterministic_fusion_validation",
             ],
         }
         snapshot = dict(ctx.planning_snapshot or {})
@@ -1768,8 +1766,6 @@ class StandardPipeline(LinearVideoPipeline):
                     "content_stage_output",
                     "fusion_stage_input",
                     "fusion_stage_output",
-                    "preflight_review_input",
-                    "preflight_review_output",
                     "generation_request",
                 )
             }
@@ -1785,7 +1781,7 @@ class StandardPipeline(LinearVideoPipeline):
             for frame_id, paths in frame_artifacts.items()
         }
         record = {
-            "schema_version": "visual_anchor_two_stage_artifacts.v2",
+            "schema_version": "visual_anchor_two_stage_artifacts.v3",
             "directory": str(artifact_dir.relative_to(root)),
             "artifacts": artifacts,
             "artifact_sha256": artifact_sha256,

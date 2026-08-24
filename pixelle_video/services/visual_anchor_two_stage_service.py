@@ -20,7 +20,6 @@ from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanF
 from pixelle_video.models.visual_anchor_two_stage import (
     CONTENT_STAGE_PROMPT_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
-    PREFLIGHT_REVIEW_PROMPT_VERSION,
     ContentFact,
     ContentStageInput,
     ContentStageModelOutput,
@@ -31,8 +30,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
-    PreflightReviewInput,
-    PreflightReviewOutput,
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
@@ -240,11 +237,10 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v5",
+            "schema_version": "visual_anchor_two_stage_batch.v6",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
-                "preflight_review": PREFLIGHT_REVIEW_PROMPT_VERSION,
             },
             "frames": [frame.model_dump(mode="json") for frame in self.frames],
         }
@@ -276,7 +272,7 @@ def identity_profile_from_snapshot(
 
 
 class VisualAnchorTwoStageService:
-    """Content, fusion, and preflight calls before exactly one image request."""
+    """Content and fusion calls before exactly one image request."""
 
     async def run_batch(
         self,
@@ -576,75 +572,6 @@ class VisualAnchorTwoStageService:
             **fusion_call_audit.terminal_event_fields(),
         )
 
-        review_input = PreflightReviewInput(
-            frame_id=frame.frame_id,
-            original_storyboard_text=frame.source_text,
-            content_stage_output=content_output,
-            identity_profile=identity_profile,
-            identity_conditioning_mode=identity_conditioning_mode,
-            identity_reference_condition=identity_reference_condition,
-            continuous_scene_context=continuity_context,
-            target_visual_style=target_visual_style,
-            visible_text_policy=visible_text_policy,
-            fusion_stage_output=fusion_output,
-            negative_prompt_supported=negative_prompt_supported,
-        )
-        _emit_stage(
-            stage_callback,
-            stage="visual_anchor_preflight_review",
-            event="start",
-            frame_id=frame.frame_id,
-            status="running",
-        )
-        review_call_audit = _SinglePassStageCallAudit(
-            stage="visual_anchor_preflight_review",
-            frame_id=frame.frame_id,
-        )
-        try:
-            review_output = await self._call_structured(
-                llm_service=llm_service,
-                prompt_id="visual_anchor_preflight_review",
-                stage_input=review_input,
-                response_type=PreflightReviewOutput,
-                frame_id=frame.frame_id,
-                trace_context=trace_context,
-                trace_recorder=trace_recorder,
-                temperature=0.0,
-                call_audit=review_call_audit,
-            )
-            review_passed = _preflight_review_passes(review_input, review_output)
-        except Exception:
-            _emit_stage(
-                stage_callback,
-                stage="visual_anchor_preflight_review",
-                event="fail",
-                frame_id=frame.frame_id,
-                status="failed",
-                **review_call_audit.terminal_event_fields(),
-            )
-            raise
-        if not review_passed:
-            _emit_stage(
-                stage_callback,
-                stage="visual_anchor_preflight_review",
-                event="fail",
-                frame_id=frame.frame_id,
-                status="rejected",
-                **review_call_audit.terminal_event_fields(),
-            )
-            evidence = "; ".join(review_output.failures)
-            raise VisualAnchorTwoStageError(
-                f"preflight review rejected frame {frame.frame_id}: {evidence}"
-            )
-        _emit_stage(
-            stage_callback,
-            stage="visual_anchor_preflight_review",
-            event="end",
-            frame_id=frame.frame_id,
-            status="passed",
-            **review_call_audit.terminal_event_fields(),
-        )
-
         generation_request = VisualAnchorImageGenerationRequest(
             task_id=task_id,
             frame_id=frame.frame_id,
@@ -662,8 +589,8 @@ class VisualAnchorTwoStageService:
             single_instance_prompt_evidence=(
                 fusion_output.single_instance_prompt_evidence
             ),
-            final_positive_prompt=review_output.allowed_final_positive_prompt,
-            final_negative_prompt=review_output.allowed_final_negative_prompt,
+            final_positive_prompt=fusion_output.final_positive_prompt,
+            final_negative_prompt=fusion_output.final_negative_prompt,
             identity_profile_id=identity_profile.profile_id,
             identity_display_name=identity_profile.display_name,
             identity_core_traits=identity_profile.core_identity_traits,
@@ -675,8 +602,6 @@ class VisualAnchorTwoStageService:
             visible_text_policy=visible_text_policy,
             content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
             fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
-            preflight_review_prompt_version=PREFLIGHT_REVIEW_PROMPT_VERSION,
-            preflight_review_decision="pass",
             negative_prompt_supported=negative_prompt_supported,
             workflow_key=workflow_key,
             workflow_version_sha256=workflow_version_sha256,
@@ -688,8 +613,6 @@ class VisualAnchorTwoStageService:
             content_stage_output=content_output,
             fusion_stage_input=fusion_input,
             fusion_stage_output=fusion_output,
-            preflight_review_input=review_input,
-            preflight_review_output=review_output,
             generation_request=generation_request,
         )
 
@@ -789,7 +712,6 @@ def _render_stage_prompt(
     expected_version = {
         "visual_anchor_content_stage": CONTENT_STAGE_PROMPT_VERSION,
         "visual_anchor_fusion_stage": FUSION_STAGE_PROMPT_VERSION,
-        "visual_anchor_preflight_review": PREFLIGHT_REVIEW_PROMPT_VERSION,
     }[prompt_id]
     if rendered.version != expected_version:
         raise VisualAnchorTwoStageError(
@@ -1321,29 +1243,6 @@ def _validate_fusion_stage_output(
             raise VisualAnchorTwoStageError(
                 "fusion dropped the visible-text suppression policy"
             )
-
-
-def _preflight_review_passes(
-    review_input: PreflightReviewInput,
-    output: PreflightReviewOutput,
-) -> bool:
-    if output.decision != "pass":
-        return False
-    fusion_output = review_input.fusion_stage_output
-    if output.allowed_final_positive_prompt != fusion_output.final_positive_prompt:
-        raise VisualAnchorTwoStageError(
-            "preflight reviewer modified the final positive prompt"
-        )
-    expected_negative = (
-        fusion_output.final_negative_prompt
-        if review_input.negative_prompt_supported
-        else ""
-    )
-    if output.allowed_final_negative_prompt != expected_negative:
-        raise VisualAnchorTwoStageError(
-            "preflight reviewer modified or incorrectly allowed the negative prompt"
-        )
-    return True
 
 
 def _continuous_scene_ids(

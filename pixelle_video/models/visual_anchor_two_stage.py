@@ -8,8 +8,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v12"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v8"
-PREFLIGHT_REVIEW_PROMPT_VERSION = "visual_anchor_preflight_review.v6"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v3"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v4"
 ContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v5",
     "visual_anchor_content_stage.v6",
@@ -28,7 +27,11 @@ FusionStagePromptVersion = Literal[
     FUSION_STAGE_PROMPT_VERSION,
 ]
 
-ReviewDecision = Literal["pass", "fail"]
+GenerationRequestVersion = Literal[
+    "visual_anchor_generation_request.v3",
+    GENERATION_REQUEST_VERSION,
+]
+StageSelfCheckDecision = Literal["pass", "fail"]
 ContentSubjectCategory = Literal[
     "person",
     "animal",
@@ -627,7 +630,7 @@ class ContentStageModelOutput(BaseModel):
     )
     adjustable_non_core_content: list[str] = Field(default_factory=list)
     pure_content_prompt: str
-    self_check: SkipJsonSchema[ReviewDecision] = "pass"
+    self_check: SkipJsonSchema[StageSelfCheckDecision] = "pass"
     self_check_failures: SkipJsonSchema[list[str]] = Field(default_factory=list)
 
     @model_validator(mode="before")
@@ -780,7 +783,7 @@ class ContentStageOutput(BaseModel):
     secondary_subjects: list[ContentSubject] = Field(default_factory=list)
     adjustable_non_core_content: list[str] = Field(default_factory=list)
     pure_content_prompt: str
-    self_check: ReviewDecision
+    self_check: StageSelfCheckDecision
     self_check_failures: list[str] = Field(default_factory=list)
 
     @field_validator("core_claim", "pure_content_prompt", mode="before")
@@ -1119,7 +1122,7 @@ class FusionStageOutput(BaseModel):
     continuity_change_reason: str
     final_positive_prompt: str
     final_negative_prompt: str
-    self_check: ReviewDecision
+    self_check: StageSelfCheckDecision
     self_check_failures: list[str] = Field(default_factory=list)
 
     @field_validator(
@@ -1180,84 +1183,6 @@ class FusionStageOutput(BaseModel):
         return self
 
 
-class PreflightReviewInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    frame_id: str
-    original_storyboard_text: str
-    content_stage_output: ContentStageOutput
-    identity_profile: VisualAnchorIdentityProfile
-    identity_conditioning_mode: Literal["text_profile", "reference_image"]
-    identity_reference_condition: IdentityReferenceCondition | None = None
-    continuous_scene_context: ContinuousSceneContext
-    target_visual_style: TargetVisualStyle
-    visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
-    fusion_stage_output: FusionStageOutput
-    negative_prompt_supported: bool
-    prompt_version: Literal[PREFLIGHT_REVIEW_PROMPT_VERSION] = PREFLIGHT_REVIEW_PROMPT_VERSION
-
-    @field_validator("frame_id", "original_storyboard_text", mode="before")
-    @classmethod
-    def _validate_text(cls, value: object, info) -> str:
-        return _text(value, info.field_name)
-
-    @model_validator(mode="after")
-    def _validate_review_inputs(self) -> "PreflightReviewInput":
-        if self.content_stage_output.self_check != "pass":
-            raise ValueError("preflight review requires a passed content stage")
-        if self.fusion_stage_output.self_check != "pass":
-            raise ValueError("preflight review requires a passed fusion stage")
-        if self.identity_conditioning_mode == "reference_image":
-            if self.identity_reference_condition is None:
-                raise ValueError(
-                    "preflight reference-image mode requires a real reference condition"
-                )
-            if (
-                self.identity_reference_condition.resource_version
-                not in self.identity_profile.source_asset_ids
-            ):
-                raise ValueError(
-                    "preflight identity profile must remain bound to the real reference resource"
-                )
-        elif self.identity_reference_condition is not None:
-            raise ValueError(
-                "preflight text-profile mode cannot include a reference condition"
-            )
-        return self
-
-
-class PreflightReviewOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    decision: ReviewDecision
-    failures: list[str] = Field(default_factory=list)
-    allowed_final_positive_prompt: str
-    allowed_final_negative_prompt: str
-
-    @field_validator("failures")
-    @classmethod
-    def _validate_failures(cls, value: list[str]) -> list[str]:
-        return _text_list(value, "failures")
-
-    @model_validator(mode="after")
-    def _validate_result(self) -> "PreflightReviewOutput":
-        positive = self.allowed_final_positive_prompt.strip()
-        negative = self.allowed_final_negative_prompt.strip()
-        object.__setattr__(self, "allowed_final_positive_prompt", positive)
-        object.__setattr__(self, "allowed_final_negative_prompt", negative)
-        if self.decision == "pass":
-            if self.failures:
-                raise ValueError("a passed preflight review cannot contain failures")
-            if not positive:
-                raise ValueError("a passed preflight review must allow a positive prompt")
-        else:
-            if not self.failures:
-                raise ValueError("a failed preflight review must contain failures")
-            if positive or negative:
-                raise ValueError("a failed preflight review cannot allow prompts")
-        return self
-
-
 class ImageWorkflowExecutionContract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1287,7 +1212,7 @@ class ImageWorkflowExecutionContract(BaseModel):
 class VisualAnchorImageGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    request_version: Literal[GENERATION_REQUEST_VERSION] = GENERATION_REQUEST_VERSION
+    request_version: GenerationRequestVersion = GENERATION_REQUEST_VERSION
     task_id: str
     frame_id: str
     generation_attempt: Literal[1] = 1
@@ -1315,12 +1240,20 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
     content_stage_prompt_version: ContentStagePromptVersion
     fusion_stage_prompt_version: FusionStagePromptVersion
-    preflight_review_prompt_version: Literal[PREFLIGHT_REVIEW_PROMPT_VERSION]
-    preflight_review_decision: Literal["pass"]
     negative_prompt_supported: bool
     workflow_key: str
     workflow_version_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     expected_execution: ImageWorkflowExecutionContract
+
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_legacy_review_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        normalized.pop("preflight_review_prompt_version", None)
+        normalized.pop("preflight_review_decision", None)
+        return normalized
 
     @field_validator(
         "task_id",
@@ -1496,8 +1429,6 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
     content_stage_output: ContentStageOutput
     fusion_stage_input: FusionStageInput
     fusion_stage_output: FusionStageOutput
-    preflight_review_input: PreflightReviewInput
-    preflight_review_output: PreflightReviewOutput
     generation_request: VisualAnchorImageGenerationRequest
     content_attempt_count: int = Field(
         default=1,
@@ -1515,6 +1446,16 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
         le=2,
         description="旧版审计字段；新生成结果固定为 1",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _discard_legacy_review_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        normalized.pop("preflight_review_input", None)
+        normalized.pop("preflight_review_output", None)
+        return normalized
 
     @field_validator("frame_id", mode="before")
     @classmethod
@@ -1551,7 +1492,6 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             self.frame_id,
             self.content_stage_input.frame_id,
             self.fusion_stage_input.frame_id,
-            self.preflight_review_input.frame_id,
             self.generation_request.frame_id,
         }
         if len(frame_ids) != 1:
@@ -1559,7 +1499,6 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
         original_texts = {
             self.content_stage_input.original_storyboard_text,
             self.fusion_stage_input.original_storyboard_text,
-            self.preflight_review_input.original_storyboard_text,
         }
         if len(original_texts) != 1:
             raise ValueError(
@@ -1570,64 +1509,30 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             != self.content_stage_input.prompt_version
             or self.generation_request.fusion_stage_prompt_version
             != self.fusion_stage_input.prompt_version
-            or self.generation_request.preflight_review_prompt_version
-            != self.preflight_review_input.prompt_version
         ):
             raise ValueError(
                 "generation request prompt versions must match their stage inputs"
             )
         if self.fusion_stage_input.content_stage_output != self.content_stage_output:
             raise ValueError("fusion input must contain the exact content-stage output")
-        if self.preflight_review_input.content_stage_output != self.content_stage_output:
-            raise ValueError("preflight input must contain the exact content-stage output")
-        if self.preflight_review_input.fusion_stage_output != self.fusion_stage_output:
-            raise ValueError("preflight input must contain the exact fusion-stage output")
-        if (
-            self.preflight_review_input.continuous_scene_context
-            != self.fusion_stage_input.continuous_scene_context
-        ):
-            raise ValueError("continuous-scene context must remain identical")
-        if (
-            self.fusion_stage_input.identity_profile
-            != self.preflight_review_input.identity_profile
-        ):
-            raise ValueError("identity profile must remain identical across later stages")
         if (
             self.fusion_stage_input.identity_conditioning_mode
-            != self.preflight_review_input.identity_conditioning_mode
-            or self.fusion_stage_input.identity_conditioning_mode
             != self.generation_request.identity_conditioning_mode
         ):
             raise ValueError("identity conditioning mode must remain identical")
         reference_condition = self.fusion_stage_input.identity_reference_condition
         if (
             reference_condition
-            != self.preflight_review_input.identity_reference_condition
-            or reference_condition
             != self.generation_request.identity_reference_condition
         ):
             raise ValueError("identity reference condition must remain identical")
-        if self.preflight_review_output.decision != "pass":
-            raise ValueError("generation request requires a passed preflight review")
-        expected_negative_prompt = (
-            self.fusion_stage_output.final_negative_prompt
-            if self.preflight_review_input.negative_prompt_supported
-            else ""
-        )
         if (
-            self.preflight_review_output.allowed_final_positive_prompt
-            != self.fusion_stage_output.final_positive_prompt
-            or self.preflight_review_output.allowed_final_negative_prompt
-            != expected_negative_prompt
-        ):
-            raise ValueError("preflight review cannot modify the fusion prompts")
-        if (
-            self.preflight_review_output.allowed_final_positive_prompt
+            self.fusion_stage_output.final_positive_prompt
             != self.generation_request.final_positive_prompt
-            or self.preflight_review_output.allowed_final_negative_prompt
+            or self.fusion_stage_output.final_negative_prompt
             != self.generation_request.final_negative_prompt
         ):
-            raise ValueError("generation prompts must exactly match preflight output")
+            raise ValueError("generation prompts must exactly match fusion output")
         if (
             self.fusion_stage_output.target_visual_anchor_instance_count
             != self.generation_request.target_visual_anchor_instance_count
@@ -1670,11 +1575,7 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             raise ValueError("generation identity version must match the fusion input")
         if (
             self.fusion_stage_input.target_visual_style
-            != self.preflight_review_input.target_visual_style
-            or self.fusion_stage_input.target_visual_style
             != self.generation_request.target_visual_style
-            or self.fusion_stage_input.visible_text_policy
-            != self.preflight_review_input.visible_text_policy
             or self.fusion_stage_input.visible_text_policy
             != self.generation_request.visible_text_policy
         ):
