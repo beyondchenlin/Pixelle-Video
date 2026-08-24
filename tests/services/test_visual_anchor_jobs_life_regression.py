@@ -376,7 +376,8 @@ def test_fusion_template_allows_required_style_and_text_prohibitions():
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "将 target_visual_style、visible_text_policy" in template
+    assert "target_visual_style.required_final_prompt_fragments" in template
+    assert "visible_text_policy.suppress_visible_text" in template
     assert "只输出最终图片提示词原文" in template
     assert "不要输出结构化数据" in template
 
@@ -404,6 +405,23 @@ def test_content_template_requests_no_proof_or_self_check_fields():
         assert removed_field not in template
 
 
+def test_content_template_enforces_general_renderability_and_source_fidelity():
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates/visual_anchor_content_stage.md"
+    ).read_text(encoding="utf-8")
+
+    for required_rule in (
+        "只处理 original_storyboard_text 当前分镜明确要表达的内容",
+        "只补足成像必需的最少外观信息",
+        "选择一个物理上能够同时成立的决定性瞬间",
+        "不得依靠日记、书页、屏幕、招牌、标题、字幕、水印或乱码传达信息",
+        "在输出前消除冲突",
+        "本阶段完全不包含、暗示或预留任何系列角色",
+    ):
+        assert required_rule in template
+
+
 def test_fusion_template_requests_only_final_result_fields():
     template = (
         Path(__file__).resolve().parents[2]
@@ -423,39 +441,37 @@ def test_fusion_template_requests_only_final_result_fields():
         assert removed_field not in template
 
 
-def test_fusion_template_keeps_subject_facts_fixed_while_opening_manifestation():
+def test_fusion_template_keeps_subject_facts_fixed_and_selects_one_renderable_form():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "保留原始分镜和纯内容提示词中的人物、身份、数量",
-        "可以使用任何不改变主旨的方式融合视觉身份",
-        "不为任何方式设置默认优先级",
-        "可以新增不改变主旨的服装、道具、非核心人物",
-        "不得因为独立实体最容易生成",
-        "可以根据当前画面重新选择",
+        "原始分镜明确的人物、身份、数量、关键动作、关键物品",
+        "只选择一种结构简单、边界清楚、位置可精确描述",
+        "不得在最终提示词中枚举候选方案",
+        "只添加承载视觉身份所必需的元素",
+        "保持同一表现形态、载体、相对位置、尺寸和互动关系",
     ):
         assert required_rule in template
 
 
-def test_fusion_template_explicitly_allows_material_and_interactive_forms():
+def test_fusion_template_enforces_single_instance_style_and_positive_exclusions():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    for manifestation in (
-        "服装印刷",
-        "材质纹样",
-        "互动角色",
-        "刺绣",
-        "压印",
-        "雕刻",
+    for required_rule in (
+        "整幅画只出现一个可识别的视觉身份实例",
+        "明确排除第二实例、重复图案、连续纹样、镜像复制、背景复制",
+        "禁止满版印花、散点纹样和多处复制",
+        "required_final_prompt_fragments 中的每一项必须原样、完整、各出现一次",
+        "所有禁止项，都必须转换成正向提示词末尾的直接排除句",
+        "不得并列互斥的媒介、色彩、光照或质感要求",
     ):
-        assert manifestation in template
-    assert "整幅画只出现一个可识别的视觉身份实例" in template
+        assert required_rule in template
     for removed_fusion_field in (
         "identity_prompt_clause",
         "relative_scale_and_visual_weight",

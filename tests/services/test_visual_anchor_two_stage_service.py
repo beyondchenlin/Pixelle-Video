@@ -801,6 +801,32 @@ async def test_current_raw_payload_round_trips_without_content_validation():
 
 
 @pytest.mark.asyncio
+async def test_v16_v14_raw_artifact_remains_readable_after_prompt_upgrade():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+    payload["content_stage_input"]["prompt_version"] = (
+        "visual_anchor_content_stage.v16"
+    )
+    payload["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v14"
+    )
+    payload["generation_request"].update(
+        {
+            "content_stage_prompt_version": "visual_anchor_content_stage.v16",
+            "fusion_stage_prompt_version": "visual_anchor_fusion_stage.v14",
+        }
+    )
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert isinstance(restored.content_stage_output, RawContentStageOutput)
+    assert isinstance(restored.fusion_stage_output, RawFusionStageOutput)
+    assert restored.generation_request.request_version == (
+        "visual_anchor_generation_request.v7"
+    )
+
+
+@pytest.mark.asyncio
 async def test_v15_v13_structured_artifact_remains_readable():
     plan = _plan()
     batch, _ = await _run(plan)
