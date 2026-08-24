@@ -167,7 +167,7 @@ def validate_visual_anchor_first_generation_binding(
 
     if failures:
         failed_audit = {
-            "schema_version": "visual_anchor_first_generation_binding_audit.v5",
+            "schema_version": "visual_anchor_first_generation_binding_audit.v6",
             "request_version": request.request_version,
             "recorded_at_utc": datetime.now(UTC).isoformat(),
             "status": "failed",
@@ -177,6 +177,7 @@ def validate_visual_anchor_first_generation_binding(
             "random_seed": request.random_seed,
             "selected_fusion_method": request.selected_fusion_method,
             "final_manifestation": request.final_manifestation,
+            "prompt_assembly_trace": _prompt_assembly_trace_payload(request),
             "failure_reason": "; ".join(failures),
             "failure_codes": list(failures),
             "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
@@ -216,7 +217,7 @@ def validate_visual_anchor_first_generation_binding(
         )
 
     audit = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v5",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v6",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": "ready_to_submit",
@@ -226,6 +227,7 @@ def validate_visual_anchor_first_generation_binding(
         "random_seed": request.random_seed,
         "selected_fusion_method": request.selected_fusion_method,
         "final_manifestation": request.final_manifestation,
+        "prompt_assembly_trace": _prompt_assembly_trace_payload(request),
         "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
         "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
         "prompt_versions": {
@@ -311,7 +313,7 @@ def _first_generation_binding_audit_payload(
     actual_binding: Mapping[str, Any],
 ) -> dict[str, Any]:
     payload = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v5",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v6",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": status,
@@ -321,6 +323,7 @@ def _first_generation_binding_audit_payload(
         "random_seed": request.random_seed,
         "selected_fusion_method": request.selected_fusion_method,
         "final_manifestation": request.final_manifestation,
+        "prompt_assembly_trace": _prompt_assembly_trace_payload(request),
         "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
         "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
         "prompt_versions": {
@@ -345,6 +348,13 @@ def _first_generation_binding_audit_payload(
         payload["failure_reason"] = "; ".join(failure_codes)
         payload["failure_codes"] = list(failure_codes)
     return payload
+
+
+def _prompt_assembly_trace_payload(
+    request: VisualAnchorImageGenerationRequest,
+) -> dict[str, Any] | None:
+    trace = request.prompt_assembly_trace
+    return trace.model_dump(mode="json") if trace is not None else None
 
 
 async def verify_visual_anchor_executed_workflow_binding(

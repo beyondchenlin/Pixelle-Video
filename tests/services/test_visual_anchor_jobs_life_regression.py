@@ -10,12 +10,12 @@ from pixelle_video.models.storyboard import StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
     ContentStageModelOutput,
-    ContentStageOutput,
-    FusionStageOutput,
+    FusionStageModelOutput,
     ImageWorkflowExecutionContract,
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
+    assemble_content_stage_prompt,
 )
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.services.frame_processor import FrameProcessor
@@ -247,8 +247,8 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
             ContentStageModelOutput(
                 core_claim=pure_prompt,
                 shot_purpose=shot_purpose,
-                visual_evidence=[frozen_moment, subject_interaction],
-                frozen_moment=frozen_moment,
+                renderable_story_beats=[frozen_moment, subject_interaction],
+                decisive_moment=frozen_moment,
                 primary_subject={
                     "category": "person",
                     "name": primary_name,
@@ -265,9 +265,9 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
                         "action": secondary_action,
                     }
                 ],
-                subject_interaction=subject_interaction,
+                content_subject_interaction=subject_interaction,
                 composition_plan=composition_plan,
-                adjacent_frame_difference=adjacent_difference,
+                adjacent_shot_distinction=adjacent_difference,
                 scene_facts=[
                     {
                         "category": event_category,
@@ -275,7 +275,6 @@ def _content_outputs(plan: StoryboardPlan) -> list[ContentStageModelOutput]:
                     }
                 ],
                 adjustable_non_core_content=["非核心环境道具", "辅助光影层次"],
-                pure_content_prompt=pure_prompt,
             )
         )
     return outputs
@@ -378,16 +377,16 @@ def test_content_template_requests_no_proof_or_self_check_fields():
     assert "每项只包含 category 和 statement" in template
     for required_planning_field in (
         "shot_purpose",
-        "visual_evidence",
-        "frozen_moment",
-        "subject_interaction",
+        "renderable_story_beats",
+        "decisive_moment",
+        "content_subject_interaction",
         "composition_plan",
         "shot_scale_and_camera",
         "foreground",
         "midground",
         "background",
         "visual_focus",
-        "adjacent_frame_difference",
+        "adjacent_shot_distinction",
     ):
         assert required_planning_field in template
     for removed_field in (
@@ -454,11 +453,11 @@ def test_fusion_template_explicitly_allows_material_and_interactive_forms():
     for required_fusion_field in (
         "identity_prompt_clause",
         "relative_scale_and_visual_weight",
-        "carrier_and_material_relation",
-        "scene_interaction",
+        "support_carrier_and_material_relation",
+        "visual_identity_scene_interaction",
     ):
         assert required_fusion_field in template
-    assert "必须原样出现在 final_positive_prompt 中" in template
+    assert "服务端会按" in template
 
 
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
@@ -479,9 +478,8 @@ def test_visible_text_policy_keeps_prompt_fragments_as_model_input():
 
 
 def _fusion_outputs(
-    contents: list[ContentStageOutput],
-) -> list[FusionStageOutput]:
-    style_positive = "，".join(_STYLE_POSITIVE)
+    contents: list[ContentStageModelOutput],
+) -> list[FusionStageModelOutput]:
     fusion_specs = (
         (
             "服装刺绣",
@@ -524,28 +522,27 @@ def _fusion_outputs(
             scale_and_weight,
             carrier_and_material,
             interaction,
-            identity_clause,
+            _identity_clause_example,
         ) = fusion_spec
-        positive = (
-            f"{content.pure_content_prompt} {style_positive}。"
-            f"{identity_clause}。"
-            f"{_NO_TEXT_POSITIVE}。"
+        content_prompt = assemble_content_stage_prompt(
+            content,
+            target_visual_style=_style(),
         )
         outputs.append(
-            FusionStageOutput(
+            FusionStageModelOutput(
                 selected_fusion_method=method,
                 final_manifestation=manifestation,
-                identity_prompt_clause=identity_clause,
                 relative_scale_and_visual_weight=scale_and_weight,
-                carrier_and_material_relation=carrier_and_material,
-                scene_interaction=interaction,
+                support_carrier_and_material_relation=carrier_and_material,
+                visual_identity_scene_interaction=interaction,
                 spatial_contact_and_lighting_relation=(
                     "根据当前画面的透视、光照、材质、支撑和遮挡关系自然融合"
                 ),
                 inherited_existing_fusion_decision=False,
-                continuity_change_reason="独立镜头没有既有融合决定",
-                final_positive_prompt=positive,
-                final_negative_prompt="",
+                continuity_change_reason="",
+                final_scene_prompt_prefix=content_prompt,
+                final_scene_prompt_suffix="保持内容主体和视觉焦点不变",
+                scene_negative_prompt="",
             )
         )
     return outputs
@@ -600,15 +597,11 @@ def _execution() -> ImageWorkflowExecutionContract:
 async def _run_jobs_sample():
     plan = _jobs_plan()
     model_contents = _content_outputs(plan)
-    contents = [
-        ContentStageOutput.model_validate(model_output.model_dump(mode="json"))
-        for model_output in model_contents
-    ]
-    fusions = _fusion_outputs(contents)
+    fusions = _fusion_outputs(model_contents)
     llm = _QueuedLLM(
         {
             ContentStageModelOutput: model_contents,
-            FusionStageOutput: fusions,
+            FusionStageModelOutput: fusions,
         }
     )
     result = await VisualAnchorTwoStageService().run_batch(
@@ -647,7 +640,7 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
         if call["response_type"] is ContentStageModelOutput
     ]
     fusion_calls = [
-        call for call in llm.calls if call["response_type"] is FusionStageOutput
+        call for call in llm.calls if call["response_type"] is FusionStageModelOutput
     ]
     assert len(content_calls) == len(fusion_calls) == len(plan.frames)
     for call in content_calls:
@@ -679,11 +672,11 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
         assert "表达乔布斯人生第" not in content.primary_subject.name
         assert expected_primary in request.final_positive_prompt
         assert content.shot_purpose
-        assert content.visual_evidence
-        assert content.frozen_moment
-        assert content.subject_interaction
+        assert content.renderable_story_beats
+        assert content.decisive_moment
+        assert content.content_subject_interaction
         assert content.composition_plan.visual_focus
-        assert content.adjacent_frame_difference
+        assert content.adjacent_shot_distinction
         assert request.identity_conditioning_mode == "text_profile"
         assert request.identity_reference_condition is None
         assert (
@@ -691,8 +684,8 @@ async def test_jobs_life_two_stage_contract_preserves_subjects_style_and_text_po
             in request.final_positive_prompt
         )
         assert frame_result.fusion_stage_output.relative_scale_and_visual_weight
-        assert frame_result.fusion_stage_output.carrier_and_material_relation
-        assert frame_result.fusion_stage_output.scene_interaction
+        assert frame_result.fusion_stage_output.support_carrier_and_material_relation
+        assert frame_result.fusion_stage_output.visual_identity_scene_interaction
         assert _NO_TEXT_POSITIVE in request.final_positive_prompt
         assert request.final_negative_prompt == ""
         for fragment in _STYLE_POSITIVE:

@@ -15,13 +15,16 @@ from pixelle_video.models.llm_interaction_trace import (
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
+    CONTENT_PROMPT_ASSEMBLY_VERSION,
     CONTENT_STAGE_PROMPT_VERSION,
+    FUSION_PROMPT_ASSEMBLY_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
     ContentStageInput,
     ContentStageModelOutput,
     ContentStageOutput,
     ContinuousSceneContext,
     FusionStageInput,
+    FusionStageModelOutput,
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
@@ -30,6 +33,11 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
+    assemble_content_stage_prompt,
+    assemble_fusion_negative_prompt,
+    assemble_fusion_positive_prompt,
+    assemble_identity_prompt_clause,
+    prompt_assembly_trace_from_fusion_output,
 )
 from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
 from pixelle_video.utils.logging_util import emit_stage_event
@@ -363,6 +371,26 @@ class VisualAnchorTwoStageService:
                 if existing_fusion_decision is not None
                 else None
             ),
+            existing_identity_prompt_clause=(
+                existing_fusion_decision.identity_prompt_clause
+                if existing_fusion_decision is not None
+                else None
+            ),
+            existing_relative_scale_and_visual_weight=(
+                existing_fusion_decision.relative_scale_and_visual_weight
+                if existing_fusion_decision is not None
+                else None
+            ),
+            existing_support_carrier_and_material_relation=(
+                existing_fusion_decision.support_carrier_and_material_relation
+                if existing_fusion_decision is not None
+                else None
+            ),
+            existing_visual_identity_scene_interaction=(
+                existing_fusion_decision.visual_identity_scene_interaction
+                if existing_fusion_decision is not None
+                else None
+            ),
             existing_spatial_contact_and_lighting_relation=(
                 existing_fusion_decision.spatial_contact_and_lighting_relation
                 if existing_fusion_decision is not None
@@ -396,15 +424,11 @@ class VisualAnchorTwoStageService:
             frame_id=frame.frame_id,
         )
         try:
-            fusion_output = await self._call_structured(
+            fusion_output = await self._run_fusion_stage(
                 llm_service=llm_service,
-                prompt_id="visual_anchor_fusion_stage",
                 stage_input=fusion_input,
-                response_type=FusionStageOutput,
-                frame_id=frame.frame_id,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
-                temperature=0.0,
                 call_audit=fusion_call_audit,
             )
         except Exception:
@@ -432,6 +456,9 @@ class VisualAnchorTwoStageService:
             random_seed=random_seed,
             selected_fusion_method=fusion_output.selected_fusion_method,
             final_manifestation=fusion_output.final_manifestation,
+            prompt_assembly_trace=prompt_assembly_trace_from_fusion_output(
+                fusion_output
+            ),
             final_positive_prompt=fusion_output.final_positive_prompt,
             final_negative_prompt=fusion_output.final_negative_prompt,
             identity_profile_id=identity_profile.profile_id,
@@ -481,12 +508,79 @@ class VisualAnchorTwoStageService:
             trace_context=trace_context,
             trace_recorder=trace_recorder,
             temperature=0.0,
+            max_tokens=4096,
             call_audit=resolved_call_audit,
         )
         output = ContentStageOutput.model_validate(
-            model_output.model_dump(mode="json")
+            {
+                **model_output.model_dump(mode="json"),
+                "prompt_assembly_version": CONTENT_PROMPT_ASSEMBLY_VERSION,
+                "pure_content_prompt": assemble_content_stage_prompt(
+                    model_output,
+                    target_visual_style=stage_input.target_visual_style,
+                ),
+            }
         )
         return output
+
+    async def _run_fusion_stage(
+        self,
+        *,
+        llm_service,
+        stage_input: FusionStageInput,
+        trace_context: LLMTraceContext | None,
+        trace_recorder,
+        call_audit: _SinglePassStageCallAudit,
+    ) -> FusionStageOutput:
+        model_output = await self._call_structured(
+            llm_service=llm_service,
+            prompt_id="visual_anchor_fusion_stage",
+            stage_input=stage_input,
+            response_type=FusionStageModelOutput,
+            frame_id=stage_input.frame_id,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+            temperature=0.0,
+            max_tokens=4096,
+            call_audit=call_audit,
+        )
+        if (
+            not stage_input.negative_prompt_supported
+            and model_output.scene_negative_prompt
+        ):
+            raise VisualAnchorTwoStageError(
+                "scene_negative_prompt must be empty when the workflow has no negative prompt"
+            )
+        identity_prompt_clause = assemble_identity_prompt_clause(
+            model_output,
+            identity_profile=stage_input.identity_profile,
+            target_image_prompt_language=stage_input.target_image_prompt_language,
+        )
+        final_positive_prompt = assemble_fusion_positive_prompt(
+            model_output,
+            identity_prompt_clause=identity_prompt_clause,
+            identity_profile=stage_input.identity_profile,
+            target_visual_style=stage_input.target_visual_style,
+            visible_text_policy=stage_input.visible_text_policy,
+            negative_prompt_supported=stage_input.negative_prompt_supported,
+            target_image_prompt_language=stage_input.target_image_prompt_language,
+        )
+        final_negative_prompt = assemble_fusion_negative_prompt(
+            model_output,
+            identity_profile=stage_input.identity_profile,
+            target_visual_style=stage_input.target_visual_style,
+            visible_text_policy=stage_input.visible_text_policy,
+            negative_prompt_supported=stage_input.negative_prompt_supported,
+        )
+        return FusionStageOutput.model_validate(
+            {
+                **model_output.model_dump(mode="json"),
+                "prompt_assembly_version": FUSION_PROMPT_ASSEMBLY_VERSION,
+                "identity_prompt_clause": identity_prompt_clause,
+                "final_positive_prompt": final_positive_prompt,
+                "final_negative_prompt": final_negative_prompt,
+            }
+        )
 
     @staticmethod
     async def _call_structured(
@@ -499,6 +593,7 @@ class VisualAnchorTwoStageService:
         trace_context: LLMTraceContext | None,
         trace_recorder,
         temperature: float,
+        max_tokens: int,
         call_audit: _SinglePassStageCallAudit,
     ):
         rendered = _render_stage_prompt(prompt_id, stage_input)
@@ -518,7 +613,7 @@ class VisualAnchorTwoStageService:
             prompt=rendered.text,
             response_type=response_type,
             temperature=temperature,
-            max_tokens=8192,
+            max_tokens=max_tokens,
             trace_context=call_trace_context,
             trace_recorder=trace_recorder,
             single_request=True,
@@ -597,8 +692,8 @@ def _continuous_fusion_decision(output: FusionStageOutput) -> str:
         f"所选融合方式：{output.selected_fusion_method}；"
         f"最终表现形态：{output.final_manifestation}；"
         f"相对尺度与视觉权重：{output.relative_scale_and_visual_weight}；"
-        f"载体与材质关系：{output.carrier_and_material_relation}；"
-        f"场景互动关系：{output.scene_interaction}；"
+        f"支撑载体与材质关系：{output.support_carrier_and_material_relation}；"
+        f"视觉身份场景互动：{output.visual_identity_scene_interaction}；"
         f"空间、接触与光照关系：{output.spatial_contact_and_lighting_relation}"
     )
 
