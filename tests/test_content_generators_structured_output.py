@@ -327,6 +327,7 @@ def test_image_prompt_template_preserves_json_contract_and_explains_ip_scene_des
                 "ip_scene_description": "white rabbit standing by the gate",
             }
         ],
+        visual_anchor_preparation_enabled=True,
     )
 
     assert '"image_prompts"' in prompt
@@ -350,6 +351,7 @@ def test_image_prompt_template_carries_ip_scene_description_and_style_context():
             }
         ],
         prompt_language="zh_CN",
+        visual_anchor_preparation_enabled=True,
     )
 
     assert "ip_scene_description" in prompt

@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from api.schemas.video import VideoGenerateRequest, validate_raw_frame_template_orientation
+from pixelle_video.models.image_style_selection import (
+    normalize_image_style_id,
+    normalize_image_style_revision,
+    normalize_image_style_selection,
+)
 
 
 class VideoGenerateInternalRequest(VideoGenerateRequest):
@@ -34,13 +39,45 @@ class VideoGenerateInternalRequest(VideoGenerateRequest):
         None,
         description="Internal raw image prompt prefix",
     )
+    image_style_id: Optional[str] = Field(
+        None,
+        description="Internal local image-style library id",
+    )
+    image_style_revision: Optional[str] = Field(
+        None,
+        description="Immutable revision of the selected local image style",
+    )
     bgm_path: Optional[str] = Field(
         None,
         description="Internal background music path or object key",
     )
 
+    @field_validator("image_style_id")
+    @classmethod
+    def validate_image_style_id(cls, value: object) -> str | None:
+        try:
+            return normalize_image_style_id(value, allow_none=True)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("image_style_revision")
+    @classmethod
+    def validate_image_style_revision(cls, value: object) -> str | None:
+        try:
+            return normalize_image_style_revision(value, allow_none=True)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+
     @model_validator(mode="after")
     def validate_internal_raw_generation_contract(self) -> "VideoGenerateInternalRequest":
+        try:
+            normalize_image_style_selection(
+                self.image_style_id,
+                self.image_style_revision,
+                prompt_prefix=self.prompt_prefix,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
         size_params = {
             "canvas_width": self.canvas_width,
             "canvas_height": self.canvas_height,

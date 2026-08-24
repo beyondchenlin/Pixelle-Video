@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from api.routers.video import build_video_generation_params, validate_video_tts_contract
 from api.schemas.video import VideoGenerateRequest
 from api.schemas.video_internal import VideoGenerateInternalRequest
+from pixelle_video.config.prompt_prefix_library import image_prompt_prefix_revision
 from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
 from pixelle_video.services.resource_resolver import ResolvedResource, StaticResourceResolver
 from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
@@ -37,6 +38,8 @@ def test_public_video_request_accepts_resource_ids():
         ("frame_template", DEFAULT_IMAGE_TEMPLATE),
         ("bgm_path", r"D:\music\bgm.mp3"),
         ("ref_audio", r"D:\voice\sample.wav"),
+        ("image_style_id", "builtin-flat-style"),
+        ("image_style_revision", "a" * 64),
     ],
 )
 def test_public_video_request_rejects_raw_generation_controls(raw_field: str, raw_value: str):
@@ -84,6 +87,44 @@ def test_internal_video_request_keeps_raw_debug_controls():
     assert request.bgm_path == r"D:\music\bgm.mp3"
     assert request.ref_audio == r"D:\voice\sample.wav"
     assert request.ref_audio_text == "reference transcript"
+
+
+def test_internal_video_request_keeps_versioned_image_style_selection():
+    revision = image_prompt_prefix_revision("flat illustration style")
+
+    request = VideoGenerateInternalRequest(
+        text="demo",
+        image_style_id="builtin-flat-style",
+        image_style_revision=revision,
+    )
+
+    assert request.image_style_id == "builtin-flat-style"
+    assert request.image_style_revision == revision
+
+
+@pytest.mark.parametrize(
+    "style_fields",
+    [
+        {"image_style_id": "builtin-flat-style"},
+        {"image_style_revision": "a" * 64},
+        {
+            "image_style_id": "../unsafe-style",
+            "image_style_revision": "a" * 64,
+        },
+        {
+            "image_style_id": "builtin-flat-style",
+            "image_style_revision": "not-a-revision",
+        },
+        {
+            "prompt_prefix": "raw style",
+            "image_style_id": "builtin-flat-style",
+            "image_style_revision": "a" * 64,
+        },
+    ],
+)
+def test_internal_video_request_rejects_invalid_image_style_contract(style_fields):
+    with pytest.raises(ValidationError):
+        VideoGenerateInternalRequest(text="demo", **style_fields)
 
 
 def test_public_video_generation_params_resolve_resource_ids():

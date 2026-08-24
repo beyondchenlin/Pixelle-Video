@@ -723,6 +723,23 @@ def test_standard_video_generation_contract_requires_ip_ids_when_enabled():
         )
 
 
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"image_style_id": "flat-style"},
+        {"image_style_revision": "a" * 64},
+        {
+            "prompt_prefix": "raw style",
+            "image_style_id": "flat-style",
+            "image_style_revision": "a" * 64,
+        },
+    ],
+)
+def test_standard_video_generation_contract_rejects_invalid_image_style_selection(params):
+    with pytest.raises(ValueError):
+        validate_standard_video_generation_params(params)
+
+
 def test_build_video_generation_params_normalizes_layered_template_snapshot():
     spec = _layered_spec_payload("user-demo")
 
@@ -1634,6 +1651,8 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "video_fps": 30,
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": None,
+            "image_style_id": None,
+            "image_style_revision": None,
             "bgm_path": None,
             "bgm_volume": 0.3,
             "request_id": "req_test",

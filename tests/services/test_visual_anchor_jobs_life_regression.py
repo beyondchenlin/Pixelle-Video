@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from pixelle_video.config.prompt_prefix_library import image_prompt_prefix_revision
 from pixelle_video.models.storyboard import StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
@@ -323,6 +324,45 @@ def test_selected_minimal_emotion_style_maps_to_complete_final_contract():
         prompt_language=CHINESE_PROMPT_LANGUAGE,
     )
 
+    assert contract.required_final_prompt_fragments == _STYLE_POSITIVE
+    assert contract.required_negative_prompt_fragments == _STYLE_NEGATIVE
+
+
+def test_requested_style_id_preserves_complete_contract_when_active_style_changes():
+    batch = _resolve_visual_anchor_style_batch(
+        image_config={
+            "prompt_prefix_library": {
+                "active_prefix_id": "builtin_childrens_storybook_warm",
+                "items": [
+                    {
+                        "id": "builtin_childrens_storybook_warm",
+                        "content": "warm children's storybook illustration",
+                    },
+                    {
+                        "id": "builtin_line_art_emotion_minimal",
+                        "content": "minimal line art, negative space, monochrome illustration",
+                    },
+                ],
+            }
+        },
+        prompt_prefix=None,
+        image_style_id="builtin_line_art_emotion_minimal",
+        image_style_revision=image_prompt_prefix_revision(
+            "minimal line art, negative space, monochrome illustration"
+        ),
+        frame_count=1,
+    )
+
+    contract = _target_visual_style_contract(
+        batch=batch,
+        visual_profile_snapshot=None,
+        prompt_language=CHINESE_PROMPT_LANGUAGE,
+    )
+
+    assert batch.resolved_style is not None
+    assert batch.resolved_style.source_identity == (
+        "library:builtin_line_art_emotion_minimal"
+    )
     assert contract.required_final_prompt_fragments == _STYLE_POSITIVE
     assert contract.required_negative_prompt_fragments == _STYLE_NEGATIVE
 

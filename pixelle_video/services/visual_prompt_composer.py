@@ -136,6 +136,8 @@ class VisualPromptComposer:
         storyboard_plan: StoryboardPlan,
         image_config,
         prompt_prefix: Optional[str] = None,
+        image_style_id: Optional[str] = None,
+        image_style_revision: Optional[str] = None,
         prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
         workflow: Optional[str] = None,
         media_service=None,
@@ -274,6 +276,8 @@ class VisualPromptComposer:
             batch = _resolve_visual_anchor_style_batch(
                 image_config=image_config,
                 prompt_prefix=prompt_prefix,
+                image_style_id=image_style_id,
+                image_style_revision=image_style_revision,
                 frame_count=storyboard_plan.resolved_scene_count,
             )
         else:
@@ -288,6 +292,8 @@ class VisualPromptComposer:
                 image_config=image_config,
                 prompt_language=prompt_language,
                 prompt_prefix=prompt_prefix,
+                image_style_id=image_style_id,
+                image_style_revision=image_style_revision,
                 workflow=workflow,
                 media_service=media_service,
                 media_type=media_type,
@@ -580,13 +586,23 @@ def _resolve_visual_anchor_style_batch(
     image_config: Any,
     prompt_prefix: str | None,
     frame_count: int,
+    image_style_id: str | None = None,
+    image_style_revision: str | None = None,
 ) -> StyledImagePromptBatch:
     """Resolve the user's literal style without an extra style-model call."""
 
-    source = resolve_style_source(
-        image_config,
-        prompt_prefix_override=prompt_prefix,
-    )
+    if image_style_id is None and image_style_revision is None:
+        source = resolve_style_source(
+            image_config,
+            prompt_prefix_override=prompt_prefix,
+        )
+    else:
+        source = resolve_style_source(
+            image_config,
+            prompt_prefix_override=prompt_prefix,
+            image_style_id_override=image_style_id,
+            image_style_revision_override=image_style_revision,
+        )
     resolved_style = resolve_literal_style_spec(source) if source is not None else None
     return StyledImagePromptBatch(
         prompts=["" for _ in range(frame_count)],

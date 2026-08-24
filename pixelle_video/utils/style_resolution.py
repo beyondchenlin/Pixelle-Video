@@ -21,7 +21,12 @@ from typing import Any, Mapping, Optional
 
 from loguru import logger
 
-from pixelle_video.config.prompt_prefix_library import get_active_image_prompt_prefix_item
+from pixelle_video.config.prompt_prefix_library import (
+    get_active_image_prompt_prefix_item,
+    get_image_prompt_prefix_item,
+    image_prompt_prefix_revision,
+)
+from pixelle_video.models.image_style_selection import normalize_image_style_selection
 from pixelle_video.models.llm_interaction_trace import (
     LLMTraceContext,
     trace_context_with_prompt_template,
@@ -56,6 +61,18 @@ _WORLD_IDENTITY_STOPWORDS = {
 }
 
 
+class ImageStyleSelectionError(ValueError):
+    """Base failure for an invalid or stale image-style selection."""
+
+
+class ImageStyleNotFoundError(ImageStyleSelectionError):
+    """Raised when a requested image-style id no longer exists."""
+
+
+class ImageStyleRevisionMismatchError(ImageStyleSelectionError):
+    """Raised when a queued task no longer matches the selected style content."""
+
+
 def reset_style_resolution_cache() -> None:
     _STYLE_RESOLUTION_CACHE.clear()
 
@@ -67,8 +84,21 @@ def _hash_text(value: str) -> str:
 def resolve_style_source(
     image_config,
     prompt_prefix_override: Optional[str] = None,
+    image_style_id_override: Optional[str] = None,
+    image_style_revision_override: Optional[str] = None,
 ) -> Optional[StyleSourceSpec]:
+    try:
+        selection = normalize_image_style_selection(
+            image_style_id_override,
+            image_style_revision_override,
+            prompt_prefix=prompt_prefix_override,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ImageStyleSelectionError(str(exc)) from exc
     override = (prompt_prefix_override or "").strip()
+    style_id = selection.style_id if selection is not None else None
+    expected_revision = selection.revision if selection is not None else None
+
     if override:
         content_hash = _hash_text(override)
         return StyleSourceSpec(
@@ -79,17 +109,32 @@ def resolve_style_source(
             item_id=None,
         )
 
-    active_item = get_active_image_prompt_prefix_item(image_config)
-    if active_item:
-        raw_content = (active_item.get("content") or "").strip()
+    library_item = (
+        get_image_prompt_prefix_item(image_config, style_id)
+        if style_id
+        else get_active_image_prompt_prefix_item(image_config)
+    )
+    if style_id and library_item is None:
+        raise ImageStyleNotFoundError(f"unknown image style id: {style_id}")
+    if library_item:
+        raw_content = (library_item.get("content") or "").strip()
         if raw_content:
+            actual_revision = image_prompt_prefix_revision(raw_content)
+            if expected_revision is not None and actual_revision != expected_revision:
+                raise ImageStyleRevisionMismatchError(
+                    f"image style changed after task submission: {style_id}"
+                )
             content_hash = _hash_text(raw_content)
             return StyleSourceSpec(
                 origin="library",
                 raw_content=raw_content,
                 content_hash=content_hash,
-                source_identity=f"library:{active_item['id']}",
-                item_id=active_item["id"],
+                source_identity=f"library:{library_item['id']}",
+                item_id=library_item["id"],
+            )
+        if style_id:
+            raise ImageStyleSelectionError(
+                f"image style has empty content: {style_id}"
             )
 
     return None

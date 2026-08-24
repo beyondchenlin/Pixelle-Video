@@ -1,5 +1,6 @@
 import pytest
 
+from pixelle_video.config.prompt_prefix_library import image_prompt_prefix_revision
 from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.content_world import ContentWorldHintSource, ContentWorldProfile
 from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceRecordingError
@@ -341,7 +342,7 @@ async def test_generate_styled_image_prompt_batch_records_upstream_llm_trace_ref
 @pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_blocks_raw_fallback_for_ip_world(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
-        assert kwargs["style_profile"]["style_kind"] == "ip_world"
+        assert kwargs["style_profile"] is None
         return ["rounded geometric dog sprinting across playful wooden obstacles"]
 
     monkeypatch.setattr(
@@ -1594,7 +1595,7 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
     assert captured["planner_kwargs"]["prompt_language"] == "zh_CN"
     assert captured["planner_kwargs"]["shot_strategy"] == "strict"
     assert captured["prompt_language"] == "zh_CN"
-    assert captured["style_profile"]["style_kind"] == "visual_only"
+    assert captured["style_profile"] is None
     assert result.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
     assert result.planning_snapshot["frames"] == [
         {
@@ -1728,9 +1729,86 @@ async def test_generate_styled_image_prompt_batch_passes_generation_world_profil
         text_rendering=_suppress_image_text(),
     )
 
-    assert "generation_world_profile" in captured["prompt"]
+    assert "generation_world_profile" not in captured["prompt"]
     assert "正定古城清晨漫游" in captured["prompt"]
+    assert "不能替代长乐门" in captured["prompt"]
+    assert "低侵入陪伴式向导" in captured["prompt"]
+    assert "从长乐门出发" in captured["prompt"]
     assert result.planning_snapshot["generation_world_profile"]["summary"] == "正定古城清晨漫游"
+
+
+@pytest.mark.asyncio
+async def test_requested_library_style_is_projected_once_when_active_style_differs(
+    monkeypatch,
+):
+    selected_content = "selected clean flat style"
+    captured = {}
+
+    async def fake_generate_image_prompts(*args, **kwargs):
+        captured["style_profile"] = kwargs["style_profile"]
+        captured["prompt_scope"] = kwargs["prompt_scope"]
+        return ["a dog jumps over a puddle in a centered medium shot"]
+
+    async def fake_resolve_style_spec(_llm_service, source, **_kwargs):
+        captured["source"] = source
+        return ResolvedStyleSpec(
+            style_kind="visual_only",
+            prompt_template="{prompt}",
+            negative_prompt="",
+            style_profile={
+                "style_kind": "visual_only",
+                "subject_policy": "preserve_subject_semantics",
+                "shape_language": "REQUESTED_STYLE_MARKER",
+                "material": "",
+                "palette": "",
+                "lighting": "",
+                "world_elements": "",
+                "consistency_anchor": "",
+                "negative_rules": "",
+            },
+            content_hash=source.content_hash,
+            resolver_version="test",
+            source_identity=source.source_identity,
+            raw_content=source.raw_content,
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["a dog jumps over a puddle"],
+        image_config={
+            "prompt_prefix_library": {
+                "active_prefix_id": "active-warm-style",
+                "items": [
+                    {
+                        "id": "active-warm-style",
+                        "content": "active warm storybook style",
+                    },
+                    {
+                        "id": "selected-flat-style",
+                        "content": selected_content,
+                    },
+                ],
+            }
+        },
+        image_style_id="selected-flat-style",
+        image_style_revision=image_prompt_prefix_revision(selected_content),
+        text_rendering=_suppress_image_text(),
+    )
+
+    assert captured["source"].item_id == "selected-flat-style"
+    assert captured["style_profile"] is None
+    assert captured["prompt_scope"] == "ordinary_content_only"
+    assert result.prompts[0].count("REQUESTED_STYLE_MARKER") == 1
+    assert "active warm storybook style" not in result.prompts[0]
 
 
 @pytest.mark.asyncio
@@ -1838,7 +1916,7 @@ async def test_generate_styled_image_prompt_batch_storyboard_stops_when_style_re
 @pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_storyboard_keeps_compatible_template_semantics(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
-        assert kwargs["style_profile"]["style_kind"] == "visual_only"
+        assert kwargs["style_profile"] is None
         return ["base scene prompt"]
 
     async def fake_plan_storyboard_batch(**kwargs):
@@ -1945,7 +2023,7 @@ async def test_generate_styled_image_prompt_batch_uses_resolved_style_when_story
             raise AssertionError("world planner should not run without world signals")
 
     async def fake_generate_image_prompts(*args, **kwargs):
-        assert kwargs["style_profile"]["style_kind"] == "visual_only"
+        assert kwargs["style_profile"] is None
         return ["base scene prompt"]
 
     async def fake_resolve_style_spec(*args, **kwargs):
@@ -2002,6 +2080,7 @@ async def test_generate_styled_image_prompt_batch_uses_resolved_style_when_story
     assert "warm muted colors" in prompt
     assert "soft studio light" in prompt
     assert "flat illustration treatment" in prompt
+    assert prompt.count("flat illustration treatment") == 1
     assert "no visible text" in prompt
     _assert_final_prompt_snapshot(result.planning_snapshot)
 
