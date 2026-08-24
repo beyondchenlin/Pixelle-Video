@@ -8,14 +8,19 @@ from pixelle_video.models.prompt_plan import PromptPlan
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
+    ContentStageInput,
     ContentStageModelOutput,
     ContentStageOutput,
     ContentSubject,
+    FusionStageModelOutput,
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
+    LegacyContentStageOutputV14,
+    LegacyFusionStageOutputV12,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
+    VisualAnchorTwoStageFrameResult,
 )
 from pixelle_video.services import visual_anchor_regeneration
 from pixelle_video.services.visual_anchor_two_stage_service import (
@@ -138,6 +143,9 @@ def _execution():
 def _content(frame_id, source_text):
     return ContentStageModelOutput(
         core_claim=f"处理 {frame_id}",
+        shot_purpose=f"让观众看懂 {frame_id} 的具体事件",
+        renderable_story_beats=["工作台上的电脑部件正在被组装"],
+        decisive_moment="两人的手同时停在正在连接的电脑部件上",
         primary_subject={
             "category": "person",
             "name": "由模型判断的主体",
@@ -146,21 +154,31 @@ def _content(frame_id, source_text):
             "action": "",
         },
         secondary_subjects=[],
+        content_subject_interaction="两人共同操作工作台上的电脑部件",
+        composition_plan={
+            "shot_scale_and_camera": "平视中景，工作台形成横向视觉轴",
+            "foreground": "散开的电路板和工具",
+            "midground": "两位创业者与正在组装的电脑",
+            "background": "车库门和储物架",
+            "visual_focus": "两人的手与电脑部件的连接处",
+        },
+        adjacent_shot_distinction="本镜以共同组装动作区别于相邻镜头",
         scene_facts=[{"category": "event", "statement": source_text}],
         adjustable_non_core_content=["背景"],
-        pure_content_prompt="由模型直接生成的纯内容画面",
     )
 
 
 def _fusion(frame_id, *, inherited=False, negative_prompt=""):
-    return FusionStageOutput(
-        selected_fusion_method=f"模型选择的融合方式 {frame_id}",
-        final_manifestation=f"模型选择的表现形态 {frame_id}",
+    return FusionStageModelOutput(
+        selected_fusion_method="工作服胸前的布面刺绣",
+        final_manifestation="小皮作为工作服胸前的单一布面刺绣形态",
+        relative_scale_and_visual_weight="巴掌大小，低于人物面部和手部的视觉权重",
+        support_carrier_and_material_relation="工作服胸前的布面刺绣，服从衣料褶皱",
+        visual_identity_scene_interaction="随人物操作电脑时产生的衣物姿态变化参与场景",
         spatial_contact_and_lighting_relation="模型判断的空间和光照关系",
         inherited_existing_fusion_decision=inherited,
         continuity_change_reason="",
-        final_positive_prompt="模型直接给出的最终图片提示词",
-        final_negative_prompt=negative_prompt,
+        scene_negative_prompt=negative_prompt,
     )
 
 
@@ -229,7 +247,7 @@ async def _run(
     llm = _QueuedLLM(
         {
             ContentStageModelOutput: contents,
-            FusionStageOutput: fusion_outputs,
+            FusionStageModelOutput: fusion_outputs,
         }
     )
     result = await _run_service(
@@ -265,12 +283,32 @@ def test_reference_contract_keeps_only_structural_wiring_validation():
 def test_model_schemas_do_not_request_proof_fields():
     schemas = (
         ContentStageModelOutput.model_json_schema(),
-        FusionStageOutput.model_json_schema(),
+        FusionStageModelOutput.model_json_schema(),
         VisualAnchorImageGenerationRequest.model_json_schema(),
     )
     schema_text = str(schemas)
     for field_name in REMOVED_PROOF_FIELDS:
         assert field_name not in schema_text
+    assert "pure_content_prompt" not in str(ContentStageModelOutput.model_json_schema())
+    assert "identity_prompt_clause" not in str(FusionStageModelOutput.model_json_schema())
+    assert "final_positive_prompt" not in str(FusionStageModelOutput.model_json_schema())
+    assert "base_content_prompt" not in str(FusionStageModelOutput.model_json_schema())
+    assert "final_scene_prompt_prefix" not in str(
+        FusionStageModelOutput.model_json_schema()
+    )
+    assert "target_visual_style" not in str(ContentStageInput.model_json_schema())
+
+
+def test_current_model_output_bounds_prevent_prompt_and_list_amplification():
+    content_payload = _content("frame-a", "原文").model_dump(mode="json")
+    content_payload["renderable_story_beats"] = [f"画面证据-{index}" for index in range(7)]
+    with pytest.raises(ValidationError, match="at most 6 items"):
+        ContentStageModelOutput.model_validate(content_payload)
+
+    fusion_payload = _fusion("frame-a").model_dump(mode="json")
+    fusion_payload["relative_scale_and_visual_weight"] = "长" * 1201
+    with pytest.raises(ValidationError, match="at most 1200 characters"):
+        FusionStageModelOutput.model_validate(fusion_payload)
 
 
 def test_legacy_proof_fields_are_dropped_at_parse_boundary():
@@ -295,7 +333,7 @@ def test_legacy_proof_fields_are_dropped_at_parse_boundary():
             "single_instance_prompt_evidence": "旧证据",
         }
     )
-    fusion = FusionStageOutput.model_validate(fusion_payload)
+    fusion = FusionStageModelOutput.model_validate(fusion_payload)
     assert REMOVED_PROOF_FIELDS.isdisjoint(fusion.model_dump(mode="json"))
 
 
@@ -308,15 +346,16 @@ def test_unknown_model_output_fields_are_rejected_instead_of_silently_dropped():
     fusion_payload = _fusion("frame-a").model_dump(mode="json")
     fusion_payload["unexpected_contract_field"] = "不得静默忽略"
     with pytest.raises(ValidationError, match="unexpected_contract_field"):
-        FusionStageOutput.model_validate(fusion_payload)
+        FusionStageModelOutput.model_validate(fusion_payload)
 
 
-def test_content_output_preserves_model_fields_without_server_owned_subject_ids():
-    output = ContentStageOutput.model_validate(
-        _content("frame-a", "与输出主体完全无关的原文").model_dump(mode="json")
-    )
+@pytest.mark.asyncio
+async def test_content_output_preserves_model_fields_without_server_owned_subject_ids():
+    result, _ = await _run(_plan())
+    output = result.frames[0].content_stage_output
+    assert isinstance(output, ContentStageOutput)
     assert output.primary_subject.name == "由模型判断的主体"
-    assert output.scene_facts[0].statement == "与输出主体完全无关的原文"
+    assert output.scene_facts[0].statement == _plan().frames[0].source_text
     assert "subject_id" not in output.primary_subject.model_dump(mode="json")
 
 
@@ -338,17 +377,230 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 
 
 @pytest.mark.asyncio
-async def test_model_output_flows_directly_to_generation_without_semantic_validation():
-    result, llm = await _run(
-        _plan(),
-        fusions=[_fusion("frame-a", negative_prompt="模型仍然输出了反向提示词")],
-    )
+async def test_server_assembled_model_output_flows_directly_to_generation():
+    result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert frame.generation_request.final_positive_prompt == "模型直接给出的最终图片提示词"
-    assert frame.generation_request.final_negative_prompt == "模型仍然输出了反向提示词"
+    assert isinstance(frame.fusion_stage_output, FusionStageOutput)
+    assert (
+        frame.fusion_stage_output.identity_prompt_clause
+        in frame.generation_request.final_positive_prompt
+    )
+    for required_fragment in (
+        frame.fusion_stage_output.final_manifestation,
+        *frame.fusion_stage_input.identity_profile.core_identity_traits,
+        frame.fusion_stage_output.relative_scale_and_visual_weight,
+        frame.fusion_stage_output.support_carrier_and_material_relation,
+        frame.fusion_stage_output.visual_identity_scene_interaction,
+        frame.fusion_stage_output.spatial_contact_and_lighting_relation,
+    ):
+        assert required_fragment in frame.fusion_stage_output.identity_prompt_clause
+    assert frame.generation_request.prompt_assembly_trace is not None
+    assert (
+        frame.fusion_stage_output.base_content_prompt
+        == frame.content_stage_output.pure_content_prompt
+    )
+    assert frame.generation_request.final_positive_prompt.startswith(
+        frame.content_stage_output.pure_content_prompt
+    )
+    assert frame.generation_request.final_negative_prompt == ""
     assert len(llm.calls) == 2
     assert all(call["kwargs"]["temperature"] == 0.0 for call in llm.calls)
+    assert all(call["kwargs"]["max_tokens"] == 4096 for call in llm.calls)
     assert all(call["kwargs"]["single_request"] is True for call in llm.calls)
+
+
+@pytest.mark.asyncio
+async def test_content_prompt_is_assembled_from_structured_visual_decisions():
+    result, llm = await _run(_plan())
+    content = result.frames[0].content_stage_output
+    assert isinstance(content, ContentStageOutput)
+    for required_fragment in (
+        content.primary_subject.name,
+        content.primary_subject.identity,
+        content.composition_plan.shot_scale_and_camera,
+        content.decisive_moment,
+        content.content_subject_interaction,
+        *content.renderable_story_beats,
+        *(fact.statement for fact in content.scene_facts),
+        content.composition_plan.visual_focus,
+    ):
+        assert required_fragment in content.pure_content_prompt
+    assert "真实电影感" not in content.pure_content_prompt
+    assert "真实电影感" not in llm.calls[0]["prompt"]
+    assert "真实电影感" in llm.calls[1]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_content_prompt_preserves_explicit_subject_quantity():
+    plan = _plan()
+    content_payload = _content("frame-a", plan.frames[0].source_text).model_dump(
+        mode="json"
+    )
+    content_payload["primary_subject"]["quantity"] = 2
+    llm = _QueuedLLM(
+        {
+            ContentStageModelOutput: [content_payload],
+            FusionStageModelOutput: [_fusion("frame-a")],
+        }
+    )
+
+    result = await _run_service(plan, llm)
+
+    assert "2× 由模型判断的主体" in (
+        result.frames[0].content_stage_output.pure_content_prompt
+    )
+
+
+@pytest.mark.asyncio
+async def test_article_context_is_bounded_around_the_current_source_span():
+    prefix = "前文背景。" * 1000
+    frame_text = "关键人物把完成的电路板安装进电脑机箱。"
+    suffix = "后文背景。" * 1000
+    source_text = prefix + frame_text + suffix
+    plan = StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=source_text,
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                frame_id="frame-a",
+                source_text=frame_text,
+                visual_goal="表现安装完成",
+                prompt_intent="车库电脑组装",
+                source_start=len(prefix),
+                source_end=len(prefix) + len(frame_text),
+            )
+        ],
+    )
+
+    result, _ = await _run(plan)
+
+    article_context = result.frames[0].content_stage_input.article_context
+    assert len(article_context) == 6000
+    assert frame_text in article_context
+
+
+@pytest.mark.asyncio
+async def test_oversized_frame_fails_before_any_model_call():
+    source_text = "过长分镜内容" * 1001
+    plan = StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=source_text,
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                frame_id="frame-a",
+                source_text=source_text,
+                visual_goal="不应进入模型",
+                prompt_intent="不应进入模型",
+            )
+        ],
+    )
+    llm = _QueuedLLM({ContentStageModelOutput: [], FusionStageModelOutput: []})
+
+    with pytest.raises(VisualAnchorTwoStageError, match="exceeds 6000 characters"):
+        await _run_service(plan, llm)
+
+    assert llm.calls == []
+
+
+@pytest.mark.asyncio
+async def test_composition_does_not_invent_missing_depth_layers():
+    plan = _plan()
+    flat_content = _content("frame-a", plan.frames[0].source_text).model_dump(mode="json")
+    flat_content["composition_plan"].update(
+        {"foreground": "", "midground": "", "background": "单色平面背景"}
+    )
+    llm = _QueuedLLM(
+        {
+            ContentStageModelOutput: [flat_content],
+            FusionStageModelOutput: [_fusion("frame-a")],
+        }
+    )
+
+    result = await _run_service(plan, llm)
+
+    assert result.frames[0].content_stage_output.composition_plan.foreground == ""
+    assert result.frames[0].content_stage_output.composition_plan.midground == ""
+    assert "单色平面背景" in result.frames[0].content_stage_output.pure_content_prompt
+
+
+@pytest.mark.asyncio
+async def test_tampered_server_assembled_prompt_is_rejected():
+    result, _ = await _run(_plan())
+    payload = result.frames[0].model_dump(mode="json")
+    tampered = payload["fusion_stage_output"]["final_positive_prompt"] + "；额外对象"
+    payload["fusion_stage_output"]["final_positive_prompt"] = tampered
+    payload["generation_request"]["final_positive_prompt"] = tampered
+
+    with pytest.raises(ValidationError, match="positive prompt differs from its assembly trace"):
+        VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_generation_request_rejects_a_forged_prompt_assembly_trace_on_its_own():
+    result, _ = await _run(_plan())
+    payload = result.frames[0].generation_request.model_dump(mode="json")
+    payload["prompt_assembly_trace"]["relative_scale_and_visual_weight"] = (
+        "伪造的超大视觉权重"
+    )
+
+    with pytest.raises(ValidationError, match="identity clause differs from its assembly trace"):
+        VisualAnchorImageGenerationRequest.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_fusion_cannot_replace_the_server_owned_content_prompt():
+    result, _ = await _run(_plan())
+    payload = result.frames[0].model_dump(mode="json")
+    original = payload["fusion_stage_output"]["base_content_prompt"]
+    forged = "伪造的场景正文"
+    tampered_prompt = payload["fusion_stage_output"]["final_positive_prompt"].replace(
+        original,
+        forged,
+        1,
+    )
+    payload["fusion_stage_output"]["base_content_prompt"] = forged
+    payload["fusion_stage_output"]["final_positive_prompt"] = tampered_prompt
+    payload["generation_request"]["prompt_assembly_trace"][
+        "base_content_prompt"
+    ] = forged
+    payload["generation_request"]["final_positive_prompt"] = tampered_prompt
+
+    with pytest.raises(ValidationError, match="preserve the exact assembled content prompt"):
+        VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_negative_prompt_for_unsupported_workflow_fails_without_retry():
+    plan = _plan()
+    invalid_fusion = _fusion("frame-a").model_dump(mode="json")
+    invalid_fusion["scene_negative_prompt"] = "模型不应输出的反向提示词"
+    llm = _QueuedLLM(
+        {
+            ContentStageModelOutput: [_content("frame-a", plan.frames[0].source_text)],
+            FusionStageModelOutput: [invalid_fusion, _fusion("frame-a")],
+        }
+    )
+    events = []
+
+    with pytest.raises(VisualAnchorTwoStageError, match="scene_negative_prompt"):
+        await _run_service(plan, llm, stage_callback=events.append)
+
+    assert len(llm.calls) == 2
+    assert [
+        (event["stage"], event["event"], event.get("llm_call_count"))
+        for event in events
+    ] == [
+        ("visual_anchor_content_stage", "start", None),
+        ("visual_anchor_content_stage", "end", 1),
+        ("visual_anchor_fusion_stage", "start", None),
+        ("visual_anchor_fusion_stage", "fail", 1),
+    ]
 
 
 @pytest.mark.asyncio
@@ -381,7 +633,7 @@ async def test_invalid_reference_configuration_fails_before_any_model_call():
     llm = _QueuedLLM(
         {
             ContentStageModelOutput: [_content("frame-a", plan.frames[0].source_text)],
-            FusionStageOutput: [_fusion("frame-a")],
+            FusionStageModelOutput: [_fusion("frame-a")],
         }
     )
 
@@ -402,7 +654,7 @@ async def test_invalid_seed_fails_before_any_model_call():
     llm = _QueuedLLM(
         {
             ContentStageModelOutput: [_content("frame-a", plan.frames[0].source_text)],
-            FusionStageOutput: [_fusion("frame-a")],
+            FusionStageModelOutput: [_fusion("frame-a")],
         }
     )
 
@@ -425,7 +677,7 @@ async def test_structural_model_failure_stops_after_one_call_without_retry():
                 {"core_claim": "缺少必填结构"},
                 _content("frame-a", plan.frames[0].source_text),
             ],
-            FusionStageOutput: [_fusion("frame-a")],
+            FusionStageModelOutput: [_fusion("frame-a")],
         }
     )
     events = []
@@ -441,12 +693,42 @@ async def test_structural_model_failure_stops_after_one_call_without_retry():
 
 
 @pytest.mark.asyncio
-async def test_continuous_scene_decisions_are_inputs_but_not_locally_judged():
-    fusions = [_fusion("frame-a"), _fusion("frame-b", inherited=False)]
+async def test_continuous_scene_carries_and_validates_the_complete_decision():
+    fusions = [_fusion("frame-a"), _fusion("frame-b", inherited=True)]
     result, _ = await _run(_plan(continuous=True), fusions=fusions)
     second_input = result.frames[1].fusion_stage_input.continuous_scene_context
     assert second_input.existing_selected_fusion_method == fusions[0].selected_fusion_method
-    assert result.frames[1].fusion_stage_output == fusions[1]
+    assert second_input.existing_relative_scale_and_visual_weight == (
+        fusions[0].relative_scale_and_visual_weight
+    )
+    assert second_input.existing_support_carrier_and_material_relation == (
+        fusions[0].support_carrier_and_material_relation
+    )
+    assert second_input.existing_visual_identity_scene_interaction == (
+        fusions[0].visual_identity_scene_interaction
+    )
+    assert second_input.existing_fusion_decision == "已有融合决策见下列结构化字段"
+    assert result.frames[1].fusion_stage_output.inherited_existing_fusion_decision
+
+
+@pytest.mark.asyncio
+async def test_continuous_scene_rejects_false_inheritance_without_retry():
+    plan = _plan(continuous=True)
+    changed_second = _fusion("frame-b", inherited=True).model_dump(mode="json")
+    changed_second["relative_scale_and_visual_weight"] = "改成占据画面中心的大尺寸"
+    llm = _QueuedLLM(
+        {
+            ContentStageModelOutput: [
+                _content(frame.frame_id, frame.source_text) for frame in plan.frames
+            ],
+            FusionStageModelOutput: [_fusion("frame-a"), changed_second],
+        }
+    )
+
+    with pytest.raises(ValidationError, match="must match every previous field"):
+        await _run_service(plan, llm)
+
+    assert len(llm.calls) == 4
 
 
 def test_seed_registration_is_complete_and_deterministic():
@@ -497,6 +779,9 @@ def _prompt_plan(frame_payload, *, contract_digest=None):
 
 def _as_legacy_v4_payload(frame_payload):
     payload = json.loads(json.dumps(frame_payload, ensure_ascii=False))
+    payload["content_stage_input"]["target_visual_style"] = payload[
+        "fusion_stage_input"
+    ]["target_visual_style"]
     payload["content_stage_input"]["prompt_version"] = (
         "visual_anchor_content_stage.v12"
     )
@@ -507,6 +792,7 @@ def _as_legacy_v4_payload(frame_payload):
     request["request_version"] = "visual_anchor_generation_request.v4"
     request["content_stage_prompt_version"] = "visual_anchor_content_stage.v12"
     request["fusion_stage_prompt_version"] = "visual_anchor_fusion_stage.v9"
+    request.pop("prompt_assembly_trace", None)
     request.update(
         {
             "protected_fact_checks": [],
@@ -518,6 +804,16 @@ def _as_legacy_v4_payload(frame_payload):
     )
 
     content_payload = payload["content_stage_output"]
+    for current_field in (
+        "prompt_assembly_version",
+        "shot_purpose",
+        "renderable_story_beats",
+        "decisive_moment",
+        "content_subject_interaction",
+        "composition_plan",
+        "adjacent_shot_distinction",
+    ):
+        content_payload.pop(current_field, None)
     legacy_facts = []
     for index, fact in enumerate(content_payload.pop("scene_facts"), start=1):
         legacy_facts.append(
@@ -565,6 +861,18 @@ def _as_legacy_v4_payload(frame_payload):
             "self_check_failures": ["旧字段"],
         }
     )
+    for current_field in (
+        "prompt_assembly_version",
+        "base_content_prompt",
+        "identity_prompt_clause",
+        "relative_scale_and_visual_weight",
+        "support_carrier_and_material_relation",
+        "visual_identity_scene_interaction",
+        "final_scene_prompt_prefix",
+        "final_scene_prompt_suffix",
+        "scene_negative_prompt",
+    ):
+        payload["fusion_stage_output"].pop(current_field, None)
     payload.update(
         {
             "content_attempt_count": 2,
@@ -573,6 +881,84 @@ def _as_legacy_v4_payload(frame_payload):
         }
     )
     return payload
+
+
+def _as_legacy_v14_v12_payload(frame_payload):
+    payload = json.loads(json.dumps(frame_payload, ensure_ascii=False))
+    payload["content_stage_input"]["target_visual_style"] = payload[
+        "fusion_stage_input"
+    ]["target_visual_style"]
+    payload["content_stage_input"]["prompt_version"] = (
+        "visual_anchor_content_stage.v14"
+    )
+    payload["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v12"
+    )
+
+    content_payload = payload["content_stage_output"]
+    content_payload.pop("prompt_assembly_version")
+    content_payload["visual_evidence"] = content_payload.pop(
+        "renderable_story_beats"
+    )
+    content_payload["frozen_moment"] = content_payload.pop("decisive_moment")
+    content_payload["subject_interaction"] = content_payload.pop(
+        "content_subject_interaction"
+    )
+    content_payload["adjacent_frame_difference"] = content_payload.pop(
+        "adjacent_shot_distinction"
+    )
+    content_payload["secondary_subjects"] = [
+        {
+            "category": "person",
+            "name": f"历史次要主体-{index}",
+            "identity": "历史契约允许保存",
+            "quantity": 1,
+            "action": "在背景中工作",
+        }
+        for index in range(9)
+    ]
+    payload["fusion_stage_input"]["content_stage_output"] = json.loads(
+        json.dumps(content_payload, ensure_ascii=False)
+    )
+
+    fusion_payload = payload["fusion_stage_output"]
+    fusion_payload.pop("prompt_assembly_version")
+    fusion_payload.pop("base_content_prompt")
+    fusion_payload.pop("scene_negative_prompt")
+    fusion_payload["carrier_and_material_relation"] = fusion_payload.pop(
+        "support_carrier_and_material_relation"
+    )
+    fusion_payload["scene_interaction"] = fusion_payload.pop(
+        "visual_identity_scene_interaction"
+    )
+
+    request = payload["generation_request"]
+    request["request_version"] = "visual_anchor_generation_request.v5"
+    request["content_stage_prompt_version"] = "visual_anchor_content_stage.v14"
+    request["fusion_stage_prompt_version"] = "visual_anchor_fusion_stage.v12"
+    request.pop("prompt_assembly_trace")
+    request.pop("identity_forbidden_traits")
+    request.pop("target_image_prompt_language")
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_real_v14_v12_payload_remains_historical_without_fabricated_fields():
+    batch, _ = await _run(_plan())
+    payload = _as_legacy_v14_v12_payload(
+        batch.frames[0].model_dump(mode="json")
+    )
+
+    frame = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert isinstance(frame.content_stage_output, LegacyContentStageOutputV14)
+    assert len(frame.content_stage_output.secondary_subjects) == 9
+    assert isinstance(frame.fusion_stage_output, LegacyFusionStageOutputV12)
+    assert frame.generation_request.request_version == (
+        "visual_anchor_generation_request.v6"
+    )
+    assert "renderable_story_beats" not in frame.content_stage_output.model_dump()
+    assert "base_content_prompt" not in frame.fusion_stage_output.model_dump()
 
 
 @pytest.mark.asyncio
@@ -603,8 +989,11 @@ async def test_regeneration_verifies_legacy_contract_before_upgrading_it(
     assert context.generation_request.task_id == "regenerated-task"
     assert (
         context.generation_request.request_version
-        == "visual_anchor_generation_request.v5"
+        == "visual_anchor_generation_request.v6"
     )
+    restored_payload = context.frame_result.model_dump(mode="json")
+    assert "renderable_story_beats" not in restored_payload["content_stage_output"]
+    assert "identity_prompt_clause" not in restored_payload["fusion_stage_output"]
     assert context.generation_request.identity_reference_condition is None
     assert not (context.task_root / "reference_image").exists()
 

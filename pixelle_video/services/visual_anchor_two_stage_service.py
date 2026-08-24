@@ -15,13 +15,16 @@ from pixelle_video.models.llm_interaction_trace import (
 from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
+    CONTENT_PROMPT_ASSEMBLY_VERSION,
     CONTENT_STAGE_PROMPT_VERSION,
+    FUSION_PROMPT_ASSEMBLY_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
     ContentStageInput,
     ContentStageModelOutput,
     ContentStageOutput,
     ContinuousSceneContext,
     FusionStageInput,
+    FusionStageModelOutput,
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
@@ -30,6 +33,11 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
+    assemble_content_stage_prompt,
+    assemble_fusion_negative_prompt,
+    assemble_fusion_positive_prompt,
+    assemble_identity_prompt_clause,
+    prompt_assembly_trace_from_fusion_output,
 )
 from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
 from pixelle_video.utils.logging_util import emit_stage_event
@@ -37,6 +45,10 @@ from pixelle_video.utils.logging_util import emit_stage_event
 
 class VisualAnchorTwoStageError(RuntimeError):
     pass
+
+
+_FRAME_SOURCE_MAX_CHARS = 6000
+_ARTICLE_CONTEXT_MAX_CHARS = 6000
 
 
 @dataclass(slots=True)
@@ -132,6 +144,19 @@ class VisualAnchorTwoStageService:
             raise TypeError("storyboard_plan must be a StoryboardPlan")
         if not storyboard_plan.frames:
             raise VisualAnchorTwoStageError("storyboard plan has no frames")
+        oversized_frame = next(
+            (
+                frame
+                for frame in storyboard_plan.frames
+                if len(frame.source_text) > _FRAME_SOURCE_MAX_CHARS
+            ),
+            None,
+        )
+        if oversized_frame is not None:
+            raise VisualAnchorTwoStageError(
+                "storyboard frame source text exceeds 6000 characters; split the frame "
+                f"before visual planning: {oversized_frame.frame_id}"
+            )
         if not isinstance(expected_execution, ImageWorkflowExecutionContract):
             raise TypeError(
                 "expected_execution must be an ImageWorkflowExecutionContract"
@@ -298,10 +323,12 @@ class VisualAnchorTwoStageService:
         content_input = ContentStageInput(
             frame_id=frame.frame_id,
             original_storyboard_text=frame.source_text,
-            article_context=storyboard_plan.source_text,
+            article_context=_relevant_article_context(
+                source_text=storyboard_plan.source_text,
+                frame=frame,
+            ),
             previous_frame_summary=previous_summary,
             next_frame_summary=next_summary,
-            target_visual_style=target_visual_style,
             target_image_prompt_language=target_image_prompt_language,
         )
         _emit_stage(
@@ -348,7 +375,7 @@ class VisualAnchorTwoStageService:
             next_frame_summary=next_summary,
             continuity_anchors=list(frame.continuity_anchors),
             existing_fusion_decision=(
-                _continuous_fusion_decision(existing_fusion_decision)
+                "已有融合决策见下列结构化字段"
                 if existing_fusion_decision is not None
                 else None
             )
@@ -360,6 +387,26 @@ class VisualAnchorTwoStageService:
             ),
             existing_final_manifestation=(
                 existing_fusion_decision.final_manifestation
+                if existing_fusion_decision is not None
+                else None
+            ),
+            existing_identity_prompt_clause=(
+                existing_fusion_decision.identity_prompt_clause
+                if existing_fusion_decision is not None
+                else None
+            ),
+            existing_relative_scale_and_visual_weight=(
+                existing_fusion_decision.relative_scale_and_visual_weight
+                if existing_fusion_decision is not None
+                else None
+            ),
+            existing_support_carrier_and_material_relation=(
+                existing_fusion_decision.support_carrier_and_material_relation
+                if existing_fusion_decision is not None
+                else None
+            ),
+            existing_visual_identity_scene_interaction=(
+                existing_fusion_decision.visual_identity_scene_interaction
                 if existing_fusion_decision is not None
                 else None
             ),
@@ -396,15 +443,11 @@ class VisualAnchorTwoStageService:
             frame_id=frame.frame_id,
         )
         try:
-            fusion_output = await self._call_structured(
+            fusion_output = await self._run_fusion_stage(
                 llm_service=llm_service,
-                prompt_id="visual_anchor_fusion_stage",
                 stage_input=fusion_input,
-                response_type=FusionStageOutput,
-                frame_id=frame.frame_id,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
-                temperature=0.0,
                 call_audit=fusion_call_audit,
             )
         except Exception:
@@ -432,11 +475,15 @@ class VisualAnchorTwoStageService:
             random_seed=random_seed,
             selected_fusion_method=fusion_output.selected_fusion_method,
             final_manifestation=fusion_output.final_manifestation,
+            prompt_assembly_trace=prompt_assembly_trace_from_fusion_output(
+                fusion_output
+            ),
             final_positive_prompt=fusion_output.final_positive_prompt,
             final_negative_prompt=fusion_output.final_negative_prompt,
             identity_profile_id=identity_profile.profile_id,
             identity_display_name=identity_profile.display_name,
             identity_core_traits=identity_profile.core_identity_traits,
+            identity_forbidden_traits=identity_profile.forbidden_traits,
             identity_resource_version=identity_profile.identity_resource_version,
             identity_content_sha256=identity_profile.identity_content_sha256,
             identity_conditioning_mode=identity_conditioning_mode,
@@ -446,6 +493,7 @@ class VisualAnchorTwoStageService:
             content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
             fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
             negative_prompt_supported=negative_prompt_supported,
+            target_image_prompt_language=target_image_prompt_language,
             workflow_key=workflow_key,
             workflow_version_sha256=workflow_version_sha256,
             expected_execution=expected_execution,
@@ -481,12 +529,82 @@ class VisualAnchorTwoStageService:
             trace_context=trace_context,
             trace_recorder=trace_recorder,
             temperature=0.0,
+            max_tokens=4096,
             call_audit=resolved_call_audit,
         )
         output = ContentStageOutput.model_validate(
-            model_output.model_dump(mode="json")
+            {
+                **model_output.model_dump(mode="json"),
+                "prompt_assembly_version": CONTENT_PROMPT_ASSEMBLY_VERSION,
+                "pure_content_prompt": assemble_content_stage_prompt(
+                    model_output,
+                ),
+            }
         )
         return output
+
+    async def _run_fusion_stage(
+        self,
+        *,
+        llm_service,
+        stage_input: FusionStageInput,
+        trace_context: LLMTraceContext | None,
+        trace_recorder,
+        call_audit: _SinglePassStageCallAudit,
+    ) -> FusionStageOutput:
+        model_output = await self._call_structured(
+            llm_service=llm_service,
+            prompt_id="visual_anchor_fusion_stage",
+            stage_input=stage_input,
+            response_type=FusionStageModelOutput,
+            frame_id=stage_input.frame_id,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+            temperature=0.0,
+            max_tokens=4096,
+            call_audit=call_audit,
+        )
+        if (
+            not stage_input.negative_prompt_supported
+            and model_output.scene_negative_prompt
+        ):
+            raise VisualAnchorTwoStageError(
+                "scene_negative_prompt must be empty when the workflow has no negative prompt"
+            )
+        identity_prompt_clause = assemble_identity_prompt_clause(
+            model_output,
+            identity_profile=stage_input.identity_profile,
+            target_image_prompt_language=stage_input.target_image_prompt_language,
+        )
+        final_positive_prompt = assemble_fusion_positive_prompt(
+            model_output,
+            content_stage_output=stage_input.content_stage_output,
+            identity_prompt_clause=identity_prompt_clause,
+            identity_profile=stage_input.identity_profile,
+            target_visual_style=stage_input.target_visual_style,
+            visible_text_policy=stage_input.visible_text_policy,
+            negative_prompt_supported=stage_input.negative_prompt_supported,
+            target_image_prompt_language=stage_input.target_image_prompt_language,
+        )
+        final_negative_prompt = assemble_fusion_negative_prompt(
+            model_output,
+            identity_profile=stage_input.identity_profile,
+            target_visual_style=stage_input.target_visual_style,
+            visible_text_policy=stage_input.visible_text_policy,
+            negative_prompt_supported=stage_input.negative_prompt_supported,
+        )
+        return FusionStageOutput.model_validate(
+            {
+                **model_output.model_dump(mode="json"),
+                "prompt_assembly_version": FUSION_PROMPT_ASSEMBLY_VERSION,
+                "base_content_prompt": (
+                    stage_input.content_stage_output.pure_content_prompt
+                ),
+                "identity_prompt_clause": identity_prompt_clause,
+                "final_positive_prompt": final_positive_prompt,
+                "final_negative_prompt": final_negative_prompt,
+            }
+        )
 
     @staticmethod
     async def _call_structured(
@@ -499,6 +617,7 @@ class VisualAnchorTwoStageService:
         trace_context: LLMTraceContext | None,
         trace_recorder,
         temperature: float,
+        max_tokens: int,
         call_audit: _SinglePassStageCallAudit,
     ):
         rendered = _render_stage_prompt(prompt_id, stage_input)
@@ -518,7 +637,7 @@ class VisualAnchorTwoStageService:
             prompt=rendered.text,
             response_type=response_type,
             temperature=temperature,
-            max_tokens=8192,
+            max_tokens=max_tokens,
             trace_context=call_trace_context,
             trace_recorder=trace_recorder,
             single_request=True,
@@ -592,12 +711,41 @@ def _continuous_scene_ids(
     return tuple(result)
 
 
-def _continuous_fusion_decision(output: FusionStageOutput) -> str:
-    return (
-        f"所选融合方式：{output.selected_fusion_method}；"
-        f"最终表现形态：{output.final_manifestation}；"
-        f"空间、接触与光照关系：{output.spatial_contact_and_lighting_relation}"
-    )
+def _relevant_article_context(
+    *,
+    source_text: str,
+    frame: StoryboardPlanFrame,
+) -> str:
+    """Keep local article evidence without repeating an unbounded article per frame."""
+
+    if len(source_text) <= _ARTICLE_CONTEXT_MAX_CHARS:
+        return source_text
+    if frame.source_start is not None and frame.source_end is not None:
+        anchor_start = frame.source_start
+        anchor_end = frame.source_end
+    else:
+        anchor_start = source_text.find(frame.source_text)
+        anchor_end = (
+            anchor_start + len(frame.source_text)
+            if anchor_start >= 0
+            else -1
+        )
+    if anchor_start < 0 or anchor_end < anchor_start:
+        separator = "\n…\n"
+        side_length = (_ARTICLE_CONTEXT_MAX_CHARS - len(separator)) // 2
+        return (
+            source_text[:side_length]
+            + separator
+            + source_text[-(_ARTICLE_CONTEXT_MAX_CHARS - side_length - len(separator)) :]
+        )
+
+    available_context = _ARTICLE_CONTEXT_MAX_CHARS - (anchor_end - anchor_start)
+    left_budget = max(0, available_context // 2)
+    window_start = max(0, anchor_start - left_budget)
+    window_end = min(len(source_text), window_start + _ARTICLE_CONTEXT_MAX_CHARS)
+    if window_end - window_start < _ARTICLE_CONTEXT_MAX_CHARS:
+        window_start = max(0, window_end - _ARTICLE_CONTEXT_MAX_CHARS)
+    return source_text[window_start:window_end]
 
 
 def _normalized_text(value: object) -> str:

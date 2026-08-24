@@ -5,12 +5,16 @@ import pytest
 from PIL import Image
 
 from pixelle_video.models.visual_anchor_two_stage import (
+    CONTENT_PROMPT_ASSEMBLY_VERSION,
     CONTENT_STAGE_PROMPT_VERSION,
+    FUSION_PROMPT_ASSEMBLY_VERSION,
     FUSION_STAGE_PROMPT_VERSION,
     ContentStageInput,
+    ContentStageModelOutput,
     ContentStageOutput,
     ContinuousSceneContext,
     FusionStageInput,
+    FusionStageModelOutput,
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
@@ -18,6 +22,11 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
+    assemble_content_stage_prompt,
+    assemble_fusion_negative_prompt,
+    assemble_fusion_positive_prompt,
+    assemble_identity_prompt_clause,
+    prompt_assembly_trace_from_fusion_output,
 )
 from pixelle_video.services.visual_anchor_generation_binding import (
     visual_anchor_first_request_binding_artifact_relative_path,
@@ -75,11 +84,13 @@ def _frame_result(tmp_path):
         article_context="两位创作者在车库组装电脑。",
         previous_frame_summary="首镜，无前一镜",
         next_frame_summary="末镜，无后一镜",
-        target_visual_style=target_style,
         target_image_prompt_language="中文",
     )
-    content_output = ContentStageOutput(
+    content_model_output = ContentStageModelOutput(
         core_claim="两位创作者组装电脑",
+        shot_purpose="让观众看清两位创作者共同组装电脑的行动",
+        renderable_story_beats=["两人的手同时连接工作台上的电脑部件"],
+        decisive_moment="两人的手同时停在刚接通的电脑部件两侧",
         scene_facts=[
             {"category": "person", "statement": "两位创作者组装电脑"},
             {"category": "product", "statement": "电脑正在被组装"},
@@ -104,8 +115,23 @@ def _frame_result(tmp_path):
                 "action": "正在被组装",
             }
         ],
+        content_subject_interaction="两位创作者共同操作同一台电脑",
+        composition_plan={
+            "shot_scale_and_camera": "平视中景",
+            "foreground": "焊锡和散开的电子元件",
+            "midground": "两位创作者与正在组装的电脑",
+            "background": "车库门与储物架",
+            "visual_focus": "两人的手与刚接通的电脑部件",
+        },
+        adjacent_shot_distinction="独立镜头以共同组装动作建立事件",
         adjustable_non_core_content=["工作台工具"],
-        pure_content_prompt="两位创作者在车库工作台组装电脑。",
+    )
+    content_output = ContentStageOutput(
+        **content_model_output.model_dump(mode="json"),
+        prompt_assembly_version=CONTENT_PROMPT_ASSEMBLY_VERSION,
+        pure_content_prompt=assemble_content_stage_prompt(
+            content_model_output,
+        ),
     )
     continuity = ContinuousSceneContext(
         scene_id="independent:frame-a",
@@ -127,17 +153,44 @@ def _frame_result(tmp_path):
         negative_prompt_supported=False,
         target_image_prompt_language="中文",
     )
-    fusion_output = FusionStageOutput(
+    fusion_model_output = FusionStageModelOutput(
         selected_fusion_method="小皮作为工作台旁的唯一实体参与现场",
         final_manifestation="小皮的单一实体形态",
+        relative_scale_and_visual_weight="膝盖高度，视觉权重低于两位创作者和电脑",
+        support_carrier_and_material_relation="由车库地面支撑，前爪接触工作台下沿",
+        visual_identity_scene_interaction="靠近并观察两位创作者组装电脑",
         spatial_contact_and_lighting_relation="接触地面并共享车库光照",
         inherited_existing_fusion_decision=False,
-        continuity_change_reason="独立镜头没有既有决定",
-        final_positive_prompt=(
-            "两位创作者在车库组装电脑。画面中只有一只小皮，"
-            "它以圆形白色脸和蓝色短耳的单一实体自然参与现场。"
+        continuity_change_reason="",
+        scene_negative_prompt="",
+    )
+    identity_prompt_clause = assemble_identity_prompt_clause(
+        fusion_model_output,
+        identity_profile=identity,
+        target_image_prompt_language="中文",
+    )
+    fusion_output = FusionStageOutput(
+        **fusion_model_output.model_dump(mode="json"),
+        prompt_assembly_version=FUSION_PROMPT_ASSEMBLY_VERSION,
+        base_content_prompt=content_output.pure_content_prompt,
+        identity_prompt_clause=identity_prompt_clause,
+        final_positive_prompt=assemble_fusion_positive_prompt(
+            fusion_model_output,
+            content_stage_output=content_output,
+            identity_prompt_clause=identity_prompt_clause,
+            identity_profile=identity,
+            target_visual_style=target_style,
+            visible_text_policy=fusion_input.visible_text_policy,
+            negative_prompt_supported=False,
+            target_image_prompt_language="中文",
         ),
-        final_negative_prompt="",
+        final_negative_prompt=assemble_fusion_negative_prompt(
+            fusion_model_output,
+            identity_profile=identity,
+            target_visual_style=target_style,
+            visible_text_policy=fusion_input.visible_text_policy,
+            negative_prompt_supported=False,
+        ),
     )
     request = VisualAnchorImageGenerationRequest(
         task_id="task-two-stage",
@@ -145,11 +198,13 @@ def _frame_result(tmp_path):
         random_seed=101,
         selected_fusion_method=fusion_output.selected_fusion_method,
         final_manifestation=fusion_output.final_manifestation,
+        prompt_assembly_trace=prompt_assembly_trace_from_fusion_output(fusion_output),
         final_positive_prompt=fusion_output.final_positive_prompt,
         final_negative_prompt="",
         identity_profile_id=identity.profile_id,
         identity_display_name=identity.display_name,
         identity_core_traits=identity.core_identity_traits,
+        identity_forbidden_traits=identity.forbidden_traits,
         identity_resource_version=identity.identity_resource_version,
         identity_content_sha256=identity.identity_content_sha256,
         identity_conditioning_mode="reference_image",
@@ -158,6 +213,7 @@ def _frame_result(tmp_path):
         content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
         fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
         negative_prompt_supported=False,
+        target_image_prompt_language="中文",
         workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
         workflow_version_sha256="c" * 64,
         expected_execution=ImageWorkflowExecutionContract(
@@ -249,7 +305,7 @@ def _write_passed_binding(
     binding_path.write_text(
         json.dumps(
             {
-                "schema_version": "visual_anchor_first_generation_binding_audit.v5",
+                "schema_version": "visual_anchor_first_generation_binding_audit.v6",
                 "request_version": request.request_version,
                 "status": "passed",
                 "task_id": request.task_id,
@@ -258,6 +314,9 @@ def _write_passed_binding(
                 "random_seed": seed,
                 "selected_fusion_method": request.selected_fusion_method,
                 "final_manifestation": request.final_manifestation,
+                "prompt_assembly_trace": request.prompt_assembly_trace.model_dump(
+                    mode="json"
+                ),
                 "positive_prompt_sha256": _sha256_text(
                     request.final_positive_prompt
                 ),
@@ -271,8 +330,10 @@ def _write_passed_binding(
                 "identity_profile_id": request.identity_profile_id,
                 "identity_display_name": request.identity_display_name,
                 "identity_core_traits": list(request.identity_core_traits),
+                "identity_forbidden_traits": list(request.identity_forbidden_traits),
                 "identity_resource_version": request.identity_resource_version,
                 "identity_content_sha256": request.identity_content_sha256,
+                "target_image_prompt_language": request.target_image_prompt_language,
                 "reference_condition": (
                     request.identity_reference_condition.model_dump(mode="json")
                 ),

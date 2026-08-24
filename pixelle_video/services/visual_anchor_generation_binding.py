@@ -167,7 +167,7 @@ def validate_visual_anchor_first_generation_binding(
 
     if failures:
         failed_audit = {
-            "schema_version": "visual_anchor_first_generation_binding_audit.v5",
+            "schema_version": "visual_anchor_first_generation_binding_audit.v6",
             "request_version": request.request_version,
             "recorded_at_utc": datetime.now(UTC).isoformat(),
             "status": "failed",
@@ -177,6 +177,7 @@ def validate_visual_anchor_first_generation_binding(
             "random_seed": request.random_seed,
             "selected_fusion_method": request.selected_fusion_method,
             "final_manifestation": request.final_manifestation,
+            "prompt_assembly_trace": _prompt_assembly_trace_payload(request),
             "failure_reason": "; ".join(failures),
             "failure_codes": list(failures),
             "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
@@ -188,9 +189,11 @@ def validate_visual_anchor_first_generation_binding(
             "identity_profile_id": request.identity_profile_id,
             "identity_display_name": request.identity_display_name,
             "identity_core_traits": list(request.identity_core_traits),
+            "identity_forbidden_traits": list(request.identity_forbidden_traits),
             "identity_resource_version": request.identity_resource_version,
             "identity_content_sha256": request.identity_content_sha256,
             "identity_conditioning_mode": request.identity_conditioning_mode,
+            "target_image_prompt_language": request.target_image_prompt_language,
             "reference_condition": condition.model_dump(mode="json"),
             "workflow_key": request.workflow_key,
             "workflow_version_sha256": request.workflow_version_sha256,
@@ -216,7 +219,7 @@ def validate_visual_anchor_first_generation_binding(
         )
 
     audit = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v5",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v6",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": "ready_to_submit",
@@ -226,6 +229,7 @@ def validate_visual_anchor_first_generation_binding(
         "random_seed": request.random_seed,
         "selected_fusion_method": request.selected_fusion_method,
         "final_manifestation": request.final_manifestation,
+        "prompt_assembly_trace": _prompt_assembly_trace_payload(request),
         "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
         "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
         "prompt_versions": {
@@ -235,9 +239,11 @@ def validate_visual_anchor_first_generation_binding(
         "identity_profile_id": request.identity_profile_id,
         "identity_display_name": request.identity_display_name,
         "identity_core_traits": list(request.identity_core_traits),
+        "identity_forbidden_traits": list(request.identity_forbidden_traits),
         "identity_resource_version": request.identity_resource_version,
         "identity_content_sha256": request.identity_content_sha256,
         "identity_conditioning_mode": request.identity_conditioning_mode,
+        "target_image_prompt_language": request.target_image_prompt_language,
         "reference_condition": condition.model_dump(mode="json"),
         "workflow_key": request.workflow_key,
         "workflow_version_sha256": request.workflow_version_sha256,
@@ -311,7 +317,7 @@ def _first_generation_binding_audit_payload(
     actual_binding: Mapping[str, Any],
 ) -> dict[str, Any]:
     payload = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v5",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v6",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": status,
@@ -321,6 +327,7 @@ def _first_generation_binding_audit_payload(
         "random_seed": request.random_seed,
         "selected_fusion_method": request.selected_fusion_method,
         "final_manifestation": request.final_manifestation,
+        "prompt_assembly_trace": _prompt_assembly_trace_payload(request),
         "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
         "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
         "prompt_versions": {
@@ -330,9 +337,11 @@ def _first_generation_binding_audit_payload(
         "identity_profile_id": request.identity_profile_id,
         "identity_display_name": request.identity_display_name,
         "identity_core_traits": list(request.identity_core_traits),
+        "identity_forbidden_traits": list(request.identity_forbidden_traits),
         "identity_resource_version": request.identity_resource_version,
         "identity_content_sha256": request.identity_content_sha256,
         "identity_conditioning_mode": request.identity_conditioning_mode,
+        "target_image_prompt_language": request.target_image_prompt_language,
         "reference_condition": None,
         "target_visual_style": request.target_visual_style.model_dump(mode="json"),
         "visible_text_policy": request.visible_text_policy.model_dump(mode="json"),
@@ -345,6 +354,13 @@ def _first_generation_binding_audit_payload(
         payload["failure_reason"] = "; ".join(failure_codes)
         payload["failure_codes"] = list(failure_codes)
     return payload
+
+
+def _prompt_assembly_trace_payload(
+    request: VisualAnchorImageGenerationRequest,
+) -> dict[str, Any] | None:
+    trace = request.prompt_assembly_trace
+    return trace.model_dump(mode="json") if trace is not None else None
 
 
 async def verify_visual_anchor_executed_workflow_binding(
