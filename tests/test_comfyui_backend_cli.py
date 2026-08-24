@@ -70,17 +70,19 @@ async def test_backend_cli_reads_default_profile_from_config(monkeypatch, tmp_pa
     }
 
 
-def test_backend_cli_fails_fast_on_invalid_yaml(tmp_path, capsys):
+@pytest.mark.asyncio
+async def test_backend_cli_fails_fast_on_invalid_yaml(tmp_path, capsys):
     config_path = tmp_path / "config.yaml"
     config_path.write_text("comfyui: [", encoding="utf-8")
 
-    returncode = backend_cli.main(["check", "--config", str(config_path)])
+    returncode = await backend_cli._main_async(["check", "--config", str(config_path)])
 
     assert returncode == 1
     assert "Invalid YAML" in capsys.readouterr().err
 
 
-def test_backend_cli_outputs_machine_readable_result(monkeypatch, tmp_path, capsys):
+@pytest.mark.asyncio
+async def test_backend_cli_outputs_machine_readable_result(monkeypatch, tmp_path, capsys):
     config_path = tmp_path / "config.yaml"
     _write_config(config_path)
 
@@ -94,7 +96,7 @@ def test_backend_cli_outputs_machine_readable_result(monkeypatch, tmp_path, caps
 
     monkeypatch.setattr(backend_cli, "_run_action", fake_run_action)
 
-    returncode = backend_cli.main(["check", "--config", str(config_path)])
+    returncode = await backend_cli._main_async(["check", "--config", str(config_path)])
     payload = json.loads(capsys.readouterr().out)
 
     assert returncode == 0

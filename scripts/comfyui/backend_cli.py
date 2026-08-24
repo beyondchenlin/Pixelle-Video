@@ -107,18 +107,22 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
+async def _main_async(argv: list[str] | None = None) -> int:
     args = _parse_args(list(argv) if argv is not None else sys.argv[1:])
     config_path = Path(args.config)
     if not config_path.is_absolute():
         config_path = (Path.cwd() / config_path).resolve()
     try:
-        payload = asyncio.run(_run_action(args.action, config_path, args.profile))
+        payload = await _run_action(args.action, config_path, args.profile)
     except Exception as exc:
         print(f"[Pixelle] ComfyUI backend {args.action} failed: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    return asyncio.run(_main_async(argv))
 
 
 if __name__ == "__main__":

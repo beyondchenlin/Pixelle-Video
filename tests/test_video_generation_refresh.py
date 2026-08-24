@@ -11,6 +11,7 @@ from api.tasks.executors import TaskExecutorRegistry
 from api.tasks.models import TaskProgress, TaskStatus, TaskType
 from api.video.executor_factory import register_video_generation_executor
 from api.video.task_submitter import TaskManagerVideoGenerationTaskSubmitter
+from tests.support.async_runner import run_coroutine_in_isolated_thread
 from web.components import output_preview
 from web.state import async_runtime
 from web.state import session as web_session
@@ -276,7 +277,7 @@ def test_inprocess_video_client_uses_fingerprint_and_returns_persisted_snapshot(
 
     client = InProcessVideoGenerationClient(
         submitter=Submitter(),
-        async_runner=asyncio.run,
+        async_runner=run_coroutine_in_isolated_thread,
     )
 
     submission = client.submit({"text": "demo", "request_id": "req-a"})
