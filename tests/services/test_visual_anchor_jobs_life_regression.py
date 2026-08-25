@@ -23,6 +23,7 @@ from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.visual_anchor_two_stage_service import (
     VisualAnchorTwoStageService,
+    _visual_signature_emphasis_frame_ids,
 )
 from pixelle_video.services.visual_prompt_composer import (
     VisualPromptComposer,
@@ -109,6 +110,26 @@ def _jobs_plan() -> StoryboardPlan:
                 source_text=source_text,
                 visual_goal=f"表达乔布斯人生第{index}段",
                 prompt_intent=f"第{index}段人生画面",
+            )
+            for index, source_text in enumerate(source_texts, start=1)
+        ],
+    )
+
+
+def _plan_with_frame_count(frame_count: int) -> StoryboardPlan:
+    source_texts = tuple(f"第{index}镜内容。" for index in range(1, frame_count + 1))
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=" ".join(source_texts),
+        frames=[
+            StoryboardPlanFrame(
+                index=index,
+                frame_id=f"cadence-{index}",
+                source_text=source_text,
+                visual_goal=f"表达第{index}镜",
+                prompt_intent=f"生成第{index}镜",
             )
             for index, source_text in enumerate(source_texts, start=1)
         ],
@@ -640,16 +661,82 @@ def test_fusion_and_finalization_keep_visual_signature_as_small_channel_mark():
         for required_rule in (
             "频道的次级视觉签名",
             "整体可见面积通常约占画面的 2% 至 5%",
-            "不大于主要人物头部或关键产品的视觉面积",
+            "保持常规小型频道标记",
             "使用次级位置、次级对比度",
             "胸针大小、手掌大小",
             "不得只写百分比或“小型”",
             "独立活体视觉身份站立、静坐、卧倒或躺卧",
             "不赋予凝视、陪伴、安慰或共同参与剧情的角色行为",
-            "重新选择更适合小尺度呈现的载体",
+            "若当前载体无法在对应尺度下保持次级视觉权重",
             "全部 identity_profile.core_identity_traits 清晰可识别",
         ):
             assert required_rule in template
+
+
+def test_fusion_and_finalization_define_one_step_larger_memory_frame():
+    template_root = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates"
+    )
+    templates = (
+        (template_root / "visual_anchor_fusion_stage.md").read_text(
+            encoding="utf-8"
+        ),
+        (template_root / "visual_anchor_finalization_stage.md").read_text(
+            encoding="utf-8"
+        ),
+    )
+
+    for template in templates:
+        for required_rule in (
+            "visual_signature_emphasis",
+            "本镜是品牌记忆镜头",
+            "必须比普通镜头明显大一档",
+            "整体可见面积通常约占画面的 5% 至 8%",
+            "仍明显小于主要叙事主体",
+            "不单独占据画面中心、前景主位或最高对比区域",
+            "不得把 enhanced 降回普通镜头的小尺度",
+        ):
+            assert required_rule in template
+
+
+@pytest.mark.parametrize(
+    ("frame_count", "expected_emphasis_count"),
+    ((1, 1), (9, 1), (10, 1), (14, 1), (15, 2), (24, 2), (25, 3)),
+)
+def test_visual_signature_emphasis_uses_nearest_tenth_with_one_frame_minimum(
+    frame_count: int,
+    expected_emphasis_count: int,
+):
+    plan = _plan_with_frame_count(frame_count)
+
+    selected = _visual_signature_emphasis_frame_ids(
+        storyboard_plan=plan,
+        task_id="task-emphasis-cadence",
+    )
+
+    assert len(selected) == expected_emphasis_count
+    assert selected.issubset({frame.frame_id for frame in plan.frames})
+
+
+def test_visual_signature_emphasis_is_reproducible_and_spread_across_series():
+    plan = _plan_with_frame_count(20)
+
+    first = _visual_signature_emphasis_frame_ids(
+        storyboard_plan=plan,
+        task_id="task-emphasis-cadence",
+    )
+    second = _visual_signature_emphasis_frame_ids(
+        storyboard_plan=plan,
+        task_id="task-emphasis-cadence",
+    )
+    selected_indexes = {
+        frame.index for frame in plan.frames if frame.frame_id in first
+    }
+
+    assert first == second
+    assert len(selected_indexes & set(range(1, 11))) == 1
+    assert len(selected_indexes & set(range(11, 21))) == 1
 
 
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
@@ -852,6 +939,14 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
         assert '"negative_prompt_supported": false' in call["prompt"]
         assert '"series_fusion_history": []' in call["prompt"]
+    assert sum(
+        '"visual_signature_emphasis": "enhanced"' in call["prompt"]
+        for call in fusion_calls
+    ) == 1
+    assert sum(
+        '"visual_signature_emphasis": "standard"' in call["prompt"]
+        for call in fusion_calls
+    ) == len(plan.frames) - 1
     for call in finalization_calls:
         assert '"content_stage_input"' in call["prompt"]
         assert '"article_context"' in call["prompt"]
@@ -860,6 +955,10 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"fusion_stage_input"' in call["prompt"]
         assert '"fusion_stage_output"' in call["prompt"]
         assert '"series_final_prompt_history"' in call["prompt"]
+    assert sum(
+        '"visual_signature_emphasis": "enhanced"' in call["prompt"]
+        for call in finalization_calls
+    ) == 1
 
     expected_contents = _content_outputs(plan)
     expected_fusions = _fusion_outputs(expected_contents)

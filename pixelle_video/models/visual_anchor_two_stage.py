@@ -6,8 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v20"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v23"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v4"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v24"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v5"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v8"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
@@ -56,12 +56,14 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v20",
     "visual_anchor_fusion_stage.v21",
     "visual_anchor_fusion_stage.v22",
+    "visual_anchor_fusion_stage.v23",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v1",
     "visual_anchor_finalization_stage.v2",
     "visual_anchor_finalization_stage.v3",
+    "visual_anchor_finalization_stage.v4",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -770,6 +772,7 @@ class FusionStageInput(BaseModel):
     identity_conditioning_mode: Literal["text_profile", "reference_image"]
     identity_reference_condition: IdentityReferenceCondition | None = None
     workflow_identity_condition_summary: str
+    visual_signature_emphasis: Literal["standard", "enhanced"] = "standard"
     continuous_scene_context: ContinuousSceneContext
     series_fusion_history: list[str] = Field(default_factory=list, max_length=3)
     target_visual_style: TargetVisualStyle

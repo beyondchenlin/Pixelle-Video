@@ -251,6 +251,10 @@ class VisualAnchorTwoStageService:
         }
 
         scene_ids = _continuous_scene_ids(storyboard_plan.frames)
+        emphasis_frame_ids = _visual_signature_emphasis_frame_ids(
+            storyboard_plan=storyboard_plan,
+            task_id=resolved_task_id,
+        )
         decisions_by_scene: dict[str, FinalizationStagePromptPassthrough] = {}
         series_final_prompt_history: list[str] = []
         results: list[VisualAnchorTwoStageFrameResult] = []
@@ -267,6 +271,11 @@ class VisualAnchorTwoStageService:
                 identity_reference_condition=identity_reference_condition,
                 identity_conditioning_mode=resolved_identity_conditioning_mode,
                 workflow_identity_condition_summary=resolved_condition_summary,
+                visual_signature_emphasis=(
+                    "enhanced"
+                    if frame.frame_id in emphasis_frame_ids
+                    else "standard"
+                ),
                 target_visual_style=resolved_style,
                 visible_text_policy=resolved_text_policy,
                 target_image_prompt_language=resolved_prompt_language,
@@ -304,6 +313,7 @@ class VisualAnchorTwoStageService:
         identity_reference_condition: IdentityReferenceCondition | None,
         identity_conditioning_mode: str,
         workflow_identity_condition_summary: str,
+        visual_signature_emphasis: str,
         target_visual_style: TargetVisualStyle,
         visible_text_policy: VisibleTextPolicy,
         target_image_prompt_language: str,
@@ -396,6 +406,7 @@ class VisualAnchorTwoStageService:
             identity_conditioning_mode=identity_conditioning_mode,
             identity_reference_condition=identity_reference_condition,
             workflow_identity_condition_summary=workflow_identity_condition_summary,
+            visual_signature_emphasis=visual_signature_emphasis,
             continuous_scene_context=continuity_context,
             series_fusion_history=[],
             target_visual_style=target_visual_style,
@@ -754,6 +765,35 @@ def _relevant_article_context(
 
 def _normalized_text(value: object) -> str:
     return " ".join(str(value or "").split())
+
+
+def _visual_signature_emphasis_frame_ids(
+    *,
+    storyboard_plan: StoryboardPlan,
+    task_id: str,
+) -> frozenset[str]:
+    """Allocate roughly one reproducible emphasis frame per ten frames."""
+
+    frames = tuple(storyboard_plan.frames)
+    if not frames:
+        return frozenset()
+    emphasis_count = max(1, (len(frames) + 5) // 10)
+    selected: set[str] = set()
+    for slot in range(emphasis_count):
+        start = slot * len(frames) // emphasis_count
+        end = (slot + 1) * len(frames) // emphasis_count
+        candidates = frames[start:end]
+        selected_frame = min(
+            candidates,
+            key=lambda frame: hashlib.sha256(
+                (
+                    f"{task_id}:{storyboard_plan.plan_id}:"
+                    f"visual-signature-emphasis:{slot}:{frame.frame_id}"
+                ).encode("utf-8")
+            ).digest(),
+        )
+        selected.add(selected_frame.frame_id)
+    return frozenset(selected)
 
 
 def _required_text(value: object, field_name: str) -> str:
