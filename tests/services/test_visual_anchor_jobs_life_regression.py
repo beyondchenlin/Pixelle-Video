@@ -512,10 +512,10 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "original_storyboard_text 是画面主旨与事实边界",
         "content_stage_output.raw_prompt 是不含视觉身份的创作草稿",
         "可以增加、删除、替换、移动或重写任何背景、道具、服装细节",
-        "不预设视觉身份的大小、位置、朝向、画面占比、叙事职责或载体类型",
-        "职责之间没有固定优先级",
-        "墙面、服装、道具、产品、材料、环境结构和实体也没有固定优先级",
-        "可以创造原草稿中不存在的新物件、新装置、新环境结构或新的视觉关系",
+        "视觉身份的职责固定为频道的次级识别标记",
+        "不预设具体载体、位置、朝向和表现材质",
+        "优先从已经参与该重点的产品、设计稿、服装、工具、材料或环境局部结构中选择载体",
+        "没有自然载体时，再创造一个与主题有关的小型标识化载体",
         "可以让现有关键叙事物品承载视觉身份",
         "本阶段不承担跨独立镜头的历史查重",
         "同一连续场景优先参考 continuous_scene_context.existing_fusion_decision 保持既有表现形态和空间关系",
@@ -528,7 +528,7 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
     assert "最终提示词必须把 identity_profile.display_name 的实际值代入" not in template
 
 
-def test_fusion_template_explicitly_allows_material_and_interactive_forms():
+def test_fusion_template_explicitly_allows_small_attached_brand_forms():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
@@ -539,11 +539,11 @@ def test_fusion_template_explicitly_allows_material_and_interactive_forms():
         "刺绣",
         "压印",
         "材质图形",
-        "道具",
-        "摆件",
+        "产品图形",
+        "道具徽记",
+        "小型标识化摆件",
         "雕刻",
-        "环境结构",
-        "互动角色",
+        "环境局部标识",
     ):
         assert manifestation in template
 
@@ -556,8 +556,8 @@ def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
 
     for required_rule in (
         "整幅画只出现一个可识别的视觉身份实例",
-        "先在内部确定视觉身份在当前画面中承担的具体可见职责",
-        "任何能够在当前场景中真实成立的单一表现方式都合法",
+        "先在内部确定它应附着于哪个与本镜主题相关的载体",
+        "任何能够作为小型频道标记在当前场景中真实成立的单一附着方式都合法",
         "target_visual_style.required_final_prompt_fragments",
     ):
         assert required_rule in template
@@ -608,7 +608,7 @@ def test_finalization_template_unifies_style_and_keeps_positive_scene_choices():
         "关键叙事物品可以承载视觉身份",
         "创作手段完全开放",
         "可以创造原文和两轮草稿中都不存在的新物件、新装置和新的视觉关系",
-        "没有固定优先顺序",
+        "视觉身份的职责固定为频道的次级识别标记",
         "每个人物、名人面部与身体、服装、道具、产品、环境和视觉身份",
         "代码不会解析、判断、验证、修复或改写你的结果",
         "只输出最终图片提示词原文",
@@ -622,7 +622,7 @@ def test_finalization_template_unifies_style_and_keeps_positive_scene_choices():
         assert forbidden_output not in template
 
 
-def test_fusion_and_finalization_keep_visual_signature_visibly_secondary():
+def test_fusion_and_finalization_keep_visual_signature_as_small_channel_mark():
     template_root = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates"
@@ -639,12 +639,14 @@ def test_fusion_and_finalization_keep_visual_signature_visibly_secondary():
     for template in templates:
         for required_rule in (
             "频道的次级视觉签名",
-            "第一眼读懂本镜主题，第二眼才自然发现视觉身份",
-            "整体可见面积通常约占画面的 5% 至 10%",
-            "明显小于主叙事主体",
+            "整体可见面积通常约占画面的 2% 至 5%",
+            "不大于主要人物头部或关键产品的视觉面积",
             "使用次级位置、次级对比度",
-            "仍保持次级视觉权重",
-            "重新选择更适合小尺度呈现的载体、动作或关系",
+            "胸针大小、手掌大小",
+            "不得只写百分比或“小型”",
+            "独立活体视觉身份站立、静坐、卧倒或躺卧",
+            "不赋予凝视、陪伴、安慰或共同参与剧情的角色行为",
+            "重新选择更适合小尺度呈现的载体",
             "全部 identity_profile.core_identity_traits 清晰可识别",
         ):
             assert required_rule in template
