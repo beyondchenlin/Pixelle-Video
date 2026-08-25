@@ -519,6 +519,8 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "original_storyboard_text 是画面主旨和事实边界",
         "content_stage_output.raw_prompt 是纯内容草稿",
         "整幅画只出现一个可识别的视觉身份实例",
+        "逐项写出 identity_profile.display_name 和 identity_profile.core_identity_traits 的实际内容",
+        "不得概括、省略或改写",
         "视觉身份不得作为独立实体出现在场景中",
         "必须成为当前画面某个实体物体自身的一部分",
         "视觉身份只承担次级频道标记",
@@ -614,6 +616,8 @@ def test_finalization_template_unifies_scene_and_signature_styles():
 
     for required_rule in (
         "同一风格一致作用于人物、物体、环境、承载对象和视觉身份",
+        "逐项写出 identity_profile.display_name 和 identity_profile.core_identity_traits 的实际内容",
+        "不得概括、省略或改写",
         "视觉身份不得作为独立实体出现在场景中",
         "必须成为当前画面某个实体物体自身的一部分",
         "自由选择最自然的承载对象",
