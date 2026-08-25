@@ -519,8 +519,12 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "original_storyboard_text 是画面主旨和事实边界",
         "content_stage_output.raw_prompt 是纯内容草稿",
         "整幅画只出现一个可识别的视觉身份实例",
+        "视觉身份不得作为独立实体出现在场景中",
+        "必须成为当前画面某个实体物体自身的一部分",
         "视觉身份只承担次级频道标记",
         "自由选择最自然的承载对象",
+        "优先使用画面中已有的非主体物体",
+        "没有自然载体时，补充一个不改变主旨的物体",
         "不要机械地把视觉身份放在主体身上",
         "写清视觉身份与承载对象之间能够直接看到的物理关系",
         "target_visual_style 是整幅画的统一风格",
@@ -596,7 +600,7 @@ def test_finalization_template_repairs_current_facts_without_copying_history():
         "article_context 只用于核对身份、指代、因果和必要背景",
         "前两轮输出只是草稿，不是必须保留的内容",
         "series_final_prompt_history 只用于识别最近三个最终提示词中的承载关系",
-        "当前镜头属于独立场景时，必须避开最近重复的承载关系",
+        "当前镜头属于独立场景时，必须使用与最近三个不同的承载对象",
         "属于连续场景时，画面连续性优先",
     ):
         assert required_rule in template
@@ -610,7 +614,10 @@ def test_finalization_template_unifies_scene_and_signature_styles():
 
     for required_rule in (
         "同一风格一致作用于人物、物体、环境、承载对象和视觉身份",
+        "视觉身份不得作为独立实体出现在场景中",
+        "必须成为当前画面某个实体物体自身的一部分",
         "自由选择最自然的承载对象",
+        "优先使用画面中已有的非主体物体",
         "不要机械地把视觉身份放在主体身上",
         "你的原始输出将直接作为图片正向提示词",
         "只输出最终图片提示词原文",
