@@ -82,7 +82,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v10",
+            "schema_version": "visual_anchor_two_stage_batch.v11",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -261,7 +261,7 @@ class VisualAnchorTwoStageService:
                 frame_ids=tuple(
                     frame.frame_id for frame in storyboard_plan.frames
                 ),
-                random_seeds_by_frame=registered_seeds,
+                storyboard_plan_id=storyboard_plan.plan_id,
             )
         }
         decisions_by_scene: dict[str, FinalizationStagePromptPassthrough] = {}

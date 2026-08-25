@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
 VISUAL_SIGNATURE_EMPHASIS_FRAME_INTERVAL = 10
-_MAX_RANDOM_SEED = 2**64 - 1
-_SELECTION_NAMESPACE = "visual-signature-emphasis-cadence.v1"
+_SELECTION_NAMESPACE = "visual-signature-emphasis-cadence.v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,15 +25,14 @@ class VisualSignatureEmphasisCadencePlanner:
         self,
         *,
         frame_ids: Sequence[str],
-        random_seeds_by_frame: Mapping[str, int],
+        storyboard_plan_id: str,
     ) -> tuple[VisualSignatureEmphasisDecision, ...]:
         if isinstance(frame_ids, (str, bytes)):
             raise TypeError("frame_ids must be a sequence of frame id strings")
         ordered_frame_ids = tuple(frame_ids)
         _validate_frame_ids(ordered_frame_ids)
-        _validate_random_seeds(
-            frame_ids=ordered_frame_ids,
-            random_seeds_by_frame=random_seeds_by_frame,
+        resolved_storyboard_plan_id = _validate_storyboard_plan_id(
+            storyboard_plan_id
         )
         if not ordered_frame_ids:
             return ()
@@ -53,7 +51,7 @@ class VisualSignatureEmphasisCadencePlanner:
                 candidates,
                 key=lambda frame_id: _selection_digest(
                     frame_id=frame_id,
-                    random_seed=random_seeds_by_frame[frame_id],
+                    storyboard_plan_id=resolved_storyboard_plan_id,
                     window_index=window_index,
                 ),
             )
@@ -76,13 +74,13 @@ class VisualSignatureEmphasisCadencePlanner:
 def _selection_digest(
     *,
     frame_id: str,
-    random_seed: int,
+    storyboard_plan_id: str,
     window_index: int,
 ) -> bytes:
     return hashlib.sha256(
         (
             f"{_SELECTION_NAMESPACE}:{window_index}:"
-            f"{random_seed}:{frame_id}"
+            f"{storyboard_plan_id}:{frame_id}"
         ).encode("utf-8")
     ).digest()
 
@@ -94,23 +92,13 @@ def _validate_frame_ids(frame_ids: tuple[str, ...]) -> None:
         raise ValueError("frame_ids must be unique")
 
 
-def _validate_random_seeds(
-    *,
-    frame_ids: tuple[str, ...],
-    random_seeds_by_frame: Mapping[str, int],
-) -> None:
-    if not isinstance(random_seeds_by_frame, Mapping):
-        raise TypeError("random_seeds_by_frame must be a mapping")
-    if set(random_seeds_by_frame) != set(frame_ids):
-        raise ValueError(
-            "random_seeds_by_frame must contain every frame id and no unknown frame ids"
-        )
-    for frame_id in frame_ids:
-        seed = random_seeds_by_frame[frame_id]
-        if type(seed) is not int or not 1 <= seed <= _MAX_RANDOM_SEED:
-            raise ValueError(
-                f"random seed for {frame_id} must be between 1 and 2^64-1"
-            )
+def _validate_storyboard_plan_id(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("storyboard_plan_id must be a string")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("storyboard_plan_id must be a non-empty string")
+    return normalized
 
 
 __all__ = [

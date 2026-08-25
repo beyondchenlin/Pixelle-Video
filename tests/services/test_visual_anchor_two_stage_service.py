@@ -301,6 +301,7 @@ async def _run(
     finalizations=None,
     stage_callback=None,
     identity_conditioning_mode="reference_image",
+    random_seeds_by_frame=None,
 ):
     contents = [
         f"原始纯内容提示词::{frame.frame_id}::{frame.source_text}"
@@ -326,6 +327,7 @@ async def _run(
         llm,
         identity_conditioning_mode=identity_conditioning_mode,
         stage_callback=stage_callback,
+        random_seeds_by_frame=random_seeds_by_frame,
     )
     return result, llm
 
@@ -466,7 +468,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v10"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v11"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -1017,6 +1019,34 @@ def test_seed_registration_is_complete_and_deterministic():
         hashlib.sha256(b"task-seed:frame-a").digest()[:8], "big"
     )
     assert first["frame-a"] == max(1, expected)
+
+
+@pytest.mark.asyncio
+async def test_emphasis_cadence_is_independent_from_image_random_seeds():
+    plan = _independent_plan(frame_count=25)
+    frame_ids = tuple(frame.frame_id for frame in plan.frames)
+
+    first, _ = await _run(
+        plan,
+        random_seeds_by_frame={frame_id: 1 for frame_id in frame_ids},
+    )
+    second, _ = await _run(
+        plan,
+        random_seeds_by_frame={frame_id: 2 for frame_id in frame_ids},
+    )
+
+    assert tuple(
+        frame.fusion_stage_input.visual_signature_emphasis
+        for frame in first.frames
+    ) == tuple(
+        frame.fusion_stage_input.visual_signature_emphasis
+        for frame in second.frames
+    )
+    assert tuple(
+        frame.generation_request.random_seed for frame in first.frames
+    ) != tuple(
+        frame.generation_request.random_seed for frame in second.frames
+    )
 
 
 def _contract_digest(payload):
