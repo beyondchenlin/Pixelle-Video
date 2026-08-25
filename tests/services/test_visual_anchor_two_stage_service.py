@@ -74,7 +74,7 @@ class _QueuedLLM:
         )
         queue_key = response_type
         if queue_key is None and queue_key not in self.responses:
-            if "最终生图提示词审查重写导演" in prompt:
+            if "最终画面创作导演" in prompt:
                 queue_key = FinalizationStagePromptPassthrough
             elif "视觉融合导演" in prompt:
                 queue_key = FusionStageModelOutput
@@ -462,7 +462,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v9"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v10"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -481,6 +481,10 @@ async def test_raw_finalization_response_flows_directly_to_generation():
     )
     assert frame.finalization_stage_input.fusion_stage_input == frame.fusion_stage_input
     assert frame.finalization_stage_input.fusion_stage_output == frame.fusion_stage_output
+    assert (
+        frame.finalization_stage_input.content_stage_input
+        == frame.content_stage_input
+    )
     assert (
         frame.generation_request.finalization_stage_prompt_version
         == FINALIZATION_STAGE_PROMPT_VERSION
@@ -508,7 +512,7 @@ async def test_stage_prompts_apply_requirements_only_before_generation():
     assert "真实电影感" in llm.calls[2]["prompt"]
     assert "只输出最终纯内容图片提示词原文" in llm.calls[0]["prompt"]
     assert "只输出完整融合提示词草稿原文" in llm.calls[1]["prompt"]
-    assert "只输出审查重写后的最终图片提示词原文" in llm.calls[2]["prompt"]
+    assert "只输出最终图片提示词原文" in llm.calls[2]["prompt"]
 
 
 @pytest.mark.asyncio
@@ -572,6 +576,10 @@ async def test_content_stage_receives_current_frame_and_original_article_context
     assert first_input.original_storyboard_text == plan.frames[0].source_text
     assert first_input.article_context == plan.source_text
     assert first_input.next_frame_summary == plan.frames[1].source_text
+
+    finalization_input = result.frames[0].finalization_stage_input
+    assert finalization_input is not None
+    assert finalization_input.content_stage_input == first_input
 
 
 @pytest.mark.asyncio
@@ -1030,6 +1038,37 @@ async def test_current_three_stage_payload_rejects_mismatched_stage_version():
 
     with pytest.raises(ValidationError, match="fusion version must match"):
         VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_v1_finalization_artifact_without_content_input_remains_readable():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+    payload["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v20"
+    )
+    payload["finalization_stage_input"]["fusion_stage_input"][
+        "prompt_version"
+    ] = "visual_anchor_fusion_stage.v20"
+    payload["generation_request"]["fusion_stage_prompt_version"] = (
+        "visual_anchor_fusion_stage.v20"
+    )
+    payload["finalization_stage_input"].pop("content_stage_input")
+    payload["finalization_stage_input"]["prompt_version"] = (
+        "visual_anchor_finalization_stage.v1"
+    )
+    payload["generation_request"]["finalization_stage_prompt_version"] = (
+        "visual_anchor_finalization_stage.v1"
+    )
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.finalization_stage_input is not None
+    assert restored.finalization_stage_input.content_stage_input is None
+    assert (
+        restored.finalization_stage_input.prompt_version
+        == "visual_anchor_finalization_stage.v1"
+    )
 
 
 @pytest.mark.asyncio

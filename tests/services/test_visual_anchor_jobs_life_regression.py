@@ -67,7 +67,7 @@ class _QueuedLLM:
         )
         queue_key = response_type
         if queue_key is None and queue_key not in self.responses:
-            if "最终生图提示词审查重写导演" in prompt:
+            if "最终画面创作导演" in prompt:
                 queue_key = FinalizationStagePromptPassthrough
             elif "视觉融合导演" in prompt:
                 queue_key = FusionStageModelOutput
@@ -512,12 +512,11 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "original_storyboard_text 是画面主旨与事实边界",
         "content_stage_output.raw_prompt 是不含视觉身份的创作草稿",
         "可以增加、删除、替换、移动或重写任何背景、道具、服装细节",
-        "不预设视觉身份的大小、位置、朝向、画面占比或叙事职责",
-        "按下述正向优先顺序结合当前场景选择",
-        "优先成为现有场景表面或环境载体的一部分",
-        "静坐、站立、观看或陪伴的被动实体是最后选择",
-        "这是选择顺序，不是禁用清单",
-        "关键叙事物品可以承载视觉身份",
+        "不预设视觉身份的大小、位置、朝向、画面占比、叙事职责或载体类型",
+        "职责之间没有固定优先级",
+        "墙面、服装、道具、产品、材料、环境结构和实体也没有固定优先级",
+        "可以创造原草稿中不存在的新物件、新装置、新环境结构或新的视觉关系",
+        "可以让现有关键叙事物品承载视觉身份",
         "本阶段不承担跨独立镜头的历史查重",
         "同一连续场景优先参考 continuous_scene_context.existing_fusion_decision 保持既有表现形态和空间关系",
         "不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子",
@@ -557,7 +556,7 @@ def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
 
     for required_rule in (
         "整幅画只出现一个可识别的视觉身份实例",
-        "先在内部依次确定目标画风、唯一的融合方式、最终表现形态以及空间接触与光照关系",
+        "先在内部确定视觉身份在当前画面中承担的具体可见职责",
         "任何能够在当前场景中真实成立的单一表现方式都合法",
         "target_visual_style.required_final_prompt_fragments",
     ):
@@ -587,12 +586,13 @@ def test_finalization_template_repairs_current_facts_without_copying_history():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "original_storyboard_text 为当前画面的事实硬边界",
-        "直接恢复当前分镜事实",
-        "不得把历史提示词里的事件、人物动作、背景或道具搬进本镜",
-        "series_final_prompt_history 是此前画面的最终提示词，只用于识别重复",
-        "绝对不是可复制的写作模板",
-        "重复使用墙上挂画、装饰画、同一服装位置、同一道具、同一被动陪伴实体或同构构图",
+        "content_stage_input.article_context 是从用户原文截取的相关上下文",
+        "original_storyboard_text 与 content_stage_input.original_storyboard_text 是当前分镜的画面范围",
+        "不能覆盖当前分镜，也不能成为新的画面主事件",
+        "二者都不是事实来源，也不是必须保留的构图",
+        "相关原文上下文只负责核对这些事实，不负责扩大本镜范围",
+        "series_final_prompt_history 只用于识别此前已经采用过的载体",
+        "绝对不是可复制的事实或写作模板",
         "continuous_scene_context.existing_fusion_decision 的连续性为先",
     ):
         assert required_rule in template
@@ -606,11 +606,12 @@ def test_finalization_template_unifies_style_and_keeps_positive_scene_choices():
 
     for required_rule in (
         "关键叙事物品可以承载视觉身份",
-        "该顺序不是禁用清单",
-        "每个人物、名人面部与身体、服装、道具、环境和视觉身份",
-        "二维线描插画造型、简化明暗和非照片质感",
-        "代码不会解析、判断或修复你的结果",
-        "只输出审查重写后的最终图片提示词原文",
+        "创作手段完全开放",
+        "可以创造原文和两轮草稿中都不存在的新物件、新装置和新的视觉关系",
+        "没有固定优先顺序",
+        "每个人物、名人面部与身体、服装、道具、产品、环境和视觉身份",
+        "代码不会解析、判断、验证、修复或改写你的结果",
+        "只输出最终图片提示词原文",
     ):
         assert required_rule in template
     for forbidden_output in (
@@ -800,7 +801,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
     finalization_calls = [
         call
         for call in llm.calls
-        if "你是一名最终生图提示词审查重写导演" in call["prompt"]
+        if "你是一名最终画面创作导演" in call["prompt"]
     ]
     assert (
         len(content_calls)
@@ -822,6 +823,10 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"negative_prompt_supported": false' in call["prompt"]
         assert '"series_fusion_history": []' in call["prompt"]
     for call in finalization_calls:
+        assert '"content_stage_input"' in call["prompt"]
+        assert '"article_context"' in call["prompt"]
+        assert '"previous_frame_summary"' in call["prompt"]
+        assert '"next_frame_summary"' in call["prompt"]
         assert '"fusion_stage_input"' in call["prompt"]
         assert '"fusion_stage_output"' in call["prompt"]
         assert '"series_final_prompt_history"' in call["prompt"]

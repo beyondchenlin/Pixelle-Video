@@ -199,6 +199,7 @@ def _frame_result(tmp_path):
     finalization_input = FinalizationStageInput(
         frame_id="frame-a",
         original_storyboard_text=content_input.original_storyboard_text,
+        content_stage_input=content_input,
         fusion_stage_input=fusion_input,
         fusion_stage_output=fusion_output,
         series_final_prompt_history=[],
