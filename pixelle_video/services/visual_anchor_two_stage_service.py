@@ -36,7 +36,11 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
 )
+from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
+from pixelle_video.services.visual_signature_emphasis_cadence import (
+    VisualSignatureEmphasisCadencePlanner,
+)
 from pixelle_video.utils.logging_util import emit_stage_event
 
 
@@ -251,6 +255,15 @@ class VisualAnchorTwoStageService:
         }
 
         scene_ids = _continuous_scene_ids(storyboard_plan.frames)
+        emphasis_by_frame = {
+            decision.frame_id: decision.emphasis
+            for decision in VisualSignatureEmphasisCadencePlanner().plan(
+                frame_ids=tuple(
+                    frame.frame_id for frame in storyboard_plan.frames
+                ),
+                random_seeds_by_frame=registered_seeds,
+            )
+        }
         decisions_by_scene: dict[str, FinalizationStagePromptPassthrough] = {}
         series_final_prompt_history: list[str] = []
         results: list[VisualAnchorTwoStageFrameResult] = []
@@ -267,6 +280,7 @@ class VisualAnchorTwoStageService:
                 identity_reference_condition=identity_reference_condition,
                 identity_conditioning_mode=resolved_identity_conditioning_mode,
                 workflow_identity_condition_summary=resolved_condition_summary,
+                visual_signature_emphasis=emphasis_by_frame[frame.frame_id],
                 target_visual_style=resolved_style,
                 visible_text_policy=resolved_text_policy,
                 target_image_prompt_language=resolved_prompt_language,
@@ -304,6 +318,7 @@ class VisualAnchorTwoStageService:
         identity_reference_condition: IdentityReferenceCondition | None,
         identity_conditioning_mode: str,
         workflow_identity_condition_summary: str,
+        visual_signature_emphasis: VisualSignatureEmphasis,
         target_visual_style: TargetVisualStyle,
         visible_text_policy: VisibleTextPolicy,
         target_image_prompt_language: str,
@@ -396,6 +411,7 @@ class VisualAnchorTwoStageService:
             identity_conditioning_mode=identity_conditioning_mode,
             identity_reference_condition=identity_reference_condition,
             workflow_identity_condition_summary=workflow_identity_condition_summary,
+            visual_signature_emphasis=visual_signature_emphasis,
             continuous_scene_context=continuity_context,
             series_fusion_history=[],
             target_visual_style=target_visual_style,

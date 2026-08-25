@@ -23,6 +23,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     ContentSubject,
     FinalizationStageInput,
     FinalizationStagePromptPassthrough,
+    FusionStageInput,
     FusionStageModelOutput,
     FusionStageOutput,
     IdentityReferenceCondition,
@@ -33,6 +34,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
 )
+from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 from pixelle_video.services import visual_anchor_regeneration
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.services.visual_anchor_two_stage_service import (
@@ -1063,6 +1065,28 @@ async def test_current_raw_payload_round_trips_without_content_validation():
     assert frame.generation_request.final_positive_prompt == (
         frame.finalization_stage_output.raw_prompt
     )
+
+
+@pytest.mark.asyncio
+async def test_current_fusion_input_requires_explicit_emphasis_assignment():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].fusion_stage_input.model_dump(mode="json")
+    payload.pop("visual_signature_emphasis")
+
+    with pytest.raises(ValidationError, match="explicit visual signature emphasis"):
+        FusionStageInput.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_historical_fusion_input_without_emphasis_remains_readable():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].fusion_stage_input.model_dump(mode="json")
+    payload.pop("visual_signature_emphasis")
+    payload["prompt_version"] = "visual_anchor_fusion_stage.v23"
+
+    restored = FusionStageInput.model_validate(payload)
+
+    assert restored.visual_signature_emphasis is VisualSignatureEmphasis.STANDARD
 
 
 @pytest.mark.asyncio

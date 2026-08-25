@@ -515,7 +515,7 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "视觉身份的职责固定为频道的次级识别标记",
         "不预设具体载体、位置、朝向和表现材质",
         "优先从已经参与该重点的产品、设计稿、服装、工具、材料或环境局部结构中选择载体",
-        "没有自然载体时，再创造一个与主题有关的小型标识化载体",
+        "没有自然载体时，再创造一个与主题有关的标识化载体",
         "可以让现有关键叙事物品承载视觉身份",
         "本阶段不承担跨独立镜头的历史查重",
         "同一连续场景优先参考 continuous_scene_context.existing_fusion_decision 保持既有表现形态和空间关系",
@@ -528,7 +528,7 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
     assert "最终提示词必须把 identity_profile.display_name 的实际值代入" not in template
 
 
-def test_fusion_template_explicitly_allows_small_attached_brand_forms():
+def test_fusion_template_explicitly_allows_single_attached_brand_forms():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
@@ -541,7 +541,7 @@ def test_fusion_template_explicitly_allows_small_attached_brand_forms():
         "材质图形",
         "产品图形",
         "道具徽记",
-        "小型标识化摆件",
+        "标识化摆件",
         "雕刻",
         "环境局部标识",
     ):
@@ -556,8 +556,8 @@ def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
 
     for required_rule in (
         "整幅画只出现一个可识别的视觉身份实例",
-        "先在内部确定它应附着于哪个与本镜主题相关的载体",
-        "任何能够作为小型频道标记在当前场景中真实成立的单一附着方式都合法",
+        "再确定它应附着于哪个与本镜主题相关的载体",
+        "任何能够作为频道标记在当前场景中真实成立的单一附着方式都合法",
         "target_visual_style.required_final_prompt_fragments",
     ):
         assert required_rule in template
@@ -640,14 +640,42 @@ def test_fusion_and_finalization_keep_visual_signature_as_small_channel_mark():
         for required_rule in (
             "频道的次级视觉签名",
             "整体可见面积通常约占画面的 2% 至 5%",
-            "不大于主要人物头部或关键产品的视觉面积",
-            "使用次级位置、次级对比度",
-            "胸针大小、手掌大小",
+            "形成常规小型频道标记",
+            "占据主要构图轴并拥有更强的细节与明暗组织",
+            "胸针或手掌大小",
             "不得只写百分比或“小型”",
             "独立活体视觉身份站立、静坐、卧倒或躺卧",
             "不赋予凝视、陪伴、安慰或共同参与剧情的角色行为",
-            "重新选择更适合小尺度呈现的载体",
+            "若当前载体无法在对应尺度下维持这项层级",
             "全部 identity_profile.core_identity_traits 清晰可识别",
+        ):
+            assert required_rule in template
+
+
+def test_fusion_and_finalization_define_one_step_larger_memory_frame():
+    template_root = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates"
+    )
+    templates = (
+        (template_root / "visual_anchor_fusion_stage.md").read_text(
+            encoding="utf-8"
+        ),
+        (template_root / "visual_anchor_finalization_stage.md").read_text(
+            encoding="utf-8"
+        ),
+    )
+
+    for template in templates:
+        for required_rule in (
+            "visual_signature_emphasis",
+            "enhanced 是品牌记忆镜头",
+            "必须比 standard 明显大一档",
+            "整体可见面积通常约占画面的 5% 至 8%",
+            "不要再用线性倍数推算面积",
+            "仍明显小于主要叙事主体整体",
+            "不占据画面中心、前景主位、最高对比",
+            "不得把 enhanced 降回普通镜头的小尺度",
         ):
             assert required_rule in template
 
@@ -852,6 +880,14 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
         assert '"negative_prompt_supported": false' in call["prompt"]
         assert '"series_fusion_history": []' in call["prompt"]
+    assert sum(
+        '"visual_signature_emphasis": "enhanced"' in call["prompt"]
+        for call in fusion_calls
+    ) == 1
+    assert sum(
+        '"visual_signature_emphasis": "standard"' in call["prompt"]
+        for call in fusion_calls
+    ) == len(plan.frames) - 1
     for call in finalization_calls:
         assert '"content_stage_input"' in call["prompt"]
         assert '"article_context"' in call["prompt"]
@@ -860,6 +896,10 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"fusion_stage_input"' in call["prompt"]
         assert '"fusion_stage_output"' in call["prompt"]
         assert '"series_final_prompt_history"' in call["prompt"]
+    assert sum(
+        '"visual_signature_emphasis": "enhanced"' in call["prompt"]
+        for call in finalization_calls
+    ) == 1
 
     expected_contents = _content_outputs(plan)
     expected_fusions = _fusion_outputs(expected_contents)

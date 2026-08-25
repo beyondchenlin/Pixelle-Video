@@ -152,6 +152,7 @@ def _frame_result(tmp_path):
         identity_conditioning_mode="reference_image",
         identity_reference_condition=reference,
         workflow_identity_condition_summary="当前工作流使用真实参考图绑定身份",
+        visual_signature_emphasis="standard",
         continuous_scene_context=continuity,
         target_visual_style=target_style,
         negative_prompt_supported=False,
