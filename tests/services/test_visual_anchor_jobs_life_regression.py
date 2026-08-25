@@ -23,7 +23,6 @@ from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.visual_anchor_two_stage_service import (
     VisualAnchorTwoStageService,
-    _visual_signature_emphasis_frame_ids,
 )
 from pixelle_video.services.visual_prompt_composer import (
     VisualPromptComposer,
@@ -110,26 +109,6 @@ def _jobs_plan() -> StoryboardPlan:
                 source_text=source_text,
                 visual_goal=f"表达乔布斯人生第{index}段",
                 prompt_intent=f"第{index}段人生画面",
-            )
-            for index, source_text in enumerate(source_texts, start=1)
-        ],
-    )
-
-
-def _plan_with_frame_count(frame_count: int) -> StoryboardPlan:
-    source_texts = tuple(f"第{index}镜内容。" for index in range(1, frame_count + 1))
-    return StoryboardPlan.build(
-        mode="sentence",
-        count_mode="auto",
-        requested_scene_count=None,
-        source_text=" ".join(source_texts),
-        frames=[
-            StoryboardPlanFrame(
-                index=index,
-                frame_id=f"cadence-{index}",
-                source_text=source_text,
-                visual_goal=f"表达第{index}镜",
-                prompt_intent=f"生成第{index}镜",
             )
             for index, source_text in enumerate(source_texts, start=1)
         ],
@@ -536,7 +515,7 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "视觉身份的职责固定为频道的次级识别标记",
         "不预设具体载体、位置、朝向和表现材质",
         "优先从已经参与该重点的产品、设计稿、服装、工具、材料或环境局部结构中选择载体",
-        "没有自然载体时，再创造一个与主题有关的小型标识化载体",
+        "没有自然载体时，再创造一个与主题有关的标识化载体",
         "可以让现有关键叙事物品承载视觉身份",
         "本阶段不承担跨独立镜头的历史查重",
         "同一连续场景优先参考 continuous_scene_context.existing_fusion_decision 保持既有表现形态和空间关系",
@@ -549,7 +528,7 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
     assert "最终提示词必须把 identity_profile.display_name 的实际值代入" not in template
 
 
-def test_fusion_template_explicitly_allows_small_attached_brand_forms():
+def test_fusion_template_explicitly_allows_single_attached_brand_forms():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
@@ -562,7 +541,7 @@ def test_fusion_template_explicitly_allows_small_attached_brand_forms():
         "材质图形",
         "产品图形",
         "道具徽记",
-        "小型标识化摆件",
+        "标识化摆件",
         "雕刻",
         "环境局部标识",
     ):
@@ -577,8 +556,8 @@ def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
 
     for required_rule in (
         "整幅画只出现一个可识别的视觉身份实例",
-        "先在内部确定它应附着于哪个与本镜主题相关的载体",
-        "任何能够作为小型频道标记在当前场景中真实成立的单一附着方式都合法",
+        "再确定它应附着于哪个与本镜主题相关的载体",
+        "任何能够作为频道标记在当前场景中真实成立的单一附着方式都合法",
         "target_visual_style.required_final_prompt_fragments",
     ):
         assert required_rule in template
@@ -661,13 +640,13 @@ def test_fusion_and_finalization_keep_visual_signature_as_small_channel_mark():
         for required_rule in (
             "频道的次级视觉签名",
             "整体可见面积通常约占画面的 2% 至 5%",
-            "保持常规小型频道标记",
-            "使用次级位置、次级对比度",
-            "胸针大小、手掌大小",
+            "形成常规小型频道标记",
+            "占据主要构图轴并拥有更强的细节与明暗组织",
+            "胸针或手掌大小",
             "不得只写百分比或“小型”",
             "独立活体视觉身份站立、静坐、卧倒或躺卧",
             "不赋予凝视、陪伴、安慰或共同参与剧情的角色行为",
-            "若当前载体无法在对应尺度下保持次级视觉权重",
+            "若当前载体无法在对应尺度下维持这项层级",
             "全部 identity_profile.core_identity_traits 清晰可识别",
         ):
             assert required_rule in template
@@ -690,53 +669,14 @@ def test_fusion_and_finalization_define_one_step_larger_memory_frame():
     for template in templates:
         for required_rule in (
             "visual_signature_emphasis",
-            "本镜是品牌记忆镜头",
-            "必须比普通镜头明显大一档",
+            "enhanced 是品牌记忆镜头",
+            "必须比 standard 明显大一档",
             "整体可见面积通常约占画面的 5% 至 8%",
-            "仍明显小于主要叙事主体",
-            "不单独占据画面中心、前景主位或最高对比区域",
+            "仍明显小于主要叙事主体整体",
+            "不占据画面中心、前景主位、最高对比",
             "不得把 enhanced 降回普通镜头的小尺度",
         ):
             assert required_rule in template
-
-
-@pytest.mark.parametrize(
-    ("frame_count", "expected_emphasis_count"),
-    ((1, 1), (9, 1), (10, 1), (11, 2), (14, 2), (20, 2), (21, 3), (25, 3)),
-)
-def test_visual_signature_emphasis_uses_one_frame_per_started_ten_frame_group(
-    frame_count: int,
-    expected_emphasis_count: int,
-):
-    plan = _plan_with_frame_count(frame_count)
-
-    selected = _visual_signature_emphasis_frame_ids(
-        storyboard_plan=plan,
-        task_id="task-emphasis-cadence",
-    )
-
-    assert len(selected) == expected_emphasis_count
-    assert selected.issubset({frame.frame_id for frame in plan.frames})
-
-
-def test_visual_signature_emphasis_is_reproducible_and_spread_across_series():
-    plan = _plan_with_frame_count(20)
-
-    first = _visual_signature_emphasis_frame_ids(
-        storyboard_plan=plan,
-        task_id="task-emphasis-cadence",
-    )
-    second = _visual_signature_emphasis_frame_ids(
-        storyboard_plan=plan,
-        task_id="task-emphasis-cadence",
-    )
-    selected_indexes = {
-        frame.index for frame in plan.frames if frame.frame_id in first
-    }
-
-    assert first == second
-    assert len(selected_indexes & set(range(1, 11))) == 1
-    assert len(selected_indexes & set(range(11, 21))) == 1
 
 
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():

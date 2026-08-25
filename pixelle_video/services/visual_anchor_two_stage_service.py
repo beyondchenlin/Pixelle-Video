@@ -36,7 +36,11 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
 )
+from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
+from pixelle_video.services.visual_signature_emphasis_cadence import (
+    VisualSignatureEmphasisCadencePlanner,
+)
 from pixelle_video.utils.logging_util import emit_stage_event
 
 
@@ -251,10 +255,15 @@ class VisualAnchorTwoStageService:
         }
 
         scene_ids = _continuous_scene_ids(storyboard_plan.frames)
-        emphasis_frame_ids = _visual_signature_emphasis_frame_ids(
-            storyboard_plan=storyboard_plan,
-            task_id=resolved_task_id,
-        )
+        emphasis_by_frame = {
+            decision.frame_id: decision.emphasis
+            for decision in VisualSignatureEmphasisCadencePlanner().plan(
+                frame_ids=tuple(
+                    frame.frame_id for frame in storyboard_plan.frames
+                ),
+                random_seeds_by_frame=registered_seeds,
+            )
+        }
         decisions_by_scene: dict[str, FinalizationStagePromptPassthrough] = {}
         series_final_prompt_history: list[str] = []
         results: list[VisualAnchorTwoStageFrameResult] = []
@@ -271,11 +280,7 @@ class VisualAnchorTwoStageService:
                 identity_reference_condition=identity_reference_condition,
                 identity_conditioning_mode=resolved_identity_conditioning_mode,
                 workflow_identity_condition_summary=resolved_condition_summary,
-                visual_signature_emphasis=(
-                    "enhanced"
-                    if frame.frame_id in emphasis_frame_ids
-                    else "standard"
-                ),
+                visual_signature_emphasis=emphasis_by_frame[frame.frame_id],
                 target_visual_style=resolved_style,
                 visible_text_policy=resolved_text_policy,
                 target_image_prompt_language=resolved_prompt_language,
@@ -313,7 +318,7 @@ class VisualAnchorTwoStageService:
         identity_reference_condition: IdentityReferenceCondition | None,
         identity_conditioning_mode: str,
         workflow_identity_condition_summary: str,
-        visual_signature_emphasis: str,
+        visual_signature_emphasis: VisualSignatureEmphasis,
         target_visual_style: TargetVisualStyle,
         visible_text_policy: VisibleTextPolicy,
         target_image_prompt_language: str,
@@ -765,35 +770,6 @@ def _relevant_article_context(
 
 def _normalized_text(value: object) -> str:
     return " ".join(str(value or "").split())
-
-
-def _visual_signature_emphasis_frame_ids(
-    *,
-    storyboard_plan: StoryboardPlan,
-    task_id: str,
-) -> frozenset[str]:
-    """Allocate one reproducible emphasis frame per started ten-frame group."""
-
-    frames = tuple(storyboard_plan.frames)
-    if not frames:
-        return frozenset()
-    emphasis_count = max(1, (len(frames) + 9) // 10)
-    selected: set[str] = set()
-    for slot in range(emphasis_count):
-        start = slot * len(frames) // emphasis_count
-        end = (slot + 1) * len(frames) // emphasis_count
-        candidates = frames[start:end]
-        selected_frame = min(
-            candidates,
-            key=lambda frame: hashlib.sha256(
-                (
-                    f"{task_id}:{storyboard_plan.plan_id}:"
-                    f"visual-signature-emphasis:{slot}:{frame.frame_id}"
-                ).encode("utf-8")
-            ).digest(),
-        )
-        selected.add(selected_frame.frame_id)
-    return frozenset(selected)
 
 
 def _required_text(value: object, field_name: str) -> str:
