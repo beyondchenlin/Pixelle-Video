@@ -35,7 +35,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     ImageWorkflowExecutionContract,
     TargetVisualStyle,
     VisibleTextPolicy,
-    VisualSignatureStyleContract,
 )
 from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
@@ -72,9 +71,6 @@ from pixelle_video.services.visual_anchor_two_stage_service import (
 from pixelle_video.services.visual_profile_registry import resolve_visual_profile
 from pixelle_video.services.visual_prompt_profile_projector import apply_visual_profile_to_batch
 from pixelle_video.services.visual_quality_gate import VisualQualityGate
-from pixelle_video.services.visual_signature_style_contract import (
-    build_visual_signature_style_contract,
-)
 from pixelle_video.services.visual_story_prompt_context import attach_visual_story_context
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_helper import (
@@ -241,7 +237,6 @@ class VisualPromptComposer:
             )
 
         profile_snapshot: VisualSignatureProfileSnapshot | None = None
-        visual_signature_style: VisualSignatureStyleContract | None = None
         if signature_enabled:
             profile_snapshot = series_visual_signature_profile_snapshot
             if profile_snapshot is None:
@@ -252,10 +247,6 @@ class VisualPromptComposer:
             profile_snapshot = validate_series_visual_signature_profile_snapshot(
                 profile_snapshot,
                 expected_profile_id=resolved_signature_request.profile_id,
-            )
-            visual_signature_style = _visual_signature_style_contract(
-                ip_profile=ip_profile,
-                expected_profile_id=profile_snapshot.profile_id,
             )
 
         if reference_patch:
@@ -373,10 +364,6 @@ class VisualPromptComposer:
                 raise RuntimeError(
                     "enabled visual signature must have a prevalidated canonical profile snapshot"
                 )
-            if visual_signature_style is None:
-                raise RuntimeError(
-                    "enabled visual signature must have an independent style contract"
-                )
             if media_service is None:
                 raise ValueError(
                     "visual-anchor three-stage generation requires the media service"
@@ -441,7 +428,7 @@ class VisualPromptComposer:
                 sampler_defaults = dict(workflow_inspection.sampler_defaults)
                 identity_conditioning_mode = "text_profile"
                 identity_condition_summary = (
-                    "当前工作流不支持参考图输入；仅使用身份档案名称、核心识别特征和禁止变化项作为真实身份条件"
+                    "当前工作流不支持参考图输入；使用身份档案中的固定识别特征、配色、特征布局、授权文字和禁止变化项共同保持身份"
                 )
                 identity_profile = identity_profile_from_snapshot(profile_snapshot)
                 planning_snapshot["image_workflow_inspection"] = (
@@ -473,6 +460,9 @@ class VisualPromptComposer:
             visible_text_policy = _visible_text_policy(
                 text_rendering,
                 prompt_language=prompt_language,
+                authorized_visible_texts=(
+                    profile_snapshot.authorized_visible_texts
+                ),
             )
             two_stage_result = await VisualAnchorTwoStageService().run_batch(
                 llm_service=llm_service,
@@ -482,7 +472,6 @@ class VisualPromptComposer:
                 identity_conditioning_mode=identity_conditioning_mode,
                 workflow_identity_condition_summary=identity_condition_summary,
                 target_visual_style=target_visual_style,
-                visual_signature_style=visual_signature_style,
                 visible_text_policy=visible_text_policy,
                 target_image_prompt_language=(
                     "中文"
@@ -718,17 +707,6 @@ def _target_visual_style_contract(
     )
 
 
-def _visual_signature_style_contract(
-    *,
-    ip_profile: Any,
-    expected_profile_id: str,
-) -> VisualSignatureStyleContract:
-    return build_visual_signature_style_contract(
-        ip_profile=ip_profile,
-        expected_profile_id=expected_profile_id,
-    )
-
-
 def _style_fragments(value: str) -> list[str]:
     normalized = str(value or "").replace("；", ",").replace(";", ",")
     return [" ".join(part.split()) for part in normalized.split(",") if part.strip()]
@@ -769,18 +747,42 @@ def _visible_text_policy(
     text_rendering: Mapping[str, Any] | None,
     *,
     prompt_language: PromptLanguage,
+    authorized_visible_texts: Sequence[str] = (),
 ) -> VisibleTextPolicy:
     settings = build_text_rendering_settings(text_rendering)
+    authorized_texts = _dedupe_fragments(authorized_visible_texts)
     if not settings.image_text.suppress_embedded_text:
-        return VisibleTextPolicy()
-    if prompt_language == CHINESE_PROMPT_LANGUAGE:
-        canonical_positive = "画面中禁止出现任何可见文字、标题、水印或乱码"
-        canonical_negative = "文字，水印，标题，乱码"
-    else:
-        canonical_positive = (
-            "no visible text, no title, no watermark, no garbled text"
+        return VisibleTextPolicy(
+            authorized_visible_texts=authorized_texts,
         )
-        canonical_negative = "text, watermark, title, garbled text"
+    if prompt_language == CHINESE_PROMPT_LANGUAGE:
+        if authorized_texts:
+            exact_text = "、".join(f"“{item}”" for item in authorized_texts)
+            canonical_positive = (
+                f"画面仅允许在分镜需要时逐字准确出现已授权文字{exact_text}；"
+                "其他位置禁止出现未经授权文字、标题、水印或乱码"
+            )
+            canonical_negative = "未经授权文字，错误字标，重复字标，水印，标题，乱码"
+        else:
+            canonical_positive = "画面中禁止出现任何可见文字、标题、水印或乱码"
+            canonical_negative = "文字，水印，标题，乱码"
+    else:
+        if authorized_texts:
+            exact_text = ", ".join(repr(item) for item in authorized_texts)
+            canonical_positive = (
+                "the image may show these authorized texts verbatim when the scene "
+                f"requires them: {exact_text}; no unauthorized text, title, watermark, "
+                "or garbled text anywhere else"
+            )
+            canonical_negative = (
+                "unauthorized text, incorrect wordmark, duplicate wordmark, watermark, "
+                "title, garbled text"
+            )
+        else:
+            canonical_positive = (
+                "no visible text, no title, no watermark, no garbled text"
+            )
+            canonical_negative = "text, watermark, title, garbled text"
     image_text_request = (
         dict(text_rendering.get("image_text") or {})
         if isinstance(text_rendering, Mapping)
@@ -790,6 +792,7 @@ def _visible_text_policy(
     custom_negative = str(image_text_request.get("negative_prompt") or "").strip()
     return VisibleTextPolicy(
         suppress_visible_text=True,
+        authorized_visible_texts=authorized_texts,
         required_positive_prompt_fragment=(
             f"{custom_positive}；{canonical_positive}"
             if custom_positive and canonical_positive not in custom_positive

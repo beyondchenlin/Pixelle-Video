@@ -40,6 +40,71 @@ def _prompt_versions(
     return versions
 
 
+def _identity_binding_comparisons(
+    binding: Mapping[str, Any],
+    request: VisualAnchorImageGenerationRequest,
+) -> tuple[tuple[str, bool], ...]:
+    return (
+        (
+            "identity_profile_preserved",
+            binding.get("identity_profile_id") == request.identity_profile_id,
+        ),
+        (
+            "identity_display_name_preserved",
+            binding.get("identity_display_name") == request.identity_display_name,
+        ),
+        (
+            "identity_core_traits_preserved",
+            binding.get("identity_core_traits") == request.identity_core_traits,
+        ),
+        (
+            "identity_supporting_traits_preserved",
+            binding.get("identity_supporting_traits")
+            == request.identity_supporting_traits,
+        ),
+        (
+            "identity_fixed_color_traits_preserved",
+            binding.get("identity_fixed_color_traits")
+            == request.identity_fixed_color_traits,
+        ),
+        (
+            "identity_authorized_visible_texts_preserved",
+            binding.get("identity_authorized_visible_texts")
+            == request.identity_authorized_visible_texts,
+        ),
+        (
+            "identity_authorized_text_style_traits_preserved",
+            binding.get("identity_authorized_text_style_traits")
+            == request.identity_authorized_text_style_traits,
+        ),
+        (
+            "identity_forbidden_traits_preserved",
+            binding.get("identity_forbidden_traits")
+            == request.identity_forbidden_traits,
+        ),
+        (
+            "identity_name_rendering_policy_preserved",
+            binding.get("identity_name_rendering_policy")
+            == request.identity_name_rendering_policy,
+        ),
+        (
+            "identity_scene_adaptation_policy_preserved",
+            binding.get("identity_scene_adaptation_policy")
+            == request.identity_scene_adaptation_policy,
+        ),
+        (
+            "identity_resource_version_preserved",
+            binding.get("identity_resource_version")
+            == request.identity_resource_version,
+        ),
+        (
+            "identity_digest_preserved",
+            binding.get("identity_content_sha256")
+            == request.identity_content_sha256,
+        ),
+    )
+
+
 class VisualAnchorRenderedOutputAuditError(RuntimeError):
     def __init__(
         self,
@@ -77,7 +142,7 @@ class VisualAnchorRenderedOutputAuditResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_rendered_output_audit.v5",
+            "schema_version": "visual_anchor_rendered_output_audit.v6",
             "status": self.status,
             "reason": self.reason,
             "audit_scope": self.audit_scope,
@@ -264,30 +329,7 @@ class VisualAnchorRenderedOutputAudit:
                 binding.get("negative_prompt_sha256")
                 == _text_sha256(request.final_negative_prompt),
             ),
-            (
-                "identity_profile_preserved",
-                binding.get("identity_profile_id") == request.identity_profile_id,
-            ),
-            (
-                "identity_display_name_preserved",
-                binding.get("identity_display_name")
-                == request.identity_display_name,
-            ),
-            (
-                "identity_core_traits_preserved",
-                binding.get("identity_core_traits")
-                == request.identity_core_traits,
-            ),
-            (
-                "identity_resource_version_preserved",
-                binding.get("identity_resource_version")
-                == request.identity_resource_version,
-            ),
-            (
-                "identity_digest_preserved",
-                binding.get("identity_content_sha256")
-                == request.identity_content_sha256,
-            ),
+            *_identity_binding_comparisons(binding, request),
             (
                 "reference_condition_preserved",
                 binding.get("reference_condition") == expected_reference,
@@ -545,15 +587,7 @@ class VisualAnchorRenderedOutputAudit:
                 binding.get("negative_prompt_sha256")
                 == _text_sha256(request.final_negative_prompt),
             ),
-            (
-                "identity_profile_preserved",
-                binding.get("identity_profile_id") == request.identity_profile_id,
-            ),
-            (
-                "identity_digest_preserved",
-                binding.get("identity_content_sha256")
-                == request.identity_content_sha256,
-            ),
+            *_identity_binding_comparisons(binding, request),
             (
                 "identity_conditioning_mode_preserved",
                 binding.get("identity_conditioning_mode") == "text_profile"

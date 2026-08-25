@@ -8,6 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from pixelle_video.config.prompt_prefix_library import image_prompt_prefix_revision
+from pixelle_video.models.series_visual_signature import (
+    series_visual_signature_identity_content_sha256,
+)
 from pixelle_video.models.storyboard import StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
@@ -18,7 +21,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
-    VisualSignatureStyleContract,
 )
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.services.frame_processor import FrameProcessor
@@ -522,7 +524,7 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "不得概括、省略或改写",
         "视觉身份只能是承载对象表面的一个扁平印刷图形",
         "以承载对象为句子主体",
-        "实际名称和全部识别特征各写一次",
+        "全部固定身份特征和固定配色各写一次",
         "其他句子不得重复",
         "全画面没有该身份的真实实体和第二个图形",
         "视觉身份只承担次级频道标记",
@@ -622,7 +624,7 @@ def test_finalization_template_unifies_scene_and_signature_styles():
         "不得概括、省略或改写",
         "视觉身份只能是承载对象表面的一个扁平印刷图形",
         "以承载对象为句子主体",
-        "identity_profile.display_name 和 identity_profile.core_identity_traits 的实际内容各写一次",
+        "全部固定身份特征和固定配色各写一次",
         "其他句子不得重复",
         "全画面没有该身份的真实实体和第二个图形",
         "自由选择最自然的承载对象",
@@ -776,6 +778,12 @@ def _fusion_outputs(
 
 
 def _identity() -> VisualAnchorIdentityProfile:
+    digest = series_visual_signature_identity_content_sha256(
+        display_name="斑点狗",
+        core_identity_traits=["斑点狗", "黑色墨镜"],
+        supporting_identity_traits=["温和神态"],
+        forbidden_traits=["变成人类", "继承主要人物身份"],
+    )
     return VisualAnchorIdentityProfile(
         profile_id="dog-anchor",
         display_name="斑点狗",
@@ -783,8 +791,8 @@ def _identity() -> VisualAnchorIdentityProfile:
         supporting_identity_traits=["温和神态"],
         forbidden_traits=["变成人类", "继承主要人物身份"],
         source_asset_ids=[],
-        identity_content_sha256="b" * 64,
-        identity_resource_version="identity:dog-anchor:" + "b" * 64,
+        identity_content_sha256=digest,
+        identity_resource_version=f"identity:dog-anchor:{digest}",
     )
 
 
@@ -793,16 +801,6 @@ def _style() -> TargetVisualStyle:
         description="极简线稿／情感文案",
         required_final_prompt_fragments=list(_STYLE_POSITIVE),
         required_negative_prompt_fragments=list(_STYLE_NEGATIVE),
-    )
-
-
-def _signature_style() -> VisualSignatureStyleContract:
-    return VisualSignatureStyleContract(
-        profile_id="dog-anchor",
-        style_fragments=["彩色扁平吉祥物插画", "黑白斑点与黑色墨镜"],
-        rendering_style="flat_illustration",
-        source_style_scope="ip_character_only",
-        boundary_rules=["该风格只作用于视觉签名"],
     )
 
 
@@ -851,7 +849,6 @@ async def _run_jobs_sample():
             "默认Z-Image文生图工作流仅使用文字身份档案，不注入参考图"
         ),
         target_visual_style=_style(),
-        visual_signature_style=_signature_style(),
         visible_text_policy=_text_policy(),
         target_image_prompt_language="中文",
         task_id="task-jobs-life",

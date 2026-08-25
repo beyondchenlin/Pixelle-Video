@@ -4,6 +4,9 @@ import json
 import pytest
 from PIL import Image
 
+from pixelle_video.models.series_visual_signature import (
+    series_visual_signature_identity_content_sha256,
+)
 from pixelle_video.models.visual_anchor_two_stage import (
     CONTENT_PROMPT_ASSEMBLY_VERSION,
     CONTENT_STAGE_PROMPT_VERSION,
@@ -23,10 +26,10 @@ from pixelle_video.models.visual_anchor_two_stage import (
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
     TargetVisualStyle,
+    VisibleTextPolicy,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
-    VisualSignatureStyleContract,
     assemble_content_stage_prompt,
     assemble_fusion_negative_prompt,
     assemble_fusion_positive_prompt,
@@ -52,18 +55,30 @@ def _frame_result(tmp_path):
     reference_path = tmp_path / "reference_image/workflow.png"
     _write_png(reference_path, "blue")
     reference_sha256 = hashlib.sha256(reference_path.read_bytes()).hexdigest()
+    identity_digest = series_visual_signature_identity_content_sha256(
+        display_name="小皮",
+        core_identity_traits=["圆形白色脸", "蓝色短耳"],
+        supporting_identity_traits=["橙色围巾"],
+        fixed_color_traits=["脸部纯白、短耳鲜蓝、围巾鲜橙"],
+        authorized_visible_texts=["PIXELLE"],
+        authorized_text_style_traits=["窄体无衬线字标"],
+        forbidden_traits=["改变脸型"],
+    )
     identity = VisualAnchorIdentityProfile(
         profile_id="profile-pixelle",
         display_name="小皮",
         core_identity_traits=["圆形白色脸", "蓝色短耳"],
         supporting_identity_traits=["橙色围巾"],
+        fixed_color_traits=["脸部纯白、短耳鲜蓝、围巾鲜橙"],
+        authorized_visible_texts=["PIXELLE"],
+        authorized_text_style_traits=["窄体无衬线字标"],
         forbidden_traits=["改变脸型"],
         source_asset_ids=[
             "asset-pixelle-reference",
             "reference-image:" + reference_sha256,
         ],
-        identity_content_sha256="b" * 64,
-        identity_resource_version="identity:profile-pixelle:" + "b" * 64,
+        identity_content_sha256=identity_digest,
+        identity_resource_version=f"identity:profile-pixelle:{identity_digest}",
     )
     reference = IdentityReferenceCondition(
         asset_sha256=reference_sha256,
@@ -84,12 +99,8 @@ def _frame_result(tmp_path):
         binding_path_node_ids=["92", "93", "94", "3"],
     )
     target_style = TargetVisualStyle(description="真实电影感")
-    signature_style = VisualSignatureStyleContract(
-        profile_id="profile-pixelle",
-        style_fragments=["彩色扁平吉祥物插画", "蓝色短耳和橙色围巾"],
-        rendering_style="flat_illustration",
-        source_style_scope="ip_character_only",
-        boundary_rules=["该风格只作用于视觉签名"],
+    text_policy = VisibleTextPolicy(
+        authorized_visible_texts=["PIXELLE"],
     )
     content_input = ContentStageInput(
         frame_id="frame-a",
@@ -164,7 +175,7 @@ def _frame_result(tmp_path):
         visual_signature_emphasis="standard",
         continuous_scene_context=continuity,
         target_visual_style=target_style,
-        visual_signature_style=signature_style,
+        visible_text_policy=text_policy,
         negative_prompt_supported=False,
         target_image_prompt_language="中文",
     )
@@ -231,13 +242,19 @@ def _frame_result(tmp_path):
         identity_profile_id=identity.profile_id,
         identity_display_name=identity.display_name,
         identity_core_traits=identity.core_identity_traits,
+        identity_supporting_traits=identity.supporting_identity_traits,
+        identity_fixed_color_traits=identity.fixed_color_traits,
+        identity_authorized_visible_texts=identity.authorized_visible_texts,
+        identity_authorized_text_style_traits=(
+            identity.authorized_text_style_traits
+        ),
         identity_forbidden_traits=identity.forbidden_traits,
         identity_resource_version=identity.identity_resource_version,
         identity_content_sha256=identity.identity_content_sha256,
         identity_conditioning_mode="reference_image",
         identity_reference_condition=reference,
         target_visual_style=target_style,
-        visual_signature_style=signature_style,
+        visible_text_policy=text_policy,
         content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
         fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
         finalization_stage_prompt_version=FINALIZATION_STAGE_PROMPT_VERSION,
@@ -336,7 +353,7 @@ def _write_passed_binding(
     binding_path.write_text(
         json.dumps(
             {
-                "schema_version": "visual_anchor_first_generation_binding_audit.v8",
+                "schema_version": "visual_anchor_first_generation_binding_audit.v9",
                 "request_version": request.request_version,
                 "status": "passed",
                 "task_id": request.task_id,
@@ -364,7 +381,25 @@ def _write_passed_binding(
                 "identity_profile_id": request.identity_profile_id,
                 "identity_display_name": request.identity_display_name,
                 "identity_core_traits": list(request.identity_core_traits),
+                "identity_supporting_traits": list(
+                    request.identity_supporting_traits
+                ),
+                "identity_fixed_color_traits": list(
+                    request.identity_fixed_color_traits
+                ),
+                "identity_authorized_visible_texts": list(
+                    request.identity_authorized_visible_texts
+                ),
+                "identity_authorized_text_style_traits": list(
+                    request.identity_authorized_text_style_traits
+                ),
                 "identity_forbidden_traits": list(request.identity_forbidden_traits),
+                "identity_name_rendering_policy": (
+                    request.identity_name_rendering_policy
+                ),
+                "identity_scene_adaptation_policy": (
+                    request.identity_scene_adaptation_policy
+                ),
                 "identity_resource_version": request.identity_resource_version,
                 "identity_content_sha256": request.identity_content_sha256,
                 "target_image_prompt_language": request.target_image_prompt_language,
@@ -372,9 +407,6 @@ def _write_passed_binding(
                     request.identity_reference_condition.model_dump(mode="json")
                 ),
                 "target_visual_style": request.target_visual_style.model_dump(
-                    mode="json"
-                ),
-                "visual_signature_style": request.visual_signature_style.model_dump(
                     mode="json"
                 ),
                 "visible_text_policy": request.visible_text_policy.model_dump(
@@ -432,7 +464,7 @@ def _write_passed_binding(
     return binding_path
 
 
-def test_reference_pre_submit_audit_preserves_both_style_contracts(tmp_path):
+def test_reference_pre_submit_audit_preserves_identity_and_scene_contracts(tmp_path):
     result_contract = _frame_result(tmp_path)
     request = result_contract.generation_request
     condition = request.identity_reference_condition
@@ -475,14 +507,16 @@ def test_reference_pre_submit_audit_preserves_both_style_contracts(tmp_path):
     )
 
     assert audit["schema_version"] == (
-        "visual_anchor_first_generation_binding_audit.v8"
+        "visual_anchor_first_generation_binding_audit.v9"
     )
     assert audit["target_visual_style"] == request.target_visual_style.model_dump(
         mode="json"
     )
-    assert audit["visual_signature_style"] == (
-        request.visual_signature_style.model_dump(mode="json")
-    )
+    assert "visual_signature_style" not in audit
+    assert audit["identity_fixed_color_traits"] == [
+        "脸部纯白、短耳鲜蓝、围巾鲜橙"
+    ]
+    assert audit["identity_authorized_visible_texts"] == ["PIXELLE"]
     assert audit["visible_text_policy"] == request.visible_text_policy.model_dump(
         mode="json"
     )

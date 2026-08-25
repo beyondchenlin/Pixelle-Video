@@ -627,16 +627,11 @@ async def test_default_text_to_image_visual_anchor_uses_three_stage_text_profile
     assert captured_two_stage["identity_conditioning_mode"] == "text_profile"
     assert captured_two_stage["identity_reference_condition"] is None
     assert captured_two_stage["negative_prompt_supported"] is False
-    assert captured_two_stage["identity_profile"].display_name == "Dalmatian"
-    assert captured_two_stage["visual_signature_style"].style_fragments == [
-        "彩色扁平吉祥物插画",
-        "flat illustration rendering",
-        "鲜明红色项圈",
-    ]
-    assert (
-        captured_two_stage["visual_signature_style"].application_scope
-        == "visual_signature_only"
-    )
+    identity = captured_two_stage["identity_profile"]
+    assert identity.display_name == "Dalmatian"
+    assert identity.fixed_color_traits == ["鲜明红色项圈"]
+    assert identity.name_rendering_policy == "metadata_only"
+    assert "visual_signature_style" not in captured_two_stage
     assert result.prompts[0] == _GenerationRequest.final_positive_prompt
     assert "Dalmatian" in result.prompts[0]
     assert "black spots" in result.prompts[0]

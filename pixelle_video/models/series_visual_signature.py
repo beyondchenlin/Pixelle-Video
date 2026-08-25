@@ -504,6 +504,9 @@ class VisualSignatureProfileSnapshot:
     source_asset_ids: Sequence[str] = field(default_factory=tuple)
     core_identity_traits: Sequence[str] = field(default_factory=tuple)
     supporting_identity_traits: Sequence[str] = field(default_factory=tuple)
+    fixed_color_traits: Sequence[str] = field(default_factory=tuple)
+    authorized_visible_texts: Sequence[str] = field(default_factory=tuple)
+    authorized_text_style_traits: Sequence[str] = field(default_factory=tuple)
     canonical_identity_clause: str = ""
     identity_content_sha256: str = ""
 
@@ -543,6 +546,42 @@ class VisualSignatureProfileSnapshot:
         object.__setattr__(self, "core_identity_traits", tuple(core_traits))
         object.__setattr__(self, "supporting_identity_traits", tuple(supporting_traits))
         object.__setattr__(self, "identity_traits", tuple(combined_traits))
+        fixed_color_traits = _dedupe_traits(
+            _trait_tuple(
+                "fixed_color_traits",
+                self.fixed_color_traits,
+                allow_empty=True,
+            )
+        )
+        authorized_visible_texts = _dedupe_traits(
+            _trait_tuple(
+                "authorized_visible_texts",
+                self.authorized_visible_texts,
+                allow_empty=True,
+            )
+        )
+        authorized_text_style_traits = _dedupe_traits(
+            _trait_tuple(
+                "authorized_text_style_traits",
+                self.authorized_text_style_traits,
+                allow_empty=True,
+            )
+        )
+        if authorized_text_style_traits and not authorized_visible_texts:
+            raise ValueError(
+                "authorized_text_style_traits require authorized_visible_texts"
+            )
+        object.__setattr__(self, "fixed_color_traits", tuple(fixed_color_traits))
+        object.__setattr__(
+            self,
+            "authorized_visible_texts",
+            tuple(authorized_visible_texts),
+        )
+        object.__setattr__(
+            self,
+            "authorized_text_style_traits",
+            tuple(authorized_text_style_traits),
+        )
         object.__setattr__(self, "style_safe_traits", _trait_tuple("style_safe_traits", self.style_safe_traits, allow_empty=True))
         forbidden_traits = _dedupe_traits(
             _negative_trait_tuple(
@@ -557,6 +596,9 @@ class VisualSignatureProfileSnapshot:
             display_name=self.display_name,
             core_identity_traits=core_traits,
             supporting_identity_traits=supporting_traits,
+            fixed_color_traits=fixed_color_traits,
+            authorized_visible_texts=authorized_visible_texts,
+            authorized_text_style_traits=authorized_text_style_traits,
         )
         supplied_clause = _optional_text(
             self.canonical_identity_clause,
@@ -572,6 +614,9 @@ class VisualSignatureProfileSnapshot:
             core_identity_traits=core_traits,
             supporting_identity_traits=supporting_traits,
             forbidden_traits=forbidden_traits,
+            fixed_color_traits=fixed_color_traits,
+            authorized_visible_texts=authorized_visible_texts,
+            authorized_text_style_traits=authorized_text_style_traits,
         )
         supplied_hash = str(self.identity_content_sha256 or "").strip().lower()
         if supplied_hash and supplied_hash != identity_hash:
@@ -594,6 +639,11 @@ class VisualSignatureProfileSnapshot:
             source_asset_ids=data.get("source_asset_ids") or (),
             core_identity_traits=data.get("core_identity_traits") or (),
             supporting_identity_traits=data.get("supporting_identity_traits") or (),
+            fixed_color_traits=data.get("fixed_color_traits") or (),
+            authorized_visible_texts=data.get("authorized_visible_texts") or (),
+            authorized_text_style_traits=(
+                data.get("authorized_text_style_traits") or ()
+            ),
             canonical_identity_clause=data.get("canonical_identity_clause") or "",
             identity_content_sha256=data.get("identity_content_sha256") or "",
         )
@@ -609,6 +659,11 @@ class VisualSignatureProfileSnapshot:
             "identity_traits": list(self.identity_traits),
             "core_identity_traits": list(self.core_identity_traits),
             "supporting_identity_traits": list(self.supporting_identity_traits),
+            "fixed_color_traits": list(self.fixed_color_traits),
+            "authorized_visible_texts": list(self.authorized_visible_texts),
+            "authorized_text_style_traits": list(
+                self.authorized_text_style_traits
+            ),
             "canonical_identity_clause": self.canonical_identity_clause,
             "identity_content_sha256": self.identity_content_sha256,
             "style_safe_traits": list(self.style_safe_traits),
@@ -769,6 +824,9 @@ def canonical_series_visual_signature_identity_clause(
     display_name: str,
     core_identity_traits: Sequence[str],
     supporting_identity_traits: Sequence[str] = (),
+    fixed_color_traits: Sequence[str] = (),
+    authorized_visible_texts: Sequence[str] = (),
+    authorized_text_style_traits: Sequence[str] = (),
 ) -> str:
     name = _require_text("display_name", display_name)
     core = _dedupe_traits(
@@ -782,7 +840,37 @@ def canonical_series_visual_signature_identity_clause(
         ),
         excluded=core,
     )
-    clause = f"Canonical recurring identity {name}: {', '.join((*core, *supporting))}."
+    colors = _dedupe_traits(
+        _trait_tuple("fixed_color_traits", fixed_color_traits, allow_empty=True)
+    )
+    visible_texts = _dedupe_traits(
+        _trait_tuple(
+            "authorized_visible_texts",
+            authorized_visible_texts,
+            allow_empty=True,
+        )
+    )
+    text_styles = _dedupe_traits(
+        _trait_tuple(
+            "authorized_text_style_traits",
+            authorized_text_style_traits,
+            allow_empty=True,
+        )
+    )
+    if text_styles and not visible_texts:
+        raise ValueError(
+            "authorized_text_style_traits require authorized_visible_texts"
+        )
+    parts = [
+        f"Canonical recurring identity {name}: {', '.join((*core, *supporting))}"
+    ]
+    if colors:
+        parts.append(f"fixed colors: {', '.join(colors)}")
+    if visible_texts:
+        parts.append(f"authorized visible text: {', '.join(visible_texts)}")
+    if text_styles:
+        parts.append(f"authorized text style: {', '.join(text_styles)}")
+    clause = "; ".join(parts) + "."
     if len(clause) > MAX_CANONICAL_IDENTITY_CHARS:
         raise ValueError(
             "canonical_identity_clause exceeds 400 characters; reduce identity traits before generation"
@@ -796,6 +884,9 @@ def series_visual_signature_identity_content_sha256(
     core_identity_traits: Sequence[str],
     supporting_identity_traits: Sequence[str],
     forbidden_traits: Sequence[str],
+    fixed_color_traits: Sequence[str] = (),
+    authorized_visible_texts: Sequence[str] = (),
+    authorized_text_style_traits: Sequence[str] = (),
 ) -> str:
     core = _dedupe_traits(
         _trait_tuple(
@@ -819,12 +910,41 @@ def series_visual_signature_identity_content_sha256(
             allow_empty=True,
         )
     )
+    colors = _dedupe_traits(
+        _trait_tuple("fixed_color_traits", fixed_color_traits, allow_empty=True)
+    )
+    visible_texts = _dedupe_traits(
+        _trait_tuple(
+            "authorized_visible_texts",
+            authorized_visible_texts,
+            allow_empty=True,
+        )
+    )
+    text_styles = _dedupe_traits(
+        _trait_tuple(
+            "authorized_text_style_traits",
+            authorized_text_style_traits,
+            allow_empty=True,
+        )
+    )
+    if text_styles and not visible_texts:
+        raise ValueError(
+            "authorized_text_style_traits require authorized_visible_texts"
+        )
     payload = {
         "display_name": _require_text("display_name", display_name),
         "core_identity_traits": list(core),
         "supporting_identity_traits": list(supporting),
         "forbidden_traits": list(forbidden),
     }
+    # Historical snapshots did not contain these keys. Omitting empty values
+    # preserves their identity digests while making new visual facts immutable.
+    if colors:
+        payload["fixed_color_traits"] = list(colors)
+    if visible_texts:
+        payload["authorized_visible_texts"] = list(visible_texts)
+    if text_styles:
+        payload["authorized_text_style_traits"] = list(text_styles)
     serialized = json.dumps(
         payload,
         ensure_ascii=False,

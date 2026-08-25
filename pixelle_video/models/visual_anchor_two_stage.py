@@ -5,12 +5,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from pixelle_video.models.series_visual_signature import (
+    series_visual_signature_identity_content_sha256,
+)
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v22"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v35"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v16"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v12"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v36"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v17"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v13"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -72,6 +75,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v32",
     "visual_anchor_fusion_stage.v33",
     "visual_anchor_fusion_stage.v34",
+    "visual_anchor_fusion_stage.v35",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -90,6 +94,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v13",
     "visual_anchor_finalization_stage.v14",
     "visual_anchor_finalization_stage.v15",
+    "visual_anchor_finalization_stage.v16",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -98,6 +103,7 @@ GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v9",
     "visual_anchor_generation_request.v10",
     "visual_anchor_generation_request.v11",
+    "visual_anchor_generation_request.v12",
     GENERATION_REQUEST_VERSION,
 ]
 
@@ -351,8 +357,17 @@ class VisibleTextPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     suppress_visible_text: bool = False
+    authorized_visible_texts: list[str] = Field(default_factory=list)
     required_positive_prompt_fragment: str = ""
     required_negative_prompt_fragment: str = ""
+
+    @field_validator("authorized_visible_texts")
+    @classmethod
+    def _validate_authorized_visible_texts(
+        cls,
+        value: list[str],
+    ) -> list[str]:
+        return _text_list(value, "authorized_visible_texts")
 
     @model_validator(mode="after")
     def _validate_policy(self) -> "VisibleTextPolicy":
@@ -777,10 +792,17 @@ class VisualAnchorIdentityProfile(BaseModel):
     display_name: str
     core_identity_traits: list[str] = Field(min_length=1)
     supporting_identity_traits: list[str] = Field(default_factory=list)
+    fixed_color_traits: list[str] = Field(default_factory=list)
+    authorized_visible_texts: list[str] = Field(default_factory=list)
+    authorized_text_style_traits: list[str] = Field(default_factory=list)
     forbidden_traits: list[str] = Field(default_factory=list)
     source_asset_ids: list[str] = Field(default_factory=list)
     identity_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     identity_resource_version: str
+    name_rendering_policy: Literal["metadata_only"] = "metadata_only"
+    scene_adaptation_policy: Literal[
+        "preserve_identity_invariants_follow_scene_rendering"
+    ] = "preserve_identity_invariants_follow_scene_rendering"
 
     @field_validator("profile_id", "display_name", "identity_resource_version", mode="before")
     @classmethod
@@ -790,6 +812,9 @@ class VisualAnchorIdentityProfile(BaseModel):
     @field_validator(
         "core_identity_traits",
         "supporting_identity_traits",
+        "fixed_color_traits",
+        "authorized_visible_texts",
+        "authorized_text_style_traits",
         "forbidden_traits",
         "source_asset_ids",
     )
@@ -799,6 +824,23 @@ class VisualAnchorIdentityProfile(BaseModel):
 
     @model_validator(mode="after")
     def _validate_resource_version(self) -> "VisualAnchorIdentityProfile":
+        if self.authorized_text_style_traits and not self.authorized_visible_texts:
+            raise ValueError(
+                "authorized_text_style_traits require authorized_visible_texts"
+            )
+        expected_digest = series_visual_signature_identity_content_sha256(
+            display_name=self.display_name,
+            core_identity_traits=self.core_identity_traits,
+            supporting_identity_traits=self.supporting_identity_traits,
+            forbidden_traits=self.forbidden_traits,
+            fixed_color_traits=self.fixed_color_traits,
+            authorized_visible_texts=self.authorized_visible_texts,
+            authorized_text_style_traits=self.authorized_text_style_traits,
+        )
+        if self.identity_content_sha256 != expected_digest:
+            raise ValueError(
+                "identity_content_sha256 must match every immutable visual identity fact"
+            )
         expected = f"identity:{self.profile_id}:{self.identity_content_sha256}"
         if self.identity_resource_version != expected:
             raise ValueError(
@@ -1007,21 +1049,38 @@ class FusionStageInput(BaseModel):
     @model_validator(mode="after")
     def _validate_identity_conditioning(self) -> "FusionStageInput":
         if (
+            self.visible_text_policy.authorized_visible_texts
+            != self.identity_profile.authorized_visible_texts
+        ):
+            raise ValueError(
+                "visible-text policy must use the identity profile's exact authorized texts"
+            )
+        if (
             _contract_version_at_least(self.prompt_version, 26)
             and "visual_signature_emphasis" not in self.model_fields_set
         ):
             raise ValueError(
                 "current fusion input requires an explicit visual signature emphasis"
             )
-        if _contract_version_at_least(self.prompt_version, 27):
+        if (
+            _contract_version_at_least(self.prompt_version, 27)
+            and self.prompt_version != FUSION_STAGE_PROMPT_VERSION
+        ):
             if self.visual_signature_style is None:
                 raise ValueError(
-                    "current fusion input requires an independent visual signature style"
+                    "historical fusion input requires its visual signature style"
                 )
             if self.visual_signature_style.profile_id != self.identity_profile.profile_id:
                 raise ValueError(
                     "visual signature style must match the identity profile"
                 )
+        if (
+            self.prompt_version == FUSION_STAGE_PROMPT_VERSION
+            and self.visual_signature_style is not None
+        ):
+            raise ValueError(
+                "current fusion input stores immutable signature facts in identity_profile"
+            )
         if self.identity_conditioning_mode == "reference_image":
             if self.identity_reference_condition is None:
                 raise ValueError(
@@ -1433,7 +1492,15 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     identity_profile_id: str
     identity_display_name: str
     identity_core_traits: list[str] = Field(min_length=1)
+    identity_supporting_traits: list[str] = Field(default_factory=list)
+    identity_fixed_color_traits: list[str] = Field(default_factory=list)
+    identity_authorized_visible_texts: list[str] = Field(default_factory=list)
+    identity_authorized_text_style_traits: list[str] = Field(default_factory=list)
     identity_forbidden_traits: list[str] = Field(default_factory=list)
+    identity_name_rendering_policy: Literal["metadata_only"] = "metadata_only"
+    identity_scene_adaptation_policy: Literal[
+        "preserve_identity_invariants_follow_scene_rendering"
+    ] = "preserve_identity_invariants_follow_scene_rendering"
     identity_resource_version: str
     identity_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     identity_conditioning_mode: Literal["text_profile", "reference_image"]
@@ -1511,10 +1578,16 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             raise ValueError("identity_core_traits must not be empty")
         return result
 
-    @field_validator("identity_forbidden_traits")
+    @field_validator(
+        "identity_supporting_traits",
+        "identity_fixed_color_traits",
+        "identity_authorized_visible_texts",
+        "identity_authorized_text_style_traits",
+        "identity_forbidden_traits",
+    )
     @classmethod
-    def _validate_identity_forbidden_traits(cls, value: list[str]) -> list[str]:
-        return _text_list(value, "identity_forbidden_traits")
+    def _validate_identity_lists(cls, value: list[str], info) -> list[str]:
+        return _text_list(value, info.field_name)
 
     @field_validator("target_image_prompt_language", mode="before")
     @classmethod
@@ -1530,6 +1603,29 @@ class VisualAnchorImageGenerationRequest(BaseModel):
         expected_identity_version = (
             f"identity:{self.identity_profile_id}:{self.identity_content_sha256}"
         )
+        if (
+            self.identity_authorized_text_style_traits
+            and not self.identity_authorized_visible_texts
+        ):
+            raise ValueError(
+                "identity authorized text styles require authorized visible texts"
+            )
+        if self.request_version == GENERATION_REQUEST_VERSION:
+            expected_identity_digest = series_visual_signature_identity_content_sha256(
+                display_name=self.identity_display_name,
+                core_identity_traits=self.identity_core_traits,
+                supporting_identity_traits=self.identity_supporting_traits,
+                forbidden_traits=self.identity_forbidden_traits,
+                fixed_color_traits=self.identity_fixed_color_traits,
+                authorized_visible_texts=self.identity_authorized_visible_texts,
+                authorized_text_style_traits=(
+                    self.identity_authorized_text_style_traits
+                ),
+            )
+            if self.identity_content_sha256 != expected_identity_digest:
+                raise ValueError(
+                    "generation identity digest must cover every immutable visual fact"
+                )
         if self.identity_resource_version != expected_identity_version:
             raise ValueError(
                 "identity resource version must match the identity id and digest"
@@ -1550,15 +1646,25 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             raise ValueError(
                 "current generation requests require the finalization stage version"
             )
-        if _contract_version_at_least(self.request_version, 9):
+        if (
+            _contract_version_at_least(self.request_version, 9)
+            and self.request_version != GENERATION_REQUEST_VERSION
+        ):
             if self.visual_signature_style is None:
                 raise ValueError(
-                    "current generation requests require an independent visual signature style"
+                    "historical generation requests require their visual signature style"
                 )
             if self.visual_signature_style.profile_id != self.identity_profile_id:
                 raise ValueError(
                     "generation visual signature style must match the identity profile"
                 )
+        if (
+            self.request_version == GENERATION_REQUEST_VERSION
+            and self.visual_signature_style is not None
+        ):
+            raise ValueError(
+                "current generation stores immutable signature facts in identity fields"
+            )
         if self.request_version == GENERATION_REQUEST_VERSION and (
             self.content_stage_prompt_version != CONTENT_STAGE_PROMPT_VERSION
             or self.fusion_stage_prompt_version != FUSION_STAGE_PROMPT_VERSION
@@ -1569,6 +1675,13 @@ class VisualAnchorImageGenerationRequest(BaseModel):
                 "current generation requests require the current three-stage prompt chain"
             )
         if self.request_version == GENERATION_REQUEST_VERSION:
+            if (
+                self.visible_text_policy.authorized_visible_texts
+                != self.identity_authorized_visible_texts
+            ):
+                raise ValueError(
+                    "generation visible-text policy must match authorized identity text"
+                )
             expected_global_negative = (
                 self.visible_text_policy.required_negative_prompt_fragment
                 if self.negative_prompt_supported

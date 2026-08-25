@@ -650,7 +650,7 @@ class StandardPipeline(LinearVideoPipeline):
         await super().prepare_reference_image(ctx)
         await self._preflight_series_visual_signature(
             ctx,
-            require_independent_style=False,
+            require_complete_identity_contract=False,
         )
 
     async def generate_content(self, ctx: PipelineContext):
@@ -794,7 +794,7 @@ class StandardPipeline(LinearVideoPipeline):
         ctx.params = _params_with_visual_profile_defaults(ctx.params)
         await self._preflight_series_visual_signature(
             ctx,
-            require_independent_style=True,
+            require_complete_identity_contract=True,
         )
         storyboard_contract = StoryboardControlsContract.from_mapping(
             ctx.params,
@@ -3032,7 +3032,7 @@ class StandardPipeline(LinearVideoPipeline):
         self,
         ctx: PipelineContext,
         *,
-        require_independent_style: bool = False,
+        require_complete_identity_contract: bool = False,
     ) -> None:
         """Validate deterministic dependencies before visual-anchor model work."""
 
@@ -3051,8 +3051,8 @@ class StandardPipeline(LinearVideoPipeline):
             isinstance(ctx.series_visual_signature_profile, IPProfile)
             and previous_preflight.get("status") == "passed"
             and (
-                not require_independent_style
-                or previous_preflight.get("independent_style_status")
+                not require_complete_identity_contract
+                or previous_preflight.get("identity_contract_status")
                 == "validated"
             )
         ):
@@ -3114,15 +3114,15 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.params.pop("reference_image_workflow_injection_mode", None)
 
         ip_profile = await self._load_series_visual_signature_profile(ctx)
-        if require_independent_style:
+        if require_complete_identity_contract:
             ip_profile = ensure_ip_profile_ready_for_generation(ip_profile)
         ctx.series_visual_signature_profile = ip_profile
         ctx.observability["visual_anchor_preflight"] = {
             "schema_version": "visual_anchor_preflight.v3",
             "status": "passed",
             "model_call_count": 0,
-            "independent_style_status": (
-                "validated" if require_independent_style else "deferred"
+            "identity_contract_status": (
+                "validated" if require_complete_identity_contract else "deferred"
             ),
             "template_type": "image",
             "identity_conditioning_mode": (

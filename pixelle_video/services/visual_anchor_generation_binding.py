@@ -276,7 +276,7 @@ def _first_generation_binding_audit_payload(
     actual_binding: Mapping[str, Any],
 ) -> dict[str, Any]:
     payload = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v8",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v9",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": status,
@@ -293,7 +293,19 @@ def _first_generation_binding_audit_payload(
         "identity_profile_id": request.identity_profile_id,
         "identity_display_name": request.identity_display_name,
         "identity_core_traits": list(request.identity_core_traits),
+        "identity_supporting_traits": list(request.identity_supporting_traits),
+        "identity_fixed_color_traits": list(request.identity_fixed_color_traits),
+        "identity_authorized_visible_texts": list(
+            request.identity_authorized_visible_texts
+        ),
+        "identity_authorized_text_style_traits": list(
+            request.identity_authorized_text_style_traits
+        ),
         "identity_forbidden_traits": list(request.identity_forbidden_traits),
+        "identity_name_rendering_policy": request.identity_name_rendering_policy,
+        "identity_scene_adaptation_policy": (
+            request.identity_scene_adaptation_policy
+        ),
         "identity_resource_version": request.identity_resource_version,
         "identity_content_sha256": request.identity_content_sha256,
         "identity_conditioning_mode": request.identity_conditioning_mode,
@@ -304,13 +316,15 @@ def _first_generation_binding_audit_payload(
             else None
         ),
         "target_visual_style": request.target_visual_style.model_dump(mode="json"),
-        "visual_signature_style": visual_signature_style_binding_payload(request),
         "visible_text_policy": request.visible_text_policy.model_dump(mode="json"),
         "workflow_key": request.workflow_key,
         "workflow_version_sha256": request.workflow_version_sha256,
         "expected_execution": request.expected_execution.model_dump(mode="json"),
         "actual_binding": dict(actual_binding),
     }
+    historical_style = visual_signature_style_binding_payload(request)
+    if historical_style is not None:
+        payload["visual_signature_style"] = historical_style
     if failure_codes:
         payload["failure_reason"] = "; ".join(failure_codes)
         payload["failure_codes"] = list(failure_codes)

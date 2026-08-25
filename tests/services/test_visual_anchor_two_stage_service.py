@@ -6,7 +6,10 @@ import pytest
 from pydantic import ValidationError
 
 from pixelle_video.models.prompt_plan import PromptPlan
-from pixelle_video.models.series_visual_signature import VisualSignatureProfileSnapshot
+from pixelle_video.models.series_visual_signature import (
+    VisualSignatureProfileSnapshot,
+    series_visual_signature_identity_content_sha256,
+)
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.visual_anchor_two_stage import (
     CONTENT_PROMPT_ASSEMBLY_VERSION,
@@ -35,7 +38,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
-    VisualSignatureStyleContract,
     visual_signature_style_binding_payload,
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
@@ -161,6 +163,12 @@ def _independent_plan(frame_count=5):
 
 
 def _identity():
+    digest = series_visual_signature_identity_content_sha256(
+        display_name="小皮",
+        core_identity_traits=["圆形白色脸", "蓝色短耳"],
+        supporting_identity_traits=["橙色围巾"],
+        forbidden_traits=["改变脸型"],
+    )
     return VisualAnchorIdentityProfile(
         profile_id="profile-pixelle",
         display_name="小皮",
@@ -168,19 +176,8 @@ def _identity():
         supporting_identity_traits=["橙色围巾"],
         forbidden_traits=["改变脸型"],
         source_asset_ids=["reference-image:" + "a" * 64],
-        identity_content_sha256="b" * 64,
-        identity_resource_version="identity:profile-pixelle:" + "b" * 64,
-    )
-
-
-def _signature_style():
-    return VisualSignatureStyleContract(
-        profile_id="profile-pixelle",
-        style_fragments=["彩色扁平吉祥物插画", "蓝色短耳和橙色围巾"],
-        negative_fragments=["写实皮毛", "场景线稿覆盖视觉签名配色"],
-        rendering_style="flat_illustration",
-        source_style_scope="ip_character_only",
-        boundary_rules=["该风格只作用于视觉签名"],
+        identity_content_sha256=digest,
+        identity_resource_version=f"identity:profile-pixelle:{digest}",
     )
 
 
@@ -302,7 +299,6 @@ async def _run_service(
             else "工作流使用文字身份档案"
         ),
         target_visual_style=target_visual_style,
-        visual_signature_style=_signature_style(),
         visible_text_policy=visible_text_policy,
         target_image_prompt_language="中文",
         task_id="task-two-stage",
@@ -1174,7 +1170,7 @@ async def test_current_raw_payload_round_trips_without_content_validation():
         FinalizationStagePromptPassthrough,
     )
     assert frame.generation_request.request_version == (
-        "visual_anchor_generation_request.v12"
+        "visual_anchor_generation_request.v13"
     )
     assert frame.generation_request.final_positive_prompt == (
         frame.finalization_stage_output.raw_prompt
@@ -1203,11 +1199,10 @@ async def test_local_style_exclusions_stay_scoped_and_global_negative_remains_em
     assert request.target_visual_style.required_negative_prompt_fragments == [
         "叙事场景中的彩色元素"
     ]
-    assert request.visual_signature_style is not None
-    assert request.visual_signature_style.negative_fragments == [
-        "写实皮毛",
-        "场景线稿覆盖视觉签名配色",
-    ]
+    assert request.visual_signature_style is None
+    assert request.identity_scene_adaptation_policy == (
+        "preserve_identity_invariants_follow_scene_rendering"
+    )
 
 
 @pytest.mark.asyncio
@@ -1308,6 +1303,15 @@ async def test_v9_binding_payload_keeps_historical_signature_style_shape():
     batch, _ = await _run(_plan())
     payload = batch.frames[0].generation_request.model_dump(mode="json")
     payload["request_version"] = "visual_anchor_generation_request.v9"
+    payload["visual_signature_style"] = {
+        "profile_id": "profile-pixelle",
+        "style_fragments": ["彩色扁平吉祥物插画"],
+        "negative_fragments": ["写实皮毛"],
+        "rendering_style": "flat_illustration",
+        "source_style_scope": "ip_character_only",
+        "application_scope": "visual_signature_only",
+        "boundary_rules": ["该风格只作用于视觉签名"],
+    }
     payload["visual_signature_style"].pop("negative_fragments")
 
     restored = VisualAnchorImageGenerationRequest.model_validate(payload)
@@ -1374,6 +1378,15 @@ async def test_v1_finalization_artifact_without_content_input_remains_readable()
     payload["generation_request"]["request_version"] = (
         "visual_anchor_generation_request.v9"
     )
+    payload["generation_request"]["visual_signature_style"] = {
+        "profile_id": "profile-pixelle",
+        "style_fragments": ["彩色扁平吉祥物插画"],
+        "negative_fragments": ["写实皮毛"],
+        "rendering_style": "flat_illustration",
+        "source_style_scope": "ip_character_only",
+        "application_scope": "visual_signature_only",
+        "boundary_rules": ["该风格只作用于视觉签名"],
+    }
 
     restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
 
@@ -1548,7 +1561,7 @@ async def test_regeneration_preserves_the_raw_model_prompt(
     assert context.generation_request.task_id == "regenerated-task"
     assert (
         context.generation_request.request_version
-        == "visual_anchor_generation_request.v12"
+        == "visual_anchor_generation_request.v13"
     )
     restored_payload = context.frame_result.model_dump(mode="json")
     assert restored_payload["fusion_stage_output"]["raw_prompt"] == (

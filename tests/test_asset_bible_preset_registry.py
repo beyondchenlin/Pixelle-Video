@@ -227,6 +227,11 @@ def test_packaged_zhengding_guide_preset_is_valid():
         "不要出现错误文字和乱码",
     )
     assert profile.visible_text_whitelist == ()
+    assert profile.color_palette == {
+        "body": {"prompt": "身体和脸部保持纯白色"},
+        "bow_tie": {"prompt": "领结保持明亮蓝色"},
+        "inner_ears": {"prompt": "耳朵内侧保持浅粉色"},
+    }
     assert profile.variable_slots == ()
     assert preset.asset_bible.metadata == {}
     assert duplicates == []

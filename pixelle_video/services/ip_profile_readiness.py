@@ -3,16 +3,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from pixelle_video.models.series_visual_signature import SeriesVisualSignatureRequest
 from pixelle_video.services.reference_image_visual_context_adapter import (
     current_reference_image_visual_story_context_patch,
     merge_ip_profile_from_reference_patch,
 )
 from pixelle_video.services.series_visual_signature_profile_snapshot_builder import (
+    SeriesVisualSignatureProfileSnapshotBuilder,
     select_series_visual_signature_identity_traits,
     validate_series_visual_signature_identity_name,
-)
-from pixelle_video.services.visual_signature_style_contract import (
-    build_visual_signature_style_contract,
 )
 
 IP_GENERATION_READINESS_ERROR = (
@@ -20,7 +19,9 @@ IP_GENERATION_READINESS_ERROR = (
     "请先在 IP 设计工作台补全 identity_lock、minimal_traits 或 identity_anchors。"
 )
 IP_GENERATION_IDENTITY_VALIDATION_ERROR = "当前 IP 形象未通过生成前身份安全校验"
-IP_GENERATION_STYLE_VALIDATION_ERROR = "当前 IP 形象的独立视觉风格内容无效"
+IP_GENERATION_IDENTITY_CONTRACT_VALIDATION_ERROR = (
+    "当前 IP 形象的固定身份、配色或授权文字合同无效"
+)
 
 
 def ensure_ip_profile_ready_for_generation(ip_profile: Any | None) -> Any:
@@ -36,12 +37,18 @@ def ensure_ip_profile_ready_for_generation(ip_profile: Any | None) -> Any:
         _read_field(resolved_profile, "series_visual_signature_profile_id") or ""
     ).strip()
     try:
-        build_visual_signature_style_contract(
+        SeriesVisualSignatureProfileSnapshotBuilder().build(
+            request=SeriesVisualSignatureRequest(
+                enabled=True,
+                profile_id=profile_id,
+                asset_bible_id="generation-readiness",
+            ),
             ip_profile=resolved_profile,
-            expected_profile_id=profile_id,
         )
     except ValueError as exc:
-        raise ValueError(f"{IP_GENERATION_STYLE_VALIDATION_ERROR}: {exc}") from exc
+        raise ValueError(
+            f"{IP_GENERATION_IDENTITY_CONTRACT_VALIDATION_ERROR}: {exc}"
+        ) from exc
     return resolved_profile
 
 
@@ -77,7 +84,7 @@ def _read_field(source: Any, field_name: str) -> Any:
 __all__ = [
     "IP_GENERATION_IDENTITY_VALIDATION_ERROR",
     "IP_GENERATION_READINESS_ERROR",
-    "IP_GENERATION_STYLE_VALIDATION_ERROR",
+    "IP_GENERATION_IDENTITY_CONTRACT_VALIDATION_ERROR",
     "ensure_visual_signature_identity_ready",
     "ensure_ip_profile_ready_for_generation",
     "ip_generation_identity_terms",

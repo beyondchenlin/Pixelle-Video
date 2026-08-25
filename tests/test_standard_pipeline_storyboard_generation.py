@@ -873,7 +873,7 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
         "post_generation_local_content_validation_enabled": False,
     }
     assert (
-        ctx.observability["visual_anchor_preflight"]["independent_style_status"]
+        ctx.observability["visual_anchor_preflight"]["identity_contract_status"]
         == "validated"
     )
 
@@ -907,7 +907,7 @@ async def test_visual_anchor_preflight_finishes_before_storyboard_generation() -
     assert ctx.params["series_visual_signature_output_validation_mode"] == "off"
     assert ctx.observability["visual_anchor_preflight"]["model_call_count"] == 0
     assert (
-        ctx.observability["visual_anchor_preflight"]["independent_style_status"]
+        ctx.observability["visual_anchor_preflight"]["identity_contract_status"]
         == "deferred"
     )
 
@@ -933,7 +933,7 @@ async def test_visual_anchor_style_validation_runs_after_reference_context_merge
 
     await pipeline._preflight_series_visual_signature(
         ctx,
-        require_independent_style=False,
+        require_complete_identity_contract=False,
     )
     token = set_reference_image_visual_story_context_patch(
         {
@@ -947,14 +947,14 @@ async def test_visual_anchor_style_validation_runs_after_reference_context_merge
     try:
         await pipeline._preflight_series_visual_signature(
             ctx,
-            require_independent_style=True,
+            require_complete_identity_contract=True,
         )
     finally:
         reset_reference_image_visual_story_context_patch(token)
 
     assert ctx.series_visual_signature_profile.style_hint == "柔和彩色绘本角色"
     assert (
-        ctx.observability["visual_anchor_preflight"]["independent_style_status"]
+        ctx.observability["visual_anchor_preflight"]["identity_contract_status"]
         == "validated"
     )
 

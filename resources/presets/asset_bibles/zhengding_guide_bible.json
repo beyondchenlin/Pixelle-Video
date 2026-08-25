@@ -4,7 +4,17 @@
     "character_profiles": [],
     "ip_profiles": [
       {
-        "color_palette": {},
+        "color_palette": {
+          "body": {
+            "prompt": "身体和脸部保持纯白色"
+          },
+          "bow_tie": {
+            "prompt": "领结保持明亮蓝色"
+          },
+          "inner_ears": {
+            "prompt": "耳朵内侧保持浅粉色"
+          }
+        },
         "forbidden_elements": [],
         "identity_anchors": [
           "蓝色领结一角",
@@ -97,7 +107,7 @@
   "display_name": "正定向导兔",
   "preset_id": "builtin_asset_bible_zhengding_guide",
   "preview_asset_path": null,
-  "revision": "2026-05-06.1",
+  "revision": "2026-08-25.1",
   "source": "builtin",
   "tags": [
     "卡通角色",

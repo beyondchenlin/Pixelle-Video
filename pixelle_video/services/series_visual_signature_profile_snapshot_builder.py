@@ -47,6 +47,8 @@ _INSTRUCTION_LIKE_TRAIT_TERMS = (
     "覆盖指令",
     "越狱",
 )
+_MAX_PALETTE_NODES = 256
+_MAX_PALETTE_DEPTH = 8
 
 
 class SeriesVisualSignatureProfileSnapshotBuilder:
@@ -104,7 +106,27 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             )
 
         forbidden_traits = _safe_forbidden_traits(
-            _read_field(ip_profile, "forbidden_elements"),
+            (
+                *_sequence(_read_field(ip_profile, "forbidden_elements")),
+                *_sequence(_read_field(ip_profile, "negative_constraints")),
+                *_sequence(_read_field(ip_profile, "semantic_boundary")),
+                *_sequence(
+                    _read_field(ip_profile, "identity_suppression_rules")
+                ),
+            ),
+        )
+        fixed_color_traits = validate_series_visual_signature_identity_traits(
+            _palette_prompt_fragments(_read_field(ip_profile, "color_palette"))
+        )
+        authorized_visible_texts = validate_series_visual_signature_authorized_texts(
+            _read_field(ip_profile, "visible_text_whitelist")
+        )
+        authorized_text_style_traits = (
+            validate_series_visual_signature_identity_traits(
+                _palette_prompt_fragments(
+                    _read_field(ip_profile, "image_text_palette")
+                )
+            )
         )
         source_asset_ids = _source_asset_ids(_read_field(ip_profile, "metadata"))
         snapshot = VisualSignatureProfileSnapshot(
@@ -113,6 +135,9 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             identity_traits=(*core_identity_traits, *supporting_identity_traits),
             core_identity_traits=core_identity_traits,
             supporting_identity_traits=supporting_identity_traits,
+            fixed_color_traits=fixed_color_traits,
+            authorized_visible_texts=authorized_visible_texts,
+            authorized_text_style_traits=authorized_text_style_traits,
             style_safe_traits=(),
             forbidden_traits=forbidden_traits,
             source_asset_ids=source_asset_ids,
@@ -182,6 +207,15 @@ def validate_series_visual_signature_profile_snapshot(
         ),
         excluded=core_identity_traits,
     )
+    fixed_color_traits = validate_series_visual_signature_identity_traits(
+        snapshot.fixed_color_traits
+    )
+    authorized_visible_texts = validate_series_visual_signature_authorized_texts(
+        snapshot.authorized_visible_texts
+    )
+    authorized_text_style_traits = validate_series_visual_signature_identity_traits(
+        snapshot.authorized_text_style_traits
+    )
 
     normalized = VisualSignatureProfileSnapshot(
         profile_id=snapshot.profile_id,
@@ -189,6 +223,9 @@ def validate_series_visual_signature_profile_snapshot(
         identity_traits=(*core_identity_traits, *supporting_identity_traits),
         core_identity_traits=core_identity_traits,
         supporting_identity_traits=supporting_identity_traits,
+        fixed_color_traits=fixed_color_traits,
+        authorized_visible_texts=authorized_visible_texts,
+        authorized_text_style_traits=authorized_text_style_traits,
         style_safe_traits=tuple(snapshot.style_safe_traits),
         forbidden_traits=tuple(snapshot.forbidden_traits),
         source_asset_ids=tuple(snapshot.source_asset_ids),
@@ -261,6 +298,26 @@ def validate_series_visual_signature_identity_traits(values: Any) -> tuple[str, 
     return tuple(result)
 
 
+def validate_series_visual_signature_authorized_texts(
+    values: Any,
+) -> tuple[str, ...]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for index, value in enumerate(_identity_sequence(values)):
+        text = _validated_identity_phrase(
+            value,
+            field_label=f"visual signature authorized text at index {index}",
+        )
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return tuple(result)
+
+
 def _validated_identity_phrase(value: Any, *, field_label: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{field_label} must be a string")
@@ -317,6 +374,34 @@ def _source_asset_ids(metadata: Any) -> tuple[str, ...]:
         if result:
             return result
     return ()
+
+
+def _palette_prompt_fragments(value: Any) -> tuple[str, ...]:
+    fragments: list[str] = []
+    pending: list[tuple[Any, int]] = [(value, 0)]
+    visited_nodes = 0
+    while pending:
+        current, depth = pending.pop()
+        visited_nodes += 1
+        if visited_nodes > _MAX_PALETTE_NODES:
+            raise ValueError("visual signature palette is too large")
+        if depth > _MAX_PALETTE_DEPTH:
+            raise ValueError("visual signature palette is nested too deeply")
+        if isinstance(current, Mapping):
+            prompt = current.get("prompt")
+            if isinstance(prompt, str):
+                fragments.append(prompt)
+            pending.extend(
+                (nested, depth + 1)
+                for key, nested in reversed(list(current.items()))
+                if key != "prompt"
+            )
+        elif isinstance(current, Sequence) and not isinstance(
+            current,
+            (str, bytes),
+        ):
+            pending.extend((nested, depth + 1) for nested in reversed(current))
+    return _dedupe(fragments)
 
 
 def _read_field(source: Any, field_name: str) -> Any:
@@ -377,6 +462,7 @@ __all__ = [
     "SeriesVisualSignatureProfileSnapshotBuilder",
     "select_series_visual_signature_identity_layers",
     "select_series_visual_signature_identity_traits",
+    "validate_series_visual_signature_authorized_texts",
     "validate_series_visual_signature_identity_name",
     "validate_series_visual_signature_identity_traits",
     "validate_series_visual_signature_profile_snapshot",
