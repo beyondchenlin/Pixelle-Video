@@ -672,6 +672,7 @@ def test_fusion_and_finalization_define_one_step_larger_memory_frame():
             "enhanced 是品牌记忆镜头",
             "必须比 standard 明显大一档",
             "整体可见面积通常约占画面的 5% 至 8%",
+            "不要再用线性倍数推算面积",
             "仍明显小于主要叙事主体整体",
             "不占据画面中心、前景主位、最高对比",
             "不得把 enhanced 降回普通镜头的小尺度",

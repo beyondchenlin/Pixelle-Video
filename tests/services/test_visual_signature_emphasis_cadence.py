@@ -63,6 +63,24 @@ def test_cadence_spreads_enhanced_frames_across_balanced_windows():
     assert len(enhanced_indexes & set(range(14, 21))) == 1
 
 
+@pytest.mark.parametrize("frame_count", (11, 20, 21, 50, 101))
+def test_cadence_never_places_enhanced_frames_next_to_each_other(frame_count):
+    frame_ids, _, decisions = _plan(frame_count)
+    enhanced_indexes = sorted(
+        frame_ids.index(decision.frame_id)
+        for decision in decisions
+        if decision.emphasis is VisualSignatureEmphasis.ENHANCED
+    )
+
+    assert all(
+        current_index - previous_index >= 3
+        for previous_index, current_index in zip(
+            enhanced_indexes,
+            enhanced_indexes[1:],
+        )
+    )
+
+
 def test_cadence_is_reproducible_from_registered_frame_seeds():
     frame_ids, seeds, first = _plan(25, seed_offset=100)
 
@@ -91,6 +109,14 @@ def test_cadence_rejects_invalid_frame_ids(frame_ids):
         VisualSignatureEmphasisCadencePlanner().plan(
             frame_ids=frame_ids,
             random_seeds_by_frame={frame_id: 1 for frame_id in frame_ids},
+        )
+
+
+def test_cadence_rejects_bare_string_as_frame_sequence():
+    with pytest.raises(TypeError, match="sequence"):
+        VisualSignatureEmphasisCadencePlanner().plan(
+            frame_ids="frame-a",
+            random_seeds_by_frame={"frame-a": 1},
         )
 
 
@@ -126,9 +152,3 @@ def test_cadence_scales_linearly_for_long_series():
         decision.emphasis is VisualSignatureEmphasis.ENHANCED
         for decision in decisions
     ) == 1_001
-
-
-@pytest.mark.parametrize("invalid_interval", (0, -1, True, 1.5))
-def test_cadence_rejects_invalid_interval(invalid_interval):
-    with pytest.raises(ValueError, match="frame_interval"):
-        VisualSignatureEmphasisCadencePlanner(frame_interval=invalid_interval)

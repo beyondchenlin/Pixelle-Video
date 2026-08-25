@@ -20,13 +20,7 @@ class VisualSignatureEmphasisDecision:
 
 @dataclass(frozen=True, slots=True)
 class VisualSignatureEmphasisCadencePlanner:
-    """Allocate a reproducible, evenly spread emphasis budget without reading content."""
-
-    frame_interval: int = VISUAL_SIGNATURE_EMPHASIS_FRAME_INTERVAL
-
-    def __post_init__(self) -> None:
-        if type(self.frame_interval) is not int or self.frame_interval < 1:
-            raise ValueError("frame_interval must be a positive integer")
+    """Allocate the fixed rounded-up ten-percent budget without reading content."""
 
     def plan(
         self,
@@ -34,6 +28,8 @@ class VisualSignatureEmphasisCadencePlanner:
         frame_ids: Sequence[str],
         random_seeds_by_frame: Mapping[str, int],
     ) -> tuple[VisualSignatureEmphasisDecision, ...]:
+        if isinstance(frame_ids, (str, bytes)):
+            raise TypeError("frame_ids must be a sequence of frame id strings")
         ordered_frame_ids = tuple(frame_ids)
         _validate_frame_ids(ordered_frame_ids)
         _validate_random_seeds(
@@ -44,13 +40,15 @@ class VisualSignatureEmphasisCadencePlanner:
             return ()
 
         enhanced_count = (
-            len(ordered_frame_ids) + self.frame_interval - 1
-        ) // self.frame_interval
+            len(ordered_frame_ids) + VISUAL_SIGNATURE_EMPHASIS_FRAME_INTERVAL - 1
+        ) // VISUAL_SIGNATURE_EMPHASIS_FRAME_INTERVAL
         selected_window_by_frame: dict[str, int] = {}
         for window_index in range(enhanced_count):
             start = window_index * len(ordered_frame_ids) // enhanced_count
             end = (window_index + 1) * len(ordered_frame_ids) // enhanced_count
-            candidates = ordered_frame_ids[start:end]
+            candidate_start = start + (1 if window_index > 0 else 0)
+            candidate_end = end - (1 if window_index + 1 < enhanced_count else 0)
+            candidates = ordered_frame_ids[candidate_start:candidate_end]
             selected_frame_id = min(
                 candidates,
                 key=lambda frame_id: _selection_digest(
