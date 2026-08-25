@@ -648,6 +648,15 @@ def _render_stage_prompt(
     prompt_id: str,
     stage_input: Any,
 ) -> RenderedPrompt:
+    expected_version = {
+        "visual_anchor_content_stage": CONTENT_STAGE_PROMPT_VERSION,
+        "visual_anchor_fusion_stage": FUSION_STAGE_PROMPT_VERSION,
+        "visual_anchor_finalization_stage": FINALIZATION_STAGE_PROMPT_VERSION,
+    }[prompt_id]
+    if getattr(stage_input, "prompt_version", None) != expected_version:
+        raise VisualAnchorTwoStageError(
+            f"stage input version mismatch for {prompt_id}"
+        )
     input_payload = stage_input.model_dump(mode="json")
     if isinstance(stage_input, ContentStageInput):
         input_payload.pop("prompt_version", None)
@@ -661,11 +670,6 @@ def _render_stage_prompt(
             ),
         },
     )
-    expected_version = {
-        "visual_anchor_content_stage": CONTENT_STAGE_PROMPT_VERSION,
-        "visual_anchor_fusion_stage": FUSION_STAGE_PROMPT_VERSION,
-        "visual_anchor_finalization_stage": FINALIZATION_STAGE_PROMPT_VERSION,
-    }[prompt_id]
     if rendered.version != expected_version:
         raise VisualAnchorTwoStageError(
             f"prompt template version mismatch for {prompt_id}"

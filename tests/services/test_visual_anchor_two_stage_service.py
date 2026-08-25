@@ -21,6 +21,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     ContentStageModelOutput,
     ContentStageOutput,
     ContentSubject,
+    FinalizationStageInput,
     FinalizationStagePromptPassthrough,
     FusionStageModelOutput,
     FusionStageOutput,
@@ -37,6 +38,7 @@ from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.services.visual_anchor_two_stage_service import (
     VisualAnchorTwoStageError,
     VisualAnchorTwoStageService,
+    _render_stage_prompt,
     identity_profile_from_snapshot,
     resolve_registered_random_seeds,
 )
@@ -583,6 +585,51 @@ async def test_content_stage_receives_current_frame_and_original_article_context
 
 
 @pytest.mark.asyncio
+async def test_source_context_preserves_paragraph_boundaries_through_finalization():
+    first_text = "第一段保留原始换行。\n下一行仍属于第一段。"
+    second_text = "第二段作为后一镜。"
+    source_text = f"{first_text}\n\n{second_text}"
+    plan = StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=source_text,
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                frame_id="frame-a",
+                source_text=first_text,
+                visual_goal="表现第一段",
+                prompt_intent="保留段落结构",
+                source_start=0,
+                source_end=len(first_text),
+            ),
+            StoryboardPlanFrame(
+                index=2,
+                frame_id="frame-b",
+                source_text=second_text,
+                visual_goal="表现第二段",
+                prompt_intent="后一镜",
+                source_start=len(first_text) + 2,
+                source_end=len(source_text),
+            ),
+        ],
+    )
+
+    result, llm = await _run(plan)
+
+    first_frame = result.frames[0]
+    assert first_frame.content_stage_input.article_context == source_text
+    assert first_frame.content_stage_input.original_storyboard_text == first_text
+    assert first_frame.content_stage_input.next_frame_summary == second_text
+    finalization_input = first_frame.finalization_stage_input
+    assert finalization_input is not None
+    assert finalization_input.original_storyboard_text == first_text
+    assert finalization_input.content_stage_input == first_frame.content_stage_input
+    assert json.dumps(source_text, ensure_ascii=False) in llm.calls[2]["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_oversized_frame_fails_before_any_model_call():
     source_text = "过长分镜内容" * 1001
     plan = StoryboardPlan.build(
@@ -1069,6 +1116,21 @@ async def test_v1_finalization_artifact_without_content_input_remains_readable()
         restored.finalization_stage_input.prompt_version
         == "visual_anchor_finalization_stage.v1"
     )
+
+
+@pytest.mark.asyncio
+async def test_historical_finalization_input_cannot_execute_current_template():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].finalization_stage_input.model_dump(mode="json")
+    payload.pop("content_stage_input")
+    payload["prompt_version"] = "visual_anchor_finalization_stage.v1"
+    historical_input = FinalizationStageInput.model_validate(payload)
+
+    with pytest.raises(
+        VisualAnchorTwoStageError,
+        match="stage input version mismatch",
+    ):
+        _render_stage_prompt("visual_anchor_finalization_stage", historical_input)
 
 
 @pytest.mark.asyncio
