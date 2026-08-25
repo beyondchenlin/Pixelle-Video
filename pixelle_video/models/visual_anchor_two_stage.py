@@ -6,8 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v20"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v20"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v1"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v21"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v2"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v8"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
@@ -53,7 +53,12 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v17",
     "visual_anchor_fusion_stage.v18",
     "visual_anchor_fusion_stage.v19",
+    "visual_anchor_fusion_stage.v20",
     FUSION_STAGE_PROMPT_VERSION,
+]
+FinalizationStagePromptVersion = Literal[
+    "visual_anchor_finalization_stage.v1",
+    FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v7",
@@ -1028,18 +1033,17 @@ ReadableFusionStageOutput = (
 
 
 class FinalizationStageInput(BaseModel):
-    """Fixed third-stage input; the model reviews and rewrites the fusion draft."""
+    """Fixed third-stage input for unconstrained final scene recomposition."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     frame_id: str
     original_storyboard_text: str
+    content_stage_input: ReadableContentStageInput | None = None
     fusion_stage_input: FusionStageInput
     fusion_stage_output: ReadableFusionStageOutput
     series_final_prompt_history: list[str] = Field(default_factory=list, max_length=3)
-    prompt_version: Literal[FINALIZATION_STAGE_PROMPT_VERSION] = (
-        FINALIZATION_STAGE_PROMPT_VERSION
-    )
+    prompt_version: FinalizationStagePromptVersion = FINALIZATION_STAGE_PROMPT_VERSION
 
     @field_validator("frame_id", "original_storyboard_text", mode="before")
     @classmethod
@@ -1048,6 +1052,13 @@ class FinalizationStageInput(BaseModel):
 
     @model_validator(mode="after")
     def _validate_exact_draft_chain(self) -> "FinalizationStageInput":
+        if (
+            self.prompt_version == FINALIZATION_STAGE_PROMPT_VERSION
+            and self.content_stage_input is None
+        ):
+            raise ValueError(
+                "current finalization input requires the exact content-stage input"
+            )
         if self.frame_id != self.fusion_stage_input.frame_id:
             raise ValueError("finalization frame id must match the fusion input")
         if (
@@ -1057,6 +1068,18 @@ class FinalizationStageInput(BaseModel):
             raise ValueError(
                 "finalization storyboard text must match the fusion input"
             )
+        if self.content_stage_input is not None:
+            if self.frame_id != self.content_stage_input.frame_id:
+                raise ValueError(
+                    "finalization frame id must match the content-stage input"
+                )
+            if (
+                self.original_storyboard_text
+                != self.content_stage_input.original_storyboard_text
+            ):
+                raise ValueError(
+                    "finalization storyboard text must match the content-stage input"
+                )
         return self
 
 
@@ -1170,9 +1193,7 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
     content_stage_prompt_version: ContentStagePromptVersion
     fusion_stage_prompt_version: FusionStagePromptVersion
-    finalization_stage_prompt_version: (
-        Literal[FINALIZATION_STAGE_PROMPT_VERSION] | None
-    ) = None
+    finalization_stage_prompt_version: FinalizationStagePromptVersion | None = None
     negative_prompt_supported: bool
     target_image_prompt_language: str | None = None
     workflow_key: str
@@ -1627,6 +1648,14 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             raise ValueError("finalization input must contain the exact fusion input")
         if self.finalization_stage_input.fusion_stage_output != self.fusion_stage_output:
             raise ValueError("finalization input must contain the exact fusion output")
+        if (
+            self.finalization_stage_input.content_stage_input is not None
+            and self.finalization_stage_input.content_stage_input
+            != self.content_stage_input
+        ):
+            raise ValueError(
+                "finalization input must contain the exact content-stage input"
+            )
         if (
             self.generation_request.finalization_stage_prompt_version
             != self.finalization_stage_input.prompt_version

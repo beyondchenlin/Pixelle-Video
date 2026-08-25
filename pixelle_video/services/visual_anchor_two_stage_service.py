@@ -78,7 +78,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v9",
+            "schema_version": "visual_anchor_two_stage_batch.v10",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -444,6 +444,7 @@ class VisualAnchorTwoStageService:
         finalization_input = FinalizationStageInput(
             frame_id=frame.frame_id,
             original_storyboard_text=frame.source_text,
+            content_stage_input=content_input,
             fusion_stage_input=fusion_input,
             fusion_stage_output=fusion_output,
             series_final_prompt_history=series_final_prompt_history,
