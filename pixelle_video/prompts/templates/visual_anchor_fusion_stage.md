@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_fusion_stage
-version: visual_anchor_fusion_stage.v21
+version: visual_anchor_fusion_stage.v22
 stage: visual_anchor_fusion_stage
 purpose: 在保持画面主旨和事实的前提下创作视觉身份的场景化融合草稿
 output_contract: raw_fusion_draft_text
@@ -28,8 +28,11 @@ output_contract: raw_fusion_draft_text
 9. 可以让现有关键叙事物品承载视觉身份，也可以创造原草稿中不存在的新物件、新装置、新环境结构或新的视觉关系，只要不改变原始分镜的事实、核心事件和内容主体职责。多个方案都成立时，选择语义清楚、融合自然且画面关系具体的方案。让视觉身份与场景形成可见的附着、接触、使用、操作、回应、支撑、构成或空间关系；自然存在同样合法，但不能只用“巧妙融入”“仿佛注视”“成为场景一部分”等抽象评价代替可见画面。
 10. 同一连续场景优先参考 continuous_scene_context.existing_fusion_decision 保持既有表现形态和空间关系；独立场景只根据当前画面的叙事需要选择最自然的方案。本阶段不承担跨独立镜头的历史查重，避免历史画面污染当前草稿。
 
+视觉层级与尺度：
+11. 视觉身份是频道的次级视觉签名，不是当前分镜的内容主体。构图首先突出 original_storyboard_text 中的主体、关键动作和关键物品，让观众第一眼读懂本镜主题，第二眼才自然发现视觉身份。视觉身份采用清晰可辨但克制的小尺度呈现，整体可见面积通常约占画面的 5% 至 10%，并明显小于主叙事主体；使用次级位置、次级对比度，以及与载体一致的材质、透视和光照。即使视觉身份承担互动、操作或结构职责，也仍保持次级视觉权重，不单独占据画面中心主位。若当前方案必须放大视觉身份才能成立，重新选择更适合小尺度呈现的载体、动作或关系，同时确保 identity_profile.display_name 和全部 identity_profile.core_identity_traits 清晰可识别。
+
 输出要求：
-11. 融合草稿必须是一段完整、连贯、确定的整幅画描述，不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子，也不得输出规则、分析、候选、字段或内部判断过程。
-12. 草稿第一句先确立 target_visual_style 的目标媒介与画风，并明确该画风统一作用于所有人物（包括名人及其面部）、服装、道具、环境和视觉身份；不得出现人物摄影写实而环境或视觉身份采用二维画风的混合媒介。随后再描述整幅场景，并将 target_visual_style.required_final_prompt_fragments、workflow_identity_condition_summary 和 target_image_prompt_language 全部落实到草稿中。visible_text_policy.suppress_visible_text 为 true 时，同时落实其要求的文字排除条件。negative_prompt_supported 为 false 时，把必要的画面限制自然写入这段正向草稿，不要另行输出负向提示词。
+12. 融合草稿必须是一段完整、连贯、确定的整幅画描述，不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子，也不得输出规则、分析、候选、字段或内部判断过程。
+13. 草稿第一句先确立 target_visual_style 的目标媒介与画风，并明确该画风统一作用于所有人物（包括名人及其面部）、服装、道具、环境和视觉身份；不得出现人物摄影写实而环境或视觉身份采用二维画风的混合媒介。随后再描述整幅场景，并将 target_visual_style.required_final_prompt_fragments、workflow_identity_condition_summary 和 target_image_prompt_language 全部落实到草稿中。visible_text_policy.suppress_visible_text 为 true 时，同时落实其要求的文字排除条件。negative_prompt_supported 为 false 时，把必要的画面限制自然写入这段正向草稿，不要另行输出负向提示词。
 
 只输出完整融合提示词草稿原文。不要输出结构化数据、字段名、标题、分析、解释、候选方案、代码块或引号。
