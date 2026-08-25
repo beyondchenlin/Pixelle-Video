@@ -66,6 +66,11 @@ def _ip_profile():
         minimal_traits=(),
         identity_anchors=(),
         forbidden_elements=(),
+        style_hint="彩色扁平吉祥物插画",
+        rendering_style="flat_illustration",
+        style_scope="ip_character_only",
+        style_boundary_rules=("该风格只作用于视觉签名",),
+        color_palette={"collar": {"prompt": "鲜明红色项圈"}},
         metadata={},
     )
 
@@ -623,13 +628,22 @@ async def test_default_text_to_image_visual_anchor_uses_three_stage_text_profile
     assert captured_two_stage["identity_reference_condition"] is None
     assert captured_two_stage["negative_prompt_supported"] is False
     assert captured_two_stage["identity_profile"].display_name == "Dalmatian"
+    assert captured_two_stage["visual_signature_style"].style_fragments == [
+        "彩色扁平吉祥物插画",
+        "flat illustration rendering",
+        "鲜明红色项圈",
+    ]
+    assert (
+        captured_two_stage["visual_signature_style"].application_scope
+        == "visual_signature_only"
+    )
     assert result.prompts[0] == _GenerationRequest.final_positive_prompt
     assert "Dalmatian" in result.prompts[0]
     assert "black spots" in result.prompts[0]
     assert result.negative_prompt is None
     assert "visual_anchor_two_stage" in result.planning_snapshot
     assert result.planning_snapshot["visual_anchor_two_stage_prompt_policy"] == {
-        "schema_version": "visual_anchor_two_stage_prompt_policy.v7",
+        "schema_version": "visual_anchor_two_stage_prompt_policy.v8",
         "prompt_chain": (
             "content_raw_response_then_fusion_draft_then_"
             "finalization_raw_response"

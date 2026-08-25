@@ -26,6 +26,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
+    VisualSignatureStyleContract,
     assemble_content_stage_prompt,
     assemble_fusion_negative_prompt,
     assemble_fusion_positive_prompt,
@@ -82,6 +83,13 @@ def _frame_result(tmp_path):
         binding_path_node_ids=["92", "93", "94", "3"],
     )
     target_style = TargetVisualStyle(description="真实电影感")
+    signature_style = VisualSignatureStyleContract(
+        profile_id="profile-pixelle",
+        style_fragments=["彩色扁平吉祥物插画", "蓝色短耳和橙色围巾"],
+        rendering_style="flat_illustration",
+        source_style_scope="ip_character_only",
+        boundary_rules=["该风格只作用于视觉签名"],
+    )
     content_input = ContentStageInput(
         frame_id="frame-a",
         original_storyboard_text="两位创作者在车库组装电脑。",
@@ -155,6 +163,7 @@ def _frame_result(tmp_path):
         visual_signature_emphasis="standard",
         continuous_scene_context=continuity,
         target_visual_style=target_style,
+        visual_signature_style=signature_style,
         negative_prompt_supported=False,
         target_image_prompt_language="中文",
     )
@@ -227,6 +236,7 @@ def _frame_result(tmp_path):
         identity_conditioning_mode="reference_image",
         identity_reference_condition=reference,
         target_visual_style=target_style,
+        visual_signature_style=signature_style,
         content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
         fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,
         finalization_stage_prompt_version=FINALIZATION_STAGE_PROMPT_VERSION,
@@ -325,7 +335,7 @@ def _write_passed_binding(
     binding_path.write_text(
         json.dumps(
             {
-                "schema_version": "visual_anchor_first_generation_binding_audit.v6",
+                "schema_version": "visual_anchor_first_generation_binding_audit.v7",
                 "request_version": request.request_version,
                 "status": "passed",
                 "task_id": request.task_id,
@@ -359,6 +369,15 @@ def _write_passed_binding(
                 "target_image_prompt_language": request.target_image_prompt_language,
                 "reference_condition": (
                     request.identity_reference_condition.model_dump(mode="json")
+                ),
+                "target_visual_style": request.target_visual_style.model_dump(
+                    mode="json"
+                ),
+                "visual_signature_style": request.visual_signature_style.model_dump(
+                    mode="json"
+                ),
+                "visible_text_policy": request.visible_text_policy.model_dump(
+                    mode="json"
                 ),
                 "workflow_key": request.workflow_key,
                 "workflow_version_sha256": request.workflow_version_sha256,

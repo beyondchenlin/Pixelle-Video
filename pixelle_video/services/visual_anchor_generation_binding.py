@@ -179,7 +179,7 @@ def validate_visual_anchor_first_generation_binding(
 
     if failures:
         failed_audit = {
-            "schema_version": "visual_anchor_first_generation_binding_audit.v6",
+            "schema_version": "visual_anchor_first_generation_binding_audit.v7",
             "request_version": request.request_version,
             "recorded_at_utc": datetime.now(UTC).isoformat(),
             "status": "failed",
@@ -228,7 +228,7 @@ def validate_visual_anchor_first_generation_binding(
         )
 
     audit = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v6",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v7",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": "ready_to_submit",
@@ -323,7 +323,7 @@ def _first_generation_binding_audit_payload(
     actual_binding: Mapping[str, Any],
 ) -> dict[str, Any]:
     payload = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v6",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v7",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": status,
@@ -347,6 +347,11 @@ def _first_generation_binding_audit_payload(
         "target_image_prompt_language": request.target_image_prompt_language,
         "reference_condition": None,
         "target_visual_style": request.target_visual_style.model_dump(mode="json"),
+        "visual_signature_style": (
+            request.visual_signature_style.model_dump(mode="json")
+            if request.visual_signature_style is not None
+            else None
+        ),
         "visible_text_policy": request.visible_text_policy.model_dump(mode="json"),
         "workflow_key": request.workflow_key,
         "workflow_version_sha256": request.workflow_version_sha256,

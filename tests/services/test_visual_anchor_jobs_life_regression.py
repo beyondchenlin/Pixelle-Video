@@ -18,6 +18,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
+    VisualSignatureStyleContract,
 )
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.services.frame_processor import FrameProcessor
@@ -33,26 +34,19 @@ from pixelle_video.services.visual_prompt_composer import (
 )
 
 _STYLE_POSITIVE = [
-    "全画面纯黑、白及单一灰阶的极简二维轮廓画",
-    "统一细黑轮廓线、纯白填充、少量硬边单一浅灰平涂和大面积白色留白",
-    "不使用连续色调或渐变",
-    "所有人物及名人面部和身体、皮肤、服装、手机及屏幕、标志、家具、窗外景物和视觉身份使用同一图形处理",
-    "名人使用简化标志性轮廓识别，面部和皮肤为纯白平面，只用少量线条表现眼睛、鼻子和嘴，头发为整块黑色形状",
-    "不出现任何彩色像素",
-    "不出现照片纹理、真实皮肤细节、面部明暗塑形、单根发丝和排线阴影",
-    "不出现渐变体积光和三维材质",
-    "彩色场景只用平面灰阶块与线条密度表达",
+    "叙事场景与内容主体采用极简黑白二维线稿插画",
+    "使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
+    "叙事人物、物体、载体和环境使用协调的线稿语言",
+    "人物面部只用少量轮廓线概括",
+    "叙事场景不使用彩色、照片纹理、真实皮肤明暗、连续渐变、体积光或三维材质",
 ]
 _STYLE_NEGATIVE = [
-    "彩色像素",
-    "照片纹理",
-    "真实皮肤细节",
-    "面部明暗塑形",
-    "单根发丝",
-    "排线阴影",
-    "连续色调或渐变",
-    "渐变体积光",
-    "三维材质",
+    "叙事场景中的彩色元素",
+    "叙事场景中的照片纹理",
+    "叙事人物的真实皮肤明暗",
+    "叙事场景中的连续渐变",
+    "叙事场景中的体积光",
+    "叙事场景中的三维材质",
 ]
 _NO_TEXT_POSITIVE = "画面中禁止出现任何可见文字、标题、水印或乱码"
 _NO_TEXT_NEGATIVE = "文字，水印，标题，乱码"
@@ -420,7 +414,10 @@ def test_z_image_style_contract_moves_avoidance_rules_into_positive_prompt():
         negative_prompt_supported=False,
     )
 
-    assert contract.required_final_prompt_fragments == _STYLE_POSITIVE
+    assert contract.required_final_prompt_fragments == [
+        *_STYLE_POSITIVE,
+        *(f"禁止出现{fragment}" for fragment in _STYLE_NEGATIVE),
+    ]
     assert contract.required_negative_prompt_fragments == []
 
 
@@ -545,9 +542,13 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "本阶段不承担跨独立镜头的历史查重",
         "同一连续场景优先参考 continuous_scene_context.existing_fusion_decision 保持既有表现形态和空间关系",
         "不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子",
-        "所有人物（包括名人及其面部）、服装、道具、产品及屏幕、环境和视觉身份",
-        "草稿第一句必须逐字完整复制这段原始风格文字一次",
-        "required_final_prompt_fragments 中的每一项原样落实到草稿中",
+        "target_visual_style 是叙事场景风格",
+        "visual_signature_style 是视觉身份独立风格",
+        "视觉身份图形本身不继承场景风格",
+        "不得让视觉身份风格扩散到叙事人物、环境、道具和背景",
+        "视觉身份仅在载体关系上服从比例、透视、遮挡、接触、反射和环境光照",
+        "草稿第一句必须逐字完整复制这段原始场景风格文字一次",
+        "required_final_prompt_fragments 中的每一项原样落实到叙事场景",
     ):
         assert required_rule in template
 
@@ -625,7 +626,7 @@ def test_finalization_template_repairs_current_facts_without_copying_history():
         assert required_rule in template
 
 
-def test_finalization_template_unifies_style_and_keeps_positive_scene_choices():
+def test_finalization_template_separates_scene_and_signature_styles():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_finalization_stage.md"
@@ -636,7 +637,11 @@ def test_finalization_template_unifies_style_and_keeps_positive_scene_choices():
         "创作手段完全开放",
         "可以创造原文和两轮草稿中都不存在的新物件、新装置和新的视觉关系",
         "视觉身份的职责固定为频道的次级识别标记",
-        "每个人物、名人面部与身体、皮肤、服装、道具、产品及屏幕、环境和视觉身份",
+        "target_visual_style 是叙事场景风格",
+        "visual_signature_style 是视觉身份独立风格",
+        "视觉身份图形本身不继承场景风格",
+        "不得让视觉身份风格扩散到叙事人物、环境、道具和背景",
+        "视觉身份仅在载体关系上服从比例、透视、遮挡、接触、反射和环境光照",
         "代码不会解析、判断、验证、修复或改写你的结果",
         "只输出最终图片提示词原文",
     ):
@@ -811,6 +816,16 @@ def _style() -> TargetVisualStyle:
     )
 
 
+def _signature_style() -> VisualSignatureStyleContract:
+    return VisualSignatureStyleContract(
+        profile_id="dog-anchor",
+        style_fragments=["彩色扁平吉祥物插画", "黑白斑点与黑色墨镜"],
+        rendering_style="flat_illustration",
+        source_style_scope="ip_character_only",
+        boundary_rules=["该风格只作用于视觉签名"],
+    )
+
+
 def _text_policy() -> VisibleTextPolicy:
     return VisibleTextPolicy(
         suppress_visible_text=True,
@@ -856,6 +871,7 @@ async def _run_jobs_sample():
             "默认Z-Image文生图工作流仅使用文字身份档案，不注入参考图"
         ),
         target_visual_style=_style(),
+        visual_signature_style=_signature_style(),
         visible_text_policy=_text_policy(),
         target_image_prompt_language="中文",
         task_id="task-jobs-life",

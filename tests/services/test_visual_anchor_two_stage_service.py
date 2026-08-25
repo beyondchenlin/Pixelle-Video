@@ -33,6 +33,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
+    VisualSignatureStyleContract,
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 from pixelle_video.services import visual_anchor_regeneration
@@ -169,6 +170,16 @@ def _identity():
     )
 
 
+def _signature_style():
+    return VisualSignatureStyleContract(
+        profile_id="profile-pixelle",
+        style_fragments=["彩色扁平吉祥物插画", "蓝色短耳和橙色围巾"],
+        rendering_style="flat_illustration",
+        source_style_scope="ip_character_only",
+        boundary_rules=["该风格只作用于视觉签名"],
+    )
+
+
 def _reference():
     return IdentityReferenceCondition(
         asset_sha256="a" * 64,
@@ -284,6 +295,7 @@ async def _run_service(
             else "工作流使用文字身份档案"
         ),
         target_visual_style="真实电影感",
+        visual_signature_style=_signature_style(),
         target_image_prompt_language="中文",
         task_id="task-two-stage",
         workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
@@ -469,7 +481,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v11"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v12"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -1142,7 +1154,7 @@ async def test_current_raw_payload_round_trips_without_content_validation():
         FinalizationStagePromptPassthrough,
     )
     assert frame.generation_request.request_version == (
-        "visual_anchor_generation_request.v8"
+        "visual_anchor_generation_request.v9"
     )
     assert frame.generation_request.final_positive_prompt == (
         frame.finalization_stage_output.raw_prompt
@@ -1387,7 +1399,7 @@ async def test_regeneration_preserves_the_raw_model_prompt(
     assert context.generation_request.task_id == "regenerated-task"
     assert (
         context.generation_request.request_version
-        == "visual_anchor_generation_request.v8"
+        == "visual_anchor_generation_request.v9"
     )
     restored_payload = context.frame_result.model_dump(mode="json")
     assert restored_payload["fusion_stage_output"]["raw_prompt"] == (

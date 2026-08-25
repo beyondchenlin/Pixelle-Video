@@ -35,6 +35,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
+    VisualSignatureStyleContract,
 )
 from pixelle_video.models.visual_signature_emphasis import (
     VisualSignatureEmphasis,
@@ -110,7 +111,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v11",
+            "schema_version": "visual_anchor_two_stage_batch.v12",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -161,6 +162,7 @@ class VisualAnchorTwoStageService:
         identity_conditioning_mode: str | None = None,
         workflow_identity_condition_summary: str | None = None,
         target_visual_style: TargetVisualStyle | str,
+        visual_signature_style: VisualSignatureStyleContract,
         visible_text_policy: VisibleTextPolicy | None = None,
         target_image_prompt_language: str,
         task_id: str,
@@ -210,6 +212,14 @@ class VisualAnchorTwoStageService:
             raise TypeError("visible_text_policy must be a VisibleTextPolicy")
         if not isinstance(target_visual_style, (TargetVisualStyle, str)):
             raise TypeError("target_visual_style must be a TargetVisualStyle or string")
+        if not isinstance(visual_signature_style, VisualSignatureStyleContract):
+            raise TypeError(
+                "visual_signature_style must be a VisualSignatureStyleContract"
+            )
+        if visual_signature_style.profile_id != identity_profile.profile_id:
+            raise VisualAnchorTwoStageError(
+                "visual signature style must match the identity profile"
+            )
         if type(negative_prompt_supported) is not bool:
             raise TypeError("negative_prompt_supported must be a boolean")
         resolved_style = (
@@ -313,6 +323,7 @@ class VisualAnchorTwoStageService:
                 workflow_identity_condition_summary=resolved_condition_summary,
                 visual_signature_emphasis=emphasis_by_frame[frame.frame_id],
                 target_visual_style=resolved_style,
+                visual_signature_style=visual_signature_style,
                 visible_text_policy=resolved_text_policy,
                 target_image_prompt_language=resolved_prompt_language,
                 task_id=resolved_task_id,
@@ -354,6 +365,7 @@ class VisualAnchorTwoStageService:
         workflow_identity_condition_summary: str,
         visual_signature_emphasis: VisualSignatureEmphasis,
         target_visual_style: TargetVisualStyle,
+        visual_signature_style: VisualSignatureStyleContract,
         visible_text_policy: VisibleTextPolicy,
         target_image_prompt_language: str,
         task_id: str,
@@ -449,6 +461,7 @@ class VisualAnchorTwoStageService:
             continuous_scene_context=continuity_context,
             series_fusion_history=[],
             target_visual_style=target_visual_style,
+            visual_signature_style=visual_signature_style,
             visible_text_policy=visible_text_policy,
             negative_prompt_supported=negative_prompt_supported,
             target_image_prompt_language=target_image_prompt_language,
@@ -555,6 +568,7 @@ class VisualAnchorTwoStageService:
             identity_conditioning_mode=identity_conditioning_mode,
             identity_reference_condition=identity_reference_condition,
             target_visual_style=target_visual_style,
+            visual_signature_style=visual_signature_style,
             visible_text_policy=visible_text_policy,
             content_stage_prompt_version=CONTENT_STAGE_PROMPT_VERSION,
             fusion_stage_prompt_version=FUSION_STAGE_PROMPT_VERSION,

@@ -291,6 +291,22 @@ class VisualAnchorRenderedOutputAudit:
                 "reference_condition_preserved",
                 binding.get("reference_condition") == expected_reference,
             ),
+            (
+                "target_visual_style_preserved",
+                binding.get("target_visual_style")
+                == request.target_visual_style.model_dump(mode="json"),
+            ),
+            (
+                "visual_signature_style_preserved",
+                request.visual_signature_style is not None
+                and binding.get("visual_signature_style")
+                == request.visual_signature_style.model_dump(mode="json"),
+            ),
+            (
+                "visible_text_policy_preserved",
+                binding.get("visible_text_policy")
+                == request.visible_text_policy.model_dump(mode="json"),
+            ),
             ("workflow_key_preserved", binding.get("workflow_key") == request.workflow_key),
             (
                 "workflow_version_preserved",
@@ -547,6 +563,12 @@ class VisualAnchorRenderedOutputAudit:
                 "target_visual_style_preserved",
                 binding.get("target_visual_style")
                 == request.target_visual_style.model_dump(mode="json"),
+            ),
+            (
+                "visual_signature_style_preserved",
+                request.visual_signature_style is not None
+                and binding.get("visual_signature_style")
+                == request.visual_signature_style.model_dump(mode="json"),
             ),
             (
                 "visible_text_policy_preserved",

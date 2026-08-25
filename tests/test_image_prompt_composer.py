@@ -63,6 +63,8 @@ def _ip_profile():
         workspace_id="workspace_1",
         project_id="project_1",
         name="Zhengding guide",
+        style_hint="colorful flat mascot illustration",
+        rendering_style="flat_illustration",
         identity_lock=("white rabbit mascot", "long ears"),
         identity_anchors=("blue tie",),
         variable_slots=("action", "expression", "position"),

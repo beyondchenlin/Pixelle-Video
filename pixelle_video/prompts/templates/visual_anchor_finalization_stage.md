@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_finalization_stage
-version: visual_anchor_finalization_stage.v7
+version: visual_anchor_finalization_stage.v8
 stage: visual_anchor_finalization_stage
 purpose: 基于原文上下文、当前分镜和两轮草稿从零创作最终生图提示词
 output_contract: raw_image_prompt_text
@@ -17,7 +17,7 @@ output_contract: raw_image_prompt_text
 2. original_storyboard_text 与 content_stage_input.original_storyboard_text 是当前分镜的画面范围，决定这一幅图具体表达什么。以当前分镜选择唯一决定性瞬间，不要试图把原文上下文全部画出来。
 3. content_stage_input.previous_frame_summary 和 next_frame_summary 只用于保持连续性并区别相邻镜头，不能覆盖当前分镜，也不能成为新的画面主事件。
 4. fusion_stage_input.content_stage_output.raw_prompt 是第一轮纯内容草稿，fusion_stage_output.raw_prompt 是第二轮融合草稿。二者都不是事实来源，也不是必须保留的构图。可以保留有效部分，也可以删除其中任何非核心人物、背景、物件、载体、位置、动作、关系、镜头和句式后重新创作。
-5. fusion_stage_input.identity_profile、target_visual_style、visible_text_policy、workflow_identity_condition_summary 与 target_image_prompt_language 是最终画面的用户约束，必须落实；不得被前两轮草稿覆盖。
+5. fusion_stage_input.identity_profile、target_visual_style、visual_signature_style、visible_text_policy、workflow_identity_condition_summary 与 target_image_prompt_language 是最终画面的用户约束，必须落实；不得被前两轮草稿覆盖。
 
 开放式最终创作要求：
 6. 保留当前分镜明确的人物、身份、数量、关键事件、关键动作、关键物品、地点、时间、因果和主体职责。相关原文上下文只负责核对这些事实，不负责扩大本镜范围。
@@ -28,9 +28,10 @@ output_contract: raw_image_prompt_text
 11. 视觉身份是频道的次级视觉签名，不是当前分镜的内容主体。fusion_stage_input.visual_signature_emphasis 是整组分镜预先分配的识别强度，不要自行改判。standard 的整体可见面积通常约占画面的 2% 至 5%，形成常规小型频道标记；enhanced 是品牌记忆镜头，整体可见面积通常约占画面的 5% 至 8%，必须比 standard 明显大一档并更容易识别。百分比只按最终画面中的投影面积和视觉显著度理解，不按真实世界物理尺寸理解；最终提示词必须把它转换成结合载体、机位和景别的可成像尺度，不得只写百分比、“小型”或脱离透视的“手掌大小”。例如 standard 可以写成胸针，或后景小型显示器中约占显示区域三分之一的图形；enhanced 可以写成人物高度约六分之一的局部标记或载体表面一块清晰可辨的图形。不要再用线性倍数推算面积，也不要用“不得大于人物头部或关键产品”作为统一硬上限，因为不同景别会造成冲突；应让 original_storyboard_text 中的主要叙事主体保持更完整、更大的轮廓，占据主要构图轴并拥有更强的细节与明暗组织，视觉身份清楚但仍明显小于主要叙事主体整体，不占据画面中心、前景主位、最高对比、最高饱和度或最孤立的位置。若当前载体无法在对应尺度下维持这项层级，重新选择更合适的载体，同时确保 identity_profile.display_name 和全部 identity_profile.core_identity_traits 清晰可识别。
 12. 独立活体视觉身份站立、静坐、卧倒或躺卧在人物身边、脚边、桌边、前景或空白区域，不属于频道标记方案，不得采用。即使使用摆件或局部造型，也要保持标识化、与 fusion_stage_input.visual_signature_emphasis 一致的次级尺度和附着载体关系，不赋予凝视、陪伴、安慰或共同参与剧情的角色行为。
 13. series_final_prompt_history 只用于识别此前已经采用过的载体、表现形态、位置、画面作用和构图关系，绝对不是可复制的事实或写作模板。独立镜头避免机械重复；连续场景以 fusion_stage_input.continuous_scene_context.existing_fusion_decision 的连续性为先，但连续性不得覆盖 fusion_stage_input.visual_signature_emphasis，也不得把 enhanced 降回普通镜头的小尺度。
-14. 读取 fusion_stage_input.target_visual_style.description 与 required_final_prompt_fragments。若 description 中存在非空的 resolved_style.raw_content，最终提示词第一句必须逐字完整复制这段原始风格文字一次，不得翻译、概括、替换、删减或放宽；若不存在，再用 target_image_prompt_language 确立目标媒介和画风。第一句之后把该画风统一落实到每个人物、名人面部与身体、皮肤、服装、道具、产品及屏幕、环境和视觉身份，并将 required_final_prompt_fragments 中的每一项原样写入最终提示词，不得用较弱的近义表达替代。删除或改写与目标媒介冲突的表达，使用可成像的材质、线条、形状、色彩和明暗描述。
-15. visible_text_policy.suppress_visible_text 为 true 时，落实其文字要求。原文不要求准确文字时，纸张、白板和屏幕只使用空白表面、无字符线条或非文字几何图形。
-16. 最终文字只保留能够影响像素的画面信息。不要使用“巧妙融入”“仿佛注视”“成为不可分割的一部分”“不干扰主要内容”“传达某种精神”等无法直接成像的评价代替具体位置、动作、材质、尺度、接触和空间关系。
-17. 写出前只在本次调用内部完成事实取舍与创作选择，并确认最终文字明确包含视觉身份的唯一附着载体、结合最终景别的相对尺度、次级位置、材质、透视和光照关系。若 fusion_stage_output.raw_prompt 把视觉身份放在前景大面积空白表面、中心孤立区域、最高对比区域或核心产品主屏幕，必须改选更自然的中后景次要载体；场景中存在非核心显示器时，优先比较其屏保或无文字界面图形是否比前景纸张更符合视觉层级。fusion_stage_output.raw_prompt 若缺少上述任何一项，或把视觉身份写成独立活体剧情角色，不得照抄，必须在本次调用内重新设计。代码不会解析、判断、验证、修复或改写你的结果，也不会再次调用模型；你的原始输出将直接作为图片正向提示词。
+14. fusion_stage_input.target_visual_style 是叙事场景风格，只作用于内容人物、环境、道具、载体和背景，不作用于视觉身份。若 description 中存在非空的 resolved_style.raw_content，最终提示词第一句必须逐字完整复制这段原始场景风格文字一次，不得翻译、概括、替换、删减或放宽；若不存在，再用 target_image_prompt_language 确立场景媒介和画风。随后将 required_final_prompt_fragments 中的每一项原样落实到叙事场景。承载视觉身份的屏幕、服装或物件本体服从场景风格，但视觉身份图形本身不继承场景风格。
+15. fusion_stage_input.visual_signature_style 是视觉身份独立风格，只作用于唯一视觉身份实例。将 style_fragments 中的每一项原样写入最终提示词，并落实其 boundary_rules；不得用场景风格改写、降色、换材质或重绘视觉身份，也不得让视觉身份风格扩散到叙事人物、环境、道具和背景。source_style_scope 只描述视觉身份自身的来源设定，不能扩大到当前叙事场景。视觉身份仅在载体关系上服从比例、透视、遮挡、接触、反射和环境光照。
+16. visible_text_policy.suppress_visible_text 为 true 时，落实其文字要求。原文不要求准确文字时，纸张、白板和屏幕只使用空白表面、无字符线条或非文字几何图形。
+17. 最终文字只保留能够影响像素的画面信息。不要使用“巧妙融入”“仿佛注视”“成为不可分割的一部分”“不干扰主要内容”“传达某种精神”等无法直接成像的评价代替具体位置、动作、材质、尺度、接触和空间关系。
+18. 写出前只在本次调用内部完成事实取舍与创作选择，并确认最终文字明确包含视觉身份的唯一附着载体、结合最终景别的相对尺度、次级位置、材质、透视和光照关系。若 fusion_stage_output.raw_prompt 把视觉身份放在前景大面积空白表面、中心孤立区域、最高对比区域或核心产品主屏幕，必须改选更自然的中后景次要载体；场景中存在非核心显示器时，优先比较其屏保或无文字界面图形是否比前景纸张更符合视觉层级。fusion_stage_output.raw_prompt 若缺少上述任何一项，或把视觉身份写成独立活体剧情角色，不得照抄，必须在本次调用内重新设计。代码不会解析、判断、验证、修复或改写你的结果，也不会再次调用模型；你的原始输出将直接作为图片正向提示词。
 
 只输出最终图片提示词原文。不要输出结构化数据、字段名、标题、分析、问题清单、通过或失败结论、候选方案、代码块或引号。

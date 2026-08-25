@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_fusion_stage
-version: visual_anchor_fusion_stage.v26
+version: visual_anchor_fusion_stage.v27
 stage: visual_anchor_fusion_stage
 purpose: 在保持画面主旨和事实的前提下创作视觉身份的场景化融合草稿
 output_contract: raw_fusion_draft_text
@@ -34,6 +34,7 @@ output_contract: raw_fusion_draft_text
 
 输出要求：
 13. 融合草稿必须是一段完整、连贯、确定的整幅画描述，不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子，也不得输出规则、分析、候选、字段或内部判断过程。
-14. 读取 target_visual_style.description。若其中存在非空的 resolved_style.raw_content，草稿第一句必须逐字完整复制这段原始风格文字一次，不得翻译、概括、替换、删减或放宽；若不存在，再用 target_image_prompt_language 确立目标媒介与画风。第一句之后明确该画风统一作用于所有人物（包括名人及其面部）、服装、道具、产品及屏幕、环境和视觉身份；不得出现人物摄影写实而环境或视觉身份采用二维画风的混合媒介。随后再描述整幅场景，并将 target_visual_style.required_final_prompt_fragments 中的每一项原样落实到草稿中，不得用较弱的近义表达替代。visible_text_policy.suppress_visible_text 为 true 时，同时落实其要求的文字排除条件。negative_prompt_supported 为 false 时，把必要的画面限制自然写入这段正向草稿，不要另行输出负向提示词。
+14. target_visual_style 是叙事场景风格，只作用于内容人物、环境、道具、载体和背景，不作用于视觉身份。若 target_visual_style.description 中存在非空的 resolved_style.raw_content，草稿第一句必须逐字完整复制这段原始场景风格文字一次，不得翻译、概括、替换、删减或放宽；若不存在，再用 target_image_prompt_language 确立场景媒介与画风。随后将 target_visual_style.required_final_prompt_fragments 中的每一项原样落实到叙事场景，不得用较弱的近义表达替代。承载视觉身份的屏幕、服装或物件本体服从场景风格，但视觉身份图形本身不继承场景风格。
+15. visual_signature_style 是视觉身份独立风格，只作用于唯一视觉身份实例。将 visual_signature_style.style_fragments 中的每一项原样写入草稿，并落实其 boundary_rules；不得用 target_visual_style 改写、降色、换材质或重绘视觉身份，也不得让视觉身份风格扩散到叙事人物、环境、道具和背景。visual_signature_style.source_style_scope 只描述视觉身份自身的来源设定，不能扩大到当前叙事场景。视觉身份仅在载体关系上服从比例、透视、遮挡、接触、反射和环境光照。visible_text_policy.suppress_visible_text 为 true 时，同时落实其要求的文字排除条件。negative_prompt_supported 为 false 时，把必要的画面限制自然写入这段正向草稿，不要另行输出负向提示词。
 
 只输出完整融合提示词草稿原文。不要输出结构化数据、字段名、标题、分析、解释、候选方案、代码块或引号。

@@ -8,9 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v21"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v26"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v7"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v8"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v27"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v8"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v9"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -62,6 +62,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v23",
     "visual_anchor_fusion_stage.v24",
     "visual_anchor_fusion_stage.v25",
+    "visual_anchor_fusion_stage.v26",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -71,10 +72,12 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v4",
     "visual_anchor_finalization_stage.v5",
     "visual_anchor_finalization_stage.v6",
+    "visual_anchor_finalization_stage.v7",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v7",
+    "visual_anchor_generation_request.v8",
     GENERATION_REQUEST_VERSION,
 ]
 
@@ -135,7 +138,7 @@ def _optional_text(value: object, field_name: str) -> str:
 
 
 class TargetVisualStyle(BaseModel):
-    """The single global style contract shared by all prompt stages."""
+    """Scene-only style contract for narrative subjects and the non-IP world."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -155,6 +158,37 @@ class TargetVisualStyle(BaseModel):
     @classmethod
     def _validate_fragments(cls, value: list[str], info) -> list[str]:
         return _text_list(value, info.field_name)
+
+
+class VisualSignatureStyleContract(BaseModel):
+    """Independent style contract applied only to the recurring visual signature."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    profile_id: str
+    style_fragments: list[str] = Field(min_length=1)
+    rendering_style: str
+    source_style_scope: str
+    boundary_rules: list[str] = Field(default_factory=list)
+    application_scope: Literal["visual_signature_only"] = "visual_signature_only"
+
+    @field_validator(
+        "profile_id",
+        "rendering_style",
+        "source_style_scope",
+        mode="before",
+    )
+    @classmethod
+    def _validate_text(cls, value: object, info) -> str:
+        return _text(value, info.field_name)
+
+    @field_validator("style_fragments", "boundary_rules")
+    @classmethod
+    def _validate_fragments(cls, value: list[str], info) -> list[str]:
+        result = _text_list(value, info.field_name)
+        if info.field_name == "style_fragments" and not result:
+            raise ValueError("visual signature style fragments must not be empty")
+        return result
 
 
 class VisibleTextPolicy(BaseModel):
@@ -785,6 +819,7 @@ class FusionStageInput(BaseModel):
     continuous_scene_context: ContinuousSceneContext
     series_fusion_history: list[str] = Field(default_factory=list, max_length=3)
     target_visual_style: TargetVisualStyle
+    visual_signature_style: VisualSignatureStyleContract | None = None
     visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
     negative_prompt_supported: bool
     target_image_prompt_language: str
@@ -822,6 +857,15 @@ class FusionStageInput(BaseModel):
             raise ValueError(
                 "current fusion input requires an explicit visual signature emphasis"
             )
+        if self.prompt_version == FUSION_STAGE_PROMPT_VERSION:
+            if self.visual_signature_style is None:
+                raise ValueError(
+                    "current fusion input requires an independent visual signature style"
+                )
+            if self.visual_signature_style.profile_id != self.identity_profile.profile_id:
+                raise ValueError(
+                    "visual signature style must match the identity profile"
+                )
         if self.identity_conditioning_mode == "reference_image":
             if self.identity_reference_condition is None:
                 raise ValueError(
@@ -1232,6 +1276,7 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     identity_conditioning_mode: Literal["text_profile", "reference_image"]
     identity_reference_condition: IdentityReferenceCondition | None = None
     target_visual_style: TargetVisualStyle
+    visual_signature_style: VisualSignatureStyleContract | None = None
     visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
     content_stage_prompt_version: ContentStagePromptVersion
     fusion_stage_prompt_version: FusionStagePromptVersion
@@ -1342,6 +1387,15 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             raise ValueError(
                 "current generation requests require the finalization stage version"
             )
+        if self.request_version == GENERATION_REQUEST_VERSION:
+            if self.visual_signature_style is None:
+                raise ValueError(
+                    "current generation requests require an independent visual signature style"
+                )
+            if self.visual_signature_style.profile_id != self.identity_profile_id:
+                raise ValueError(
+                    "generation visual signature style must match the identity profile"
+                )
         if (
             self.request_version == "visual_anchor_generation_request.v7"
             and self.finalization_stage_prompt_version is not None

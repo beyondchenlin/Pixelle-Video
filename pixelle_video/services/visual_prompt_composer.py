@@ -35,6 +35,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     ImageWorkflowExecutionContract,
     TargetVisualStyle,
     VisibleTextPolicy,
+    VisualSignatureStyleContract,
 )
 from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
@@ -237,6 +238,7 @@ class VisualPromptComposer:
             )
 
         profile_snapshot: VisualSignatureProfileSnapshot | None = None
+        visual_signature_style: VisualSignatureStyleContract | None = None
         if signature_enabled:
             profile_snapshot = series_visual_signature_profile_snapshot
             if profile_snapshot is None:
@@ -247,6 +249,10 @@ class VisualPromptComposer:
             profile_snapshot = validate_series_visual_signature_profile_snapshot(
                 profile_snapshot,
                 expected_profile_id=resolved_signature_request.profile_id,
+            )
+            visual_signature_style = _visual_signature_style_contract(
+                ip_profile=ip_profile,
+                expected_profile_id=profile_snapshot.profile_id,
             )
 
         if reference_patch:
@@ -364,6 +370,10 @@ class VisualPromptComposer:
                 raise RuntimeError(
                     "enabled visual signature must have a prevalidated canonical profile snapshot"
                 )
+            if visual_signature_style is None:
+                raise RuntimeError(
+                    "enabled visual signature must have an independent style contract"
+                )
             if media_service is None:
                 raise ValueError(
                     "visual-anchor three-stage generation requires the media service"
@@ -470,6 +480,7 @@ class VisualPromptComposer:
                 identity_conditioning_mode=identity_conditioning_mode,
                 workflow_identity_condition_summary=identity_condition_summary,
                 target_visual_style=target_visual_style,
+                visual_signature_style=visual_signature_style,
                 visible_text_policy=visible_text_policy,
                 target_image_prompt_language=(
                     "中文"
@@ -503,7 +514,7 @@ class VisualPromptComposer:
                 for item in two_stage_result.frames
             }
             planning_snapshot["visual_anchor_two_stage_prompt_policy"] = {
-                "schema_version": "visual_anchor_two_stage_prompt_policy.v7",
+                "schema_version": "visual_anchor_two_stage_prompt_policy.v8",
                 "prompt_chain": (
                     "content_raw_response_then_fusion_draft_then_"
                     "finalization_raw_response"
@@ -649,49 +660,35 @@ def _target_visual_style_contract(
         if "builtin_line_art_emotion_minimal" in resolved_style.source_identity:
             if prompt_language == CHINESE_PROMPT_LANGUAGE:
                 required_positive = [
-                    "全画面纯黑、白及单一灰阶的极简二维轮廓画",
-                    "统一细黑轮廓线、纯白填充、少量硬边单一浅灰平涂和大面积白色留白",
-                    "不使用连续色调或渐变",
-                    "所有人物及名人面部和身体、皮肤、服装、手机及屏幕、标志、家具、窗外景物和视觉身份使用同一图形处理",
-                    "名人使用简化标志性轮廓识别，面部和皮肤为纯白平面，只用少量线条表现眼睛、鼻子和嘴，头发为整块黑色形状",
-                    "不出现任何彩色像素",
-                    "不出现照片纹理、真实皮肤细节、面部明暗塑形、单根发丝和排线阴影",
-                    "不出现渐变体积光和三维材质",
-                    "彩色场景只用平面灰阶块与线条密度表达",
+                    "叙事场景与内容主体采用极简黑白二维线稿插画",
+                    "使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
+                    "叙事人物、物体、载体和环境使用协调的线稿语言",
+                    "人物面部只用少量轮廓线概括",
+                    "叙事场景不使用彩色、照片纹理、真实皮肤明暗、连续渐变、体积光或三维材质",
                 ]
                 required_negative = [
-                    "彩色像素",
-                    "照片纹理",
-                    "真实皮肤细节",
-                    "面部明暗塑形",
-                    "单根发丝",
-                    "排线阴影",
-                    "连续色调或渐变",
-                    "渐变体积光",
-                    "三维材质",
+                    "叙事场景中的彩色元素",
+                    "叙事场景中的照片纹理",
+                    "叙事人物的真实皮肤明暗",
+                    "叙事场景中的连续渐变",
+                    "叙事场景中的体积光",
+                    "叙事场景中的三维材质",
                 ]
             else:
                 required_positive = [
-                    "strict pure black, white, and single-value gray minimalist 2D contour drawing across the entire image",
-                    "uniform thin black outlines, pure white fill areas, occasional hard-edged flat light-gray blocks, and large white negative space",
-                    "no continuous tone or gradient",
-                    "every person and celebrity face and body, skin, clothing, phone and screen, logo, furniture, outdoor view, and visual identity uses the same graphic treatment",
-                    "celebrities use simplified iconic contours, flat white face and skin shapes, only a few clean lines for eyes, nose, and mouth, and solid black hair shapes",
-                    "zero colored pixels",
-                    "no photographic texture, realistic skin detail, tonal face modeling, individual hair strands, or cross-hatching",
-                    "no gradient volumetric lighting or 3D material",
-                    "colored scenes use only flat grayscale blocks and line density",
+                    "the narrative scene and content subjects use minimalist black-and-white 2D line illustration",
+                    "fine clean black contours, large white negative space, and restrained flat light-gray accents",
+                    "narrative people, objects, carriers, and environments use a coherent line-art language",
+                    "faces are summarized with a few concise contour lines",
+                    "the narrative scene uses no color, photographic texture, realistic skin shading, continuous gradients, volumetric lighting, or 3D materials",
                 ]
                 required_negative = [
-                    "colored pixels",
-                    "photographic texture",
-                    "realistic skin detail",
-                    "tonal face modeling",
-                    "individual hair strands",
-                    "cross-hatching",
-                    "continuous tone or gradient",
-                    "gradient volumetric lighting",
-                    "3D material",
+                    "colored narrative-scene elements",
+                    "photographic narrative-scene texture",
+                    "realistic skin shading on narrative people",
+                    "continuous gradients in the narrative scene",
+                    "volumetric lighting in the narrative scene",
+                    "3D materials in the narrative scene",
                 ]
     if not negative_prompt_supported:
         required_positive.extend(
@@ -714,6 +711,91 @@ def _target_visual_style_contract(
         required_final_prompt_fragments=_dedupe_fragments(required_positive),
         required_negative_prompt_fragments=_dedupe_fragments(required_negative),
     )
+
+
+def _visual_signature_style_contract(
+    *,
+    ip_profile: Any,
+    expected_profile_id: str,
+) -> VisualSignatureStyleContract:
+    if ip_profile is None:
+        raise ValueError(
+            "enabled visual signature requires its source profile for independent style"
+        )
+    profile_id = str(
+        _profile_value(ip_profile, "series_visual_signature_profile_id") or ""
+    ).strip()
+    if profile_id != expected_profile_id:
+        raise ValueError("visual signature style profile must match the identity profile")
+
+    style_hint = str(_profile_value(ip_profile, "style_hint") or "").strip()
+    rendering_style = _enum_value(
+        _profile_value(ip_profile, "rendering_style") or "style_inherited"
+    )
+    source_style_scope = _enum_value(
+        _profile_value(ip_profile, "style_scope") or "ip_character_only"
+    )
+    rendering_fragment = {
+        "photorealistic_human": "photorealistic human rendering",
+        "stylized_character": "stylized character rendering",
+        "flat_illustration": "flat illustration rendering",
+    }.get(rendering_style, "")
+    color_fragments = _palette_prompt_fragments(
+        _profile_value(ip_profile, "color_palette") or {}
+    )
+    style_fragments = _dedupe_fragments(
+        [style_hint, rendering_fragment, *color_fragments]
+    )
+    if not style_fragments:
+        raise ValueError(
+            "enabled visual signature profile has no independent style data"
+        )
+    boundary_rules = _profile_text_fragments(
+        _profile_value(ip_profile, "style_boundary_rules") or ()
+    )
+    return VisualSignatureStyleContract(
+        profile_id=profile_id,
+        style_fragments=style_fragments,
+        rendering_style=rendering_style,
+        source_style_scope=source_style_scope,
+        boundary_rules=boundary_rules,
+    )
+
+
+def _profile_value(source: Any, field_name: str) -> Any:
+    if isinstance(source, Mapping):
+        return source.get(field_name)
+    return getattr(source, field_name, None)
+
+
+def _enum_value(value: Any) -> str:
+    raw = getattr(value, "value", value)
+    return " ".join(str(raw or "").split())
+
+
+def _profile_text_fragments(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return _dedupe_fragments([value])
+    if isinstance(value, Sequence):
+        return _dedupe_fragments(
+            [item for item in value if isinstance(item, str)]
+        )
+    return []
+
+
+def _palette_prompt_fragments(value: Any) -> list[str]:
+    fragments: list[str] = []
+    if isinstance(value, Mapping):
+        prompt = value.get("prompt")
+        if isinstance(prompt, str):
+            fragments.append(prompt)
+        for key, nested in value.items():
+            if key != "prompt":
+                fragments.extend(_palette_prompt_fragments(nested))
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        for nested in value:
+            fragments.extend(_palette_prompt_fragments(nested))
+    return _dedupe_fragments(fragments)
 
 
 def _style_fragments(value: str) -> list[str]:
