@@ -105,7 +105,7 @@ def test_generation_readiness_keeps_historical_profiles_compatible() -> None:
     )
 
     assert any(
-        "do not inherit the narrative-scene style" in fragment
+        "following the narrative-scene rendering style" in fragment
         for fragment in contract.style_fragments
     )
 

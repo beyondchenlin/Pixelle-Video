@@ -738,6 +738,12 @@ def _render_stage_prompt(
     input_payload = stage_input.model_dump(mode="json")
     if isinstance(stage_input, ContentStageInput):
         input_payload.pop("prompt_version", None)
+    elif isinstance(stage_input, FusionStageInput):
+        input_payload.pop("visual_signature_style", None)
+    elif isinstance(stage_input, FinalizationStageInput):
+        fusion_input_payload = input_payload.get("fusion_stage_input")
+        if isinstance(fusion_input_payload, dict):
+            fusion_input_payload.pop("visual_signature_style", None)
     rendered = render_prompt_template(
         prompt_id,
         {

@@ -14,7 +14,7 @@ _MAX_PALETTE_NODES = 256
 _MAX_PALETTE_DEPTH = 8
 _PROFILE_INTRINSIC_STYLE_FALLBACK = (
     "preserve the visual signature's profile-defined design, silhouette, colors, "
-    "and material treatment; do not inherit the narrative-scene style"
+    "and material identity while following the narrative-scene rendering style"
 )
 _EXCLUSIVE_VISUAL_LAYER_RULE = (
     "only the visual signature may use this profile-defined rendering style"
@@ -56,9 +56,8 @@ def build_visual_signature_style_contract(
         ]
     )
     if not style_fragments:
-        # Historical profiles predate the independent-style fields. Keeping a
-        # scoped intrinsic-style contract preserves compatibility without
-        # allowing the narrative scene style to recolor or redraw the IP.
+        # Historical profiles keep their identity facts while inheriting the
+        # current scene's rendering style.
         style_fragments = [_PROFILE_INTRINSIC_STYLE_FALLBACK]
 
     boundary_rules = _profile_text_fragments(

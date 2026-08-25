@@ -546,6 +546,12 @@ async def test_stage_prompts_apply_requirements_only_before_generation():
     assert "只输出最终纯内容图片提示词原文" in llm.calls[0]["prompt"]
     assert "只输出完整融合提示词草稿原文" in llm.calls[1]["prompt"]
     assert "只输出最终图片提示词原文" in llm.calls[2]["prompt"]
+    assert '"visual_signature_style"' not in llm.calls[1]["prompt"]
+    assert '"visual_signature_style"' not in llm.calls[2]["prompt"]
+    assert "整幅画的统一风格" in llm.calls[1]["prompt"]
+    assert "同一风格一致作用于人物、物体、环境、承载对象和视觉身份" in (
+        llm.calls[2]["prompt"]
+    )
 
 
 @pytest.mark.asyncio
@@ -1168,7 +1174,7 @@ async def test_current_raw_payload_round_trips_without_content_validation():
         FinalizationStagePromptPassthrough,
     )
     assert frame.generation_request.request_version == (
-        "visual_anchor_generation_request.v11"
+        "visual_anchor_generation_request.v12"
     )
     assert frame.generation_request.final_positive_prompt == (
         frame.finalization_stage_output.raw_prompt
@@ -1542,7 +1548,7 @@ async def test_regeneration_preserves_the_raw_model_prompt(
     assert context.generation_request.task_id == "regenerated-task"
     assert (
         context.generation_request.request_version
-        == "visual_anchor_generation_request.v11"
+        == "visual_anchor_generation_request.v12"
     )
     restored_payload = context.frame_result.model_dump(mode="json")
     assert restored_payload["fusion_stage_output"]["raw_prompt"] == (

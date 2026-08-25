@@ -516,7 +516,7 @@ class VisualPromptComposer:
                 for item in two_stage_result.frames
             }
             planning_snapshot["visual_anchor_two_stage_prompt_policy"] = {
-                "schema_version": "visual_anchor_two_stage_prompt_policy.v10",
+                "schema_version": "visual_anchor_two_stage_prompt_policy.v11",
                 "prompt_chain": (
                     "content_raw_response_then_fusion_draft_then_"
                     "finalization_raw_response"
@@ -653,7 +653,7 @@ def _target_visual_style_contract(
             "raw_content": resolved_style.raw_content,
         }
         required_positive.extend(
-            _scene_scoped_style_fragments(
+            _uniform_style_fragments(
                 fragments=_style_fragments(resolved_style.raw_content),
                 prompt_language=prompt_language,
             )
@@ -666,35 +666,35 @@ def _target_visual_style_contract(
         if "builtin_line_art_emotion_minimal" in resolved_style.source_identity:
             if prompt_language == CHINESE_PROMPT_LANGUAGE:
                 required_positive = [
-                    "叙事场景的内容人物、环境、道具、载体和背景采用极简黑白二维线稿插画；视觉身份图形不继承该画风",
-                    "叙事场景使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
-                    "叙事人物、物体、载体和环境使用协调的线稿语言",
+                    "整幅画的人物、物体、环境、承载对象和视觉身份采用极简黑白二维线稿插画",
+                    "整幅画使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
+                    "人物、物体、环境、承载对象和视觉身份使用协调的线稿语言",
                     "人物面部只用少量轮廓线概括",
-                    "叙事场景不使用彩色、照片纹理、真实皮肤明暗、连续渐变、体积光或三维材质",
+                    "整幅画不使用彩色、照片纹理、真实皮肤明暗、连续渐变、体积光或三维材质",
                 ]
                 required_negative = [
-                    "叙事场景中的彩色元素",
-                    "叙事场景中的照片纹理",
-                    "叙事人物的真实皮肤明暗",
-                    "叙事场景中的连续渐变",
-                    "叙事场景中的体积光",
-                    "叙事场景中的三维材质",
+                    "画面中的彩色元素",
+                    "画面中的照片纹理",
+                    "人物的真实皮肤明暗",
+                    "画面中的连续渐变",
+                    "画面中的体积光",
+                    "画面中的三维材质",
                 ]
             else:
                 required_positive = [
-                    "the narrative people, environments, props, carriers, and background use minimalist black-and-white 2D line illustration; the visual-signature graphic does not inherit this style",
-                    "the narrative scene uses fine clean black contours, large white negative space, and restrained flat light-gray accents",
-                    "narrative people, objects, carriers, and environments use a coherent line-art language",
+                    "the whole image, including people, objects, environments, carriers, and the visual signature, uses minimalist black-and-white 2D line illustration",
+                    "the whole image uses fine clean black contours, large white negative space, and restrained flat light-gray accents",
+                    "people, objects, environments, carriers, and the visual signature use a coherent line-art language",
                     "faces are summarized with a few concise contour lines",
-                    "the narrative scene uses no color, photographic texture, realistic skin shading, continuous gradients, volumetric lighting, or 3D materials",
+                    "the whole image uses no color, photographic texture, realistic skin shading, continuous gradients, volumetric lighting, or 3D materials",
                 ]
                 required_negative = [
-                    "colored narrative-scene elements",
-                    "photographic narrative-scene texture",
-                    "realistic skin shading on narrative people",
-                    "continuous gradients in the narrative scene",
-                    "volumetric lighting in the narrative scene",
-                    "3D materials in the narrative scene",
+                    "colored image elements",
+                    "photographic image texture",
+                    "realistic skin shading",
+                    "continuous gradients",
+                    "volumetric lighting",
+                    "3D materials",
                 ]
     if visual_profile_snapshot:
         payload["visual_profile"] = dict(visual_profile_snapshot)
@@ -702,12 +702,12 @@ def _target_visual_style_contract(
         json.dumps(payload, ensure_ascii=False, sort_keys=True)
         if payload
         else (
-            "未选择额外叙事场景风格；叙事人物、环境、道具、载体和背景沿用纯内容阶段的视觉表达，不约束视觉签名"
+            "未选择额外整体画风；人物、物体、环境、承载对象和视觉身份统一沿用纯内容阶段的视觉表达，并保留视觉身份特征"
             if prompt_language == CHINESE_PROMPT_LANGUAGE
             else (
-                "no additional narrative-scene style; narrative people, environments, "
-                "props, carriers, and backgrounds retain the content-stage visual "
-                "treatment without constraining the visual signature"
+                "no additional overall style; people, objects, environments, carriers, "
+                "and the visual signature share the content-stage visual treatment while "
+                "preserving the visual signature's identity traits"
             )
         )
     )
@@ -734,20 +734,20 @@ def _style_fragments(value: str) -> list[str]:
     return [" ".join(part.split()) for part in normalized.split(",") if part.strip()]
 
 
-def _scene_scoped_style_fragments(
+def _uniform_style_fragments(
     *,
     fragments: Sequence[str],
     prompt_language: PromptLanguage,
 ) -> list[str]:
     if prompt_language == CHINESE_PROMPT_LANGUAGE:
         return [
-            "仅对叙事场景的内容人物、环境、道具、载体和背景应用以下风格，"
-            f"不作用于视觉身份图形：{fragment}"
+            "整幅画的人物、物体、环境、承载对象和视觉身份统一应用以下风格："
+            f"{fragment}"
             for fragment in fragments
         ]
     return [
-        "apply the following style only to narrative people, environments, props, "
-        f"carriers, and background, not to the visual-signature graphic: {fragment}"
+        "apply the following style uniformly to all people, objects, environments, "
+        f"carriers, and the visual signature: {fragment}"
         for fragment in fragments
     ]
 

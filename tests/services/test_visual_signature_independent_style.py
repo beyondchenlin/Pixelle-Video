@@ -43,7 +43,7 @@ from pixelle_video.services.visual_prompt_composer import (
         ),
     ],
 )
-def test_fusion_prompt_keeps_generic_signature_style_separate_from_scene_style(
+def test_fusion_prompt_uses_one_scene_style_for_every_visible_element(
     profile_id,
     scene_style,
     style_hint,
@@ -96,15 +96,15 @@ def test_fusion_prompt_keeps_generic_signature_style_separate_from_scene_style(
     rendered = _render_stage_prompt("visual_anchor_fusion_stage", fusion_input)
 
     assert scene_style in rendered.text
-    assert style_hint in rendered.text
-    assert palette_prompt in rendered.text
+    assert style_hint not in rendered.text
+    assert palette_prompt not in rendered.text
+    assert '"visual_signature_style"' not in rendered.text
     assert signature_style.application_scope == "visual_signature_only"
-    assert "target_visual_style 是叙事场景风格" in rendered.text
-    assert "visual_signature_style 是视觉身份独立风格" in rendered.text
-    assert "不得让视觉身份风格扩散到叙事人物、环境、道具和背景" in rendered.text
+    assert "target_visual_style 是整幅画的统一风格" in rendered.text
+    assert "一致作用于人物、物体、环境、承载对象和视觉身份" in rendered.text
 
 
-def test_historical_profile_gets_scoped_intrinsic_style_instead_of_scene_inheritance():
+def test_historical_profile_preserves_identity_while_inheriting_scene_rendering():
     profile = SimpleNamespace(
         series_visual_signature_profile_id="missing-style",
         style_hint=None,
@@ -121,7 +121,7 @@ def test_historical_profile_gets_scoped_intrinsic_style_instead_of_scene_inherit
 
     assert contract.application_scope == "visual_signature_only"
     assert any(
-        "do not inherit the narrative-scene style" in fragment
+        "following the narrative-scene rendering style" in fragment
         for fragment in contract.style_fragments
     )
 

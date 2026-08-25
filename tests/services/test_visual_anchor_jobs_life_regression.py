@@ -28,25 +28,25 @@ from pixelle_video.services.visual_anchor_two_stage_service import (
 from pixelle_video.services.visual_prompt_composer import (
     VisualPromptComposer,
     _resolve_visual_anchor_style_batch,
-    _scene_scoped_style_fragments,
     _target_visual_style_contract,
+    _uniform_style_fragments,
     _visible_text_policy,
 )
 
 _STYLE_POSITIVE = [
-    "叙事场景的内容人物、环境、道具、载体和背景采用极简黑白二维线稿插画；视觉身份图形不继承该画风",
-    "叙事场景使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
-    "叙事人物、物体、载体和环境使用协调的线稿语言",
+    "整幅画的人物、物体、环境、承载对象和视觉身份采用极简黑白二维线稿插画",
+    "整幅画使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
+    "人物、物体、环境、承载对象和视觉身份使用协调的线稿语言",
     "人物面部只用少量轮廓线概括",
-    "叙事场景不使用彩色、照片纹理、真实皮肤明暗、连续渐变、体积光或三维材质",
+    "整幅画不使用彩色、照片纹理、真实皮肤明暗、连续渐变、体积光或三维材质",
 ]
 _STYLE_NEGATIVE = [
-    "叙事场景中的彩色元素",
-    "叙事场景中的照片纹理",
-    "叙事人物的真实皮肤明暗",
-    "叙事场景中的连续渐变",
-    "叙事场景中的体积光",
-    "叙事场景中的三维材质",
+    "画面中的彩色元素",
+    "画面中的照片纹理",
+    "人物的真实皮肤明暗",
+    "画面中的连续渐变",
+    "画面中的体积光",
+    "画面中的三维材质",
 ]
 _NO_TEXT_POSITIVE = "画面中禁止出现任何可见文字、标题、水印或乱码"
 _NO_TEXT_NEGATIVE = "文字，水印，标题，乱码"
@@ -417,24 +417,23 @@ def test_z_image_style_contract_keeps_local_avoidance_rules_for_scoped_rewrite()
     assert contract.required_negative_prompt_fragments == _STYLE_NEGATIVE
 
 
-def test_custom_scene_style_is_scoped_before_entering_the_model_contract():
-    assert _scene_scoped_style_fragments(
+def test_custom_style_is_uniform_before_entering_the_model_contract():
+    assert _uniform_style_fragments(
         fragments=["克制的水墨插画"],
         prompt_language=CHINESE_PROMPT_LANGUAGE,
     ) == [
-        "仅对叙事场景的内容人物、环境、道具、载体和背景应用以下风格，"
-        "不作用于视觉身份图形：克制的水墨插画"
+        "整幅画的人物、物体、环境、承载对象和视觉身份统一应用以下风格："
+        "克制的水墨插画"
     ]
 
 
-def test_custom_scene_style_scope_is_not_implicitly_global_in_english():
-    assert _scene_scoped_style_fragments(
+def test_custom_style_is_uniform_in_english():
+    assert _uniform_style_fragments(
         fragments=["restrained ink-wash illustration"],
         prompt_language="English",
     ) == [
-        "apply the following style only to narrative people, environments, props, "
-        "carriers, and background, not to the visual-signature graphic: restrained "
-        "ink-wash illustration"
+        "apply the following style uniformly to all people, objects, environments, "
+        "carriers, and the visual signature: restrained ink-wash illustration"
     ]
 
 
@@ -444,10 +443,10 @@ def test_fusion_template_allows_required_style_and_text_prohibitions():
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "target_visual_style.required_final_prompt_fragments" in template
-    assert "visible_text_policy.suppress_visible_text" in template
+    assert "target_visual_style 是整幅画的统一风格" in template
+    assert "visible_text_policy" in template
     assert "只输出完整融合提示词草稿原文" in template
-    assert "不要输出结构化数据" in template
+    assert "不输出标题、分析、解释、候选、字段" in template
 
 
 def test_content_template_requests_no_proof_or_self_check_fields():
@@ -457,7 +456,7 @@ def test_content_template_requests_no_proof_or_self_check_fields():
     ).read_text(encoding="utf-8")
 
     assert "只输出最终纯内容图片提示词原文" in template
-    assert "不要输出结构化数据" in template
+    assert "不输出标题、分析、解释、候选、字段" in template
     for removed_field in (
         "shot_purpose",
         "renderable_story_beats",
@@ -480,25 +479,13 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "original_storyboard_text 是当前分镜的硬边界",
-        "article_context 是原文叙事上下文",
-        "只补足成像必需的最少外观信息",
-        "选择一个物理上能够同时成立的决定性瞬间",
-        "可以设计一个有原文依据、物理上成立的具象化视觉隐喻",
-        "不得把隐喻伪装成原文真实发生的事件",
-        "不得无依据换成泛化人物",
-        "标题式首镜、人物引介、姓名判断或抽象总述",
-        "不得从 article_context 的后续段落提前抽取某次产品发布",
-        "不得默认创作“手持产品向同事展示”",
-        "article_context 在这种镜头中只负责确认主体身份和全文主题",
-        "原文存在迭代样品、失败原型、修改痕迹、草稿、工具、结果物等专属证据时",
-        "为当前分镜选择与相邻内容不同的可见证据类型",
-        "让本镜至少在决定性动作、可见物证、主体关系、景别、机位、构图或视觉焦点中的一项与相邻镜头形成明确区别",
-        "禁止连续镜头机械重复",
-        "不得依靠日记、书页、屏幕、招牌、标题、字幕、水印或乱码传达信息",
-        "空白表面、无字符的简单线条或非文字几何图形",
-        "在输出前消除冲突",
-        "本阶段完全不包含、暗示或预留任何系列角色",
+        "original_storyboard_text 是当前画面的事实边界",
+        "article_context 只用于确认身份、指代、因果和必要背景",
+        "选择一个物理上能够同时成立的静止瞬间",
+        "把抽象内容转成能够直接看到的动作、物证、人物关系、空间状态或结果",
+        "只补足成像所需的最少外观信息",
+        "不依靠纸张、屏幕、招牌、字幕或水印传达信息",
+        "本阶段不加入、暗示或预留视觉身份、频道标记和目标风格",
     ):
         assert required_rule in template
 
@@ -509,7 +496,7 @@ def test_fusion_template_requests_only_raw_draft_text():
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "直接写出一段完整的融合提示词草稿" in template
+    assert "根据当前画面重新创作一段完整的融合提示词" in template
     assert "只输出完整融合提示词草稿原文" in template
     for removed_field in (
         "selected_fusion_method",
@@ -529,41 +516,29 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "original_storyboard_text 是画面主旨与事实边界",
-        "content_stage_output.raw_prompt 是不含视觉身份的创作草稿",
-        "可以增加、删除、替换、移动或重写任何背景、道具、服装细节",
-        "视觉身份的职责固定为频道的次级识别标记",
-        "不预设具体载体、位置、朝向和表现材质",
-        "按三个条件选择载体",
-        "优先选择中景或后景已有的次要载体",
-        "不选择前景大面积空白纸张",
-        "场景中存在次要显示器时",
-        "没有自然载体时，再创造一个与主题有关的标识化载体",
-        "可以让现有关键叙事物品承载视觉身份",
-        "本阶段不承担跨独立镜头的历史查重",
-        "同一连续场景优先参考 continuous_scene_context.existing_fusion_decision 保持既有表现形态和空间关系",
-        "不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子",
-        "target_visual_style 是叙事场景风格",
-        "visual_signature_style 是视觉身份独立风格",
-        "视觉身份图形本身不继承场景风格",
-        "不得让视觉身份风格扩散到叙事人物、环境、道具和背景",
-        "视觉身份仅在载体关系上服从比例、透视、遮挡、接触、反射和环境光照",
-        "resolved_style.raw_content 只用于追溯风格来源，禁止直接复制到草稿",
-        "target_visual_style.required_final_prompt_fragments 作为实际风格约束逐项落实到叙事场景",
-        "不得把这些局部约束放入全局反向提示词",
+        "original_storyboard_text 是画面主旨和事实边界",
+        "content_stage_output.raw_prompt 是纯内容草稿",
+        "整幅画只出现一个可识别的视觉身份实例",
+        "视觉身份只承担次级频道标记",
+        "自由选择最自然的承载对象",
+        "不要机械地把视觉身份放在主体身上",
+        "写清视觉身份与承载对象之间能够直接看到的物理关系",
+        "target_visual_style 是整幅画的统一风格",
+        "一致作用于人物、物体、环境、承载对象和视觉身份",
+        "独立场景只根据当前画面选择，不参考其他独立镜头",
     ):
         assert required_rule in template
 
     assert "最终提示词必须把 identity_profile.display_name 的实际值代入" not in template
 
 
-def test_fusion_template_explicitly_allows_single_attached_brand_forms():
+def test_fusion_template_does_not_limit_carriers_with_examples():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    for manifestation in (
+    for forbidden_example in (
         "服装印刷",
         "刺绣",
         "压印",
@@ -575,7 +550,8 @@ def test_fusion_template_explicitly_allows_single_attached_brand_forms():
         "环境局部标识",
         "屏保或无文字界面图形",
     ):
-        assert manifestation in template
+        assert forbidden_example not in template
+    assert "例如" not in template
 
 
 def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
@@ -586,9 +562,9 @@ def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
 
     for required_rule in (
         "整幅画只出现一个可识别的视觉身份实例",
-        "再确定它应附着于哪个与本镜主题相关的载体",
-        "任何能够作为频道标记在当前场景中真实成立的单一附着方式都合法",
-        "target_visual_style.required_final_prompt_fragments",
+        "自由选择最自然的承载对象",
+        "不要预设对象类型、固定位置、固定尺寸或固定材质",
+        "不要机械地把视觉身份放在主体身上",
     ):
         assert required_rule in template
     for removed_bias in (
@@ -616,38 +592,32 @@ def test_finalization_template_repairs_current_facts_without_copying_history():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "content_stage_input.article_context 是从用户原文截取的相关上下文",
-        "original_storyboard_text 与 content_stage_input.original_storyboard_text 是当前分镜的画面范围",
-        "不能覆盖当前分镜，也不能成为新的画面主事件",
-        "二者都不是事实来源，也不是必须保留的构图",
-        "相关原文上下文只负责核对这些事实，不负责扩大本镜范围",
-        "series_final_prompt_history 只用于识别此前已经采用过的载体",
-        "绝对不是可复制的事实或写作模板",
-        "continuous_scene_context.existing_fusion_decision 的连续性为先",
+        "original_storyboard_text 是当前画面的事实边界",
+        "article_context 只用于核对身份、指代、因果和必要背景",
+        "前两轮输出只是草稿，不是必须保留的内容",
+        "series_final_prompt_history 只用于识别最近三个最终提示词中的承载关系",
+        "当前镜头属于独立场景时，必须避开最近重复的承载关系",
+        "属于连续场景时，画面连续性优先",
     ):
         assert required_rule in template
 
 
-def test_finalization_template_separates_scene_and_signature_styles():
+def test_finalization_template_unifies_scene_and_signature_styles():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_finalization_stage.md"
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "关键叙事物品可以承载视觉身份",
-        "创作手段完全开放",
-        "可以创造原文和两轮草稿中都不存在的新物件、新装置和新的视觉关系",
-        "视觉身份的职责固定为频道的次级识别标记",
-        "target_visual_style 是叙事场景风格",
-        "visual_signature_style 是视觉身份独立风格",
-        "视觉身份图形本身不继承场景风格",
-        "不得让视觉身份风格扩散到叙事人物、环境、道具和背景",
-        "视觉身份仅在载体关系上服从比例、透视、遮挡、接触、反射和环境光照",
-        "代码不会解析、判断、验证、修复或改写你的结果",
+        "同一风格一致作用于人物、物体、环境、承载对象和视觉身份",
+        "自由选择最自然的承载对象",
+        "不要机械地把视觉身份放在主体身上",
+        "你的原始输出将直接作为图片正向提示词",
         "只输出最终图片提示词原文",
     ):
         assert required_rule in template
+    assert "visual_signature_style" not in template
+    assert "视觉身份独立风格" not in template
     for forbidden_output in (
         "输出通过结论",
         "输出失败结论",
@@ -656,7 +626,7 @@ def test_finalization_template_separates_scene_and_signature_styles():
         assert forbidden_output not in template
 
 
-def test_fusion_and_finalization_keep_visual_signature_as_small_channel_mark():
+def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios():
     template_root = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates"
@@ -672,22 +642,17 @@ def test_fusion_and_finalization_keep_visual_signature_as_small_channel_mark():
 
     for template in templates:
         for required_rule in (
-            "频道的次级视觉签名",
-            "整体可见面积通常约占画面的 2% 至 5%",
-            "形成常规小型频道标记",
-            "占据主要构图轴并拥有更强的细节与明暗组织",
-            "按最终画面中的投影面积和视觉显著度理解",
-            "不得只写百分比、“小型”或脱离透视的“手掌大小”",
-            "后景小型显示器中约占显示区域三分之一的图形",
-            "独立活体视觉身份站立、静坐、卧倒或躺卧",
-            "不赋予凝视、陪伴、安慰或共同参与剧情的角色行为",
-            "若当前载体无法在对应尺度下维持这项层级",
-            "全部 identity_profile.core_identity_traits 清晰可识别",
+            "次级频道标记",
+            "不成为剧情角色",
+            "主体始终先被看见",
+            "视觉身份清楚可辨但不抢夺主旨",
         ):
             assert required_rule in template
+        for forbidden_ratio in ("2%", "5%", "8%", "百分比"):
+            assert forbidden_ratio not in template
 
 
-def test_fusion_and_finalization_define_one_step_larger_memory_frame():
+def test_fusion_and_finalization_use_relative_emphasis_without_numeric_examples():
     template_root = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates"
@@ -704,15 +669,11 @@ def test_fusion_and_finalization_define_one_step_larger_memory_frame():
     for template in templates:
         for required_rule in (
             "visual_signature_emphasis",
-            "enhanced 是品牌记忆镜头",
-            "必须比 standard 明显大一档",
-            "整体可见面积通常约占画面的 5% 至 8%",
-            "不要再用线性倍数推算面积",
-            "仍明显小于主要叙事主体整体",
-            "不占据画面中心、前景主位、最高对比",
-            "不得把 enhanced 降回普通镜头的小尺度",
+            "只控制视觉身份相对主体的识别强弱",
+            "主体始终先被看见",
         ):
             assert required_rule in template
+        assert "例如" not in template
 
 
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
@@ -926,6 +887,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
         assert '"negative_prompt_supported": false' in call["prompt"]
         assert '"series_fusion_history": []' in call["prompt"]
+        assert '"visual_signature_style"' not in call["prompt"]
     assert sum(
         '"visual_signature_emphasis": "enhanced"' in call["prompt"]
         for call in fusion_calls
@@ -942,6 +904,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"fusion_stage_input"' in call["prompt"]
         assert '"fusion_stage_output"' in call["prompt"]
         assert '"series_final_prompt_history"' in call["prompt"]
+        assert '"visual_signature_style"' not in call["prompt"]
     assert sum(
         '"visual_signature_emphasis": "enhanced"' in call["prompt"]
         for call in finalization_calls

@@ -7,10 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v21"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v29"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v10"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v11"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v22"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v30"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v11"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v12"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -39,6 +39,7 @@ ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v16",
     "visual_anchor_content_stage.v19",
     "visual_anchor_content_stage.v20",
+    "visual_anchor_content_stage.v21",
     CONTENT_STAGE_PROMPT_VERSION
 ]
 FusionStagePromptVersion = Literal[
@@ -65,6 +66,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v26",
     "visual_anchor_fusion_stage.v27",
     "visual_anchor_fusion_stage.v28",
+    "visual_anchor_fusion_stage.v29",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -77,6 +79,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v7",
     "visual_anchor_finalization_stage.v8",
     "visual_anchor_finalization_stage.v9",
+    "visual_anchor_finalization_stage.v10",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -84,6 +87,7 @@ GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v8",
     "visual_anchor_generation_request.v9",
     "visual_anchor_generation_request.v10",
+    "visual_anchor_generation_request.v11",
     GENERATION_REQUEST_VERSION,
 ]
 
