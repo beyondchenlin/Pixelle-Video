@@ -94,6 +94,12 @@ def _text(value: object, field_name: str) -> str:
     return " ".join(value.split())
 
 
+def _verbatim_text(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-empty string")
+    return value
+
+
 def _text_list(values: list[str], field_name: str) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -523,6 +529,13 @@ class _ContentStageInputCommon(BaseModel):
     def _validate_text(cls, value: object, info):
         if info.field_name in {"prompt_version", "target_visual_style"}:
             return value
+        if info.field_name in {
+            "original_storyboard_text",
+            "article_context",
+            "previous_frame_summary",
+            "next_frame_summary",
+        }:
+            return _verbatim_text(value, info.field_name)
         return _text(value, info.field_name)
 
 
@@ -686,6 +699,8 @@ class ContinuousSceneContext(BaseModel):
     )
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
+        if info.field_name in {"previous_frame_summary", "next_frame_summary"}:
+            return _verbatim_text(value, info.field_name)
         return _text(value, info.field_name)
 
     @field_validator(
@@ -778,6 +793,8 @@ class FusionStageInput(BaseModel):
     )
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
+        if info.field_name == "original_storyboard_text":
+            return _verbatim_text(value, info.field_name)
         return _text(value, info.field_name)
 
     @model_validator(mode="after")
@@ -1048,6 +1065,8 @@ class FinalizationStageInput(BaseModel):
     @field_validator("frame_id", "original_storyboard_text", mode="before")
     @classmethod
     def _validate_text(cls, value: object, info) -> str:
+        if info.field_name == "original_storyboard_text":
+            return _verbatim_text(value, info.field_name)
         return _text(value, info.field_name)
 
     @model_validator(mode="after")
