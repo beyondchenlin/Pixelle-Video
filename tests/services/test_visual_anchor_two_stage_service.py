@@ -38,6 +38,7 @@ from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphas
 from pixelle_video.services import visual_anchor_regeneration
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.services.visual_anchor_two_stage_service import (
+    VisualAnchorTwoStageBatchResult,
     VisualAnchorTwoStageError,
     VisualAnchorTwoStageService,
     _render_stage_prompt,
@@ -1047,6 +1048,57 @@ async def test_emphasis_cadence_is_independent_from_image_random_seeds():
     ) != tuple(
         frame.generation_request.random_seed for frame in second.frames
     )
+    assert (
+        first.visual_signature_emphasis_cadence
+        == second.visual_signature_emphasis_cadence
+    )
+
+
+@pytest.mark.asyncio
+async def test_batch_serializes_the_replayable_emphasis_cadence_contract():
+    plan = _independent_plan(frame_count=11)
+
+    batch, _ = await _run(plan)
+    payload = batch.to_dict()
+    cadence = payload["visual_signature_emphasis_cadence"]
+
+    assert cadence["storyboard_plan_id"] == plan.plan_id
+    assert cadence["enhanced_frame_count"] == 2
+    assert len(cadence["storyboard_semantic_sha256"]) == 64
+    assert [decision["frame_id"] for decision in cadence["decisions"]] == [
+        frame.frame_id for frame in batch.frames
+    ]
+    assert [decision["emphasis"] for decision in cadence["decisions"]] == [
+        frame.fusion_stage_input.visual_signature_emphasis.value
+        for frame in batch.frames
+    ]
+
+
+@pytest.mark.asyncio
+async def test_batch_rejects_cadence_that_disagrees_with_frame_inputs():
+    batch, _ = await _run(_plan())
+    frame = batch.frames[0]
+    changed_emphasis = (
+        VisualSignatureEmphasis.STANDARD
+        if frame.fusion_stage_input.visual_signature_emphasis
+        is VisualSignatureEmphasis.ENHANCED
+        else VisualSignatureEmphasis.ENHANCED
+    )
+    changed_frame = frame.model_copy(
+        update={
+            "fusion_stage_input": frame.fusion_stage_input.model_copy(
+                update={"visual_signature_emphasis": changed_emphasis}
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="must match each frame fusion input"):
+        VisualAnchorTwoStageBatchResult(
+            visual_signature_emphasis_cadence=(
+                batch.visual_signature_emphasis_cadence
+            ),
+            frames=(changed_frame,),
+        )
 
 
 def _contract_digest(payload):

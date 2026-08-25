@@ -36,7 +36,10 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
 )
-from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
+from pixelle_video.models.visual_signature_emphasis import (
+    VisualSignatureEmphasis,
+    VisualSignatureEmphasisCadencePlan,
+)
 from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
 from pixelle_video.services.visual_signature_emphasis_cadence import (
     VisualSignatureEmphasisCadencePlanner,
@@ -78,7 +81,32 @@ class _SinglePassStageCallAudit:
 
 @dataclass(frozen=True)
 class VisualAnchorTwoStageBatchResult:
+    visual_signature_emphasis_cadence: VisualSignatureEmphasisCadencePlan
     frames: tuple[VisualAnchorTwoStageFrameResult, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(
+            self.visual_signature_emphasis_cadence,
+            VisualSignatureEmphasisCadencePlan,
+        ):
+            raise TypeError(
+                "visual_signature_emphasis_cadence must be a cadence plan"
+            )
+        decisions = self.visual_signature_emphasis_cadence.decisions
+        if len(decisions) != len(self.frames):
+            raise ValueError("cadence decisions must match the batch frame count")
+        for decision, frame in zip(decisions, self.frames):
+            if decision.frame_id != frame.frame_id:
+                raise ValueError(
+                    "cadence decisions must match the batch frame order and identities"
+                )
+            if (
+                decision.emphasis
+                is not frame.fusion_stage_input.visual_signature_emphasis
+            ):
+                raise ValueError(
+                    "cadence decisions must match each frame fusion input"
+                )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -88,6 +116,9 @@ class VisualAnchorTwoStageBatchResult:
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
                 "finalization_stage": FINALIZATION_STAGE_PROMPT_VERSION,
             },
+            "visual_signature_emphasis_cadence": (
+                self.visual_signature_emphasis_cadence.model_dump(mode="json")
+            ),
             "frames": [frame.model_dump(mode="json") for frame in self.frames],
         }
 
@@ -255,14 +286,14 @@ class VisualAnchorTwoStageService:
         }
 
         scene_ids = _continuous_scene_ids(storyboard_plan.frames)
+        visual_signature_emphasis_cadence = (
+            VisualSignatureEmphasisCadencePlanner().plan(
+                storyboard_plan=storyboard_plan,
+            )
+        )
         emphasis_by_frame = {
             decision.frame_id: decision.emphasis
-            for decision in VisualSignatureEmphasisCadencePlanner().plan(
-                frame_ids=tuple(
-                    frame.frame_id for frame in storyboard_plan.frames
-                ),
-                storyboard_plan_id=storyboard_plan.plan_id,
-            )
+            for decision in visual_signature_emphasis_cadence.decisions
         }
         decisions_by_scene: dict[str, FinalizationStagePromptPassthrough] = {}
         series_final_prompt_history: list[str] = []
@@ -302,7 +333,10 @@ class VisualAnchorTwoStageService:
             decisions_by_scene[scene_ids[index]] = finalization_output
             series_final_prompt_history.append(finalization_output.raw_prompt)
             results.append(frame_result)
-        return VisualAnchorTwoStageBatchResult(frames=tuple(results))
+        return VisualAnchorTwoStageBatchResult(
+            visual_signature_emphasis_cadence=visual_signature_emphasis_cadence,
+            frames=tuple(results),
+        )
 
     async def _run_frame(
         self,
