@@ -31,6 +31,22 @@ def test_builtin_prompt_prefix_defaults_match_schema_defaults():
     assert config.comfyui.image.prompt_prefix_library.active_prefix_id == BUILTIN_PROMPT_PREFIXES[0].id
 
 
+def test_builtin_minimal_line_art_style_is_strictly_grayscale_across_all_elements():
+    style = next(
+        item
+        for item in BUILTIN_PROMPT_PREFIXES
+        if item.id == "builtin_line_art_emotion_minimal"
+    )
+
+    assert "across the entire image" in style.content
+    assert "phone and screen" in style.content
+    assert "simplified iconic contour" in style.content
+    assert "no continuous tone or gradient" in style.content
+    assert "zero colored pixels" in style.content
+    assert "sunsets are expressed only through flat grayscale blocks" in style.content
+    assert "monochrome or" not in style.content
+
+
 def test_versioned_image_style_selection_is_one_atomic_contract():
     revision = image_prompt_prefix_revision("flat illustration")
 

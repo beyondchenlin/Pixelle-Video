@@ -649,37 +649,49 @@ def _target_visual_style_contract(
         if "builtin_line_art_emotion_minimal" in resolved_style.source_identity:
             if prompt_language == CHINESE_PROMPT_LANGUAGE:
                 required_positive = [
-                    "极简线稿",
-                    "二维表达",
-                    "单色或严格受控配色",
-                    "大面积留白",
-                    "简洁轮廓",
-                    "细微情绪",
-                    "禁止摄影写实",
-                    "禁止三维渲染",
-                    "禁止复杂彩色背景",
+                    "全画面纯黑、白及单一灰阶的极简二维轮廓画",
+                    "统一细黑轮廓线、纯白填充、少量硬边单一浅灰平涂和大面积白色留白",
+                    "不使用连续色调或渐变",
+                    "所有人物及名人面部和身体、皮肤、服装、手机及屏幕、标志、家具、窗外景物和视觉身份使用同一图形处理",
+                    "名人使用简化标志性轮廓识别，面部和皮肤为纯白平面，只用少量线条表现眼睛、鼻子和嘴，头发为整块黑色形状",
+                    "不出现任何彩色像素",
+                    "不出现照片纹理、真实皮肤细节、面部明暗塑形、单根发丝和排线阴影",
+                    "不出现渐变体积光和三维材质",
+                    "彩色场景只用平面灰阶块与线条密度表达",
                 ]
                 required_negative = [
-                    "摄影写实",
-                    "三维渲染",
-                    "复杂彩色背景",
+                    "彩色像素",
+                    "照片纹理",
+                    "真实皮肤细节",
+                    "面部明暗塑形",
+                    "单根发丝",
+                    "排线阴影",
+                    "连续色调或渐变",
+                    "渐变体积光",
+                    "三维材质",
                 ]
             else:
                 required_positive = [
-                    "minimal line art",
-                    "two-dimensional expression",
-                    "monochrome or strictly controlled palette",
-                    "large areas of negative space",
-                    "clean concise contours",
-                    "subtle emotion",
-                    "no photorealism",
-                    "no 3D rendering",
-                    "no complex colorful background",
+                    "strict pure black, white, and single-value gray minimalist 2D contour drawing across the entire image",
+                    "uniform thin black outlines, pure white fill areas, occasional hard-edged flat light-gray blocks, and large white negative space",
+                    "no continuous tone or gradient",
+                    "every person and celebrity face and body, skin, clothing, phone and screen, logo, furniture, outdoor view, and visual identity uses the same graphic treatment",
+                    "celebrities use simplified iconic contours, flat white face and skin shapes, only a few clean lines for eyes, nose, and mouth, and solid black hair shapes",
+                    "zero colored pixels",
+                    "no photographic texture, realistic skin detail, tonal face modeling, individual hair strands, or cross-hatching",
+                    "no gradient volumetric lighting or 3D material",
+                    "colored scenes use only flat grayscale blocks and line density",
                 ]
                 required_negative = [
-                    "photorealism",
-                    "3D rendering",
-                    "complex colorful background",
+                    "colored pixels",
+                    "photographic texture",
+                    "realistic skin detail",
+                    "tonal face modeling",
+                    "individual hair strands",
+                    "cross-hatching",
+                    "continuous tone or gradient",
+                    "gradient volumetric lighting",
+                    "3D material",
                 ]
     if not negative_prompt_supported:
         required_positive.extend(
@@ -729,7 +741,17 @@ def _positive_only_avoidance_fragments(
             normalized in positive
             and any(
                 marker in positive
-                for marker in ("禁止", "避免", "不要", " no ", "no ", "avoid", "without")
+                for marker in (
+                    "禁止",
+                    "避免",
+                    "不要",
+                    "不出现",
+                    "不使用",
+                    " no ",
+                    "no ",
+                    "avoid",
+                    "without",
+                )
             )
             for positive in normalized_positive
         )

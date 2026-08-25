@@ -7,9 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v20"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v25"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v6"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v21"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v26"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v7"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v8"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
@@ -38,6 +38,7 @@ ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v15",
     "visual_anchor_content_stage.v16",
     "visual_anchor_content_stage.v19",
+    "visual_anchor_content_stage.v20",
     CONTENT_STAGE_PROMPT_VERSION
 ]
 FusionStagePromptVersion = Literal[
@@ -60,6 +61,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v22",
     "visual_anchor_fusion_stage.v23",
     "visual_anchor_fusion_stage.v24",
+    "visual_anchor_fusion_stage.v25",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -68,6 +70,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v3",
     "visual_anchor_finalization_stage.v4",
     "visual_anchor_finalization_stage.v5",
+    "visual_anchor_finalization_stage.v6",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[

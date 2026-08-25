@@ -4,7 +4,7 @@
 
 - 工作流路径：`workflows/selfhost/image_z_image_turbo_gguf_reference.json`
 - 基础工作流：`workflows/selfhost/image_z_image_turbo_gguf.json`
-- 用途：在保持 `dev` 默认基础工作流的模型、五步采样器、调度器、画面尺寸和输出配置不变的前提下，把一张任务级真实身份参考图接入 Z-Image 原生参考条件，并与最终正向提示词共同完成首次图片生成。
+- 用途：在保持 `dev` 默认基础工作流的模型、八步采样器、调度器、画面尺寸和输出配置不变的前提下，把一张任务级真实身份参考图接入 Z-Image 原生参考条件，并与最终正向提示词共同完成首次图片生成。
 - 输入：`prompt`、`negative_prompt`、`width`、`height`、`reference_image`。
 - 输出：一张未经后处理补画的真实生成图片。
 

@@ -33,17 +33,27 @@ from pixelle_video.services.visual_prompt_composer import (
 )
 
 _STYLE_POSITIVE = [
-    "极简线稿",
-    "二维表达",
-    "单色或严格受控配色",
-    "大面积留白",
-    "简洁轮廓",
-    "细微情绪",
-    "禁止摄影写实",
-    "禁止三维渲染",
-    "禁止复杂彩色背景",
+    "全画面纯黑、白及单一灰阶的极简二维轮廓画",
+    "统一细黑轮廓线、纯白填充、少量硬边单一浅灰平涂和大面积白色留白",
+    "不使用连续色调或渐变",
+    "所有人物及名人面部和身体、皮肤、服装、手机及屏幕、标志、家具、窗外景物和视觉身份使用同一图形处理",
+    "名人使用简化标志性轮廓识别，面部和皮肤为纯白平面，只用少量线条表现眼睛、鼻子和嘴，头发为整块黑色形状",
+    "不出现任何彩色像素",
+    "不出现照片纹理、真实皮肤细节、面部明暗塑形、单根发丝和排线阴影",
+    "不出现渐变体积光和三维材质",
+    "彩色场景只用平面灰阶块与线条密度表达",
 ]
-_STYLE_NEGATIVE = ["摄影写实", "三维渲染", "复杂彩色背景"]
+_STYLE_NEGATIVE = [
+    "彩色像素",
+    "照片纹理",
+    "真实皮肤细节",
+    "面部明暗塑形",
+    "单根发丝",
+    "排线阴影",
+    "连续色调或渐变",
+    "渐变体积光",
+    "三维材质",
+]
 _NO_TEXT_POSITIVE = "画面中禁止出现任何可见文字、标题、水印或乱码"
 _NO_TEXT_NEGATIVE = "文字，水印，标题，乱码"
 
@@ -422,6 +432,14 @@ def test_z_image_converts_custom_negative_style_rules_to_explicit_positive_avoid
     ) == ["禁止出现低质量", "禁止模糊"]
 
 
+def test_z_image_does_not_duplicate_existing_positive_avoidance():
+    assert _positive_only_avoidance_fragments(
+        positive_fragments=["画面不出现任何彩色像素", "不使用连续色调或渐变"],
+        negative_fragments=["彩色像素", "连续色调或渐变"],
+        prompt_language=CHINESE_PROMPT_LANGUAGE,
+    ) == []
+
+
 def test_fusion_template_allows_required_style_and_text_prohibitions():
     template = (
         Path(__file__).resolve().parents[2]
@@ -471,6 +489,10 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
         "可以设计一个有原文依据、物理上成立的具象化视觉隐喻",
         "不得把隐喻伪装成原文真实发生的事件",
         "不得无依据换成泛化人物",
+        "标题式首镜、人物引介、姓名判断或抽象总述",
+        "不得从 article_context 的后续段落提前抽取某次产品发布",
+        "不得默认创作“手持产品向同事展示”",
+        "article_context 在这种镜头中只负责确认主体身份和全文主题",
         "原文存在迭代样品、失败原型、修改痕迹、草稿、工具、结果物等专属证据时",
         "为当前分镜选择与相邻内容不同的可见证据类型",
         "让本镜至少在决定性动作、可见物证、主体关系、景别、机位、构图或视觉焦点中的一项与相邻镜头形成明确区别",
@@ -514,14 +536,18 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "可以增加、删除、替换、移动或重写任何背景、道具、服装细节",
         "视觉身份的职责固定为频道的次级识别标记",
         "不预设具体载体、位置、朝向和表现材质",
-        "优先从已经参与该重点的产品、设计稿、服装、工具、材料或环境局部结构中选择载体",
+        "按三个条件选择载体",
+        "优先选择中景或后景已有的次要载体",
+        "不选择前景大面积空白纸张",
+        "场景中存在次要显示器时",
         "没有自然载体时，再创造一个与主题有关的标识化载体",
         "可以让现有关键叙事物品承载视觉身份",
         "本阶段不承担跨独立镜头的历史查重",
         "同一连续场景优先参考 continuous_scene_context.existing_fusion_decision 保持既有表现形态和空间关系",
         "不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子",
-        "所有人物（包括名人及其面部）、服装、道具、环境和视觉身份",
-        "草稿第一句先确立 target_visual_style 的目标媒介与画风",
+        "所有人物（包括名人及其面部）、服装、道具、产品及屏幕、环境和视觉身份",
+        "草稿第一句必须逐字完整复制这段原始风格文字一次",
+        "required_final_prompt_fragments 中的每一项原样落实到草稿中",
     ):
         assert required_rule in template
 
@@ -544,6 +570,7 @@ def test_fusion_template_explicitly_allows_single_attached_brand_forms():
         "标识化摆件",
         "雕刻",
         "环境局部标识",
+        "屏保或无文字界面图形",
     ):
         assert manifestation in template
 
@@ -609,7 +636,7 @@ def test_finalization_template_unifies_style_and_keeps_positive_scene_choices():
         "创作手段完全开放",
         "可以创造原文和两轮草稿中都不存在的新物件、新装置和新的视觉关系",
         "视觉身份的职责固定为频道的次级识别标记",
-        "每个人物、名人面部与身体、服装、道具、产品、环境和视觉身份",
+        "每个人物、名人面部与身体、皮肤、服装、道具、产品及屏幕、环境和视觉身份",
         "代码不会解析、判断、验证、修复或改写你的结果",
         "只输出最终图片提示词原文",
     ):
@@ -642,8 +669,9 @@ def test_fusion_and_finalization_keep_visual_signature_as_small_channel_mark():
             "整体可见面积通常约占画面的 2% 至 5%",
             "形成常规小型频道标记",
             "占据主要构图轴并拥有更强的细节与明暗组织",
-            "胸针或手掌大小",
-            "不得只写百分比或“小型”",
+            "按最终画面中的投影面积和视觉显著度理解",
+            "不得只写百分比、“小型”或脱离透视的“手掌大小”",
+            "后景小型显示器中约占显示区域三分之一的图形",
             "独立活体视觉身份站立、静坐、卧倒或躺卧",
             "不赋予凝视、陪伴、安慰或共同参与剧情的角色行为",
             "若当前载体无法在对应尺度下维持这项层级",

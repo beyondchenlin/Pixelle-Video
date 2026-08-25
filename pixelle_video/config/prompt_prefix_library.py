@@ -102,7 +102,20 @@ BUILTIN_PROMPT_PREFIXES = [
     BuiltinPromptPrefix(
         id="builtin_line_art_emotion_minimal",
         name="Minimal Emotion Line Art",
-        content="minimal line art, elegant contour drawing, lots of negative space, subtle emotional tone, clean monochrome illustration",
+        content=(
+            "strict pure black, white, and single-value gray minimalist 2D contour drawing "
+            "across the entire image; uniform thin black outlines, pure white fill areas, "
+            "occasional hard-edged flat light-gray blocks, and large white negative space, "
+            "with no continuous tone or gradient; every person and celebrity face and body, "
+            "skin, clothing, phone and screen, logo, furniture, outdoor view, and visual "
+            "identity uses this same graphic treatment; celebrities are simplified iconic "
+            "contour characters whose face and skin are flat white shapes defined by only a "
+            "few clean lines for the eyes, nose, and mouth plus a recognizable silhouette, "
+            "with hair rendered as a solid black shape; zero colored pixels; no photographic "
+            "texture, realistic skin detail, tonal face modeling, individual hair strands, "
+            "cross-hatching, gradient volumetric lighting, or 3D material; colored scenes "
+            "such as sunsets are expressed only through flat grayscale blocks and line density"
+        ),
         style_category_id="minimal_line_art",
         scene_category_id="emotional_copywriting",
         note="Simple symbolic visuals for reflective topics.",

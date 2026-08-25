@@ -546,7 +546,7 @@ def test_image_z_image_turbo_gguf_defaults_to_q8_models():
     assert workflow["38"]["inputs"]["clip_name"] == "Qwen3-4B-Q8_0.gguf"
 
 
-def test_image_z_image_turbo_gguf_defaults_to_5_sampling_steps():
+def test_image_z_image_turbo_gguf_defaults_to_8_sampling_steps():
     workflow = json.loads(
         Path("workflows/selfhost/image_z_image_turbo_gguf.json").read_text(
             encoding="utf-8"
@@ -554,7 +554,18 @@ def test_image_z_image_turbo_gguf_defaults_to_5_sampling_steps():
     )
 
     assert workflow["3"]["class_type"] == "KSampler"
-    assert workflow["3"]["inputs"]["steps"] == 5
+    assert workflow["3"]["inputs"]["steps"] == 8
+
+
+def test_image_z_image_turbo_gguf_reference_matches_8_sampling_steps():
+    workflow = json.loads(
+        Path("workflows/selfhost/image_z_image_turbo_gguf_reference.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert workflow["3"]["class_type"] == "KSampler"
+    assert workflow["3"]["inputs"]["steps"] == 8
 
 
 def test_image_z_image_turbo_gguf_uses_automatic_vae_decode():
@@ -580,7 +591,7 @@ def test_image_z_image_turbo_gguf_doc_declares_easy_use_dependency():
     assert "显存不足时自动回退到分块解码" in doc
     assert "include_turbo_gguf_q4" in doc
     assert "默认采样步数" in doc
-    assert "`5`" in doc
+    assert "`8`" in doc
 
 
 def test_standard_image_workflows_default_to_768_square():
