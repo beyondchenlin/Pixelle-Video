@@ -1064,7 +1064,7 @@ async def test_batch_serializes_the_replayable_emphasis_cadence_contract():
 
     assert cadence["storyboard_plan_id"] == plan.plan_id
     assert cadence["enhanced_frame_count"] == 2
-    assert len(cadence["storyboard_semantic_sha256"]) == 64
+    assert len(cadence["selection_input_sha256"]) == 64
     assert [decision["frame_id"] for decision in cadence["decisions"]] == [
         frame.frame_id for frame in batch.frames
     ]

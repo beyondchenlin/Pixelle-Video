@@ -53,7 +53,7 @@ class VisualSignatureEmphasisCadencePlan(BaseModel):
         VISUAL_SIGNATURE_EMPHASIS_CADENCE_VERSION
     )
     storyboard_plan_id: str = Field(min_length=1)
-    storyboard_semantic_sha256: str
+    selection_input_sha256: str
     frame_interval: Literal[VISUAL_SIGNATURE_EMPHASIS_FRAME_INTERVAL] = (
         VISUAL_SIGNATURE_EMPHASIS_FRAME_INTERVAL
     )
@@ -62,21 +62,23 @@ class VisualSignatureEmphasisCadencePlan(BaseModel):
 
     @field_validator("storyboard_plan_id", mode="before")
     @classmethod
-    def _normalize_storyboard_plan_id(cls, value: Any) -> str:
+    def _validate_storyboard_plan_id(cls, value: Any) -> str:
         if not isinstance(value, str):
             raise ValueError("storyboard_plan_id must be a string")
-        return value.strip()
+        if not value.strip():
+            raise ValueError("storyboard_plan_id must be a non-empty string")
+        return value
 
-    @field_validator("storyboard_semantic_sha256", mode="before")
+    @field_validator("selection_input_sha256", mode="before")
     @classmethod
-    def _validate_storyboard_semantic_digest(cls, value: Any) -> str:
+    def _validate_selection_input_digest(cls, value: Any) -> str:
         if not isinstance(value, str):
-            raise ValueError("storyboard_semantic_sha256 must be a string")
+            raise ValueError("selection_input_sha256 must be a string")
         normalized = value.strip().lower()
         if len(normalized) != 64 or any(
             character not in "0123456789abcdef" for character in normalized
         ):
-            raise ValueError("storyboard_semantic_sha256 must be a lowercase SHA-256 digest")
+            raise ValueError("selection_input_sha256 must be a lowercase SHA-256 digest")
         return normalized
 
     @model_validator(mode="after")

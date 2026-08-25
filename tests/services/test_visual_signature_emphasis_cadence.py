@@ -23,6 +23,7 @@ def _storyboard_plan(
     plan_id: str = "plan-series-a",
     frame_id_prefix: str = "frame",
     changed_source_by_index: dict[int, str] | None = None,
+    metadata_tag: str = "original",
 ) -> StoryboardPlan:
     changed_sources = changed_source_by_index or {}
     frames = [
@@ -32,6 +33,7 @@ def _storyboard_plan(
             source_text=changed_sources.get(index, f"第{index}个画面的原文。"),
             visual_goal=f"表现第{index}个事件",
             prompt_intent=f"生成第{index}个画面",
+            metadata={"audit_tag": metadata_tag},
         )
         for index in range(1, frame_count + 1)
     ]
@@ -118,10 +120,21 @@ def test_cadence_is_reproducible_from_storyboard_semantics():
 
 
 def test_cadence_selection_is_independent_from_mutable_plan_and_frame_ids():
-    first = _plan(25, plan_id="plan-a", frame_id_prefix="first")
-    second = _plan(25, plan_id="plan-b", frame_id_prefix="second")
+    first = _plan(
+        25,
+        plan_id=" plan-a ",
+        frame_id_prefix="first",
+        metadata_tag="first-run",
+    )
+    second = _plan(
+        25,
+        plan_id="plan-b",
+        frame_id_prefix="second",
+        metadata_tag="second-run",
+    )
 
-    assert first.storyboard_semantic_sha256 == second.storyboard_semantic_sha256
+    assert first.storyboard_plan_id == " plan-a "
+    assert first.selection_input_sha256 == second.selection_input_sha256
     assert [
         (decision.emphasis, decision.selection_window_index) for decision in first.decisions
     ] == [(decision.emphasis, decision.selection_window_index) for decision in second.decisions]
@@ -134,7 +147,7 @@ def test_semantic_change_is_contained_to_its_selection_window():
         changed_source_by_index={1: "第一个画面的原文已发生语义变化。"},
     )
 
-    assert first.storyboard_semantic_sha256 != second.storyboard_semantic_sha256
+    assert first.selection_input_sha256 != second.selection_input_sha256
     first_later_windows = [
         decision.frame_index
         for decision in first.decisions
@@ -156,7 +169,7 @@ def test_cadence_serializes_a_versioned_replay_contract():
     assert payload["cadence_version"] == VISUAL_SIGNATURE_EMPHASIS_CADENCE_VERSION
     assert payload["frame_interval"] == VISUAL_SIGNATURE_EMPHASIS_FRAME_INTERVAL
     assert payload["enhanced_frame_count"] == 2
-    assert re.fullmatch(r"[0-9a-f]{64}", payload["storyboard_semantic_sha256"])
+    assert re.fullmatch(r"[0-9a-f]{64}", payload["selection_input_sha256"])
     assert [decision["frame_index"] for decision in payload["decisions"]] == list(range(1, 12))
 
 

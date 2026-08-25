@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.visual_signature_emphasis import (
     VISUAL_SIGNATURE_EMPHASIS_CADENCE_VERSION,
     VISUAL_SIGNATURE_EMPHASIS_FRAME_INTERVAL,
@@ -29,7 +29,10 @@ class VisualSignatureEmphasisCadencePlanner:
             raise TypeError("storyboard_plan must be a StoryboardPlan")
 
         frames = storyboard_plan.frames
-        frame_semantic_sha256s = tuple(_frame_semantic_sha256(frame) for frame in frames)
+        frame_source_sha256s = tuple(
+            hashlib.sha256(frame.source_text.encode("utf-8")).hexdigest()
+            for frame in frames
+        )
 
         enhanced_count = (
             len(frames) + VISUAL_SIGNATURE_EMPHASIS_FRAME_INTERVAL - 1
@@ -46,7 +49,7 @@ class VisualSignatureEmphasisCadencePlanner:
                 range(candidate_start, candidate_end),
                 key=lambda position: _selection_digest(
                     frame_index=frames[position].index,
-                    frame_semantic_sha256=frame_semantic_sha256s[position],
+                    frame_source_sha256=frame_source_sha256s[position],
                     window_index=window_index,
                 ),
             )
@@ -54,9 +57,8 @@ class VisualSignatureEmphasisCadencePlanner:
 
         return VisualSignatureEmphasisCadencePlan(
             storyboard_plan_id=storyboard_plan.plan_id,
-            storyboard_semantic_sha256=_storyboard_semantic_sha256(
-                storyboard_plan=storyboard_plan,
-                frame_semantic_sha256s=frame_semantic_sha256s,
+            selection_input_sha256=_selection_input_sha256(
+                frame_source_sha256s=frame_source_sha256s,
             ),
             enhanced_frame_count=enhanced_count,
             decisions=tuple(
@@ -78,36 +80,26 @@ class VisualSignatureEmphasisCadencePlanner:
 def _selection_digest(
     *,
     frame_index: int,
-    frame_semantic_sha256: str,
+    frame_source_sha256: str,
     window_index: int,
 ) -> bytes:
     digest = hashlib.sha256()
     digest.update(_SELECTION_NAMESPACE)
     digest.update(window_index.to_bytes(8, byteorder="big", signed=False))
     digest.update(frame_index.to_bytes(8, byteorder="big", signed=False))
-    digest.update(bytes.fromhex(frame_semantic_sha256))
+    digest.update(bytes.fromhex(frame_source_sha256))
     return digest.digest()
 
 
-def _frame_semantic_sha256(frame: StoryboardPlanFrame) -> str:
-    semantic_payload = frame.to_dict()
-    semantic_payload.pop("frame_id")
-    return _canonical_sha256(semantic_payload)
-
-
-def _storyboard_semantic_sha256(
+def _selection_input_sha256(
     *,
-    storyboard_plan: StoryboardPlan,
-    frame_semantic_sha256s: tuple[str, ...],
+    frame_source_sha256s: tuple[str, ...],
 ) -> str:
     return _canonical_sha256(
         {
-            "count_mode": storyboard_plan.count_mode.value,
-            "frame_semantic_sha256s": frame_semantic_sha256s,
-            "mode": storyboard_plan.mode.value,
-            "requested_scene_count": storyboard_plan.requested_scene_count,
-            "resolved_scene_count": storyboard_plan.resolved_scene_count,
-            "source_digest": storyboard_plan.source_digest,
+            "cadence_version": VISUAL_SIGNATURE_EMPHASIS_CADENCE_VERSION,
+            "frame_interval": VISUAL_SIGNATURE_EMPHASIS_FRAME_INTERVAL,
+            "frame_source_sha256s": frame_source_sha256s,
         }
     )
 
