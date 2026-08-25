@@ -772,12 +772,12 @@ def _visual_signature_emphasis_frame_ids(
     storyboard_plan: StoryboardPlan,
     task_id: str,
 ) -> frozenset[str]:
-    """Allocate roughly one reproducible emphasis frame per ten frames."""
+    """Allocate one reproducible emphasis frame per started ten-frame group."""
 
     frames = tuple(storyboard_plan.frames)
     if not frames:
         return frozenset()
-    emphasis_count = max(1, (len(frames) + 5) // 10)
+    emphasis_count = max(1, (len(frames) + 9) // 10)
     selected: set[str] = set()
     for slot in range(emphasis_count):
         start = slot * len(frames) // emphasis_count

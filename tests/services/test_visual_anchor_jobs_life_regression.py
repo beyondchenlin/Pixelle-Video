@@ -702,9 +702,9 @@ def test_fusion_and_finalization_define_one_step_larger_memory_frame():
 
 @pytest.mark.parametrize(
     ("frame_count", "expected_emphasis_count"),
-    ((1, 1), (9, 1), (10, 1), (14, 1), (15, 2), (24, 2), (25, 3)),
+    ((1, 1), (9, 1), (10, 1), (11, 2), (14, 2), (20, 2), (21, 3), (25, 3)),
 )
-def test_visual_signature_emphasis_uses_nearest_tenth_with_one_frame_minimum(
+def test_visual_signature_emphasis_uses_one_frame_per_started_ten_frame_group(
     frame_count: int,
     expected_emphasis_count: int,
 ):
