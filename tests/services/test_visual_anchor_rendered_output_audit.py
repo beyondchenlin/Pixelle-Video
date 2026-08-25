@@ -34,6 +34,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     prompt_assembly_trace_from_fusion_output,
 )
 from pixelle_video.services.visual_anchor_generation_binding import (
+    validate_visual_anchor_first_generation_binding,
     visual_anchor_first_request_binding_artifact_relative_path,
 )
 from pixelle_video.services.visual_anchor_rendered_output_audit import (
@@ -335,7 +336,7 @@ def _write_passed_binding(
     binding_path.write_text(
         json.dumps(
             {
-                "schema_version": "visual_anchor_first_generation_binding_audit.v7",
+                "schema_version": "visual_anchor_first_generation_binding_audit.v8",
                 "request_version": request.request_version,
                 "status": "passed",
                 "task_id": request.task_id,
@@ -429,6 +430,62 @@ def _write_passed_binding(
         encoding="utf-8",
     )
     return binding_path
+
+
+def test_reference_pre_submit_audit_preserves_both_style_contracts(tmp_path):
+    result_contract = _frame_result(tmp_path)
+    request = result_contract.generation_request
+    condition = request.identity_reference_condition
+    assert condition is not None
+    reference_path = tmp_path / condition.workflow_asset_relative_path
+
+    audit = validate_visual_anchor_first_generation_binding(
+        request_payload=request.model_dump(mode="json"),
+        prompt=request.final_positive_prompt,
+        negative_prompt=request.final_negative_prompt,
+        seed=request.random_seed,
+        media_type="image",
+        trace_context={
+            "task_root": str(tmp_path),
+            "task_id": request.task_id,
+            "frame_id": request.frame_id,
+        },
+        workflow_info={"source": "selfhost", "key": request.workflow_key},
+        workflow_file_trace={
+            "workflow_file_sha256": request.workflow_version_sha256
+        },
+        reference_binding_trace={
+            "status": "injected",
+            "injection_mode": "required",
+            "summary": {
+                "param_names": [condition.workflow_parameter],
+                "asset": {
+                    "workflow_sha256": condition.asset_sha256,
+                    "workflow_asset_relative_path": (
+                        condition.workflow_asset_relative_path
+                    ),
+                },
+            },
+        },
+        workflow_params={
+            "width": request.expected_execution.width,
+            "height": request.expected_execution.height,
+            condition.workflow_parameter: str(reference_path),
+        },
+    )
+
+    assert audit["schema_version"] == (
+        "visual_anchor_first_generation_binding_audit.v8"
+    )
+    assert audit["target_visual_style"] == request.target_visual_style.model_dump(
+        mode="json"
+    )
+    assert audit["visual_signature_style"] == (
+        request.visual_signature_style.model_dump(mode="json")
+    )
+    assert audit["visible_text_policy"] == request.visible_text_policy.model_dump(
+        mode="json"
+    )
 
 
 @pytest.mark.asyncio

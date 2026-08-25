@@ -23,6 +23,10 @@ from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
+from pixelle_video.services.reference_image_visual_context_adapter import (
+    reset_reference_image_visual_story_context_patch,
+    set_reference_image_visual_story_context_patch,
+)
 from pixelle_video.services.series_visual_signature_projection_service import (
     SeriesVisualSignatureProjectionService,
 )
@@ -868,6 +872,10 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
         "post_generation_local_validation_enabled": False,
         "post_generation_local_content_validation_enabled": False,
     }
+    assert (
+        ctx.observability["visual_anchor_preflight"]["independent_style_status"]
+        == "validated"
+    )
 
 
 @pytest.mark.asyncio
@@ -898,6 +906,57 @@ async def test_visual_anchor_preflight_finishes_before_storyboard_generation() -
     assert ctx.params["series_visual_signature_output_max_attempts"] == 1
     assert ctx.params["series_visual_signature_output_validation_mode"] == "off"
     assert ctx.observability["visual_anchor_preflight"]["model_call_count"] == 0
+    assert (
+        ctx.observability["visual_anchor_preflight"]["independent_style_status"]
+        == "deferred"
+    )
+
+
+@pytest.mark.asyncio
+async def test_visual_anchor_style_validation_runs_after_reference_context_merge() -> None:
+    repository = _RecordingAssetBibleRepository()
+    core = _DummyCore()
+    core.asset_bible_repository = repository
+    ctx = PipelineContext(
+        input_text="topic",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "media_workflow": "selfhost/image_custom.json",
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "series_visual_signature_enabled": True,
+            "series_visual_signature_asset_bible_id": "bible_demo",
+            "series_visual_signature_profile_id": "ip_main",
+        },
+    )
+    pipeline = StandardPipeline(core)
+
+    await pipeline._preflight_series_visual_signature(
+        ctx,
+        require_independent_style=False,
+    )
+    token = set_reference_image_visual_story_context_patch(
+        {
+            "reference_image": {
+                "enabled": True,
+                "merge_mode": "supplement",
+                "style_summary": "柔和彩色绘本角色",
+            }
+        }
+    )
+    try:
+        await pipeline._preflight_series_visual_signature(
+            ctx,
+            require_independent_style=True,
+        )
+    finally:
+        reset_reference_image_visual_story_context_patch(token)
+
+    assert ctx.series_visual_signature_profile.style_hint == "柔和彩色绘本角色"
+    assert (
+        ctx.observability["visual_anchor_preflight"]["independent_style_status"]
+        == "validated"
+    )
 
 
 @pytest.mark.asyncio

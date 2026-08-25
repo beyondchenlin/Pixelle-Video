@@ -111,7 +111,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v12",
+            "schema_version": "visual_anchor_two_stage_batch.v14",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -558,7 +558,10 @@ class VisualAnchorTwoStageService:
             final_manifestation="",
             prompt_assembly_trace=None,
             final_positive_prompt=finalization_output.raw_prompt,
-            final_negative_prompt="",
+            final_negative_prompt=_global_negative_prompt_from_policy(
+                visible_text_policy=visible_text_policy,
+                negative_prompt_supported=negative_prompt_supported,
+            ),
             identity_profile_id=identity_profile.profile_id,
             identity_display_name=identity_profile.display_name,
             identity_core_traits=identity_profile.core_identity_traits,
@@ -589,7 +592,6 @@ class VisualAnchorTwoStageService:
             finalization_stage_output=finalization_output,
             generation_request=generation_request,
         )
-
     async def _run_content_stage(
         self,
         *,
@@ -706,6 +708,18 @@ class VisualAnchorTwoStageService:
             allow_blank_text_response=True,
         )
         return response
+
+
+def _global_negative_prompt_from_policy(
+    *,
+    visible_text_policy: VisibleTextPolicy,
+    negative_prompt_supported: bool,
+) -> str:
+    """Compile only image-wide exclusions into the global negative channel."""
+
+    if not negative_prompt_supported:
+        return ""
+    return visible_text_policy.required_negative_prompt_fragment
 
 
 def _render_stage_prompt(

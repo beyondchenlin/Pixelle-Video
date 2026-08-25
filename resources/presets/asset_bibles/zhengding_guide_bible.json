@@ -74,7 +74,12 @@
           "不是宗教人物",
           "不能替代画面中的真实主体"
         ],
-        "style_hint": "",
+        "style_hint": "清爽亲和的彩色扁平卡通角色插画，圆润简洁的造型，干净边缘与柔和明快的固定配色",
+        "rendering_style": "flat_illustration",
+        "style_scope": "ip_character_only",
+        "style_boundary_rules": [
+          "该视觉风格仅作用于正定向导兔本身，不扩散到叙事人物、环境、道具和背景"
+        ],
         "variable_slots": [],
         "visible_text_whitelist": [],
         "workspace_id": "__builtin__",

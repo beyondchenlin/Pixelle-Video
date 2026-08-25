@@ -92,6 +92,10 @@ IP_PROFILE_FORM_SECTIONS: tuple[tuple[str, tuple[IPProfileFormField, ...]], ...]
                 "ip_design.help.color_palette",
             ),
             IPProfileFormField(
+                "style_hint", SECTION_VISUAL, "ip_design.asset_bible.style_hint",
+                "ip_design.help.style_hint", kind=IPProfileFieldKind.TEXT_AREA, height=88,
+            ),
+            IPProfileFormField(
                 "minimal_traits", SECTION_VISUAL, "ip_design.asset_bible.minimal_traits",
                 "ip_design.help.minimal_traits",
             ),
@@ -189,6 +193,8 @@ def _carrier_type_from_annotation(annotation: Any) -> type:
         non_none_args = [arg for arg in typing.get_args(annotation) if arg is not type(None)]
         if len(non_none_args) == 1:
             return _carrier_type_from_annotation(non_none_args[0])
+    if annotation is bool:
+        return bool
     return str
 
 

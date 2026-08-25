@@ -13,6 +13,7 @@ from typing import Any, Literal
 from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
+    visual_signature_style_binding_payload,
 )
 from pixelle_video.services.visual_anchor_generation_binding import (
     visual_anchor_first_request_binding_artifact_relative_path,
@@ -76,7 +77,7 @@ class VisualAnchorRenderedOutputAuditResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_rendered_output_audit.v4",
+            "schema_version": "visual_anchor_rendered_output_audit.v5",
             "status": self.status,
             "reason": self.reason,
             "audit_scope": self.audit_scope,
@@ -298,9 +299,8 @@ class VisualAnchorRenderedOutputAudit:
             ),
             (
                 "visual_signature_style_preserved",
-                request.visual_signature_style is not None
-                and binding.get("visual_signature_style")
-                == request.visual_signature_style.model_dump(mode="json"),
+                binding.get("visual_signature_style")
+                == visual_signature_style_binding_payload(request),
             ),
             (
                 "visible_text_policy_preserved",
@@ -566,9 +566,8 @@ class VisualAnchorRenderedOutputAudit:
             ),
             (
                 "visual_signature_style_preserved",
-                request.visual_signature_style is not None
-                and binding.get("visual_signature_style")
-                == request.visual_signature_style.model_dump(mode="json"),
+                binding.get("visual_signature_style")
+                == visual_signature_style_binding_payload(request),
             ),
             (
                 "visible_text_policy_preserved",

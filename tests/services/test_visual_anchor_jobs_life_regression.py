@@ -27,15 +27,15 @@ from pixelle_video.services.visual_anchor_two_stage_service import (
 )
 from pixelle_video.services.visual_prompt_composer import (
     VisualPromptComposer,
-    _positive_only_avoidance_fragments,
     _resolve_visual_anchor_style_batch,
+    _scene_scoped_style_fragments,
     _target_visual_style_contract,
     _visible_text_policy,
 )
 
 _STYLE_POSITIVE = [
-    "叙事场景与内容主体采用极简黑白二维线稿插画",
-    "使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
+    "叙事场景的内容人物、环境、道具、载体和背景采用极简黑白二维线稿插画；视觉身份图形不继承该画风",
+    "叙事场景使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
     "叙事人物、物体、载体和环境使用协调的线稿语言",
     "人物面部只用少量轮廓线概括",
     "叙事场景不使用彩色、照片纹理、真实皮肤明暗、连续渐变、体积光或三维材质",
@@ -383,7 +383,7 @@ def test_requested_style_id_preserves_complete_contract_when_active_style_change
     assert contract.required_negative_prompt_fragments == _STYLE_NEGATIVE
 
 
-def test_z_image_style_contract_moves_avoidance_rules_into_positive_prompt():
+def test_z_image_style_contract_keeps_local_avoidance_rules_for_scoped_rewrite():
     batch = _resolve_visual_anchor_style_batch(
         image_config={
             "prompt_prefix_library": {
@@ -411,30 +411,31 @@ def test_z_image_style_contract_moves_avoidance_rules_into_positive_prompt():
         batch=batch,
         visual_profile_snapshot=None,
         prompt_language=CHINESE_PROMPT_LANGUAGE,
-        negative_prompt_supported=False,
     )
 
-    assert contract.required_final_prompt_fragments == [
-        *_STYLE_POSITIVE,
-        *(f"禁止出现{fragment}" for fragment in _STYLE_NEGATIVE),
+    assert contract.required_final_prompt_fragments == _STYLE_POSITIVE
+    assert contract.required_negative_prompt_fragments == _STYLE_NEGATIVE
+
+
+def test_custom_scene_style_is_scoped_before_entering_the_model_contract():
+    assert _scene_scoped_style_fragments(
+        fragments=["克制的水墨插画"],
+        prompt_language=CHINESE_PROMPT_LANGUAGE,
+    ) == [
+        "仅对叙事场景的内容人物、环境、道具、载体和背景应用以下风格，"
+        "不作用于视觉身份图形：克制的水墨插画"
     ]
-    assert contract.required_negative_prompt_fragments == []
 
 
-def test_z_image_converts_custom_negative_style_rules_to_explicit_positive_avoidance():
-    assert _positive_only_avoidance_fragments(
-        positive_fragments=["克制的水墨插画"],
-        negative_fragments=["低质量", "禁止模糊"],
-        prompt_language=CHINESE_PROMPT_LANGUAGE,
-    ) == ["禁止出现低质量", "禁止模糊"]
-
-
-def test_z_image_does_not_duplicate_existing_positive_avoidance():
-    assert _positive_only_avoidance_fragments(
-        positive_fragments=["画面不出现任何彩色像素", "不使用连续色调或渐变"],
-        negative_fragments=["彩色像素", "连续色调或渐变"],
-        prompt_language=CHINESE_PROMPT_LANGUAGE,
-    ) == []
+def test_custom_scene_style_scope_is_not_implicitly_global_in_english():
+    assert _scene_scoped_style_fragments(
+        fragments=["restrained ink-wash illustration"],
+        prompt_language="English",
+    ) == [
+        "apply the following style only to narrative people, environments, props, "
+        "carriers, and background, not to the visual-signature graphic: restrained "
+        "ink-wash illustration"
+    ]
 
 
 def test_fusion_template_allows_required_style_and_text_prohibitions():
@@ -547,8 +548,9 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "视觉身份图形本身不继承场景风格",
         "不得让视觉身份风格扩散到叙事人物、环境、道具和背景",
         "视觉身份仅在载体关系上服从比例、透视、遮挡、接触、反射和环境光照",
-        "草稿第一句必须逐字完整复制这段原始场景风格文字一次",
-        "required_final_prompt_fragments 中的每一项原样落实到叙事场景",
+        "resolved_style.raw_content 只用于追溯风格来源，禁止直接复制到草稿",
+        "target_visual_style.required_final_prompt_fragments 作为实际风格约束逐项落实到叙事场景",
+        "不得把这些局部约束放入全局反向提示词",
     ):
         assert required_rule in template
 

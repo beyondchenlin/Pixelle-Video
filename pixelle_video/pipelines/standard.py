@@ -115,6 +115,7 @@ from pixelle_video.services.frame_timing_allocator import allocate_frame_timing_
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
+    ensure_visual_signature_identity_ready,
 )
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import (
@@ -647,7 +648,10 @@ class StandardPipeline(LinearVideoPipeline):
         """Prepare the asset, then reject invalid visual-anchor inputs before any LLM call."""
 
         await super().prepare_reference_image(ctx)
-        await self._preflight_series_visual_signature(ctx)
+        await self._preflight_series_visual_signature(
+            ctx,
+            require_independent_style=False,
+        )
 
     async def generate_content(self, ctx: PipelineContext):
         """Step 2: Generate or process script/narrations."""
@@ -788,7 +792,10 @@ class StandardPipeline(LinearVideoPipeline):
     async def plan_visuals(self, ctx: PipelineContext):
         """Step 4: Generate image prompts or visual descriptions."""
         ctx.params = _params_with_visual_profile_defaults(ctx.params)
-        await self._preflight_series_visual_signature(ctx)
+        await self._preflight_series_visual_signature(
+            ctx,
+            require_independent_style=True,
+        )
         storyboard_contract = StoryboardControlsContract.from_mapping(
             ctx.params,
             default_prompt_language=DEFAULT_PROMPT_LANGUAGE,
@@ -3024,6 +3031,8 @@ class StandardPipeline(LinearVideoPipeline):
     async def _preflight_series_visual_signature(
         self,
         ctx: PipelineContext,
+        *,
+        require_independent_style: bool = False,
     ) -> None:
         """Validate deterministic dependencies before visual-anchor model work."""
 
@@ -3037,12 +3046,15 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.identity_reference_workflow_inspection = None
             ctx.params.pop("reference_image_workflow_injection_mode", None)
             return
+        previous_preflight = ctx.observability.get("visual_anchor_preflight") or {}
         if (
             isinstance(ctx.series_visual_signature_profile, IPProfile)
-            and (ctx.observability.get("visual_anchor_preflight") or {}).get(
-                "status"
+            and previous_preflight.get("status") == "passed"
+            and (
+                not require_independent_style
+                or previous_preflight.get("independent_style_status")
+                == "validated"
             )
-            == "passed"
         ):
             return
 
@@ -3101,13 +3113,17 @@ class StandardPipeline(LinearVideoPipeline):
         else:
             ctx.params.pop("reference_image_workflow_injection_mode", None)
 
-        ctx.series_visual_signature_profile = (
-            await self._load_series_visual_signature_profile(ctx)
-        )
+        ip_profile = await self._load_series_visual_signature_profile(ctx)
+        if require_independent_style:
+            ip_profile = ensure_ip_profile_ready_for_generation(ip_profile)
+        ctx.series_visual_signature_profile = ip_profile
         ctx.observability["visual_anchor_preflight"] = {
-            "schema_version": "visual_anchor_preflight.v2",
+            "schema_version": "visual_anchor_preflight.v3",
             "status": "passed",
             "model_call_count": 0,
+            "independent_style_status": (
+                "validated" if require_independent_style else "deferred"
+            ),
             "template_type": "image",
             "identity_conditioning_mode": (
                 "reference_image"
@@ -3155,7 +3171,7 @@ class StandardPipeline(LinearVideoPipeline):
         )
         if ip_profile is None:
             raise ValueError(f"ip profile was not found in asset bible: {series_visual_signature_profile_id}")
-        ensure_ip_profile_ready_for_generation(ip_profile)
+        ip_profile = ensure_visual_signature_identity_ready(ip_profile)
         ctx.series_visual_signature_profile = ip_profile
         return ip_profile
 

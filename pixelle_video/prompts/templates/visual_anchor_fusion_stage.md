@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_fusion_stage
-version: visual_anchor_fusion_stage.v27
+version: visual_anchor_fusion_stage.v29
 stage: visual_anchor_fusion_stage
 purpose: 在保持画面主旨和事实的前提下创作视觉身份的场景化融合草稿
 output_contract: raw_fusion_draft_text
@@ -34,7 +34,7 @@ output_contract: raw_fusion_draft_text
 
 输出要求：
 13. 融合草稿必须是一段完整、连贯、确定的整幅画描述，不得照抄 content_stage_output.raw_prompt 后再追加视觉身份句子，也不得输出规则、分析、候选、字段或内部判断过程。
-14. target_visual_style 是叙事场景风格，只作用于内容人物、环境、道具、载体和背景，不作用于视觉身份。若 target_visual_style.description 中存在非空的 resolved_style.raw_content，草稿第一句必须逐字完整复制这段原始场景风格文字一次，不得翻译、概括、替换、删减或放宽；若不存在，再用 target_image_prompt_language 确立场景媒介与画风。随后将 target_visual_style.required_final_prompt_fragments 中的每一项原样落实到叙事场景，不得用较弱的近义表达替代。承载视觉身份的屏幕、服装或物件本体服从场景风格，但视觉身份图形本身不继承场景风格。
-15. visual_signature_style 是视觉身份独立风格，只作用于唯一视觉身份实例。将 visual_signature_style.style_fragments 中的每一项原样写入草稿，并落实其 boundary_rules；不得用 target_visual_style 改写、降色、换材质或重绘视觉身份，也不得让视觉身份风格扩散到叙事人物、环境、道具和背景。visual_signature_style.source_style_scope 只描述视觉身份自身的来源设定，不能扩大到当前叙事场景。视觉身份仅在载体关系上服从比例、透视、遮挡、接触、反射和环境光照。visible_text_policy.suppress_visible_text 为 true 时，同时落实其要求的文字排除条件。negative_prompt_supported 为 false 时，把必要的画面限制自然写入这段正向草稿，不要另行输出负向提示词。
+14. target_visual_style 是叙事场景风格，只作用于内容人物、环境、道具、载体和背景，不作用于视觉身份。target_visual_style.description 中的 resolved_style.raw_content 只用于追溯风格来源，禁止直接复制到草稿；只将 target_visual_style.required_final_prompt_fragments 作为实际风格约束逐项落实到叙事场景，不得用较弱的近义表达替代。承载视觉身份的屏幕、服装或物件本体服从场景风格，但视觉身份图形本身不继承场景风格。将 target_visual_style.required_negative_prompt_fragments 中的每一项改写成带有“叙事场景”对象的自然排除描述并写入正向草稿；无论 negative_prompt_supported 是什么值，都不得把这些局部约束放入全局反向提示词。
+15. visual_signature_style 是视觉身份独立风格，application_scope=visual_signature_only 是最高优先级，只作用于唯一视觉身份实例。将 style_fragments 中的每一项原样写入草稿；boundary_rules 只有在不扩大 application_scope 时才落实，冲突时以 application_scope 为准。不得用 target_visual_style 改写、降色、换材质或重绘视觉身份，也不得让视觉身份风格扩散到叙事人物、环境、道具和背景。rendering_style 和 source_style_scope 仅记录视觉身份来源资料，不能扩大到当前叙事场景。视觉身份仅在载体关系上服从比例、透视、遮挡、接触、反射和环境光照。将 negative_fragments 和 identity_profile.forbidden_traits 中的每一项改写成只针对“唯一视觉身份图形”的自然排除描述并写入正向草稿；无论 negative_prompt_supported 是什么值，都不得把这些局部约束放入全局反向提示词。visible_text_policy.suppress_visible_text 为 true 时，同时落实其要求的文字排除条件。不要另行输出负向提示词。
 
 只输出完整融合提示词草稿原文。不要输出结构化数据、字段名、标题、分析、解释、候选方案、代码块或引号。

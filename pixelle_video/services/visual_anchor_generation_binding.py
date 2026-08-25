@@ -15,6 +15,7 @@ import aiohttp
 
 from pixelle_video.models.visual_anchor_two_stage import (
     VisualAnchorImageGenerationRequest,
+    visual_signature_style_binding_payload,
 )
 from pixelle_video.services.visual_anchor_reference_condition import (
     IDENTITY_REFERENCE_CONDITION_CROP,
@@ -178,36 +179,11 @@ def validate_visual_anchor_first_generation_binding(
         require(False, "actual reference workflow parameter is missing")
 
     if failures:
-        failed_audit = {
-            "schema_version": "visual_anchor_first_generation_binding_audit.v7",
-            "request_version": request.request_version,
-            "recorded_at_utc": datetime.now(UTC).isoformat(),
-            "status": "failed",
-            "task_id": request.task_id,
-            "frame_id": request.frame_id,
-            "generation_attempt": 1,
-            "random_seed": request.random_seed,
-            "selected_fusion_method": request.selected_fusion_method,
-            "final_manifestation": request.final_manifestation,
-            "prompt_assembly_trace": _prompt_assembly_trace_payload(request),
-            "failure_reason": "; ".join(failures),
-            "failure_codes": list(failures),
-            "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
-            "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
-            "prompt_versions": _prompt_versions(request),
-            "identity_profile_id": request.identity_profile_id,
-            "identity_display_name": request.identity_display_name,
-            "identity_core_traits": list(request.identity_core_traits),
-            "identity_forbidden_traits": list(request.identity_forbidden_traits),
-            "identity_resource_version": request.identity_resource_version,
-            "identity_content_sha256": request.identity_content_sha256,
-            "identity_conditioning_mode": request.identity_conditioning_mode,
-            "target_image_prompt_language": request.target_image_prompt_language,
-            "reference_condition": condition.model_dump(mode="json"),
-            "workflow_key": request.workflow_key,
-            "workflow_version_sha256": request.workflow_version_sha256,
-            "expected_execution": expected_execution.model_dump(mode="json"),
-            "actual_binding": {
+        failed_audit = _first_generation_binding_audit_payload(
+            request=request,
+            status="failed",
+            failure_codes=failures,
+            actual_binding={
                 "injection_mode": binding.get("injection_mode"),
                 "status": binding.get("status"),
                 "param_names": param_names,
@@ -216,7 +192,7 @@ def validate_visual_anchor_first_generation_binding(
                     "workflow_asset_relative_path"
                 ),
             },
-        }
+        )
         _write_binding_audit(
             task_root,
             request.frame_id,
@@ -227,34 +203,11 @@ def validate_visual_anchor_first_generation_binding(
             "visual-anchor first generation binding rejected: " + "; ".join(failures)
         )
 
-    audit = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v7",
-        "request_version": request.request_version,
-        "recorded_at_utc": datetime.now(UTC).isoformat(),
-        "status": "ready_to_submit",
-        "task_id": request.task_id,
-        "frame_id": request.frame_id,
-        "generation_attempt": 1,
-        "random_seed": request.random_seed,
-        "selected_fusion_method": request.selected_fusion_method,
-        "final_manifestation": request.final_manifestation,
-        "prompt_assembly_trace": _prompt_assembly_trace_payload(request),
-        "positive_prompt_sha256": _text_sha256(request.final_positive_prompt),
-        "negative_prompt_sha256": _text_sha256(request.final_negative_prompt),
-        "prompt_versions": _prompt_versions(request),
-        "identity_profile_id": request.identity_profile_id,
-        "identity_display_name": request.identity_display_name,
-        "identity_core_traits": list(request.identity_core_traits),
-        "identity_forbidden_traits": list(request.identity_forbidden_traits),
-        "identity_resource_version": request.identity_resource_version,
-        "identity_content_sha256": request.identity_content_sha256,
-        "identity_conditioning_mode": request.identity_conditioning_mode,
-        "target_image_prompt_language": request.target_image_prompt_language,
-        "reference_condition": condition.model_dump(mode="json"),
-        "workflow_key": request.workflow_key,
-        "workflow_version_sha256": request.workflow_version_sha256,
-        "expected_execution": expected_execution.model_dump(mode="json"),
-        "actual_binding": {
+    audit = _first_generation_binding_audit_payload(
+        request=request,
+        status="ready_to_submit",
+        failure_codes=[],
+        actual_binding={
             "injection_mode": binding.get("injection_mode"),
             "status": binding.get("status"),
             "param_names": param_names,
@@ -263,7 +216,7 @@ def validate_visual_anchor_first_generation_binding(
                 "workflow_asset_relative_path"
             ),
         },
-    }
+    )
     _write_binding_audit(
         task_root,
         request.frame_id,
@@ -323,7 +276,7 @@ def _first_generation_binding_audit_payload(
     actual_binding: Mapping[str, Any],
 ) -> dict[str, Any]:
     payload = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v7",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v8",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": status,
@@ -345,13 +298,13 @@ def _first_generation_binding_audit_payload(
         "identity_content_sha256": request.identity_content_sha256,
         "identity_conditioning_mode": request.identity_conditioning_mode,
         "target_image_prompt_language": request.target_image_prompt_language,
-        "reference_condition": None,
-        "target_visual_style": request.target_visual_style.model_dump(mode="json"),
-        "visual_signature_style": (
-            request.visual_signature_style.model_dump(mode="json")
-            if request.visual_signature_style is not None
+        "reference_condition": (
+            request.identity_reference_condition.model_dump(mode="json")
+            if request.identity_reference_condition is not None
             else None
         ),
+        "target_visual_style": request.target_visual_style.model_dump(mode="json"),
+        "visual_signature_style": visual_signature_style_binding_payload(request),
         "visible_text_policy": request.visible_text_policy.model_dump(mode="json"),
         "workflow_key": request.workflow_key,
         "workflow_version_sha256": request.workflow_version_sha256,

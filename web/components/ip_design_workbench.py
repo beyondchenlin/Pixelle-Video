@@ -12,7 +12,10 @@ from pixelle_video.platform_context import (
     first_explicit_text,
 )
 from pixelle_video.services.ip_color_palette import build_color_palette_prompt_entries
-from pixelle_video.services.ip_profile_readiness import ip_generation_identity_terms
+from pixelle_video.services.ip_profile_readiness import (
+    ensure_ip_profile_ready_for_generation,
+    ip_generation_identity_terms,
+)
 from web.i18n import tr
 from web.ip_design.asset_bible_payloads import _to_ip_profile_draft
 from web.ip_design.models import (
@@ -338,6 +341,14 @@ def _render_ip_profile_tab(
             value=_read_color_palette_prompt(ip_profile_dict.get("color_palette")),
             help=translate("ip_design.help.color_palette"),
         )
+        keyed_text_area(
+            ui,
+            translate("ip_design.asset_bible.style_hint"),
+            key=IPSessionKeys.FORM.style_hint,
+            value=first_text(ip_profile_dict.get("style_hint")),
+            height=88,
+            help=translate("ip_design.help.style_hint"),
+        )
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.minimal_traits"),
@@ -466,6 +477,8 @@ def _render_ip_profile_tab(
                 ip_profile_save[field_name] = text_list(raw) if raw else []
             elif field_type is dict:
                 ip_profile_save[field_name] = raw if isinstance(raw, dict) else {}
+            elif field_type is bool:
+                ip_profile_save[field_name] = raw if isinstance(raw, bool) else False
             else:
                 ip_profile_save[field_name] = first_text(raw) if raw else ""
 
@@ -984,7 +997,11 @@ def _build_asset_bible_save_payload(
 
 
 def _ip_profile_ready_for_generation(ip_profile: dict[str, Any]) -> bool:
-    return bool(ip_generation_identity_terms(ip_profile))
+    try:
+        ensure_ip_profile_ready_for_generation(ip_profile)
+    except ValueError:
+        return False
+    return True
 
 
 def _render_select_or_custom(

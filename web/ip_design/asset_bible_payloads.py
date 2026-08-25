@@ -41,6 +41,10 @@ def _to_ip_profile_draft(data: dict[str, Any]) -> IPProfileDraft:
         variable_slots=_ensure_str_list(data.get("variable_slots", [])),
         world_hint=data.get("world_hint") or "",
         style_hint=data.get("style_hint") or "",
+        rendering_style=data.get("rendering_style") or "style_inherited",
+        style_scope=data.get("style_scope") or "ip_character_only",
+        exclusive_visual_layer=data.get("exclusive_visual_layer") is True,
+        style_boundary_rules=_ensure_str_list(data.get("style_boundary_rules", [])),
         image_text_palette=data.get("image_text_palette", {}),
         metadata=data.get("metadata", {}),
     )

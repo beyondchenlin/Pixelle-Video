@@ -99,6 +99,10 @@ class IPProfileDraft(BaseModel):
     variable_slots: list[str] = Field(default_factory=list)
     world_hint: str = ""
     style_hint: str = ""
+    rendering_style: str = "style_inherited"
+    style_scope: str = "ip_character_only"
+    exclusive_visual_layer: bool = False
+    style_boundary_rules: list[str] = Field(default_factory=list)
     image_text_palette: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

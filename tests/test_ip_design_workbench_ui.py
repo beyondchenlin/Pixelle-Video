@@ -594,7 +594,26 @@ def test_ip_profile_ready_for_generation_accepts_identity_anchors():
     from web.components.ip_design_workbench import _ip_profile_ready_for_generation
 
     assert _ip_profile_ready_for_generation(
-        {"identity_lock": [], "identity_anchors": ["blue tie"]}
+        {
+            "series_visual_signature_profile_id": "ip_main",
+            "name": "Guide",
+            "identity_lock": [],
+            "identity_anchors": ["blue tie"],
+            "style_hint": "colorful flat mascot illustration",
+        }
+    )
+
+
+def test_historical_ip_profile_without_independent_style_remains_ready():
+    from web.components.ip_design_workbench import _ip_profile_ready_for_generation
+
+    assert _ip_profile_ready_for_generation(
+        {
+            "series_visual_signature_profile_id": "ip_main",
+            "name": "Guide",
+            "identity_lock": ["blue tie"],
+            "identity_anchors": [],
+        }
     )
 
 

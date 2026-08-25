@@ -72,6 +72,9 @@ from pixelle_video.services.visual_anchor_two_stage_service import (
 from pixelle_video.services.visual_profile_registry import resolve_visual_profile
 from pixelle_video.services.visual_prompt_profile_projector import apply_visual_profile_to_batch
 from pixelle_video.services.visual_quality_gate import VisualQualityGate
+from pixelle_video.services.visual_signature_style_contract import (
+    build_visual_signature_style_contract,
+)
 from pixelle_video.services.visual_story_prompt_context import attach_visual_story_context
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_helper import (
@@ -466,7 +469,6 @@ class VisualPromptComposer:
                 batch=batch,
                 visual_profile_snapshot=visual_profile_snapshot,
                 prompt_language=prompt_language,
-                negative_prompt_supported=negative_prompt_supported,
             )
             visible_text_policy = _visible_text_policy(
                 text_rendering,
@@ -514,7 +516,7 @@ class VisualPromptComposer:
                 for item in two_stage_result.frames
             }
             planning_snapshot["visual_anchor_two_stage_prompt_policy"] = {
-                "schema_version": "visual_anchor_two_stage_prompt_policy.v8",
+                "schema_version": "visual_anchor_two_stage_prompt_policy.v10",
                 "prompt_chain": (
                     "content_raw_response_then_fusion_draft_then_"
                     "finalization_raw_response"
@@ -635,7 +637,6 @@ def _target_visual_style_contract(
     batch: StyledImagePromptBatch,
     visual_profile_snapshot: Mapping[str, Any] | None,
     prompt_language: PromptLanguage,
-    negative_prompt_supported: bool = True,
 ) -> TargetVisualStyle:
     resolved_style = batch.resolved_style
     payload: dict[str, Any] = {}
@@ -651,7 +652,12 @@ def _target_visual_style_contract(
             "source_identity": resolved_style.source_identity,
             "raw_content": resolved_style.raw_content,
         }
-        required_positive.extend(_style_fragments(resolved_style.raw_content))
+        required_positive.extend(
+            _scene_scoped_style_fragments(
+                fragments=_style_fragments(resolved_style.raw_content),
+                prompt_language=prompt_language,
+            )
+        )
         required_negative.extend(_style_fragments(resolved_style.negative_prompt))
         profile_negative = str(
             resolved_style.style_profile.get("negative_rules") or ""
@@ -660,8 +666,8 @@ def _target_visual_style_contract(
         if "builtin_line_art_emotion_minimal" in resolved_style.source_identity:
             if prompt_language == CHINESE_PROMPT_LANGUAGE:
                 required_positive = [
-                    "叙事场景与内容主体采用极简黑白二维线稿插画",
-                    "使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
+                    "叙事场景的内容人物、环境、道具、载体和背景采用极简黑白二维线稿插画；视觉身份图形不继承该画风",
+                    "叙事场景使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
                     "叙事人物、物体、载体和环境使用协调的线稿语言",
                     "人物面部只用少量轮廓线概括",
                     "叙事场景不使用彩色、照片纹理、真实皮肤明暗、连续渐变、体积光或三维材质",
@@ -676,8 +682,8 @@ def _target_visual_style_contract(
                 ]
             else:
                 required_positive = [
-                    "the narrative scene and content subjects use minimalist black-and-white 2D line illustration",
-                    "fine clean black contours, large white negative space, and restrained flat light-gray accents",
+                    "the narrative people, environments, props, carriers, and background use minimalist black-and-white 2D line illustration; the visual-signature graphic does not inherit this style",
+                    "the narrative scene uses fine clean black contours, large white negative space, and restrained flat light-gray accents",
                     "narrative people, objects, carriers, and environments use a coherent line-art language",
                     "faces are summarized with a few concise contour lines",
                     "the narrative scene uses no color, photographic texture, realistic skin shading, continuous gradients, volumetric lighting, or 3D materials",
@@ -690,21 +696,20 @@ def _target_visual_style_contract(
                     "volumetric lighting in the narrative scene",
                     "3D materials in the narrative scene",
                 ]
-    if not negative_prompt_supported:
-        required_positive.extend(
-            _positive_only_avoidance_fragments(
-                positive_fragments=required_positive,
-                negative_fragments=required_negative,
-                prompt_language=prompt_language,
-            )
-        )
-        required_negative = []
     if visual_profile_snapshot:
         payload["visual_profile"] = dict(visual_profile_snapshot)
     description = (
         json.dumps(payload, ensure_ascii=False, sort_keys=True)
         if payload
-        else "未选择额外全局风格；保持纯内容阶段建立的统一视觉表达"
+        else (
+            "未选择额外叙事场景风格；叙事人物、环境、道具、载体和背景沿用纯内容阶段的视觉表达，不约束视觉签名"
+            if prompt_language == CHINESE_PROMPT_LANGUAGE
+            else (
+                "no additional narrative-scene style; narrative people, environments, "
+                "props, carriers, and backgrounds retain the content-stage visual "
+                "treatment without constraining the visual signature"
+            )
+        )
     )
     return TargetVisualStyle(
         description=description,
@@ -718,84 +723,10 @@ def _visual_signature_style_contract(
     ip_profile: Any,
     expected_profile_id: str,
 ) -> VisualSignatureStyleContract:
-    if ip_profile is None:
-        raise ValueError(
-            "enabled visual signature requires its source profile for independent style"
-        )
-    profile_id = str(
-        _profile_value(ip_profile, "series_visual_signature_profile_id") or ""
-    ).strip()
-    if profile_id != expected_profile_id:
-        raise ValueError("visual signature style profile must match the identity profile")
-
-    style_hint = str(_profile_value(ip_profile, "style_hint") or "").strip()
-    rendering_style = _enum_value(
-        _profile_value(ip_profile, "rendering_style") or "style_inherited"
+    return build_visual_signature_style_contract(
+        ip_profile=ip_profile,
+        expected_profile_id=expected_profile_id,
     )
-    source_style_scope = _enum_value(
-        _profile_value(ip_profile, "style_scope") or "ip_character_only"
-    )
-    rendering_fragment = {
-        "photorealistic_human": "photorealistic human rendering",
-        "stylized_character": "stylized character rendering",
-        "flat_illustration": "flat illustration rendering",
-    }.get(rendering_style, "")
-    color_fragments = _palette_prompt_fragments(
-        _profile_value(ip_profile, "color_palette") or {}
-    )
-    style_fragments = _dedupe_fragments(
-        [style_hint, rendering_fragment, *color_fragments]
-    )
-    if not style_fragments:
-        raise ValueError(
-            "enabled visual signature profile has no independent style data"
-        )
-    boundary_rules = _profile_text_fragments(
-        _profile_value(ip_profile, "style_boundary_rules") or ()
-    )
-    return VisualSignatureStyleContract(
-        profile_id=profile_id,
-        style_fragments=style_fragments,
-        rendering_style=rendering_style,
-        source_style_scope=source_style_scope,
-        boundary_rules=boundary_rules,
-    )
-
-
-def _profile_value(source: Any, field_name: str) -> Any:
-    if isinstance(source, Mapping):
-        return source.get(field_name)
-    return getattr(source, field_name, None)
-
-
-def _enum_value(value: Any) -> str:
-    raw = getattr(value, "value", value)
-    return " ".join(str(raw or "").split())
-
-
-def _profile_text_fragments(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return _dedupe_fragments([value])
-    if isinstance(value, Sequence):
-        return _dedupe_fragments(
-            [item for item in value if isinstance(item, str)]
-        )
-    return []
-
-
-def _palette_prompt_fragments(value: Any) -> list[str]:
-    fragments: list[str] = []
-    if isinstance(value, Mapping):
-        prompt = value.get("prompt")
-        if isinstance(prompt, str):
-            fragments.append(prompt)
-        for key, nested in value.items():
-            if key != "prompt":
-                fragments.extend(_palette_prompt_fragments(nested))
-    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        for nested in value:
-            fragments.extend(_palette_prompt_fragments(nested))
-    return _dedupe_fragments(fragments)
 
 
 def _style_fragments(value: str) -> list[str]:
@@ -803,55 +734,22 @@ def _style_fragments(value: str) -> list[str]:
     return [" ".join(part.split()) for part in normalized.split(",") if part.strip()]
 
 
-def _positive_only_avoidance_fragments(
+def _scene_scoped_style_fragments(
     *,
-    positive_fragments: Sequence[str],
-    negative_fragments: Sequence[str],
+    fragments: Sequence[str],
     prompt_language: PromptLanguage,
 ) -> list[str]:
-    result: list[str] = []
-    normalized_positive = [
-        " ".join(str(fragment or "").split()).casefold()
-        for fragment in positive_fragments
+    if prompt_language == CHINESE_PROMPT_LANGUAGE:
+        return [
+            "仅对叙事场景的内容人物、环境、道具、载体和背景应用以下风格，"
+            f"不作用于视觉身份图形：{fragment}"
+            for fragment in fragments
+        ]
+    return [
+        "apply the following style only to narrative people, environments, props, "
+        f"carriers, and background, not to the visual-signature graphic: {fragment}"
+        for fragment in fragments
     ]
-    for fragment in negative_fragments:
-        text = " ".join(str(fragment or "").split())
-        normalized = text.casefold()
-        if not normalized:
-            continue
-        covered = any(
-            normalized in positive
-            and any(
-                marker in positive
-                for marker in (
-                    "禁止",
-                    "避免",
-                    "不要",
-                    "不出现",
-                    "不使用",
-                    " no ",
-                    "no ",
-                    "avoid",
-                    "without",
-                )
-            )
-            for positive in normalized_positive
-        )
-        if covered:
-            continue
-        if prompt_language == CHINESE_PROMPT_LANGUAGE:
-            result.append(
-                text
-                if text.startswith(("禁止", "避免", "不要"))
-                else f"禁止出现{text}"
-            )
-        else:
-            result.append(
-                text
-                if normalized.startswith(("no ", "avoid ", "without "))
-                else f"avoid {text}"
-            )
-    return result
 
 
 def _dedupe_fragments(values: Sequence[str]) -> list[str]:

@@ -30,10 +30,13 @@ from pixelle_video.models.visual_anchor_two_stage import (
     ImageWorkflowExecutionContract,
     RawContentStageOutput,
     RawFusionStageOutput,
+    TargetVisualStyle,
+    VisibleTextPolicy,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
     VisualAnchorTwoStageFrameResult,
     VisualSignatureStyleContract,
+    visual_signature_style_binding_payload,
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 from pixelle_video.services import visual_anchor_regeneration
@@ -174,6 +177,7 @@ def _signature_style():
     return VisualSignatureStyleContract(
         profile_id="profile-pixelle",
         style_fragments=["彩色扁平吉祥物插画", "蓝色短耳和橙色围巾"],
+        negative_fragments=["写实皮毛", "场景线稿覆盖视觉签名配色"],
         rendering_style="flat_illustration",
         source_style_scope="ip_character_only",
         boundary_rules=["该风格只作用于视觉签名"],
@@ -267,6 +271,9 @@ async def _run_service(
     identity_conditioning_mode="reference_image",
     identity_reference_condition=_DEFAULT_REFERENCE,
     random_seeds_by_frame=None,
+    negative_prompt_supported=False,
+    target_visual_style="真实电影感",
+    visible_text_policy=None,
 ):
     reference_condition = identity_reference_condition
     if reference_condition is _DEFAULT_REFERENCE:
@@ -294,15 +301,16 @@ async def _run_service(
             if identity_conditioning_mode == "reference_image"
             else "工作流使用文字身份档案"
         ),
-        target_visual_style="真实电影感",
+        target_visual_style=target_visual_style,
         visual_signature_style=_signature_style(),
+        visible_text_policy=visible_text_policy,
         target_image_prompt_language="中文",
         task_id="task-two-stage",
         workflow_key="selfhost/image_z_image_turbo_gguf_reference.json",
         workflow_version_sha256="c" * 64,
         expected_execution=_execution(),
         random_seeds_by_frame=seeds,
-        negative_prompt_supported=False,
+        negative_prompt_supported=negative_prompt_supported,
         stage_callback=stage_callback,
     )
 
@@ -315,6 +323,9 @@ async def _run(
     stage_callback=None,
     identity_conditioning_mode="reference_image",
     random_seeds_by_frame=None,
+    negative_prompt_supported=False,
+    target_visual_style="真实电影感",
+    visible_text_policy=None,
 ):
     contents = [
         f"原始纯内容提示词::{frame.frame_id}::{frame.source_text}"
@@ -341,6 +352,9 @@ async def _run(
         identity_conditioning_mode=identity_conditioning_mode,
         stage_callback=stage_callback,
         random_seeds_by_frame=random_seeds_by_frame,
+        negative_prompt_supported=negative_prompt_supported,
+        target_visual_style=target_visual_style,
+        visible_text_policy=visible_text_policy,
     )
     return result, llm
 
@@ -481,7 +495,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v12"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v14"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -1154,11 +1168,78 @@ async def test_current_raw_payload_round_trips_without_content_validation():
         FinalizationStagePromptPassthrough,
     )
     assert frame.generation_request.request_version == (
-        "visual_anchor_generation_request.v9"
+        "visual_anchor_generation_request.v11"
     )
     assert frame.generation_request.final_positive_prompt == (
         frame.finalization_stage_output.raw_prompt
     )
+
+
+@pytest.mark.asyncio
+async def test_local_style_exclusions_stay_scoped_and_global_negative_remains_empty():
+    target_style = TargetVisualStyle(
+        description="叙事场景采用黑白线稿",
+        required_final_prompt_fragments=["叙事场景采用黑白线稿"],
+        required_negative_prompt_fragments=["叙事场景中的彩色元素"],
+    )
+    batch, _ = await _run(
+        _plan(),
+        finalizations=["模型原始最终正向提示词"],
+        identity_conditioning_mode="text_profile",
+        negative_prompt_supported=True,
+        target_visual_style=target_style,
+    )
+
+    request = batch.frames[0].generation_request
+
+    assert request.final_positive_prompt == "模型原始最终正向提示词"
+    assert request.final_negative_prompt == ""
+    assert request.target_visual_style.required_negative_prompt_fragments == [
+        "叙事场景中的彩色元素"
+    ]
+    assert request.visual_signature_style is not None
+    assert request.visual_signature_style.negative_fragments == [
+        "写实皮毛",
+        "场景线稿覆盖视觉签名配色",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_negative_capable_workflow_keeps_only_image_wide_exclusions_global():
+    visible_text_policy = VisibleTextPolicy(
+        suppress_visible_text=True,
+        required_positive_prompt_fragment="画面中不出现可见文字",
+        required_negative_prompt_fragment="文字，水印，标题，乱码",
+    )
+    batch, _ = await _run(
+        _plan(),
+        identity_conditioning_mode="text_profile",
+        negative_prompt_supported=True,
+        visible_text_policy=visible_text_policy,
+    )
+
+    request = batch.frames[0].generation_request
+
+    assert request.final_negative_prompt == "文字，水印，标题，乱码"
+    assert "写实皮毛" not in request.final_negative_prompt
+    assert "场景线稿" not in request.final_negative_prompt
+
+
+@pytest.mark.asyncio
+async def test_positive_only_workflow_keeps_global_negative_channel_empty():
+    visible_text_policy = VisibleTextPolicy(
+        suppress_visible_text=True,
+        required_positive_prompt_fragment="画面中不出现可见文字",
+        required_negative_prompt_fragment="文字，水印，标题，乱码",
+    )
+    batch, _ = await _run(
+        _plan(),
+        identity_conditioning_mode="text_profile",
+        negative_prompt_supported=False,
+        visible_text_policy=visible_text_policy,
+    )
+
+    assert batch.frames[0].generation_request.final_negative_prompt == ""
 
 
 @pytest.mark.asyncio
@@ -1169,6 +1250,65 @@ async def test_current_fusion_input_requires_explicit_emphasis_assignment():
 
     with pytest.raises(ValidationError, match="explicit visual signature emphasis"):
         FusionStageInput.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_previous_emphasis_contract_does_not_lose_validation_after_version_bump():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].fusion_stage_input.model_dump(mode="json")
+    payload["prompt_version"] = "visual_anchor_fusion_stage.v26"
+    payload.pop("visual_signature_emphasis")
+
+    with pytest.raises(ValidationError, match="explicit visual signature emphasis"):
+        FusionStageInput.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_previous_finalization_contract_still_requires_exact_content_input():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].finalization_stage_input.model_dump(mode="json")
+    payload["prompt_version"] = "visual_anchor_finalization_stage.v7"
+    payload.pop("content_stage_input")
+
+    with pytest.raises(ValidationError, match="exact content-stage input"):
+        FinalizationStageInput.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_previous_generation_contract_still_requires_finalization_version():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].generation_request.model_dump(mode="json")
+    payload["request_version"] = "visual_anchor_generation_request.v8"
+    payload["finalization_stage_prompt_version"] = None
+
+    with pytest.raises(ValidationError, match="require the finalization stage version"):
+        VisualAnchorImageGenerationRequest.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_v8_generation_request_without_signature_style_remains_readable():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].generation_request.model_dump(mode="json")
+    payload["request_version"] = "visual_anchor_generation_request.v8"
+    payload["visual_signature_style"] = None
+
+    restored = VisualAnchorImageGenerationRequest.model_validate(payload)
+
+    assert restored.visual_signature_style is None
+
+
+@pytest.mark.asyncio
+async def test_v9_binding_payload_keeps_historical_signature_style_shape():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].generation_request.model_dump(mode="json")
+    payload["request_version"] = "visual_anchor_generation_request.v9"
+    payload["visual_signature_style"].pop("negative_fragments")
+
+    restored = VisualAnchorImageGenerationRequest.model_validate(payload)
+    binding_style = visual_signature_style_binding_payload(restored)
+
+    assert binding_style is not None
+    assert "negative_fragments" not in binding_style
 
 
 @pytest.mark.asyncio
@@ -1201,7 +1341,7 @@ async def test_current_three_stage_payload_rejects_mismatched_stage_version():
         "visual_anchor_fusion_stage.v19"
     )
 
-    with pytest.raises(ValidationError, match="fusion version must match"):
+    with pytest.raises(ValidationError, match="current three-stage prompt chain"):
         VisualAnchorTwoStageFrameResult.model_validate(payload)
 
 
@@ -1224,6 +1364,9 @@ async def test_v1_finalization_artifact_without_content_input_remains_readable()
     )
     payload["generation_request"]["finalization_stage_prompt_version"] = (
         "visual_anchor_finalization_stage.v1"
+    )
+    payload["generation_request"]["request_version"] = (
+        "visual_anchor_generation_request.v9"
     )
 
     restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
@@ -1399,7 +1542,7 @@ async def test_regeneration_preserves_the_raw_model_prompt(
     assert context.generation_request.task_id == "regenerated-task"
     assert (
         context.generation_request.request_version
-        == "visual_anchor_generation_request.v9"
+        == "visual_anchor_generation_request.v11"
     )
     restored_payload = context.frame_result.model_dump(mode="json")
     assert restored_payload["fusion_stage_output"]["raw_prompt"] == (

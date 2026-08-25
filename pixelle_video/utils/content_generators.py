@@ -1462,7 +1462,7 @@ async def generate_styled_image_prompt_batch(
     if ip_prompt_chain_enabled:
         if storyboard_plan is None:
             raise ValueError("storyboard_plan is required when series_visual_signature_enabled=True")
-        ensure_ip_profile_ready_for_generation(ip_profile)
+        ip_profile = ensure_ip_profile_ready_for_generation(ip_profile)
         if resolved_series_visual_signature_profile is None:
             resolved_series_visual_signature_profile = SeriesVisualSignatureProfileBuilder().build(ip_profile)
         if resolved_series_visual_signature_profile is not None:

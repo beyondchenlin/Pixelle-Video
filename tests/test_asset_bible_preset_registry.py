@@ -204,7 +204,14 @@ def test_packaged_zhengding_guide_preset_is_valid():
     assert profile.presence_spectrum[-1].startswith("完全不出镜")
     assert len(profile.adaptable_slots) == 5
     assert profile.world_hint == "通用场景，可适配文旅、日常、情感、美食等不同内容域。"
-    assert profile.style_hint is None
+    assert profile.style_hint == (
+        "清爽亲和的彩色扁平卡通角色插画，圆润简洁的造型，干净边缘与柔和明快的固定配色"
+    )
+    assert profile.rendering_style.value == "flat_illustration"
+    assert profile.style_scope.value == "ip_character_only"
+    assert profile.style_boundary_rules == (
+        "该视觉风格仅作用于正定向导兔本身，不扩散到叙事人物、环境、道具和背景",
+    )
     assert profile.semantic_boundary == (
         "它是可融入场景的陪伴式角色",
         "不是历史人物",

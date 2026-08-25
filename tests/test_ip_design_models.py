@@ -171,8 +171,17 @@ def test_form_session_key_names_match_model_fields():
     from web.ip_design.session_keys import IPSessionKeys
     keys = IPSessionKeys()
     model_fields = set(IPProfileDraft.model_fields)
-    carrier_fields = {"identity_anchors", "variable_slots", "world_hint",
-                      "style_hint", "image_text_palette", "metadata"}
+    carrier_fields = {
+        "identity_anchors",
+        "variable_slots",
+        "world_hint",
+        "rendering_style",
+        "style_scope",
+        "exclusive_visual_layer",
+        "style_boundary_rules",
+        "image_text_palette",
+        "metadata",
+    }
     key_attrs = {f.name for f in keys.FORM.__class__.__dataclass_fields__.values()
                  if not f.name.startswith("_") and f.name not in ("ip_profile_select", "active_asset_tab")}
     missing = model_fields - key_attrs - carrier_fields
@@ -196,6 +205,10 @@ def test_to_ip_profile_draft():
         "ip_type": "anime_human",
         "logline": "A test logline",
         "identity_lock": ["lock_a", "lock_b"],
+        "rendering_style": "flat_illustration",
+        "style_scope": "ip_world",
+        "exclusive_visual_layer": True,
+        "style_boundary_rules": ["IP style only"],
     }
     draft = _to_ip_profile_draft(data)
     assert isinstance(draft, IPProfileDraft)
@@ -204,6 +217,10 @@ def test_to_ip_profile_draft():
     assert draft.ip_type == "anime_human"
     assert draft.logline == "A test logline"
     assert draft.identity_lock == ["lock_a", "lock_b"]
+    assert draft.rendering_style == "flat_illustration"
+    assert draft.style_scope == "ip_world"
+    assert draft.exclusive_visual_layer is True
+    assert draft.style_boundary_rules == ["IP style only"]
 
 
 def test_to_ip_profile_draft_empty():

@@ -21,6 +21,7 @@ class _IPFormKeys:
     visual_summary: str = f"{PREFIX}_visual_summary"
     identity_lock: str = f"{PREFIX}_identity_lock"
     color_palette: str = f"{PREFIX}_color_palette"
+    style_hint: str = f"{PREFIX}_style_hint"
     minimal_traits: str = f"{PREFIX}_minimal_traits"
     adaptable_slots: str = f"{PREFIX}_adaptable_slots"
     default_slot_preference: str = f"{PREFIX}_default_slot_preference"

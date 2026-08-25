@@ -8,9 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v21"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v27"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v8"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v9"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v29"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v10"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v11"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -63,6 +63,8 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v24",
     "visual_anchor_fusion_stage.v25",
     "visual_anchor_fusion_stage.v26",
+    "visual_anchor_fusion_stage.v27",
+    "visual_anchor_fusion_stage.v28",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -73,13 +75,53 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v5",
     "visual_anchor_finalization_stage.v6",
     "visual_anchor_finalization_stage.v7",
+    "visual_anchor_finalization_stage.v8",
+    "visual_anchor_finalization_stage.v9",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v7",
     "visual_anchor_generation_request.v8",
+    "visual_anchor_generation_request.v9",
+    "visual_anchor_generation_request.v10",
     GENERATION_REQUEST_VERSION,
 ]
+
+MAX_VISUAL_STYLE_FRAGMENT_COUNT = 32
+MAX_VISUAL_STYLE_BOUNDARY_COUNT = 16
+MAX_VISUAL_STYLE_FRAGMENT_CHARS = 1000
+MAX_VISUAL_STYLE_TOTAL_CHARS = 12000
+MAX_VISUAL_STYLE_DESCRIPTION_CHARS = 16000
+_STYLE_DATA_INJECTION_MARKERS = (
+    "ignore previous",
+    "ignore all",
+    "system message",
+    "system prompt",
+    "assistant message",
+    "developer message",
+    "override instructions",
+    "jailbreak",
+    "prompt injection",
+    "忽略之前",
+    "忽略以上",
+    "忽略所有",
+    "系统消息",
+    "系统提示",
+    "助手消息",
+    "开发者消息",
+    "覆盖指令",
+    "越狱",
+)
+
+
+def _contract_version_at_least(value: str, minimum: int) -> bool:
+    """Keep validation epochs monotonic when a contract version is bumped."""
+
+    try:
+        version = int(value.rsplit(".v", 1)[1])
+    except (IndexError, ValueError):
+        return False
+    return version >= minimum
 
 ContentSubjectCategory = Literal[
     "person",
@@ -137,19 +179,70 @@ def _optional_text(value: object, field_name: str) -> str:
     return " ".join(value.split())
 
 
+def _validate_visual_style_data_text(value: str, field_name: str) -> str:
+    if len(value) > MAX_VISUAL_STYLE_FRAGMENT_CHARS:
+        raise ValueError(
+            f"{field_name} values must not exceed "
+            f"{MAX_VISUAL_STYLE_FRAGMENT_CHARS} characters"
+        )
+    normalized = value.casefold()
+    if any(marker.casefold() in normalized for marker in _STYLE_DATA_INJECTION_MARKERS):
+        raise ValueError(
+            f"{field_name} must contain visual data, not prompt-control instructions"
+        )
+    return value
+
+
+def _validate_visual_style_data_list(
+    value: list[str],
+    field_name: str,
+    *,
+    allow_empty: bool,
+) -> list[str]:
+    raw_values = list(value)
+    result = _text_list(value, field_name)
+    if not allow_empty and not result:
+        raise ValueError(f"{field_name} must not be empty")
+    if len(result) != len(raw_values):
+        raise ValueError(f"{field_name} must not contain blank values")
+    seen: set[str] = set()
+    for fragment in result:
+        _validate_visual_style_data_text(fragment, field_name)
+        normalized = fragment.casefold()
+        if normalized in seen:
+            raise ValueError(f"{field_name} must not contain duplicates")
+        seen.add(normalized)
+    return result
+
+
 class TargetVisualStyle(BaseModel):
     """Scene-only style contract for narrative subjects and the non-IP world."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    description: str
-    required_final_prompt_fragments: list[str] = Field(default_factory=list)
-    required_negative_prompt_fragments: list[str] = Field(default_factory=list)
+    description: str = Field(max_length=MAX_VISUAL_STYLE_DESCRIPTION_CHARS)
+    required_final_prompt_fragments: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_VISUAL_STYLE_FRAGMENT_COUNT,
+    )
+    required_negative_prompt_fragments: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_VISUAL_STYLE_FRAGMENT_COUNT,
+    )
 
     @field_validator("description", mode="before")
     @classmethod
     def _validate_description(cls, value: object) -> str:
-        return _text(value, "description")
+        description = _text(value, "description")
+        normalized = description.casefold()
+        if any(
+            marker.casefold() in normalized
+            for marker in _STYLE_DATA_INJECTION_MARKERS
+        ):
+            raise ValueError(
+                "description must contain visual data, not prompt-control instructions"
+            )
+        return description
 
     @field_validator(
         "required_final_prompt_fragments",
@@ -157,7 +250,24 @@ class TargetVisualStyle(BaseModel):
     )
     @classmethod
     def _validate_fragments(cls, value: list[str], info) -> list[str]:
-        return _text_list(value, info.field_name)
+        return _validate_visual_style_data_list(
+            value,
+            info.field_name,
+            allow_empty=True,
+        )
+
+    @model_validator(mode="after")
+    def _validate_total_style_size(self) -> "TargetVisualStyle":
+        total_chars = len(self.description) + sum(
+            len(fragment)
+            for fragment in (
+                *self.required_final_prompt_fragments,
+                *self.required_negative_prompt_fragments,
+            )
+        )
+        if total_chars > MAX_VISUAL_STYLE_DESCRIPTION_CHARS:
+            raise ValueError("target visual style exceeds the total character limit")
+        return self
 
 
 class VisualSignatureStyleContract(BaseModel):
@@ -166,10 +276,25 @@ class VisualSignatureStyleContract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     profile_id: str
-    style_fragments: list[str] = Field(min_length=1)
-    rendering_style: str
-    source_style_scope: str
-    boundary_rules: list[str] = Field(default_factory=list)
+    style_fragments: list[str] = Field(
+        min_length=1,
+        max_length=MAX_VISUAL_STYLE_FRAGMENT_COUNT,
+    )
+    negative_fragments: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_VISUAL_STYLE_FRAGMENT_COUNT,
+    )
+    rendering_style: Literal[
+        "style_inherited",
+        "photorealistic_human",
+        "stylized_character",
+        "flat_illustration",
+    ]
+    source_style_scope: Literal["ip_character_only", "ip_world", "inherited"]
+    boundary_rules: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_VISUAL_STYLE_BOUNDARY_COUNT,
+    )
     application_scope: Literal["visual_signature_only"] = "visual_signature_only"
 
     @field_validator(
@@ -182,13 +307,30 @@ class VisualSignatureStyleContract(BaseModel):
     def _validate_text(cls, value: object, info) -> str:
         return _text(value, info.field_name)
 
-    @field_validator("style_fragments", "boundary_rules")
+    @field_validator("style_fragments", "negative_fragments", "boundary_rules")
     @classmethod
     def _validate_fragments(cls, value: list[str], info) -> list[str]:
-        result = _text_list(value, info.field_name)
-        if info.field_name == "style_fragments" and not result:
-            raise ValueError("visual signature style fragments must not be empty")
-        return result
+        return _validate_visual_style_data_list(
+            value,
+            info.field_name,
+            allow_empty=info.field_name != "style_fragments",
+        )
+
+    @model_validator(mode="after")
+    def _validate_total_style_size(self) -> "VisualSignatureStyleContract":
+        total_chars = sum(
+            len(fragment)
+            for fragment in (
+                *self.style_fragments,
+                *self.negative_fragments,
+                *self.boundary_rules,
+            )
+        )
+        if total_chars > MAX_VISUAL_STYLE_TOTAL_CHARS:
+            raise ValueError(
+                "visual signature style contract exceeds the total character limit"
+            )
+        return self
 
 
 class VisibleTextPolicy(BaseModel):
@@ -851,13 +993,13 @@ class FusionStageInput(BaseModel):
     @model_validator(mode="after")
     def _validate_identity_conditioning(self) -> "FusionStageInput":
         if (
-            self.prompt_version == FUSION_STAGE_PROMPT_VERSION
+            _contract_version_at_least(self.prompt_version, 26)
             and "visual_signature_emphasis" not in self.model_fields_set
         ):
             raise ValueError(
                 "current fusion input requires an explicit visual signature emphasis"
             )
-        if self.prompt_version == FUSION_STAGE_PROMPT_VERSION:
+        if _contract_version_at_least(self.prompt_version, 27):
             if self.visual_signature_style is None:
                 raise ValueError(
                     "current fusion input requires an independent visual signature style"
@@ -1139,7 +1281,7 @@ class FinalizationStageInput(BaseModel):
     @model_validator(mode="after")
     def _validate_exact_draft_chain(self) -> "FinalizationStageInput":
         if (
-            self.prompt_version == FINALIZATION_STAGE_PROMPT_VERSION
+            _contract_version_at_least(self.prompt_version, 7)
             and self.content_stage_input is None
         ):
             raise ValueError(
@@ -1166,6 +1308,13 @@ class FinalizationStageInput(BaseModel):
                 raise ValueError(
                     "finalization storyboard text must match the content-stage input"
                 )
+        if (
+            self.prompt_version == FINALIZATION_STAGE_PROMPT_VERSION
+            and self.fusion_stage_input.prompt_version != FUSION_STAGE_PROMPT_VERSION
+        ):
+            raise ValueError(
+                "current finalization input requires the current fusion-stage version"
+            )
         return self
 
 
@@ -1381,13 +1530,13 @@ class VisualAnchorImageGenerationRequest(BaseModel):
                 "text-profile generation cannot include a reference condition"
             )
         if (
-            self.request_version == GENERATION_REQUEST_VERSION
+            _contract_version_at_least(self.request_version, 8)
             and self.finalization_stage_prompt_version is None
         ):
             raise ValueError(
                 "current generation requests require the finalization stage version"
             )
-        if self.request_version == GENERATION_REQUEST_VERSION:
+        if _contract_version_at_least(self.request_version, 9):
             if self.visual_signature_style is None:
                 raise ValueError(
                     "current generation requests require an independent visual signature style"
@@ -1395,6 +1544,26 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             if self.visual_signature_style.profile_id != self.identity_profile_id:
                 raise ValueError(
                     "generation visual signature style must match the identity profile"
+                )
+        if self.request_version == GENERATION_REQUEST_VERSION and (
+            self.content_stage_prompt_version != CONTENT_STAGE_PROMPT_VERSION
+            or self.fusion_stage_prompt_version != FUSION_STAGE_PROMPT_VERSION
+            or self.finalization_stage_prompt_version
+            != FINALIZATION_STAGE_PROMPT_VERSION
+        ):
+            raise ValueError(
+                "current generation requests require the current three-stage prompt chain"
+            )
+        if self.request_version == GENERATION_REQUEST_VERSION:
+            expected_global_negative = (
+                self.visible_text_policy.required_negative_prompt_fragment
+                if self.negative_prompt_supported
+                else ""
+            )
+            if self.final_negative_prompt != expected_global_negative:
+                raise ValueError(
+                    "current generation requests may place only image-wide visible-text "
+                    "exclusions in the global negative prompt"
                 )
         if (
             self.request_version == "visual_anchor_generation_request.v7"
@@ -1404,6 +1573,20 @@ class VisualAnchorImageGenerationRequest(BaseModel):
                 "historical two-stage requests cannot declare a finalization stage"
             )
         return self
+
+
+def visual_signature_style_binding_payload(
+    request: VisualAnchorImageGenerationRequest,
+) -> dict[str, object] | None:
+    """Return the canonical audit payload for the request's own schema epoch."""
+
+    style = request.visual_signature_style
+    if style is None:
+        return None
+    payload = style.model_dump(mode="json")
+    if not _contract_version_at_least(request.request_version, 10):
+        payload.pop("negative_fragments", None)
+    return payload
 
 
 def _join_prompt_fragments(values: list[str]) -> str:

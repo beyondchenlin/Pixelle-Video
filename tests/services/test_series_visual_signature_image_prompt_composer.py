@@ -643,7 +643,7 @@ async def test_default_text_to_image_visual_anchor_uses_three_stage_text_profile
     assert result.negative_prompt is None
     assert "visual_anchor_two_stage" in result.planning_snapshot
     assert result.planning_snapshot["visual_anchor_two_stage_prompt_policy"] == {
-        "schema_version": "visual_anchor_two_stage_prompt_policy.v8",
+        "schema_version": "visual_anchor_two_stage_prompt_policy.v10",
         "prompt_chain": (
             "content_raw_response_then_fusion_draft_then_"
             "finalization_raw_response"
