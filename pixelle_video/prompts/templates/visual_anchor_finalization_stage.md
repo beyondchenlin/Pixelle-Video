@@ -1,6 +1,6 @@
 ---
 prompt_id: visual_anchor_finalization_stage
-version: visual_anchor_finalization_stage.v2
+version: visual_anchor_finalization_stage.v3
 stage: visual_anchor_finalization_stage
 purpose: 基于原文上下文、当前分镜和两轮草稿从零创作最终生图提示词
 output_contract: raw_image_prompt_text
@@ -25,10 +25,11 @@ output_contract: raw_image_prompt_text
 8. 可以创造原文和两轮草稿中都不存在的新物件、新装置和新的视觉关系，让视觉身份真正属于重新设计后的场景。这些新增内容只能服务视觉表达，不能伪装成原文真实发生的新事件、新经历、新人物关系或新结论。
 9. 先确定视觉身份在当前画面中承担的具体可见职责，再选择唯一表现形态。操作、连接、承载证据、构成产品、改变物体状态、参与环境结构、与主体互动、作为实体或自然存在都合法，没有固定优先顺序；墙面、服装、道具、产品、材料和实体也没有固定优先顺序。
 10. identity_profile 是允许加入画面的唯一系列视觉身份，不是原文主体。它不得替代、合并、遮挡、挤出或继承内容主体的身份和关键职责。整幅画只出现一个可识别实例和一种表现形态，display_name 与全部 core_identity_traits 清晰成立。关键叙事物品可以承载视觉身份，也可以创造新的载体，只要原始事件作用和内容主体仍然清楚。
-11. series_final_prompt_history 只用于识别此前已经采用过的载体、表现形态、位置、画面作用和构图关系，绝对不是可复制的事实或写作模板。独立镜头避免机械重复；连续场景以 fusion_stage_input.continuous_scene_context.existing_fusion_decision 的连续性为先。
-12. 读取 fusion_stage_input.target_visual_style.description 与 required_final_prompt_fragments。最终提示词第一句确立用户选择的目标媒介和画风，并把该画风统一落实到每个人物、名人面部与身体、服装、道具、产品、环境和视觉身份。删除或改写与目标媒介冲突的表达，使用积极、可成像的材质、线条、形状、色彩和明暗描述，不要只堆叠排除词。
-13. visible_text_policy.suppress_visible_text 为 true 时，落实其文字要求。原文不要求准确文字时，纸张、白板和屏幕只使用空白表面、无字符线条或非文字几何图形。
-14. 最终文字只保留能够影响像素的画面信息。不要使用“巧妙融入”“仿佛注视”“成为不可分割的一部分”“不干扰主要内容”“传达某种精神”等无法直接成像的评价代替具体位置、动作、材质、尺度、接触和空间关系。
-15. 写出前只在本次调用内部完成事实取舍与创作选择。代码不会解析、判断、验证、修复或改写你的结果，也不会再次调用模型；你的原始输出将直接作为图片正向提示词。
+11. 视觉身份是频道的次级视觉签名，不是当前分镜的内容主体。构图首先突出 original_storyboard_text 中的主体、关键动作和关键物品，让观众第一眼读懂本镜主题，第二眼才自然发现视觉身份。视觉身份采用清晰可辨但克制的小尺度呈现，整体可见面积通常约占画面的 5% 至 10%，并明显小于主叙事主体；使用次级位置、次级对比度，以及与载体一致的材质、透视和光照。即使视觉身份承担互动、操作或结构职责，也仍保持次级视觉权重，不单独占据画面中心主位。若当前方案必须放大视觉身份才能成立，重新选择更适合小尺度呈现的载体、动作或关系，同时确保 identity_profile.display_name 和全部 identity_profile.core_identity_traits 清晰可识别。
+12. series_final_prompt_history 只用于识别此前已经采用过的载体、表现形态、位置、画面作用和构图关系，绝对不是可复制的事实或写作模板。独立镜头避免机械重复；连续场景以 fusion_stage_input.continuous_scene_context.existing_fusion_decision 的连续性为先。
+13. 读取 fusion_stage_input.target_visual_style.description 与 required_final_prompt_fragments。最终提示词第一句确立用户选择的目标媒介和画风，并把该画风统一落实到每个人物、名人面部与身体、服装、道具、产品、环境和视觉身份。删除或改写与目标媒介冲突的表达，使用积极、可成像的材质、线条、形状、色彩和明暗描述，不要只堆叠排除词。
+14. visible_text_policy.suppress_visible_text 为 true 时，落实其文字要求。原文不要求准确文字时，纸张、白板和屏幕只使用空白表面、无字符线条或非文字几何图形。
+15. 最终文字只保留能够影响像素的画面信息。不要使用“巧妙融入”“仿佛注视”“成为不可分割的一部分”“不干扰主要内容”“传达某种精神”等无法直接成像的评价代替具体位置、动作、材质、尺度、接触和空间关系。
+16. 写出前只在本次调用内部完成事实取舍与创作选择。代码不会解析、判断、验证、修复或改写你的结果，也不会再次调用模型；你的原始输出将直接作为图片正向提示词。
 
 只输出最终图片提示词原文。不要输出结构化数据、字段名、标题、分析、问题清单、通过或失败结论、候选方案、代码块或引号。

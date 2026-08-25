@@ -622,6 +622,34 @@ def test_finalization_template_unifies_style_and_keeps_positive_scene_choices():
         assert forbidden_output not in template
 
 
+def test_fusion_and_finalization_keep_visual_signature_visibly_secondary():
+    template_root = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates"
+    )
+    templates = (
+        (template_root / "visual_anchor_fusion_stage.md").read_text(
+            encoding="utf-8"
+        ),
+        (template_root / "visual_anchor_finalization_stage.md").read_text(
+            encoding="utf-8"
+        ),
+    )
+
+    for template in templates:
+        for required_rule in (
+            "频道的次级视觉签名",
+            "第一眼读懂本镜主题，第二眼才自然发现视觉身份",
+            "整体可见面积通常约占画面的 5% 至 10%",
+            "明显小于主叙事主体",
+            "使用次级位置、次级对比度",
+            "仍保持次级视觉权重",
+            "重新选择更适合小尺度呈现的载体、动作或关系",
+            "全部 identity_profile.core_identity_traits 清晰可识别",
+        ):
+            assert required_rule in template
+
+
 def test_disabled_image_text_maps_to_title_watermark_and_garbled_text_guards():
     policy = _visible_text_policy(
         {"image_text": {"suppress_embedded_text": True}},
