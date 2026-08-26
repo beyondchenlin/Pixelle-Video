@@ -662,19 +662,29 @@ def test_finalization_template_preserves_valid_draft_and_repairs_invalid_fusion(
 
     for required_rule in (
         "original_storyboard_text 是当前画面的事实边界",
-        "article_context 只用于核对身份、指代、因果和必要背景",
+        "article_context 只用于核对身份、指代、主题、因果和理解当前句所必需的背景",
+        "previous_frame_summary 只用于核对已经呈现的内容、连续状态和承接点",
+        "next_frame_summary 只用于确定当前句的结束边界",
         "第二次输出是加入身份细节后的融合草稿",
         "fusion_stage_output.raw_prompt 是默认创作基础",
         "有效的内容、物体选择、空间关系和构图决策必须保留",
         "存在明确问题的部分必须在本次输出中直接修复",
-        "融合方案只有同时满足以下条件才算有效并保持不变",
-        "当前融合方案无效，必须优先改用内容画面中正在承担叙事作用的已有物体",
-        "连续场景时，优先保持上一镜已经成立的同一实际物体",
+        "完整重写审核",
+        "先原样复述 fusion_stage_input.content_stage_output.raw_prompt",
+        "再在末尾追加独立身份对象、孤立身份段落",
+        "统一删除检验",
+        "无论实际物体原本存在还是第二阶段新增",
+        "物体在正常使用时自然靠近内容主体可以成立",
+        "通过完整重写审核、统一删除检验和物理关系审核的融合方案有效",
+        "必须保留其实际物体、融合方式、相对位置、材质关系和构图",
+        "continuous_scene_context 明确属于连续场景时",
+        "优先保持上一镜已经成立且在当前画面仍有效的同一实际物体",
         "独立场景读取 series_final_prompt_history",
-        "重复方案视为无效并更换",
-        "历史只用于避免机械重复",
+        "只比较载体种类、融合方式、空间层级和构图关系",
+        "历史不能迫使画面新增物体、降低内容相关性或破坏当前最自然的关系",
     ):
         assert required_rule in template
+    assert "同一种“主角旁边”关系" not in template
 
 
 def test_finalization_template_preserves_relevant_carrier_and_unifies_scene_style():
@@ -689,12 +699,12 @@ def test_finalization_template_preserves_relevant_carrier_and_unifies_scene_styl
         "core_identity_traits、supporting_identity_traits 和 fixed_color_traits 的实际内容",
         "未明确写入时，它只能依附于场景中有独立用途的实际物体",
         "人物动作和情绪互动由原分镜主体承担",
-        "实际物体已经存在于内容画面",
-        "身份特征通过表面图形、压印、浮雕、纹理、雕刻、刺绣、功能部件或局部造型与该物体构成一个整体",
-        "物体保持正常用途、自然位置和正常姿态",
-        "位置、相对尺度、支撑、接触、遮挡、透视、材质和受光关系具体成立",
+        "去掉全部身份特征后，它都必须仍然应该出现在当前画面",
+        "身份特征必须通过表面图形、压印、浮雕、纹理、雕刻、刺绣、功能部件或局部造型与该物体形成不可拆分的一个整体",
+        "物体必须保持正常用途、自然位置和正常姿态",
+        "实际物体的位置、相对尺度、正常用途、朝向、支撑、接触、遮挡、透视、材质边界和受光关系必须具体成立",
         "整幅画只保留一个可识别实例",
-        "身份及其物理关系集中写成一个简洁句子",
+        "全部固定身份特征和固定配色各写一次，并集中绑定在同一个实际物体的融合句中",
         "直接作为图片正向提示词",
         "只输出最终图片提示词原文",
         "事实审核",
@@ -705,7 +715,7 @@ def test_finalization_template_preserves_relevant_carrier_and_unifies_scene_styl
         "跨镜审核",
         "层级审核",
         "文字审核",
-        "只修复有问题的部分",
+        "只修复有明确问题的部分",
         "把全部有效内容重写成一段连贯的最终图片提示词",
     ):
         assert required_rule in template
