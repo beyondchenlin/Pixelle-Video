@@ -35,6 +35,19 @@ https://github.com/user-attachments/assets/a42e7457-fcc8-40da-83fc-784c45a8b95d
 
 > 📖 [查看完整更新日志](CHANGELOG.md) - 包含738+提交记录和详细功能说明
 
+### 🛠️ `dev` 分支：快速创作待修复清单
+
+> 核对日期：2026-08-26；基线提交：`b4cf50f5`。修复后请勾选对应项目并补充回归测试。
+
+- [ ] **批量创作归属错误**：批量请求没有读取当前会话的工作区和项目，结果会落到默认项目。位置：`web/components/output_preview.py` 的 `build_batch_shared_config`。
+- [ ] **背景音乐无法真正静音**：批量模式把音量 `0` 改成默认值 `0.2`。位置：`web/components/output_preview.py` 的 `bgm_volume` 构造逻辑。
+- [ ] **批量失败仍提示成功**：全部任务失败后，页面仍显示成功提示。位置：`web/components/output_preview.py` 的批量结果展示逻辑。
+- [ ] **任务并发限制未生效**：`api/config.py` 定义了最大并发数，但任务执行器没有使用该配置进行限流。
+- [ ] **真实失败原因未展示**：底层任务保存了异常信息，但视频任务快照没有返回错误字段，页面只能显示通用失败提示。位置：`api/video/task_submitter.py`、`web/components/output_preview.py`。
+- [ ] **视觉签名文字合同回归**：融合提示词没有明确表达“文字白名单是整幅画唯一允许出现的文字”，对应合同测试失败。位置：`pixelle_video/prompts/templates/visual_anchor_fusion_stage.md`。
+
+暂不按代码缺陷处理：分层渲染依赖缺失属于本地环境问题；二十四小时内复用相同成品属于现有产品策略，调整前需先确认“重新生成”是否必须产出新结果。
+
 ### 2026-04-26 最新功能
 - ✅ **故事板生成合约** - 引入自动化分镜规划系统，支持从主题到完整视频的脚本生成 ([详情](CHANGELOG.md#2026-04-26-更新))
 - ✅ **视频渲染后端架构** - 新增 ffmpeg 渲染后端选项，支持更灵活的渲染方式 ([详情](CHANGELOG.md#1-视频渲染后端架构设计))
