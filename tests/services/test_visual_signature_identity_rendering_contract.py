@@ -82,6 +82,7 @@ def _fusion_input(*, scene_style: str = "真实电影感") -> FusionStageInput:
             continuity_anchors=[],
             existing_fusion_decision="无既有融合结果",
         ),
+        series_final_prompt_history=[],
         target_visual_style=TargetVisualStyle(description=scene_style),
         visible_text_policy=VisibleTextPolicy(
             authorized_visible_texts=["PIXELLE"]
@@ -129,6 +130,7 @@ def test_current_prompt_keeps_identity_facts_but_follows_scene_rendering() -> No
     assert "authorized_visible_texts 是整幅画唯一允许出现的可读文字" in (
         rendered.text
     )
+    assert '"series_final_prompt_history": []' in rendered.text
     assert '"series_fusion_history"' not in rendered.text
 
 

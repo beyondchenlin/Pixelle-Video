@@ -494,7 +494,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v14"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v15"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -962,7 +962,7 @@ async def test_continuous_scene_passes_the_previous_raw_prompt_as_context():
 
 
 @pytest.mark.asyncio
-async def test_only_finalization_receives_the_last_three_final_prompts():
+async def test_fusion_and_finalization_receive_the_last_three_final_prompts():
     plan = _independent_plan()
     fusions = [f"  原始融合结果::{frame.frame_id}\n" for frame in plan.frames]
     finalizations = [
@@ -976,20 +976,25 @@ async def test_only_finalization_receives_the_last_three_final_prompts():
     )
 
     fusion_histories = [
-        frame.fusion_stage_input.series_fusion_history for frame in result.frames
-    ]
-    assert fusion_histories == [[], [], [], [], []]
-    final_histories = [
-        frame.finalization_stage_input.series_final_prompt_history
+        frame.fusion_stage_input.series_final_prompt_history
         for frame in result.frames
     ]
-    assert final_histories == [
+    expected_histories = [
         [],
         [finalizations[0]],
         finalizations[:2],
         finalizations[:3],
         finalizations[1:4],
     ]
+    assert fusion_histories == expected_histories
+    assert [
+        frame.fusion_stage_input.series_fusion_history for frame in result.frames
+    ] == [[], [], [], [], []]
+    final_histories = [
+        frame.finalization_stage_input.series_final_prompt_history
+        for frame in result.frames
+    ]
+    assert final_histories == expected_histories
     assert len(llm.calls) == len(plan.frames) * 3
     assert [
         frame.fusion_stage_output.raw_prompt for frame in result.frames
@@ -1230,6 +1235,48 @@ async def test_previous_identity_profile_chain_remains_readable_after_version_bu
 
 
 @pytest.mark.asyncio
+async def test_v14_three_stage_chain_remains_readable_after_version_bump():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+
+    payload["content_stage_input"]["prompt_version"] = (
+        "visual_anchor_content_stage.v26"
+    )
+    payload["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v42"
+    )
+    payload["finalization_stage_input"]["content_stage_input"][
+        "prompt_version"
+    ] = "visual_anchor_content_stage.v26"
+    payload["finalization_stage_input"]["fusion_stage_input"][
+        "prompt_version"
+    ] = "visual_anchor_fusion_stage.v42"
+    payload["finalization_stage_input"]["prompt_version"] = (
+        "visual_anchor_finalization_stage.v23"
+    )
+    request = payload["generation_request"]
+    request["request_version"] = "visual_anchor_generation_request.v14"
+    request["content_stage_prompt_version"] = "visual_anchor_content_stage.v26"
+    request["fusion_stage_prompt_version"] = "visual_anchor_fusion_stage.v42"
+    request["finalization_stage_prompt_version"] = (
+        "visual_anchor_finalization_stage.v23"
+    )
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.generation_request.request_version == (
+        "visual_anchor_generation_request.v14"
+    )
+    assert restored.fusion_stage_input.prompt_version == (
+        "visual_anchor_fusion_stage.v42"
+    )
+    assert restored.finalization_stage_input is not None
+    assert restored.finalization_stage_input.prompt_version == (
+        "visual_anchor_finalization_stage.v23"
+    )
+
+
+@pytest.mark.asyncio
 async def test_local_style_exclusions_stay_scoped_and_global_negative_remains_empty():
     target_style = TargetVisualStyle(
         description="叙事场景采用黑白线稿",
@@ -1303,6 +1350,57 @@ async def test_current_fusion_input_requires_explicit_emphasis_assignment():
 
     with pytest.raises(ValidationError, match="explicit visual signature emphasis"):
         FusionStageInput.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_current_fusion_input_requires_explicit_final_prompt_history():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].fusion_stage_input.model_dump(mode="json")
+    payload.pop("series_final_prompt_history")
+
+    with pytest.raises(ValidationError, match="explicit final prompt history"):
+        FusionStageInput.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_current_finalization_history_must_match_fusion_history():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].finalization_stage_input.model_dump(mode="json")
+    payload["series_final_prompt_history"] = ["不一致的历史提示词"]
+
+    with pytest.raises(ValidationError, match="must match the fusion-stage history"):
+        FinalizationStageInput.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_current_finalization_input_requires_explicit_final_prompt_history():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].finalization_stage_input.model_dump(mode="json")
+    payload.pop("series_final_prompt_history")
+
+    with pytest.raises(ValidationError, match="explicit final prompt history"):
+        FinalizationStageInput.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_v14_generation_request_with_previous_prompt_chain_remains_readable():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].generation_request.model_dump(mode="json")
+    payload.update(
+        {
+            "request_version": "visual_anchor_generation_request.v14",
+            "content_stage_prompt_version": "visual_anchor_content_stage.v26",
+            "fusion_stage_prompt_version": "visual_anchor_fusion_stage.v42",
+            "finalization_stage_prompt_version": (
+                "visual_anchor_finalization_stage.v23"
+            ),
+        }
+    )
+
+    restored = VisualAnchorImageGenerationRequest.model_validate(payload)
+
+    assert restored.request_version == "visual_anchor_generation_request.v14"
+    assert restored.fusion_stage_prompt_version == "visual_anchor_fusion_stage.v42"
 
 
 @pytest.mark.asyncio

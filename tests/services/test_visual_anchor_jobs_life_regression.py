@@ -513,6 +513,9 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
         "不能用与当前内容没有决定性关系的通用姿态、表情或装饰代替视觉证据",
         "观众只看画面、不依靠字幕或解释",
         "围绕一个视觉中心设计主体、决定性动作、核心物证、环境、景别、视角",
+        "核心物证必须具有可独立成像的具体类别、基础轮廓、正常用途、相对尺度、姿态和接触关系",
+        "不得只写“产品模型”“设备”“装饰品”“物件”等无法确定外形的泛称",
+        "只用中性几何形态和实际功能补足成像信息，不新增品牌或剧情",
         "不能连续复用实质相同的画面方案",
         "逐项核对双手、视线、持有物、接触面、遮挡、朝向和前后关系",
         "旁白、观点、引号中的句子和分镜原文本身都不自动成为画面文字",
@@ -550,7 +553,7 @@ def test_fusion_template_requests_only_raw_draft_text():
         assert removed_field not in template
 
 
-def test_fusion_template_uses_a_relevant_object_as_the_series_signature_carrier():
+def test_fusion_template_requires_an_independent_low_interference_carrier():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
@@ -559,41 +562,47 @@ def test_fusion_template_uses_a_relevant_object_as_the_series_signature_carrier(
     for required_rule in (
         "original_storyboard_text 是画面主旨和事实边界",
         "content_stage_output.raw_prompt 是已经按照 target_visual_style 创作的内容画面",
-        "它只作为依附于场景物体的识别图形或局部结构",
+        "它只作为依附于场景物体的局部图形、材质纹样或功能结构",
         "不形成独立角色、完整摆拍对象",
         "先在内部盘点 content_stage_output.raw_prompt 中已经存在的物体",
-        "只有本来就在承担内容证据、人物动作、实际功能、空间结构或构图作用的物体",
+        "内容是否成立是准入门槛，不作为候选之间的优先级奖励",
+        "每个候选先通过载体独立成像检验",
+        "完全删除全部身份词语后",
+        "只剩“产品模型”“设备”“装饰品”“物件”等没有稳定外形的泛称时",
+        "不得依靠身份特征替载体定义形状",
+        "每个候选再通过删除检验",
+        "人物面部、身体、服装、手部周围以及人物正在手持、指向、注视或展示的核心物证属于主体互动区",
+        "只要前景、中景或背景存在另一个同样通过全部检验且不改变内容事实的功能物体",
+        "主体互动区不能因内容相关、面积大、无遮挡或容易展示身份而成为首选",
         "存在三个及以上有效物体时至少比较三个候选",
         "不足三个时比较全部有效物体",
         "不得为了凑足数量虚构物体或融合关系",
-        "每个候选都必须通过删除检验",
-        "去掉全部身份特征后，该实际物体仍然应该出现在当前画面",
-        "物体保持正常用途、自然位置和正常姿态",
-        "身份特征与该物体在表面、材质或结构上形成不可拆分的一个整体",
-        "每个通过删除检验的候选还必须通过承载能力检验",
-        "实际物体在正常尺寸、自然透视、当前遮挡",
-        "在一个可识别实例中一次完整表现全部固定身份特征、固定配色和特征布局",
-        "不能通过放大物体、改变正常姿态、转向观众、移动到视觉中心或重复身份特征来弥补容量不足",
-        "承载能力不足就淘汰该候选",
-        "优先使用正在承担叙事作用的已有物体",
-        "其次使用有实际用途的已有环境表面、家具、工具或功能部件",
-        "只有内容画面确实没有任何有效候选时",
-        "新增物体同样必须通过删除检验",
+        "选择顺序固定为：对内容主体和核心动作的干扰最低、载体本体最明确",
+        "与 series_final_prompt_history 中最近方案的载体种类和空间层级不过度重复",
+        "内容相关性已经在准入门槛中判断，不得再次作为靠近主角的加分项",
+        "一个最小可识别图形中准确出现全部固定身份特征、固定配色和特征布局",
+        "不等于必须表现完整身体、独立姿态或完整角色",
+        "只有身体结构本身属于固定身份特征时才表现完整身体",
+        "不能通过放大载体、改变正常姿态、转向观众、移动到视觉中心或重复身份特征来弥补容量不足",
+        "只有内容画面确实没有任何通过独立成像检验、删除检验和承载能力检验的候选时",
         "独立雕塑、摆件、玩偶、相框和立牌只有原分镜或内容画面本来就需要该物体时才能使用",
-        "融合位置完全由实际物体的正常用途和自然位置决定",
-        "物体在正常使用时自然靠近内容主体可以成立",
-        "错误的是为了展示身份而把它搬到主体旁边、竖起朝向观众、放到画面边角或提升为第二视觉中心",
+        "最近三镜已有两次位于主体互动区",
+        "最近两镜重复同一载体种类和空间层级",
+        "历史只用于有效候选之间的自然变化",
         "必须从构图源头重写一段完整画面",
-        "不能先原样复述内容画面，再在末尾追加独立的身份对象或孤立身份描述",
-        "实际物体及其正常用途、所在空间层级与相对位置、正常姿态与支撑接触",
+        "不能先原样复述内容画面，再在末尾追加身份段落",
+        "必须以实际载体为语法主体",
+        "身份名称只能作为图案、纹样、徽记或局部结构的内容",
+        "不得用“紧密融合”“不可拆分”“自然融入”“和谐共存”“不干扰主体”“大小适中”“清晰可见”等审核结论",
         "整幅画只出现一个可识别实例",
-        "全部固定身份特征和固定配色各写一次，并集中绑定在同一个实际物体的融合句中",
+        "全部固定身份特征和固定配色各写一次，并集中绑定在同一个载体区域",
+        "只提高该限定区域内的线条完整度和对比",
+        "不改变载体的面积、位置、朝向、外轮廓、遮挡关系和视觉中心",
         "target_visual_style 是整幅画唯一的表现规则",
         "required_final_prompt_fragments 是必须落实并保留的正向风格事实",
         "required_negative_prompt_fragments 只表示禁止出现的视觉状态",
         "不得原样复制到融合草稿",
         "必须转换成与目标风格等价的正向画面状态",
-        "独立场景只依据当前内容画面重新选择最相关的实际物体",
     ):
         assert required_rule in template
 
@@ -608,18 +617,18 @@ def test_fusion_template_uses_a_relevant_object_as_the_series_signature_carrier(
         assert removed_role_bias not in template
 
 
-def test_fusion_template_uses_relationship_examples_without_making_them_defaults():
+def test_fusion_template_defines_method_specific_visible_boundaries():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
     for required_relation in (
-        "以下示例只定义通用融合关系，不指定场景物体",
-        "表面融合是让印刷、压印或浅浮雕紧贴物体表面并服从其透视与遮挡",
-        "材质融合是让纹理、刺绣或雕刻延续物体原有材质与受光",
-        "结构融合是让身份特征成为已有物体仍可正常使用的功能部件或局部造型",
-        "不能把示例当作固定清单",
+        "表面融合的印刷、压印或浅浮雕全部收在明确表面区域内",
+        "载体外轮廓、类别与功能保持不变",
+        "材质融合的纹理、刺绣或雕刻延续载体原有材质和受光，不形成独立体积",
+        "结构融合只改造仍能保持载体原类别和正常功能的局部部件",
+        "根据实际物体只选择一种最成立的关系",
     ):
         assert required_relation in template
     for removed_scene_specific_example in (
@@ -640,9 +649,9 @@ def test_fusion_template_keeps_one_signature_without_role_or_placement_biases():
 
     for required_rule in (
         "整幅画只出现一个可识别实例",
-        "优先使用正在承担叙事作用的已有物体",
-        "只有内容画面确实没有任何有效候选时",
-        "使用紧贴表面、同一材质、连续结构、随物体透视、受物体遮挡等具体可见关系",
+        "只有内容画面确实没有任何通过独立成像检验、删除检验和承载能力检验的候选时",
+        "必须以实际载体为语法主体",
+        "身份名称只能作为图案、纹样、徽记或局部结构的内容",
     ):
         assert required_rule in template
     for removed_bias in (
@@ -663,7 +672,7 @@ def test_fusion_template_keeps_one_signature_without_role_or_placement_biases():
     assert "服务端会按" not in template
 
 
-def test_finalization_template_preserves_valid_draft_and_repairs_invalid_fusion():
+def test_finalization_template_rejects_non_renderable_and_high_interaction_carriers():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_finalization_stage.md"
@@ -672,34 +681,28 @@ def test_finalization_template_preserves_valid_draft_and_repairs_invalid_fusion(
     for required_rule in (
         "original_storyboard_text 是当前画面的事实边界",
         "article_context 只用于核对身份、指代、主题、因果和理解当前句所必需的背景",
-        "previous_frame_summary 只用于核对已经呈现的内容、连续状态和承接点",
-        "next_frame_summary 只用于确定当前句的结束边界",
+        "previous_frame_summary 只核对承接点",
+        "next_frame_summary 只确定结束边界",
         "第二次输出是加入身份细节后的融合草稿",
-        "fusion_stage_output.raw_prompt 是默认创作基础",
-        "有效的内容、物体选择、空间关系和构图决策必须保留",
-        "存在明确问题的部分必须在本次输出中直接修复",
-        "完整重写审核",
-        "先原样复述 fusion_stage_input.content_stage_output.raw_prompt",
-        "再在末尾追加独立身份对象、孤立身份段落",
-        "统一删除检验",
-        "无论实际物体原本存在还是第二阶段新增",
-        "承载能力审核",
-        "在一个可识别实例中一次完整表现全部固定身份特征、固定配色和特征布局",
-        "承载能力不足时，当前融合方案无效",
-        "物体在正常使用时自然靠近内容主体可以成立",
-        "通过完整重写审核、统一删除检验、承载能力审核和物理关系审核的融合方案有效",
-        "必须保留其实际物体、融合方式、相对位置、材质关系和构图",
-        "continuous_scene_context 明确属于连续场景时",
-        "优先保持上一镜已经成立且在当前画面仍有效的同一实际物体",
-        "独立场景读取 series_final_prompt_history",
-        "只比较载体种类、融合方式、空间层级和构图关系",
-        "历史不能迫使画面新增物体、降低内容相关性或破坏当前最自然的关系",
+        "fusion_stage_output.raw_prompt 只有通过下面全部审核时才是有效创作基础",
+        "任一硬性条件失败都必须放弃其载体选择或融合写法",
+        "载体独立成像是硬性条件",
+        "完全删除全部身份词语后",
+        "只剩“产品模型”“设备”“装饰品”“物件”等泛称",
+        "人物正在手持、指向、注视或展示的核心物证属于主体互动区",
+        "位于主体互动区的方案无效",
+        "身份特征改变载体整体轮廓、把载体变成身份造型物",
+        "最近三镜已有两次位于主体互动区",
+        "最近两镜重复同一载体种类和空间层级",
+        "任一方案出现以下情况即为无效",
+        "回到 fusion_stage_input.content_stage_output.raw_prompt 重新盘点已有物体并重写完整构图",
+        "只有不存在任何有效候选时才新增一个本来就同时服务文案、场景用途和构图的物体",
+        "直接作为图片正向提示词",
     ):
         assert required_rule in template
-    assert "同一种“主角旁边”关系" not in template
 
 
-def test_finalization_template_preserves_relevant_carrier_and_unifies_scene_style():
+def test_finalization_template_enforces_visible_fusion_and_unifies_scene_style():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_finalization_stage.md"
@@ -708,32 +711,28 @@ def test_finalization_template_preserves_relevant_carrier_and_unifies_scene_styl
     for required_rule in (
         "target_visual_style 是整幅画唯一的表现规则",
         "统一决定人物、物体、环境以及身份细节",
-        "required_final_prompt_fragments 是必须落实并保留的正向风格事实",
-        "required_negative_prompt_fragments 只表示禁止出现的视觉状态",
-        "不得原样复制到最终提示词",
-        "必须转换成与目标风格等价的正向画面状态",
+        "required_final_prompt_fragments 必须落实并保留",
+        "required_negative_prompt_fragments 必须转换成等价的正向画面状态",
         "core_identity_traits、supporting_identity_traits 和 fixed_color_traits 的实际内容",
-        "未明确写入时，它只能依附于场景中有独立用途的实际物体",
-        "人物动作和情绪互动由原分镜主体承担",
-        "去掉全部身份特征后，它都必须仍然应该出现在当前画面",
-        "身份特征必须通过表面图形、压印、浮雕、纹理、雕刻、刺绣、功能部件或局部造型与该物体形成不可拆分的一个整体",
-        "物体必须保持正常用途、自然位置和正常姿态",
-        "实际物体的位置、相对尺度、正常用途、朝向、支撑、接触、遮挡、透视、材质边界和受光关系必须具体成立",
+        "它只能成为有独立用途物体上的局部图形、材质纹样或功能结构",
+        "人物动作与情绪互动仍由原分镜主体承担",
+        "全部固定身份特征必须能收在一个最小可识别图形中",
+        "完整保留特征不等于生成完整身体、独立姿态或完整角色",
+        "表面融合的图案必须全部收在明确表面区域内",
+        "载体外轮廓、类别与功能保持不变",
+        "融合句必须以实际载体为语法主体",
+        "先独立写清没有身份特征时也成立的载体本体、用途、空间层级、自然位置和明确区域",
+        "使用“紧密融合”“不可拆分”“自然融入”“和谐共存”“不干扰主体”“大小适中”“清晰可见”等结论代替具体可见关系时",
         "整幅画只保留一个可识别实例",
-        "全部固定身份特征和固定配色各写一次，并集中绑定在同一个实际物体的融合句中",
+        "只提高限定区域内的线条完整度和对比",
+        "不能改变载体面积、位置、朝向、外轮廓、遮挡关系或视觉中心",
         "直接作为图片正向提示词",
         "只输出最终图片提示词原文",
-        "事实审核",
-        "内容审核",
-        "风格审核",
-        "固定身份审核",
+        "事实与内容审核",
+        "风格与文字审核",
         "角色职责审核",
         "跨镜审核",
-        "层级审核",
-        "文字审核",
-        "只修复有明确问题的部分",
-        "把全部有效内容重写成一段连贯的最终图片提示词",
-        "当前分镜事实、内容主体与核心事件、固定身份事实、目标风格、有效融合条件、跨镜自然变化",
+        "当前分镜事实、内容主体与核心事件、载体独立成像、固定身份事实、物理融合边界、目标风格、跨镜自然变化",
     ):
         assert required_rule in template
     assert "visual_signature_style" not in template
@@ -764,12 +763,12 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
     for required_rule in (
         "不形成独立角色、完整摆拍对象",
         "人物动作与情绪互动仍由原分镜主体承担",
-        "内容主体仍然最先被看见",
+        "内容主体和核心事件仍然最先被看见",
     ):
         assert required_rule in fusion_template
     for required_rule in (
-        "不形成完整摆拍对象",
-        "人物动作和情绪互动由原分镜主体承担",
+        "不形成独立角色、完整摆拍对象",
+        "人物动作与情绪互动仍由原分镜主体承担",
         "内容主体始终最先被看见",
     ):
         assert required_rule in finalization_template
@@ -1002,6 +1001,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"target_visual_style"' in call["prompt"]
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
         assert '"negative_prompt_supported": false' in call["prompt"]
+        assert '"series_final_prompt_history"' in call["prompt"]
         assert '"series_fusion_history"' not in call["prompt"]
         assert '"visual_signature_style"' not in call["prompt"]
     assert sum(
@@ -1021,6 +1021,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"fusion_stage_output"' in call["prompt"]
         assert '"series_final_prompt_history"' in call["prompt"]
         assert '"series_fusion_history"' not in call["prompt"]
+        assert call["prompt"].count('"series_final_prompt_history"') == 1
         assert '"visual_signature_style"' not in call["prompt"]
     assert sum(
         '"visual_signature_emphasis": "enhanced"' in call["prompt"]

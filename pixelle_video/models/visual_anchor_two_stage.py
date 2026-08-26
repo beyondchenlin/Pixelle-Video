@@ -10,10 +10,10 @@ from pixelle_video.models.series_visual_signature import (
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v26"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v42"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v23"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v14"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v27"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v43"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v24"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v15"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -39,6 +39,7 @@ HistoricalContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v23",
     "visual_anchor_content_stage.v24",
     "visual_anchor_content_stage.v25",
+    "visual_anchor_content_stage.v26",
 ]
 ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v15",
@@ -86,6 +87,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v39",
     "visual_anchor_fusion_stage.v40",
     "visual_anchor_fusion_stage.v41",
+    "visual_anchor_fusion_stage.v42",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -111,6 +113,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v20",
     "visual_anchor_finalization_stage.v21",
     "visual_anchor_finalization_stage.v22",
+    "visual_anchor_finalization_stage.v23",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -121,6 +124,7 @@ GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v11",
     "visual_anchor_generation_request.v12",
     "visual_anchor_generation_request.v13",
+    "visual_anchor_generation_request.v14",
     GENERATION_REQUEST_VERSION,
 ]
 
@@ -129,18 +133,21 @@ _IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS = frozenset(
         "visual_anchor_fusion_stage.v39",
         "visual_anchor_fusion_stage.v40",
         "visual_anchor_fusion_stage.v41",
+        "visual_anchor_fusion_stage.v42",
         FUSION_STAGE_PROMPT_VERSION,
     }
 )
 _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS = frozenset(
     {
         "visual_anchor_generation_request.v13",
+        "visual_anchor_generation_request.v14",
         GENERATION_REQUEST_VERSION,
     }
 )
 _RAW_THREE_STAGE_GENERATION_REQUEST_VERSIONS = frozenset(
     {
         "visual_anchor_generation_request.v13",
+        "visual_anchor_generation_request.v14",
         GENERATION_REQUEST_VERSION,
     }
 )
@@ -1057,9 +1064,10 @@ class FusionStageInput(BaseModel):
         VisualSignatureEmphasis.STANDARD
     )
     continuous_scene_context: ContinuousSceneContext
-    # Historical artifact compatibility only. Current cross-frame curation is
-    # owned by FinalizationStageInput.series_final_prompt_history.
+    # Historical artifact compatibility only. New requests use
+    # series_final_prompt_history so the field name reflects its actual values.
     series_fusion_history: list[str] = Field(default_factory=list, max_length=3)
+    series_final_prompt_history: list[str] = Field(default_factory=list, max_length=3)
     target_visual_style: TargetVisualStyle
     visual_signature_style: VisualSignatureStyleContract | None = None
     visible_text_policy: VisibleTextPolicy = Field(default_factory=VisibleTextPolicy)
@@ -1106,6 +1114,15 @@ class FusionStageInput(BaseModel):
             raise ValueError(
                 "current fusion input requires an explicit visual signature emphasis"
             )
+        if self.prompt_version == FUSION_STAGE_PROMPT_VERSION:
+            if "series_final_prompt_history" not in self.model_fields_set:
+                raise ValueError(
+                    "current fusion input requires explicit final prompt history"
+                )
+            if self.series_fusion_history:
+                raise ValueError(
+                    "current fusion input cannot use legacy fusion history"
+                )
         if (
             _contract_version_at_least(self.prompt_version, 27)
             and self.prompt_version
@@ -1433,6 +1450,21 @@ class FinalizationStageInput(BaseModel):
         ):
             raise ValueError(
                 "current finalization input requires the current fusion-stage version"
+            )
+        if (
+            self.prompt_version == FINALIZATION_STAGE_PROMPT_VERSION
+            and "series_final_prompt_history" not in self.model_fields_set
+        ):
+            raise ValueError(
+                "current finalization input requires explicit final prompt history"
+            )
+        if (
+            self.prompt_version == FINALIZATION_STAGE_PROMPT_VERSION
+            and self.series_final_prompt_history
+            != self.fusion_stage_input.series_final_prompt_history
+        ):
+            raise ValueError(
+                "current finalization history must match the fusion-stage history"
             )
         return self
 
