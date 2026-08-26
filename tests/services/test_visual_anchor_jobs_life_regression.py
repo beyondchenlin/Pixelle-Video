@@ -536,7 +536,8 @@ def test_fusion_template_requests_only_raw_draft_text():
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "根据当前画面重新创作一段完整、可直接成像的融合提示词" in template
+    assert "根据当前画面，从构图源头重新创作一段完整、可直接成像的融合提示词" in template
+    assert "不得把身份形象作为附加对象追加到原内容提示词末尾" in template
     assert "只输出完整融合提示词草稿原文" in template
     for removed_field in (
         "selected_fusion_method",
@@ -560,20 +561,30 @@ def test_fusion_template_uses_a_relevant_object_as_the_series_signature_carrier(
         "content_stage_output.raw_prompt 是已经按照 target_visual_style 创作的内容画面",
         "它只作为依附于场景物体的识别图形或局部结构",
         "不形成独立角色、完整摆拍对象",
-        "先在内部从内容画面已有物体中构思至少三种不同的融合候选",
-        "优先使用内容画面中正在承担叙事作用的已有物体",
-        "其次使用已有环境表面、家具、工具或功能部件",
-        "只有当前画面确实缺少合适载体时",
-        "即使移除身份图形也同时服务文案含义、场景用途和整体构图的新物体",
+        "先在内部盘点 content_stage_output.raw_prompt 中已经存在的物体",
+        "只有本来就在承担内容证据、人物动作、实际功能、空间结构或构图作用的物体",
+        "存在三个及以上有效物体时至少比较三个候选",
+        "不足三个时比较全部有效物体",
+        "不得为了凑足数量虚构物体或融合关系",
+        "每个候选都必须通过删除检验",
+        "去掉全部身份特征后，该实际物体仍然应该出现在当前画面",
+        "物体保持正常用途、自然位置和正常姿态",
+        "身份特征与该物体在表面、材质或结构上形成不可拆分的一个整体",
+        "优先使用正在承担叙事作用的已有物体",
+        "其次使用有实际用途的已有环境表面、家具、工具或功能部件",
+        "只有内容画面确实没有任何有效候选时",
+        "新增物体同样必须通过删除检验",
         "独立雕塑、摆件、玩偶、相框和立牌只有原分镜或内容画面本来就需要该物体时才能使用",
-        "融合位置由被选物体的正常用途和自然位置决定",
-        "不得为了让身份更显眼而把物体移动到主角旁边、画面边角或视觉中心",
-        "写清实际物体名称、所在空间层级、相对主体的位置、正常用途、朝向、支撑面、接触、自然遮挡和透视",
-        "大小必须相对于具体物体和内容主体描述",
+        "融合位置完全由实际物体的正常用途和自然位置决定",
+        "物体在正常使用时自然靠近内容主体可以成立",
+        "错误的是为了展示身份而把它搬到主体旁边、竖起朝向观众、放到画面边角或提升为第二视觉中心",
+        "必须从构图源头重写一段完整画面",
+        "不能先原样复述内容画面，再在末尾追加独立的身份对象或孤立身份描述",
+        "实际物体及其正常用途、所在空间层级与相对位置、正常姿态与支撑接触",
         "整幅画只出现一个可识别实例",
-        "全部固定身份特征和固定配色各写一次",
+        "全部固定身份特征和固定配色各写一次，并集中绑定在同一个实际物体的融合句中",
         "target_visual_style 是整幅画唯一的表现规则",
-        "独立场景只依据当前内容画面选择最相关的物体",
+        "独立场景只依据当前内容画面重新选择最相关的实际物体",
     ):
         assert required_rule in template
 
@@ -594,22 +605,22 @@ def test_fusion_template_uses_relationship_examples_without_making_them_defaults
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    for required_example in (
-        "以下示例只说明融合关系，不是固定物体清单",
-        "文件夹封面下角的压印",
-        "既有行情屏幕图表中的低调图形或设备外壳上的局部刻纹",
-        "正在检查的样品标签、封条或包装材质",
-        "正在使用的手册书签或内页压纹",
-        "棋盘边框雕刻或一枚符合棋局用途的造型棋子",
+    for required_relation in (
+        "以下示例只定义通用融合关系，不指定场景物体",
+        "表面融合是让印刷、压印或浅浮雕紧贴物体表面并服从其透视与遮挡",
+        "材质融合是让纹理、刺绣或雕刻延续物体原有材质与受光",
+        "结构融合是让身份特征成为已有物体仍可正常使用的功能部件或局部造型",
+        "不能把示例当作固定清单",
     ):
-        assert required_example in template
-    for rejected_default in (
-        "把完整形象摆在主角旁边",
-        "让它面向人物仿佛陪伴",
-        "把笔记本或相框竖起朝向观众",
-        "新增没有场景用途的装饰物",
+        assert required_relation in template
+    for removed_scene_specific_example in (
+        "办公室文件正在参与决策",
+        "既有行情屏幕图表",
+        "正在检查的样品标签",
+        "正在使用的手册书签",
+        "棋盘边框雕刻",
     ):
-        assert rejected_default in template
+        assert removed_scene_specific_example not in template
 
 
 def test_fusion_template_keeps_one_signature_without_role_or_placement_biases():
@@ -620,9 +631,9 @@ def test_fusion_template_keeps_one_signature_without_role_or_placement_biases():
 
     for required_rule in (
         "整幅画只出现一个可识别实例",
-        "优先使用内容画面中正在承担叙事作用的已有物体",
-        "只有当前画面确实缺少合适载体时",
-        "身份特征与该物体之间的印刷、压印、雕刻、缝制、材质延续、边界、反射或受光关系",
+        "优先使用正在承担叙事作用的已有物体",
+        "只有内容画面确实没有任何有效候选时",
+        "使用紧贴表面、同一材质、连续结构、随物体透视、受物体遮挡等具体可见关系",
     ):
         assert required_rule in template
     for removed_bias in (
