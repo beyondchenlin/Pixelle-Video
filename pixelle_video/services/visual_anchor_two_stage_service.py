@@ -55,6 +55,21 @@ _FRAME_SOURCE_MAX_CHARS = 6000
 _ARTICLE_CONTEXT_MAX_CHARS = 6000
 
 
+def _content_stage_visual_style(
+    target_visual_style: TargetVisualStyle,
+) -> TargetVisualStyle:
+    positive_fragments = list(target_visual_style.required_final_prompt_fragments)
+    return TargetVisualStyle(
+        description=(
+            "\n".join(positive_fragments)
+            if positive_fragments
+            else target_visual_style.description
+        ),
+        required_final_prompt_fragments=positive_fragments,
+        required_negative_prompt_fragments=[],
+    )
+
+
 @dataclass(slots=True)
 class _SinglePassStageCallAudit:
     """Enforce and report the one-call, zero-retry stage invariant."""
@@ -397,7 +412,7 @@ class VisualAnchorTwoStageService:
             ),
             previous_frame_summary=previous_summary,
             next_frame_summary=next_summary,
-            target_visual_style=target_visual_style,
+            target_visual_style=_content_stage_visual_style(target_visual_style),
             target_image_prompt_language=target_image_prompt_language,
         )
         _emit_stage(

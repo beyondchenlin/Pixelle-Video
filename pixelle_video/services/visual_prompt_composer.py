@@ -655,11 +655,11 @@ def _target_visual_style_contract(
         if "builtin_line_art_emotion_minimal" in resolved_style.source_identity:
             if prompt_language == CHINESE_PROMPT_LANGUAGE:
                 required_positive = [
-                    "整幅画的人物、物体、环境、承载对象和视觉身份采用极简黑白二维线稿插画",
+                    "整幅画采用极简黑白二维线稿插画",
                     "整幅画使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
-                    "人物、物体、环境、承载对象和视觉身份使用协调的线稿语言",
+                    "人物、物体和环境使用协调的线稿语言",
                     "人物面部只用少量轮廓线概括",
-                    "整幅画不使用彩色、照片纹理、真实皮肤明暗、连续渐变、体积光或三维材质",
+                    "材质和光影采用二维平面线条以及黑、白、浅灰纯色块表现",
                 ]
                 required_negative = [
                     "画面中的彩色元素",
@@ -671,11 +671,11 @@ def _target_visual_style_contract(
                 ]
             else:
                 required_positive = [
-                    "the whole image, including people, objects, environments, carriers, and the visual signature, uses minimalist black-and-white 2D line illustration",
+                    "the whole image uses minimalist black-and-white 2D line illustration",
                     "the whole image uses fine clean black contours, large white negative space, and restrained flat light-gray accents",
-                    "people, objects, environments, carriers, and the visual signature use a coherent line-art language",
+                    "people, objects, and environments use a coherent line-art language",
                     "faces are summarized with a few concise contour lines",
-                    "the whole image uses no color, photographic texture, realistic skin shading, continuous gradients, volumetric lighting, or 3D materials",
+                    "materials and lighting use flat two-dimensional line work with solid black, white, and light-gray shapes",
                 ]
                 required_negative = [
                     "colored image elements",
@@ -691,12 +691,11 @@ def _target_visual_style_contract(
         json.dumps(payload, ensure_ascii=False, sort_keys=True)
         if payload
         else (
-            "未选择额外整体画风；人物、物体、环境、承载对象和视觉身份统一沿用纯内容阶段的视觉表达，并保留视觉身份特征"
+            "人物、物体与环境沿用当前分镜的统一视觉表达"
             if prompt_language == CHINESE_PROMPT_LANGUAGE
             else (
-                "no additional overall style; people, objects, environments, carriers, "
-                "and the visual signature share the content-stage visual treatment while "
-                "preserving the visual signature's identity traits"
+                "people, objects, and environments share one coherent visual treatment "
+                "for the current scene"
             )
         )
     )
@@ -719,13 +718,11 @@ def _uniform_style_fragments(
 ) -> list[str]:
     if prompt_language == CHINESE_PROMPT_LANGUAGE:
         return [
-            "整幅画的人物、物体、环境、承载对象和视觉身份统一应用以下风格："
-            f"{fragment}"
+            f"整幅画统一应用以下风格：{fragment}"
             for fragment in fragments
         ]
     return [
-        "apply the following style uniformly to all people, objects, environments, "
-        f"carriers, and the visual signature: {fragment}"
+        f"apply the following style uniformly to the whole image: {fragment}"
         for fragment in fragments
     ]
 

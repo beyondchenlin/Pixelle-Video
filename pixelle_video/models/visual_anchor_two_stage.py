@@ -10,7 +10,7 @@ from pixelle_video.models.series_visual_signature import (
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v23"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v24"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v38"
 FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v19"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v13"
@@ -36,6 +36,7 @@ HistoricalContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v12",
     "visual_anchor_content_stage.v13",
     "visual_anchor_content_stage.v14",
+    "visual_anchor_content_stage.v23",
 ]
 ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v15",

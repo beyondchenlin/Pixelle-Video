@@ -36,11 +36,11 @@ from pixelle_video.services.visual_prompt_composer import (
 )
 
 _STYLE_POSITIVE = [
-    "整幅画的人物、物体、环境、承载对象和视觉身份采用极简黑白二维线稿插画",
+    "整幅画采用极简黑白二维线稿插画",
     "整幅画使用细而干净的黑色轮廓、大面积白色留白和少量平面浅灰",
-    "人物、物体、环境、承载对象和视觉身份使用协调的线稿语言",
+    "人物、物体和环境使用协调的线稿语言",
     "人物面部只用少量轮廓线概括",
-    "整幅画不使用彩色、照片纹理、真实皮肤明暗、连续渐变、体积光或三维材质",
+    "材质和光影采用二维平面线条以及黑、白、浅灰纯色块表现",
 ]
 _STYLE_NEGATIVE = [
     "画面中的彩色元素",
@@ -344,6 +344,9 @@ def test_selected_minimal_emotion_style_maps_to_complete_final_contract():
 
     assert contract.required_final_prompt_fragments == _STYLE_POSITIVE
     assert contract.required_negative_prompt_fragments == _STYLE_NEGATIVE
+    serialized_contract = contract.model_dump_json()
+    for out_of_scope_term in ("视觉身份", "频道标记", "承载对象", "纯内容"):
+        assert out_of_scope_term not in serialized_contract
 
 
 def test_requested_style_id_preserves_complete_contract_when_active_style_changes():
@@ -424,8 +427,7 @@ def test_custom_style_is_uniform_before_entering_the_model_contract():
         fragments=["克制的水墨插画"],
         prompt_language=CHINESE_PROMPT_LANGUAGE,
     ) == [
-        "整幅画的人物、物体、环境、承载对象和视觉身份统一应用以下风格："
-        "克制的水墨插画"
+        "整幅画统一应用以下风格：克制的水墨插画"
     ]
 
 
@@ -434,8 +436,8 @@ def test_custom_style_is_uniform_in_english():
         fragments=["restrained ink-wash illustration"],
         prompt_language="English",
     ) == [
-        "apply the following style uniformly to all people, objects, environments, "
-        "carriers, and the visual signature: restrained ink-wash illustration"
+        "apply the following style uniformly to the whole image: "
+        "restrained ink-wash illustration"
     ]
 
 
@@ -457,8 +459,7 @@ def test_content_template_requests_no_proof_or_self_check_fields():
         / "pixelle_video/prompts/templates/visual_anchor_content_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "只输出最终纯内容图片提示词原文" in template
-    assert "不输出标题、分析、解释、候选、字段" in template
+    assert "输出一段完整的当前分镜图片提示词原文" in template
     for removed_field in (
         "shot_purpose",
         "renderable_story_beats",
@@ -481,20 +482,35 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "original_storyboard_text 是当前画面的事实边界",
-        "article_context 只用于确认身份、指代、因果和必要背景",
-        "选择一个物理上能够同时成立的静止瞬间",
-        "把抽象内容转成能够直接看到的动作、物证、人物关系、空间状态或结果",
-        "只补足成像所需的最少外观信息",
-        "不依靠纸张、屏幕、招牌、字幕或水印传达信息",
-        "这里的“纯内容”只表示不包含视觉身份，不表示脱离用户所选风格",
-        "target_visual_style 是当前用户选择的内容画面风格",
-        "必须从第一次创作开始作用于全部内容主体、环境、构图、材质和光影",
-        "本阶段不加入、暗示或预留视觉身份、频道标记和额外记忆符号",
-        "为完成构图而补充的成像细节属于创作草稿，可以丰富画面",
-        "核对事实、目标风格和补充细节能否在同一物理瞬间成立",
+        "original_storyboard_text 是当前画面的事实依据",
+        "article_context 用于确认身份、指代、因果和必要背景",
+        "唯一需要观众看懂的核心信息",
+        "视觉表现力最强的静止瞬间",
+        "把抽象内容转化成能够直接看到的动作、物证、人物关系、空间状态、尺度对比或结果瞬间",
+        "围绕一个视觉中心设计主体、动作、环境、景别、视角",
+        "相邻镜头通过动作阶段、物证、景别、视角、构图或视觉焦点形成清楚区别",
+        "target_visual_style 从画面构思开始统一作用",
+        "输出前静默确认画面事实、静止瞬间、视觉中心、空间关系、目标风格和相邻镜头区别完整一致",
     ):
         assert required_rule in template
+    for out_of_scope_or_negative_rule in (
+        "纯内容",
+        "视觉身份",
+        "频道标记",
+        "记忆符号",
+        "承载对象",
+        "禁止",
+        "不得",
+        "不要",
+        "不使用",
+        "不输出",
+        "不包含",
+        "不依靠",
+        "不虚构",
+        "不照抄",
+        "不覆盖",
+    ):
+        assert out_of_scope_or_negative_rule not in template
 
 
 def test_fusion_template_requests_only_raw_draft_text():
