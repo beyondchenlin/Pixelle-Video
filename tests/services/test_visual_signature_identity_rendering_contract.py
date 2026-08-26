@@ -126,7 +126,10 @@ def test_current_prompt_keeps_identity_facts_but_follows_scene_rendering() -> No
     assert "独立彩色扁平吉祥物风格" not in rendered.text
     assert '"visual_signature_style"' not in rendered.text
     assert "display_name 只是身份元数据" in rendered.text
-    assert "整幅画唯一允许出现的文字" in rendered.text
+    assert "authorized_visible_texts 是整幅画唯一允许出现的可读文字" in (
+        rendered.text
+    )
+    assert '"series_fusion_history"' not in rendered.text
 
 
 def test_authorized_text_is_allowed_without_blanket_text_ban() -> None:

@@ -10,10 +10,10 @@ from pixelle_video.models.series_visual_signature import (
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v24"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v39"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v20"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v13"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v25"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v40"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v21"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v14"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -37,6 +37,7 @@ HistoricalContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v13",
     "visual_anchor_content_stage.v14",
     "visual_anchor_content_stage.v23",
+    "visual_anchor_content_stage.v24",
 ]
 ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v15",
@@ -81,6 +82,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v36",
     "visual_anchor_fusion_stage.v37",
     "visual_anchor_fusion_stage.v38",
+    "visual_anchor_fusion_stage.v39",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -103,6 +105,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v17",
     "visual_anchor_finalization_stage.v18",
     "visual_anchor_finalization_stage.v19",
+    "visual_anchor_finalization_stage.v20",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -112,8 +115,28 @@ GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v10",
     "visual_anchor_generation_request.v11",
     "visual_anchor_generation_request.v12",
+    "visual_anchor_generation_request.v13",
     GENERATION_REQUEST_VERSION,
 ]
+
+_IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS = frozenset(
+    {
+        "visual_anchor_fusion_stage.v39",
+        FUSION_STAGE_PROMPT_VERSION,
+    }
+)
+_IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS = frozenset(
+    {
+        "visual_anchor_generation_request.v13",
+        GENERATION_REQUEST_VERSION,
+    }
+)
+_RAW_THREE_STAGE_GENERATION_REQUEST_VERSIONS = frozenset(
+    {
+        "visual_anchor_generation_request.v13",
+        GENERATION_REQUEST_VERSION,
+    }
+)
 
 MAX_VISUAL_STYLE_FRAGMENT_COUNT = 32
 MAX_VISUAL_STYLE_BOUNDARY_COUNT = 16
@@ -1027,6 +1050,8 @@ class FusionStageInput(BaseModel):
         VisualSignatureEmphasis.STANDARD
     )
     continuous_scene_context: ContinuousSceneContext
+    # Historical artifact compatibility only. Current cross-frame curation is
+    # owned by FinalizationStageInput.series_final_prompt_history.
     series_fusion_history: list[str] = Field(default_factory=list, max_length=3)
     target_visual_style: TargetVisualStyle
     visual_signature_style: VisualSignatureStyleContract | None = None
@@ -1076,7 +1101,8 @@ class FusionStageInput(BaseModel):
             )
         if (
             _contract_version_at_least(self.prompt_version, 27)
-            and self.prompt_version != FUSION_STAGE_PROMPT_VERSION
+            and self.prompt_version
+            not in _IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS
         ):
             if self.visual_signature_style is None:
                 raise ValueError(
@@ -1087,11 +1113,12 @@ class FusionStageInput(BaseModel):
                     "visual signature style must match the identity profile"
                 )
         if (
-            self.prompt_version == FUSION_STAGE_PROMPT_VERSION
+            self.prompt_version in _IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS
             and self.visual_signature_style is not None
         ):
             raise ValueError(
-                "current fusion input stores immutable signature facts in identity_profile"
+                "identity-profile fusion inputs store immutable signature facts "
+                "in identity_profile"
             )
         if self.identity_conditioning_mode == "reference_image":
             if self.identity_reference_condition is None:
@@ -1622,7 +1649,7 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             raise ValueError(
                 "identity authorized text styles require authorized visible texts"
             )
-        if self.request_version == GENERATION_REQUEST_VERSION:
+        if self.request_version in _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS:
             expected_identity_digest = series_visual_signature_identity_content_sha256(
                 display_name=self.identity_display_name,
                 core_identity_traits=self.identity_core_traits,
@@ -1660,7 +1687,8 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             )
         if (
             _contract_version_at_least(self.request_version, 9)
-            and self.request_version != GENERATION_REQUEST_VERSION
+            and self.request_version
+            not in _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS
         ):
             if self.visual_signature_style is None:
                 raise ValueError(
@@ -1671,11 +1699,12 @@ class VisualAnchorImageGenerationRequest(BaseModel):
                     "generation visual signature style must match the identity profile"
                 )
         if (
-            self.request_version == GENERATION_REQUEST_VERSION
+            self.request_version in _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS
             and self.visual_signature_style is not None
         ):
             raise ValueError(
-                "current generation stores immutable signature facts in identity fields"
+                "identity-profile generation stores immutable signature facts "
+                "in identity fields"
             )
         if self.request_version == GENERATION_REQUEST_VERSION and (
             self.content_stage_prompt_version != CONTENT_STAGE_PROMPT_VERSION
@@ -1686,7 +1715,7 @@ class VisualAnchorImageGenerationRequest(BaseModel):
             raise ValueError(
                 "current generation requests require the current three-stage prompt chain"
             )
-        if self.request_version == GENERATION_REQUEST_VERSION:
+        if self.request_version in _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS:
             if (
                 self.visible_text_policy.authorized_visible_texts
                 != self.identity_authorized_visible_texts
@@ -2032,8 +2061,11 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
         return _text(value, "frame_id")
 
     @model_validator(mode="after")
-    def _validate_current_three_stage_chain(self) -> "VisualAnchorTwoStageFrameResult":
-        if self.generation_request.request_version != GENERATION_REQUEST_VERSION:
+    def _validate_raw_three_stage_chain(self) -> "VisualAnchorTwoStageFrameResult":
+        if (
+            self.generation_request.request_version
+            not in _RAW_THREE_STAGE_GENERATION_REQUEST_VERSIONS
+        ):
             return self
         if not (
             self.frame_id
@@ -2041,7 +2073,7 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             == self.fusion_stage_input.frame_id
             == self.generation_request.frame_id
         ):
-            raise ValueError("current visual-anchor frame ids must match")
+            raise ValueError("raw three-stage visual-anchor frame ids must match")
         if self.fusion_stage_input.content_stage_output != self.content_stage_output:
             raise ValueError("fusion input must contain the exact content output")
         if (
@@ -2060,7 +2092,8 @@ class VisualAnchorTwoStageFrameResult(BaseModel):
             )
         if self.finalization_stage_input is None or self.finalization_stage_output is None:
             raise ValueError(
-                "current visual-anchor results require one finalization input and output"
+                "raw three-stage visual-anchor results require one finalization input "
+                "and output"
             )
         if self.finalization_stage_input.fusion_stage_input != self.fusion_stage_input:
             raise ValueError("finalization input must contain the exact fusion input")
