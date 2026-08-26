@@ -125,7 +125,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v14",
+            "schema_version": "visual_anchor_two_stage_batch.v15",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -475,6 +475,7 @@ class VisualAnchorTwoStageService:
             workflow_identity_condition_summary=workflow_identity_condition_summary,
             visual_signature_emphasis=visual_signature_emphasis,
             continuous_scene_context=continuity_context,
+            series_final_prompt_history=series_final_prompt_history,
             target_visual_style=target_visual_style,
             visible_text_policy=visible_text_policy,
             negative_prompt_supported=negative_prompt_supported,
@@ -771,6 +772,7 @@ def _render_stage_prompt(
         if isinstance(fusion_input_payload, dict):
             fusion_input_payload.pop("visual_signature_style", None)
             fusion_input_payload.pop("series_fusion_history", None)
+            fusion_input_payload.pop("series_final_prompt_history", None)
     rendered = render_prompt_template(
         prompt_id,
         {

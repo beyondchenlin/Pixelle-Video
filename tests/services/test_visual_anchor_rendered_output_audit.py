@@ -175,6 +175,7 @@ def _frame_result(tmp_path):
         workflow_identity_condition_summary="当前工作流使用真实参考图绑定身份",
         visual_signature_emphasis="standard",
         continuous_scene_context=continuity,
+        series_final_prompt_history=[],
         target_visual_style=target_style,
         visible_text_policy=text_policy,
         negative_prompt_supported=False,
