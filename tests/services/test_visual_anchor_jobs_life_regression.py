@@ -570,6 +570,11 @@ def test_fusion_template_uses_a_relevant_object_as_the_series_signature_carrier(
         "去掉全部身份特征后，该实际物体仍然应该出现在当前画面",
         "物体保持正常用途、自然位置和正常姿态",
         "身份特征与该物体在表面、材质或结构上形成不可拆分的一个整体",
+        "每个通过删除检验的候选还必须通过承载能力检验",
+        "实际物体在正常尺寸、自然透视、当前遮挡",
+        "在一个可识别实例中一次完整表现全部固定身份特征、固定配色和特征布局",
+        "不能通过放大物体、改变正常姿态、转向观众、移动到视觉中心或重复身份特征来弥补容量不足",
+        "承载能力不足就淘汰该候选",
         "优先使用正在承担叙事作用的已有物体",
         "其次使用有实际用途的已有环境表面、家具、工具或功能部件",
         "只有内容画面确实没有任何有效候选时",
@@ -584,6 +589,10 @@ def test_fusion_template_uses_a_relevant_object_as_the_series_signature_carrier(
         "整幅画只出现一个可识别实例",
         "全部固定身份特征和固定配色各写一次，并集中绑定在同一个实际物体的融合句中",
         "target_visual_style 是整幅画唯一的表现规则",
+        "required_final_prompt_fragments 是必须落实并保留的正向风格事实",
+        "required_negative_prompt_fragments 只表示禁止出现的视觉状态",
+        "不得原样复制到融合草稿",
+        "必须转换成与目标风格等价的正向画面状态",
         "独立场景只依据当前内容画面重新选择最相关的实际物体",
     ):
         assert required_rule in template
@@ -674,8 +683,11 @@ def test_finalization_template_preserves_valid_draft_and_repairs_invalid_fusion(
         "再在末尾追加独立身份对象、孤立身份段落",
         "统一删除检验",
         "无论实际物体原本存在还是第二阶段新增",
+        "承载能力审核",
+        "在一个可识别实例中一次完整表现全部固定身份特征、固定配色和特征布局",
+        "承载能力不足时，当前融合方案无效",
         "物体在正常使用时自然靠近内容主体可以成立",
-        "通过完整重写审核、统一删除检验和物理关系审核的融合方案有效",
+        "通过完整重写审核、统一删除检验、承载能力审核和物理关系审核的融合方案有效",
         "必须保留其实际物体、融合方式、相对位置、材质关系和构图",
         "continuous_scene_context 明确属于连续场景时",
         "优先保持上一镜已经成立且在当前画面仍有效的同一实际物体",
@@ -696,6 +708,10 @@ def test_finalization_template_preserves_relevant_carrier_and_unifies_scene_styl
     for required_rule in (
         "target_visual_style 是整幅画唯一的表现规则",
         "统一决定人物、物体、环境以及身份细节",
+        "required_final_prompt_fragments 是必须落实并保留的正向风格事实",
+        "required_negative_prompt_fragments 只表示禁止出现的视觉状态",
+        "不得原样复制到最终提示词",
+        "必须转换成与目标风格等价的正向画面状态",
         "core_identity_traits、supporting_identity_traits 和 fixed_color_traits 的实际内容",
         "未明确写入时，它只能依附于场景中有独立用途的实际物体",
         "人物动作和情绪互动由原分镜主体承担",
@@ -717,10 +733,12 @@ def test_finalization_template_preserves_relevant_carrier_and_unifies_scene_styl
         "文字审核",
         "只修复有明确问题的部分",
         "把全部有效内容重写成一段连贯的最终图片提示词",
+        "当前分镜事实、内容主体与核心事件、固定身份事实、目标风格、有效融合条件、跨镜自然变化",
     ):
         assert required_rule in template
     assert "visual_signature_style" not in template
     assert "视觉身份独立风格" not in template
+    assert "当前分镜事实、固定身份事实、目标风格、内容主体" not in template
     for forbidden_rule_or_output in (
         "实体角色",
         "场景观察者",
