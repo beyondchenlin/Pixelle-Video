@@ -18,6 +18,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FINALIZATION_STAGE_PROMPT_VERSION,
     FUSION_PROMPT_ASSEMBLY_VERSION,
     FUSION_PROMPT_PASSTHROUGH_VERSION,
+    GENERATION_REQUEST_VERSION,
     RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION,
     RAW_FUSION_PROMPT_PASSTHROUGH_VERSION,
     ContentStageInput,
@@ -559,8 +560,8 @@ async def test_selected_style_reaches_all_three_stage_prompts():
     assert "只输出最终图片提示词原文" in llm.calls[2]["prompt"]
     assert '"visual_signature_style"' not in llm.calls[1]["prompt"]
     assert '"visual_signature_style"' not in llm.calls[2]["prompt"]
-    assert "整幅画的统一风格" in llm.calls[1]["prompt"]
-    assert "统一决定内容主体、环境、承接物和视觉签名" in (
+    assert "整幅画唯一的表现规则" in llm.calls[1]["prompt"]
+    assert "统一决定人物、物体、环境以及身份细节" in (
         llm.calls[2]["prompt"]
     )
 
@@ -1184,12 +1185,48 @@ async def test_current_raw_payload_round_trips_without_content_validation():
         frame.finalization_stage_output,
         FinalizationStagePromptPassthrough,
     )
-    assert frame.generation_request.request_version == (
-        "visual_anchor_generation_request.v13"
-    )
+    assert frame.generation_request.request_version == GENERATION_REQUEST_VERSION
     assert frame.generation_request.final_positive_prompt == (
         frame.finalization_stage_output.raw_prompt
     )
+
+
+@pytest.mark.asyncio
+async def test_previous_identity_profile_chain_remains_readable_after_version_bump():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+
+    payload["content_stage_input"]["prompt_version"] = (
+        "visual_anchor_content_stage.v24"
+    )
+    payload["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v39"
+    )
+    payload["finalization_stage_input"]["content_stage_input"][
+        "prompt_version"
+    ] = "visual_anchor_content_stage.v24"
+    payload["finalization_stage_input"]["fusion_stage_input"][
+        "prompt_version"
+    ] = "visual_anchor_fusion_stage.v39"
+    payload["finalization_stage_input"]["prompt_version"] = (
+        "visual_anchor_finalization_stage.v20"
+    )
+    request = payload["generation_request"]
+    request["request_version"] = "visual_anchor_generation_request.v13"
+    request["content_stage_prompt_version"] = "visual_anchor_content_stage.v24"
+    request["fusion_stage_prompt_version"] = "visual_anchor_fusion_stage.v39"
+    request["finalization_stage_prompt_version"] = (
+        "visual_anchor_finalization_stage.v20"
+    )
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.generation_request.request_version == (
+        "visual_anchor_generation_request.v13"
+    )
+    assert restored.generation_request.visual_signature_style is None
+    assert restored.finalization_stage_input is not None
+    assert restored.finalization_stage_input.series_final_prompt_history == []
 
 
 @pytest.mark.asyncio
@@ -1616,8 +1653,7 @@ async def test_regeneration_preserves_the_raw_model_prompt(
     assert context is not None
     assert context.generation_request.task_id == "regenerated-task"
     assert (
-        context.generation_request.request_version
-        == "visual_anchor_generation_request.v13"
+        context.generation_request.request_version == GENERATION_REQUEST_VERSION
     )
     restored_payload = context.frame_result.model_dump(mode="json")
     assert restored_payload["fusion_stage_output"]["raw_prompt"] == (

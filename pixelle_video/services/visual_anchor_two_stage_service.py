@@ -475,7 +475,6 @@ class VisualAnchorTwoStageService:
             workflow_identity_condition_summary=workflow_identity_condition_summary,
             visual_signature_emphasis=visual_signature_emphasis,
             continuous_scene_context=continuity_context,
-            series_fusion_history=[],
             target_visual_style=target_visual_style,
             visible_text_policy=visible_text_policy,
             negative_prompt_supported=negative_prompt_supported,
@@ -766,10 +765,12 @@ def _render_stage_prompt(
         input_payload.pop("prompt_version", None)
     elif isinstance(stage_input, FusionStageInput):
         input_payload.pop("visual_signature_style", None)
+        input_payload.pop("series_fusion_history", None)
     elif isinstance(stage_input, FinalizationStageInput):
         fusion_input_payload = input_payload.get("fusion_stage_input")
         if isinstance(fusion_input_payload, dict):
             fusion_input_payload.pop("visual_signature_style", None)
+            fusion_input_payload.pop("series_fusion_history", None)
     rendered = render_prompt_template(
         prompt_id,
         {
