@@ -501,20 +501,27 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
+        "内容判断顺序固定为",
         "original_storyboard_text 是当前画面的事实边界",
-        "article_context 只用于确认身份、指代、因果和必要背景",
+        "本帧唯一必须表达的内容核心",
+        "article_context 只用于确认身份、指代、主题、因果和理解当前句所必需的背景",
+        "previous_frame_summary 只用于确认已经呈现的内容",
+        "next_frame_summary 只用于确定当前句的结束边界",
+        "target_visual_style 只决定表现方式，不得反过来改变内容事实",
         "观众必须从这一帧看懂的唯一内容主张",
-        "物理关系完整、视觉证据最强的静止瞬间",
-        "抽象或总结性文案必须转化成具体动作、物证、人物关系、空间状态、尺度对比或结果",
-        "不得自动退化为人物坐在桌前阅读、皱眉或思考",
-        "围绕一个视觉中心设计主体、关键动作、主导物证、环境、景别、视角",
-        "不能连续复用相同人物姿势与相同桌面构图",
+        "可见动作、物证、人物关系、空间状态、选择、冲突、阻力、代价或结果",
+        "不能用与当前内容没有决定性关系的通用姿态、表情或装饰代替视觉证据",
+        "观众只看画面、不依靠字幕或解释",
+        "围绕一个视觉中心设计主体、决定性动作、核心物证、环境、景别、视角",
+        "不能连续复用实质相同的画面方案",
         "逐项核对双手、视线、持有物、接触面、遮挡、朝向和前后关系",
         "旁白、观点、引号中的句子和分镜原文本身都不自动成为画面文字",
-        "target_visual_style 从构思开始统一作用",
+        "内容事实和视觉证据确定后，target_visual_style 统一作用",
+        "统一画面语言、主体与决定性动作、核心物证、环境与空间关系、景别与视角、材质光影与色彩、文字边界",
         "不加入、暗示或预留视觉身份、频道标记和额外记忆符号",
     ):
         assert required_rule in template
+    assert "人物坐在桌前阅读、皱眉或思考" not in template
     for out_of_scope_input in (
         "identity_profile",
         "visual_signature_emphasis",

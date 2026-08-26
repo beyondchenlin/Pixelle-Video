@@ -1197,14 +1197,14 @@ async def test_previous_identity_profile_chain_remains_readable_after_version_bu
     payload = batch.frames[0].model_dump(mode="json")
 
     payload["content_stage_input"]["prompt_version"] = (
-        "visual_anchor_content_stage.v24"
+        "visual_anchor_content_stage.v25"
     )
     payload["fusion_stage_input"]["prompt_version"] = (
         "visual_anchor_fusion_stage.v39"
     )
     payload["finalization_stage_input"]["content_stage_input"][
         "prompt_version"
-    ] = "visual_anchor_content_stage.v24"
+    ] = "visual_anchor_content_stage.v25"
     payload["finalization_stage_input"]["fusion_stage_input"][
         "prompt_version"
     ] = "visual_anchor_fusion_stage.v39"
@@ -1213,7 +1213,7 @@ async def test_previous_identity_profile_chain_remains_readable_after_version_bu
     )
     request = payload["generation_request"]
     request["request_version"] = "visual_anchor_generation_request.v13"
-    request["content_stage_prompt_version"] = "visual_anchor_content_stage.v24"
+    request["content_stage_prompt_version"] = "visual_anchor_content_stage.v25"
     request["fusion_stage_prompt_version"] = "visual_anchor_fusion_stage.v39"
     request["finalization_stage_prompt_version"] = (
         "visual_anchor_finalization_stage.v20"
