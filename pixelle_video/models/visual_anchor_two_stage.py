@@ -10,9 +10,9 @@ from pixelle_video.models.series_visual_signature import (
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v22"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v36"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v17"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v23"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v37"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v18"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v13"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
@@ -43,6 +43,7 @@ ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v19",
     "visual_anchor_content_stage.v20",
     "visual_anchor_content_stage.v21",
+    "visual_anchor_content_stage.v22",
     CONTENT_STAGE_PROMPT_VERSION
 ]
 FusionStagePromptVersion = Literal[
@@ -76,6 +77,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v33",
     "visual_anchor_fusion_stage.v34",
     "visual_anchor_fusion_stage.v35",
+    "visual_anchor_fusion_stage.v36",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -95,6 +97,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v14",
     "visual_anchor_finalization_stage.v15",
     "visual_anchor_finalization_stage.v16",
+    "visual_anchor_finalization_stage.v17",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -765,8 +768,9 @@ class LegacyContentStageInput(_ContentStageInputCommon):
 
 
 class ContentStageInput(_ContentStageInputCommon):
-    """Current style-neutral input boundary for the content-only model call."""
+    """Current content input constrained by the user-selected target style."""
 
+    target_visual_style: TargetVisualStyle
     prompt_version: Literal[CONTENT_STAGE_PROMPT_VERSION] = CONTENT_STAGE_PROMPT_VERSION
 
 
@@ -777,6 +781,9 @@ class LegacyContentStageInputV15(_ContentStageInputCommon):
         "visual_anchor_content_stage.v15",
         "visual_anchor_content_stage.v16",
         "visual_anchor_content_stage.v19",
+        "visual_anchor_content_stage.v20",
+        "visual_anchor_content_stage.v21",
+        "visual_anchor_content_stage.v22",
     ]
 
 

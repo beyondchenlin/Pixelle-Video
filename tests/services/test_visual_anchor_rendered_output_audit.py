@@ -108,6 +108,7 @@ def _frame_result(tmp_path):
         article_context="两位创作者在车库组装电脑。",
         previous_frame_summary="首镜，无前一镜",
         next_frame_summary="末镜，无后一镜",
+        target_visual_style=target_style,
         target_image_prompt_language="中文",
     )
     content_model_output = ContentStageModelOutput(

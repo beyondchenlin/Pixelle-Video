@@ -31,6 +31,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
+    LegacyContentStageInputV15,
     RawContentStageOutput,
     RawFusionStageOutput,
     TargetVisualStyle,
@@ -85,7 +86,7 @@ class _QueuedLLM:
         )
         queue_key = response_type
         if queue_key is None and queue_key not in self.responses:
-            if "最终画面创作导演" in prompt:
+            if "最终图片提示词审核与修复编辑" in prompt:
                 queue_key = FinalizationStagePromptPassthrough
             elif "视觉融合导演" in prompt:
                 queue_key = FusionStageModelOutput
@@ -392,7 +393,7 @@ def test_model_schemas_do_not_request_proof_fields():
     assert "final_scene_prompt_prefix" not in str(
         FusionStageModelOutput.model_json_schema()
     )
-    assert "target_visual_style" not in str(ContentStageInput.model_json_schema())
+    assert "target_visual_style" in str(ContentStageInput.model_json_schema())
 
 
 def test_current_runtime_uses_only_semantic_passthrough_contracts():
@@ -531,21 +532,24 @@ async def test_raw_finalization_response_flows_directly_to_generation():
 
 
 @pytest.mark.asyncio
-async def test_stage_prompts_apply_requirements_only_before_generation():
+async def test_selected_style_reaches_all_three_stage_prompts():
     result, llm = await _run(_plan())
     content = result.frames[0].content_stage_output
     assert isinstance(content, RawContentStageOutput)
-    assert "真实电影感" not in content.pure_content_prompt
-    assert "真实电影感" not in llm.calls[0]["prompt"]
+    assert "真实电影感" in llm.calls[0]["prompt"]
     assert "真实电影感" in llm.calls[1]["prompt"]
     assert "真实电影感" in llm.calls[2]["prompt"]
+    assert (
+        result.frames[0].content_stage_input.target_visual_style
+        == result.frames[0].fusion_stage_input.target_visual_style
+    )
     assert "只输出最终纯内容图片提示词原文" in llm.calls[0]["prompt"]
     assert "只输出完整融合提示词草稿原文" in llm.calls[1]["prompt"]
     assert "只输出最终图片提示词原文" in llm.calls[2]["prompt"]
     assert '"visual_signature_style"' not in llm.calls[1]["prompt"]
     assert '"visual_signature_style"' not in llm.calls[2]["prompt"]
     assert "整幅画的统一风格" in llm.calls[1]["prompt"]
-    assert "同一风格一致作用于人物、物体、环境、承载对象和视觉身份" in (
+    assert "统一作用于内容主体、环境、承载对象和视觉身份" in (
         llm.calls[2]["prompt"]
     )
 
@@ -1450,6 +1454,7 @@ async def test_v1_raw_passthrough_artifact_is_upgraded_at_parse_boundary():
 async def test_v16_v14_raw_artifact_remains_readable_after_prompt_upgrade():
     batch, _ = await _run(_plan())
     payload = batch.frames[0].model_dump(mode="json")
+    payload["content_stage_input"].pop("target_visual_style")
     payload["content_stage_input"]["prompt_version"] = (
         "visual_anchor_content_stage.v16"
     )
@@ -1477,6 +1482,28 @@ async def test_v16_v14_raw_artifact_remains_readable_after_prompt_upgrade():
     )
 
 
+def test_v22_style_neutral_content_input_remains_readable():
+    payload = ContentStageInput(
+        frame_id="frame-a",
+        original_storyboard_text="一个人正在组装电脑。",
+        article_context="文章上下文。",
+        previous_frame_summary="上一镜头。",
+        next_frame_summary="下一镜头。",
+        target_visual_style=TargetVisualStyle(
+            description="真实电影感",
+            required_final_prompt_fragments=["电影光影"],
+            required_negative_prompt_fragments=[],
+        ),
+        target_image_prompt_language="中文",
+    ).model_dump(mode="json")
+    payload.pop("target_visual_style")
+    payload["prompt_version"] = "visual_anchor_content_stage.v22"
+
+    restored = LegacyContentStageInputV15.model_validate(payload)
+
+    assert restored.prompt_version == "visual_anchor_content_stage.v22"
+
+
 @pytest.mark.asyncio
 async def test_v15_v13_structured_artifact_remains_readable():
     plan = _plan()
@@ -1502,6 +1529,7 @@ async def test_v15_v13_structured_artifact_remains_readable():
     payload["content_stage_input"]["prompt_version"] = (
         "visual_anchor_content_stage.v15"
     )
+    payload["content_stage_input"].pop("target_visual_style")
     payload["content_stage_output"] = content_output.model_dump(mode="json")
     payload["fusion_stage_input"]["prompt_version"] = (
         "visual_anchor_fusion_stage.v13"

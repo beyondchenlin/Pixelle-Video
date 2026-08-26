@@ -73,7 +73,7 @@ class _QueuedLLM:
         )
         queue_key = response_type
         if queue_key is None and queue_key not in self.responses:
-            if "最终画面创作导演" in prompt:
+            if "最终图片提示词审核与修复编辑" in prompt:
                 queue_key = FinalizationStagePromptPassthrough
             elif "视觉融合导演" in prompt:
                 queue_key = FusionStageModelOutput
@@ -487,7 +487,12 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
         "把抽象内容转成能够直接看到的动作、物证、人物关系、空间状态或结果",
         "只补足成像所需的最少外观信息",
         "不依靠纸张、屏幕、招牌、字幕或水印传达信息",
-        "本阶段不加入、暗示或预留视觉身份、频道标记和目标风格",
+        "这里的“纯内容”只表示不包含视觉身份，不表示脱离用户所选风格",
+        "target_visual_style 是当前用户选择的内容画面风格",
+        "必须从第一次创作开始作用于全部内容主体、环境、构图、材质和光影",
+        "本阶段不加入、暗示或预留视觉身份、频道标记和额外记忆符号",
+        "为完成构图而补充的成像细节属于创作草稿，可以丰富画面",
+        "核对事实、目标风格和补充细节能否在同一物理瞬间成立",
     ):
         assert required_rule in template
 
@@ -519,24 +524,27 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
 
     for required_rule in (
         "original_storyboard_text 是画面主旨和事实边界",
-        "content_stage_output.raw_prompt 是纯内容草稿",
+        "content_stage_output.raw_prompt 是已经按照 target_visual_style 创作的纯内容画面",
         "整幅画只出现一个可识别的视觉身份实例",
         "不得概括、省略或改写",
         "视觉身份只能是承载对象表面的一个扁平印刷图形",
         "以承载对象为句子主体",
         "全部固定身份特征和固定配色各写一次",
         "其他句子不得重复",
-        "全画面没有该身份的真实实体和第二个图形",
+        "这是画面唯一的可识别视觉身份图形",
+        "不得另写容易再次触发身份形象的否定句",
         "视觉身份只承担次级频道标记",
         "自由选择最自然的承载对象",
         "优先使用画面中已有的非主体物体",
-        "承载对象必须有清楚朝向画面、足以完整呈现该图形的实心表面",
+        "拥有清楚朝向画面、足以完整呈现该图形的实心表面",
         "没有自然载体时，补充一个不改变主旨的物体",
         "不要机械地把视觉身份放在主体身上",
         "写清视觉身份与承载对象之间能够直接看到的物理关系",
         "target_visual_style 是整幅画的统一风格",
         "一致作用于人物、物体、环境、承载对象和视觉身份",
         "独立场景只根据当前画面选择，不参考其他独立镜头",
+        "target_visual_style 中的排除要求必须改写成唯一允许的正向画面状态",
+        "最终不得同时出现允许和禁止同一属性的文字",
     ):
         assert required_rule in template
 
@@ -605,10 +613,13 @@ def test_finalization_template_repairs_current_facts_without_copying_history():
     for required_rule in (
         "original_storyboard_text 是当前画面的事实边界",
         "article_context 只用于核对身份、指代、因果和必要背景",
-        "前两轮输出只是草稿，不是必须保留的内容",
-        "series_final_prompt_history 只用于识别最近三个最终提示词中的承载关系",
-        "当前镜头属于独立场景时，必须使用与最近三个不同的承载对象",
-        "属于连续场景时，画面连续性优先",
+        "第二次输出是加入视觉身份后的融合候选稿",
+        "不得默认 fusion_stage_output.raw_prompt 正确",
+        "不得只做润色、缩句或调整顺序",
+        "不得因为原文未逐项描述就一律删除",
+        "series_final_prompt_history 只用于了解最近三个最终提示词中的承载关系",
+        "不得为了制造差异而更换自然承载对象或额外添加物体",
+        "连续场景优先保持承载关系和画面连续性",
     ):
         assert required_rule in template
 
@@ -620,19 +631,29 @@ def test_finalization_template_unifies_scene_and_signature_styles():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "同一风格一致作用于人物、物体、环境、承载对象和视觉身份",
+        "统一作用于内容主体、环境、承载对象和视觉身份",
         "不得概括、省略或改写",
         "视觉身份只能是承载对象表面的一个扁平印刷图形",
         "以承载对象为句子主体",
         "全部固定身份特征和固定配色各写一次",
         "其他句子不得重复",
-        "全画面没有该身份的真实实体和第二个图形",
-        "自由选择最自然的承载对象",
+        "这是画面唯一的可识别视觉身份图形",
+        "不得另写容易再次触发身份形象的否定句",
         "优先使用画面中已有的非主体物体",
-        "承载对象必须有清楚朝向画面、足以完整呈现该图形的实心表面",
-        "不要机械地把视觉身份放在主体身上",
+        "符合当前场景的年代和用途",
+        "拥有清楚朝向画面的实心表面",
+        "不遮挡核心内容或主要动作",
         "你的原始输出将直接作为图片正向提示词",
         "只输出最终图片提示词原文",
+        "不得照抄禁止项清单",
+        "最终文本不得同时允许和禁止同一属性",
+        "事实审核",
+        "风格审核",
+        "视觉身份审核",
+        "空间审核",
+        "文字审核",
+        "任一审核项不通过，都必须在本次输出中直接修复",
+        "不能照抄融合候选稿",
     ):
         assert required_rule in template
     assert "visual_signature_style" not in template
@@ -880,7 +901,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
     finalization_calls = [
         call
         for call in llm.calls
-        if "你是一名最终画面创作导演" in call["prompt"]
+        if "你是一名最终图片提示词审核与修复编辑" in call["prompt"]
     ]
     assert (
         len(content_calls)

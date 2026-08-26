@@ -397,6 +397,7 @@ class VisualAnchorTwoStageService:
             ),
             previous_frame_summary=previous_summary,
             next_frame_summary=next_summary,
+            target_visual_style=target_visual_style,
             target_image_prompt_language=target_image_prompt_language,
         )
         _emit_stage(
