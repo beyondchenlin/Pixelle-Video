@@ -12,7 +12,7 @@ from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphas
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v24"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v39"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v19"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v20"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v13"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
@@ -102,6 +102,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v16",
     "visual_anchor_finalization_stage.v17",
     "visual_anchor_finalization_stage.v18",
+    "visual_anchor_finalization_stage.v19",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -1343,7 +1344,7 @@ ReadableFusionStageOutput = (
 
 
 class FinalizationStageInput(BaseModel):
-    """Fixed third-stage input for unconstrained final scene recomposition."""
+    """Fixed third-stage input for a constraint-preserving final rewrite."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

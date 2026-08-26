@@ -560,7 +560,7 @@ async def test_selected_style_reaches_all_three_stage_prompts():
     assert '"visual_signature_style"' not in llm.calls[1]["prompt"]
     assert '"visual_signature_style"' not in llm.calls[2]["prompt"]
     assert "整幅画的统一风格" in llm.calls[1]["prompt"]
-    assert "统一作用于内容主体、环境、承载对象和视觉身份" in (
+    assert "统一决定内容主体、环境、承接物和视觉签名" in (
         llm.calls[2]["prompt"]
     )
 
