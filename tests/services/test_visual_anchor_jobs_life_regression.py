@@ -532,7 +532,7 @@ def test_fusion_template_requests_only_raw_draft_text():
         assert removed_field not in template
 
 
-def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recomposition():
+def test_fusion_template_uses_a_relevant_object_as_the_series_signature_carrier():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
@@ -543,27 +543,39 @@ def test_fusion_template_keeps_facts_fixed_and_restores_whole_scene_recompositio
         "content_stage_output.raw_prompt 是已经按照 target_visual_style 创作的纯内容画面",
         "整幅画只出现一个可识别的视觉身份实例",
         "不得概括、省略或改写",
-        "视觉身份的主要作用是形成系列视觉记忆",
-        "不默认成为剧情主体",
+        "是否明确把 identity_profile 对应的视觉身份写成参与事件的主体",
+        "其余画面中，视觉身份的职责固定为系列识别标记",
+        "以静态附着关系进入场景",
+        "人物关系、事件动作和情绪互动由原分镜主体承担",
+        "优先选择当前场景已有、同时服务文案表达或整体构图的物体作为承接物",
+        "当前场景缺少合适承接物体时",
+        "创作一个同时服务文案含义、场景用途和整体构图的新物体",
+        "即使移除视觉身份，该物体仍是画面中合理且有作用的组成部分",
+        "表面图形、浮雕、材质纹理或局部造型",
+        "视觉身份与承接物共同构成同一个物体",
+        "轮廓、特征和配色落在该物体的表面或局部结构中",
         "全部固定身份特征和固定配色各写一次",
-        "其他句子不得重复",
-        "不得另写容易再次触发身份形象的否定句",
-        "最终只选择一种最自然的表现方式",
-        "不要预设表现类型、固定位置、固定尺寸或固定景深",
-        "不得在纯内容画面末尾机械追加视觉身份",
-        "使视觉身份像从一开始就属于该场景",
-        "不得补充只为承载视觉身份而存在的物体",
-        "采用实体角色或物体时",
-        "采用画内图形时",
+        "其他句子使用“视觉签名”或“承接物”描述空间关系",
+        "根据承接物重新组织整幅画的镜头角度",
+        "内容主体、承接物和视觉签名从构图开始就是同一幅画的一部分",
+        "写清承接物的位置、大小、朝向、用途、支撑面、接触、遮挡和透视",
+        "视觉签名与承接物的附着、材质、边界、反射和受光关系",
         "target_visual_style 是整幅画的统一风格",
-        "一致作用于人物、物体、环境、场景载体和视觉身份",
-        "独立场景只根据当前画面选择，不参考其他独立镜头",
-        "target_visual_style 中的排除要求必须改写成唯一允许的正向画面状态",
-        "最终不得同时出现允许和禁止同一属性的文字",
+        "一致作用于人物、物体、环境、承接物和视觉签名",
+        "独立场景根据当前画面重新选择",
+        "承接物的独立作用",
     ):
         assert required_rule in template
 
-    assert "最终提示词必须把 identity_profile.display_name 的实际值代入" not in template
+    for removed_role_bias in (
+        "实体角色",
+        "场景观察者",
+        "视觉身份自然存在于场景中同样成立",
+        "最终只选择一种最自然的表现方式",
+        "不要预设表现类型",
+        "采用实体角色或物体时",
+    ):
+        assert removed_role_bias not in template
 
 
 def test_fusion_template_does_not_limit_carriers_with_examples():
@@ -588,7 +600,7 @@ def test_fusion_template_does_not_limit_carriers_with_examples():
     assert "例如" not in template
 
 
-def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
+def test_fusion_template_keeps_one_signature_without_role_or_placement_biases():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
@@ -596,9 +608,9 @@ def test_fusion_template_restores_v11_open_scene_choice_without_v15_biases():
 
     for required_rule in (
         "整幅画只出现一个可识别的视觉身份实例",
-        "最终只选择一种最自然的表现方式",
-        "不要预设表现类型、固定位置、固定尺寸或固定景深",
-        "不得在纯内容画面末尾机械追加视觉身份",
+        "优先选择当前场景已有、同时服务文案表达或整体构图的物体作为承接物",
+        "当前场景缺少合适承接物体时",
+        "视觉身份与承接物共同构成同一个物体",
     ):
         assert required_rule in template
     for removed_bias in (
@@ -685,23 +697,27 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates"
     )
-    templates = (
-        (template_root / "visual_anchor_fusion_stage.md").read_text(
-            encoding="utf-8"
-        ),
-        (template_root / "visual_anchor_finalization_stage.md").read_text(
-            encoding="utf-8"
-        ),
+    fusion_template = (template_root / "visual_anchor_fusion_stage.md").read_text(
+        encoding="utf-8"
     )
+    finalization_template = (
+        template_root / "visual_anchor_finalization_stage.md"
+    ).read_text(encoding="utf-8")
 
-    for template in templates:
-        for required_rule in (
-            "次级系列视觉记忆点",
-            "不默认成为剧情主体",
-            "主体始终先被看见",
-            "清楚可辨但不抢夺主旨",
-        ):
-            assert required_rule in template
+    for required_rule in (
+        "其余画面中，视觉身份的职责固定为系列识别标记",
+        "人物关系、事件动作和情绪互动由原分镜主体承担",
+        "主体始终先被看见",
+    ):
+        assert required_rule in fusion_template
+    for required_rule in (
+        "次级系列视觉记忆点",
+        "不默认成为剧情主体",
+        "主体始终先被看见",
+        "清楚可辨但不抢夺主旨",
+    ):
+        assert required_rule in finalization_template
+    for template in (fusion_template, finalization_template):
         for forbidden_ratio in ("2%", "5%", "8%", "百分比"):
             assert forbidden_ratio not in template
 
@@ -711,22 +727,20 @@ def test_fusion_and_finalization_use_relative_emphasis_without_numeric_examples(
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates"
     )
-    templates = (
-        (template_root / "visual_anchor_fusion_stage.md").read_text(
-            encoding="utf-8"
-        ),
-        (template_root / "visual_anchor_finalization_stage.md").read_text(
-            encoding="utf-8"
-        ),
+    fusion_template = (template_root / "visual_anchor_fusion_stage.md").read_text(
+        encoding="utf-8"
     )
+    finalization_template = (
+        template_root / "visual_anchor_finalization_stage.md"
+    ).read_text(encoding="utf-8")
 
-    for template in templates:
-        for required_rule in (
-            "visual_signature_emphasis",
-            "只控制视觉身份相对主体的识别强弱",
-            "主体始终先被看见",
-        ):
-            assert required_rule in template
+    for template, emphasis_rule in (
+        (fusion_template, "只控制视觉签名相对主体的识别强弱"),
+        (finalization_template, "只控制视觉身份相对主体的识别强弱"),
+    ):
+        assert "visual_signature_emphasis" in template
+        assert emphasis_rule in template
+        assert "主体始终先被看见" in template
         assert "例如" not in template
 
 
