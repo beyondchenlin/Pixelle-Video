@@ -631,7 +631,7 @@ def test_fusion_template_keeps_one_signature_without_role_or_placement_biases():
     assert "服务端会按" not in template
 
 
-def test_finalization_template_repairs_current_facts_without_copying_history():
+def test_finalization_template_preserves_current_draft_without_copying_history():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_finalization_stage.md"
@@ -640,56 +640,72 @@ def test_finalization_template_repairs_current_facts_without_copying_history():
     for required_rule in (
         "original_storyboard_text 是当前画面的事实边界",
         "article_context 只用于核对身份、指代、因果和必要背景",
-        "第二次输出是加入视觉身份后的融合候选稿",
-        "不得默认 fusion_stage_output.raw_prompt 正确",
-        "不得只做润色、缩句或调整顺序",
-        "不得因为原文未逐项描述就一律删除",
-        "series_final_prompt_history 只用于了解最近三个最终提示词中的表现形态和融合关系",
-        "不得为了制造差异而改变自然的融合方案或额外添加物体",
-        "连续场景优先保持表现形态、空间关系和画面连续性",
+        "第二次输出是加入视觉签名后的融合草稿",
+        "fusion_stage_output.raw_prompt 是当前画面的默认创作基础",
+        "承接物选择、空间关系与构图决策全部保留",
+        "只修复存在明确冲突或缺失的部分",
+        "不是重新选择已经成立的创作方案",
+        "series_final_prompt_history 只用于核对连续场景的承接关系和空间连续性",
+        "明确当前画面属于连续场景时",
+        "独立场景只依据当前分镜和当前融合草稿完成审核",
     ):
         assert required_rule in template
+    for removed_override in (
+        "二者都不是正确答案",
+        "不得默认 fusion_stage_output.raw_prompt 正确",
+        "从头重写",
+    ):
+        assert removed_override not in template
 
 
-def test_finalization_template_unifies_scene_and_signature_styles():
+def test_finalization_template_preserves_relevant_carrier_and_unifies_scene_style():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_finalization_stage.md"
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "统一作用于内容主体、环境、承载对象和视觉身份",
-        "不得概括、省略或改写",
-        "视觉身份的主要作用是形成系列视觉记忆",
-        "不预设它必须采用实体角色或表面图形",
+        "target_visual_style 是整幅画唯一的表现规则",
+        "统一决定内容主体、环境、承接物和视觉签名",
+        "core_identity_traits、supporting_identity_traits 和 fixed_color_traits 的实际内容",
+        "是否明确把 identity_profile 对应的视觉身份写成参与事件的主体",
+        "其余画面中，视觉身份的职责固定为系列识别标记",
+        "人物关系、事件动作和情绪互动由原分镜主体承担",
+        "已经成立的承接物选择保持不变",
+        "优先选择当前场景已有的相关物体",
+        "创作一个同时服务文案含义、场景用途和整体构图的新物体",
+        "即使移除视觉身份，该物体仍是画面中合理且有作用的组成部分",
+        "表面图形、浮雕、材质纹理或局部造型",
+        "与承接物共同构成同一个物体",
+        "整幅画只保留一个可识别的视觉身份实例",
         "全部固定身份特征和固定配色各写一次",
-        "其他句子不得重复",
-        "不得另写容易再次触发身份形象的否定句",
-        "符合当前场景的年代和用途",
-        "采用实体角色或物体时必须有合理支撑和接触关系",
-        "采用画内图形时必须自然附着",
-        "删除仅为安置视觉身份而出现",
+        "其他句子使用“视觉签名”或“承接物”描述空间关系",
+        "承接物的位置、大小、朝向、用途和支撑关系清楚",
+        "视觉签名与承接物的附着、材质、边界、反射和受光关系一致",
+        "保留融合草稿中已经成立的主体、承接物和整体构图",
         "你的原始输出将直接作为图片正向提示词",
         "只输出最终图片提示词原文",
-        "不得照抄禁止项清单",
-        "最终文本不得同时允许和禁止同一属性",
         "事实审核",
         "风格审核",
-        "视觉身份审核",
+        "固定身份审核",
+        "角色职责审核",
+        "承接物审核",
+        "融合关系审核",
         "空间审核",
         "文字审核",
-        "任一审核项不通过，都必须在本次输出中直接修复",
-        "不能照抄融合候选稿",
+        "只修复该问题并把全部有效内容重写成一段连贯的最终提示词",
     ):
         assert required_rule in template
     assert "visual_signature_style" not in template
     assert "视觉身份独立风格" not in template
-    for forbidden_output in (
+    for forbidden_rule_or_output in (
+        "实体角色",
+        "场景观察者",
         "输出通过结论",
         "输出失败结论",
         "服务端会检查",
     ):
-        assert forbidden_output not in template
+        assert forbidden_rule_or_output not in template
 
 
 def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios():
@@ -711,10 +727,9 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
     ):
         assert required_rule in fusion_template
     for required_rule in (
-        "次级系列视觉记忆点",
-        "不默认成为剧情主体",
+        "其余画面中，视觉身份的职责固定为系列识别标记",
+        "人物关系、事件动作和情绪互动由原分镜主体承担",
         "主体始终先被看见",
-        "清楚可辨但不抢夺主旨",
     ):
         assert required_rule in finalization_template
     for template in (fusion_template, finalization_template):
@@ -734,12 +749,9 @@ def test_fusion_and_finalization_use_relative_emphasis_without_numeric_examples(
         template_root / "visual_anchor_finalization_stage.md"
     ).read_text(encoding="utf-8")
 
-    for template, emphasis_rule in (
-        (fusion_template, "只控制视觉签名相对主体的识别强弱"),
-        (finalization_template, "只控制视觉身份相对主体的识别强弱"),
-    ):
+    for template in (fusion_template, finalization_template):
         assert "visual_signature_emphasis" in template
-        assert emphasis_rule in template
+        assert "只控制视觉签名相对主体的识别强弱" in template
         assert "主体始终先被看见" in template
         assert "例如" not in template
 
