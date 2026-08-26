@@ -31,6 +31,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FusionStageOutput,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
+    LegacyContentStageInput,
     LegacyContentStageInputV15,
     RawContentStageOutput,
     RawFusionStageOutput,
@@ -533,17 +534,27 @@ async def test_raw_finalization_response_flows_directly_to_generation():
 
 @pytest.mark.asyncio
 async def test_selected_style_reaches_all_three_stage_prompts():
-    result, llm = await _run(_plan())
+    selected_style = TargetVisualStyle(
+        description="画风原始资料",
+        required_final_prompt_fragments=["真实电影感"],
+        required_negative_prompt_fragments=["画面中的彩色元素"],
+    )
+    result, llm = await _run(_plan(), target_visual_style=selected_style)
     content = result.frames[0].content_stage_output
     assert isinstance(content, RawContentStageOutput)
     assert "真实电影感" in llm.calls[0]["prompt"]
     assert "真实电影感" in llm.calls[1]["prompt"]
     assert "真实电影感" in llm.calls[2]["prompt"]
-    assert (
-        result.frames[0].content_stage_input.target_visual_style
-        == result.frames[0].fusion_stage_input.target_visual_style
+    assert result.frames[0].content_stage_input.target_visual_style == TargetVisualStyle(
+        description="真实电影感",
+        required_final_prompt_fragments=["真实电影感"],
+        required_negative_prompt_fragments=[],
     )
-    assert "只输出最终纯内容图片提示词原文" in llm.calls[0]["prompt"]
+    assert result.frames[0].fusion_stage_input.target_visual_style == selected_style
+    assert "画面中的彩色元素" not in llm.calls[0]["prompt"]
+    assert "画面中的彩色元素" in llm.calls[1]["prompt"]
+    assert "画面中的彩色元素" in llm.calls[2]["prompt"]
+    assert "输出一段完整的当前分镜图片提示词原文" in llm.calls[0]["prompt"]
     assert "只输出完整融合提示词草稿原文" in llm.calls[1]["prompt"]
     assert "只输出最终图片提示词原文" in llm.calls[2]["prompt"]
     assert '"visual_signature_style"' not in llm.calls[1]["prompt"]
@@ -1502,6 +1513,23 @@ def test_v22_style_neutral_content_input_remains_readable():
     restored = LegacyContentStageInputV15.model_validate(payload)
 
     assert restored.prompt_version == "visual_anchor_content_stage.v22"
+
+
+def test_v23_style_aware_content_input_remains_readable():
+    payload = ContentStageInput(
+        frame_id="frame-a",
+        original_storyboard_text="一个人正在组装电脑。",
+        article_context="文章上下文。",
+        previous_frame_summary="上一镜头。",
+        next_frame_summary="下一镜头。",
+        target_visual_style=TargetVisualStyle(description="真实电影感"),
+        target_image_prompt_language="中文",
+    ).model_dump(mode="json")
+    payload["prompt_version"] = "visual_anchor_content_stage.v23"
+
+    restored = LegacyContentStageInput.model_validate(payload)
+
+    assert restored.prompt_version == "visual_anchor_content_stage.v23"
 
 
 @pytest.mark.asyncio
