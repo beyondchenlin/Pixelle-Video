@@ -355,7 +355,7 @@ def _write_passed_binding(
     binding_path.write_text(
         json.dumps(
             {
-                "schema_version": "visual_anchor_first_generation_binding_audit.v9",
+                "schema_version": "visual_anchor_first_generation_binding_audit.v10",
                 "request_version": request.request_version,
                 "status": "passed",
                 "task_id": request.task_id,
@@ -401,6 +401,9 @@ def _write_passed_binding(
                 ),
                 "identity_scene_adaptation_policy": (
                     request.identity_scene_adaptation_policy
+                ),
+                "identity_scene_adaptation": (
+                    request.identity_scene_adaptation.model_dump(mode="json")
                 ),
                 "identity_resource_version": request.identity_resource_version,
                 "identity_content_sha256": request.identity_content_sha256,
@@ -509,7 +512,7 @@ def test_reference_pre_submit_audit_preserves_identity_and_scene_contracts(tmp_p
     )
 
     assert audit["schema_version"] == (
-        "visual_anchor_first_generation_binding_audit.v9"
+        "visual_anchor_first_generation_binding_audit.v10"
     )
     assert audit["target_visual_style"] == request.target_visual_style.model_dump(
         mode="json"
@@ -519,6 +522,9 @@ def test_reference_pre_submit_audit_preserves_identity_and_scene_contracts(tmp_p
         "脸部纯白、短耳鲜蓝、围巾鲜橙"
     ]
     assert audit["identity_authorized_visible_texts"] == ["PIXELLE"]
+    assert audit["identity_scene_adaptation"] == (
+        request.identity_scene_adaptation.model_dump(mode="json")
+    )
     assert audit["visible_text_policy"] == request.visible_text_policy.model_dump(
         mode="json"
     )

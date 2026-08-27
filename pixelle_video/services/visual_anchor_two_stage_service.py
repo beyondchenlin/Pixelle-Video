@@ -34,6 +34,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
+    VisualAnchorSceneAdaptationProfile,
     VisualAnchorTwoStageFrameResult,
 )
 from pixelle_video.models.visual_signature_emphasis import (
@@ -125,7 +126,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v15",
+            "schema_version": "visual_anchor_two_stage_batch.v16",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -159,6 +160,9 @@ def identity_profile_from_snapshot(
         authorized_text_style_traits=list(snapshot.authorized_text_style_traits),
         forbidden_traits=list(snapshot.forbidden_traits),
         source_asset_ids=source_asset_ids,
+        scene_adaptation=VisualAnchorSceneAdaptationProfile.model_validate(
+            snapshot.scene_adaptation.to_dict()
+        ),
         identity_content_sha256=snapshot.identity_content_sha256,
         identity_resource_version=(
             f"identity:{snapshot.profile_id}:{snapshot.identity_content_sha256}"
@@ -593,6 +597,7 @@ class VisualAnchorTwoStageService:
             identity_scene_adaptation_policy=(
                 identity_profile.scene_adaptation_policy
             ),
+            identity_scene_adaptation=identity_profile.scene_adaptation,
             identity_resource_version=identity_profile.identity_resource_version,
             identity_content_sha256=identity_profile.identity_content_sha256,
             identity_conditioning_mode=identity_conditioning_mode,

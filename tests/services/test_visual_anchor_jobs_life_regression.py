@@ -553,7 +553,7 @@ def test_fusion_template_requests_only_raw_draft_text():
         assert removed_field not in template
 
 
-def test_fusion_template_requires_an_independent_low_interference_carrier():
+def test_fusion_template_selects_type_aware_low_salience_manifestations():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
@@ -561,60 +561,37 @@ def test_fusion_template_requires_an_independent_low_interference_carrier():
 
     for required_rule in (
         "original_storyboard_text 是画面主旨和事实边界",
-        "content_stage_output.raw_prompt 是已经按照 target_visual_style 创作的内容画面",
-        "它只作为依附于场景物体的局部图形、材质纹样或功能结构",
-        "不形成独立角色、完整摆拍对象",
-        "先在内部盘点 content_stage_output.raw_prompt 中已经存在的物体",
-        "内容是否成立是准入门槛，不作为候选之间的优先级奖励",
-        "每个候选先通过载体独立成像检验",
-        "完全删除全部身份词语后",
-        "只剩“产品模型”“设备”“装饰品”“物件”等没有稳定外形的泛称时",
-        "不得依靠身份特征替载体定义形状",
-        "每个候选再通过删除检验",
-        "人物面部、身体、服装、手部周围以及人物正在手持、指向、注视或展示的核心物证属于主体互动区",
-        "只要前景、中景或背景存在另一个同样通过全部检验且不改变内容事实的功能物体",
-        "主体互动区不能因内容相关、面积大、无遮挡或容易展示身份而成为首选",
-        "存在三个及以上有效物体时至少比较三个候选",
-        "不足三个时比较全部有效物体",
-        "不得为了凑足数量虚构物体或融合关系",
-        "选择顺序固定为：对内容主体和核心动作的干扰最低、载体本体最明确",
-        "与 series_final_prompt_history 中最近方案的载体种类和空间层级不过度重复",
-        "内容相关性已经在准入门槛中判断，不得再次作为靠近主角的加分项",
-        "一个最小可识别图形中准确出现全部固定身份特征、固定配色和特征布局",
-        "不等于必须表现完整身体、独立姿态或完整角色",
-        "只有身体结构本身属于固定身份特征时才表现完整身体",
-        "不能通过放大载体、改变正常姿态、转向观众、移动到视觉中心或重复身份特征来弥补容量不足",
-        "只有内容画面确实没有任何通过独立成像检验、删除检验和承载能力检验的候选时",
-        "独立雕塑、摆件、玩偶、相框和立牌只有原分镜或内容画面本来就需要该物体时才能使用",
-        "最近三镜已有两次位于主体互动区",
-        "最近两镜重复同一载体种类和空间层级",
-        "历史只用于有效候选之间的自然变化",
-        "必须从构图源头重写一段完整画面",
-        "不能先原样复述内容画面，再在末尾追加身份段落",
-        "必须以实际载体为语法主体",
-        "身份名称只能作为图案、纹样、徽记或局部结构的内容",
-        "不得用“紧密融合”“不可拆分”“自然融入”“和谐共存”“不干扰主体”“大小适中”“清晰可见”等审核结论",
+        "identity_profile.scene_adaptation 只描述场景适配能力",
+        "字段为空时，在本次调用内部根据身份名称、固定特征和参考条件判断类型与安全变化范围",
+        "identity_conditioning_mode 只说明身份来自文字档案还是参考图片，不代表语义类型",
+        "人物、动物、植物、功能物品、标志图形或抽象符号",
+        "人物或动物可在本来就存在且允许普通成员的观众、路人、工作人员、动物群体中成为一个普通环境成员",
+        "植物可成为环境中一株有自然生长位置的普通植物",
+        "功能物品可成为场景中保持正常用途的实际物品",
+        "标志图形只能成为现有物体上的小型印刷、压印、刺绣、雕刻或界面标记",
+        "抽象符号只能成为局部纹样、结构节奏或界面符号",
+        "删除该实例后原画面仍完整成立",
+        "以上只说明选择方法，不是固定位置清单",
+        "存在三个及以上有效候选时至少比较三个",
+        "选择顺序固定为：对内容主体和核心动作的注意力干扰最低、语义类型与存在方式最匹配",
+        "内容相关性只决定候选是否合法",
+        "低显著性是硬性构图条件",
+        "不得位于画面中心轴、主角旁的视觉热点",
+        "不得成为画面中面积最大、对比最强、颜色最独特、轮廓最完整或细节最密集的次要元素",
+        "可以被合理遮挡或裁切，但仍保留最小识别条件",
+        "观众第一眼必须先看到内容主体和核心事件，继续观察局部时才发现该身份",
+        "人物和动物可变化安静且符合邻近群体的姿态",
+        "植物可变化枝叶朝向、疏密、舒展程度",
+        "标志图形和抽象符号只能变化载体、材质、透视、局部位置",
+        "不得连续重复同一表现家族、载体种类、空间层级、画面方位和姿态",
         "整幅画只出现一个可识别实例",
-        "全部固定身份特征和固定配色各写一次，并集中绑定在同一个载体区域",
-        "只提高该限定区域内的线条完整度和对比",
-        "不改变载体的面积、位置、朝向、外轮廓、遮挡关系和视觉中心",
+        "enhanced 也必须满足第一眼不抢戏",
         "target_visual_style 是整幅画唯一的表现规则",
-        "required_final_prompt_fragments 是必须落实并保留的正向风格事实",
         "required_negative_prompt_fragments 只表示禁止出现的视觉状态",
-        "不得原样复制到融合草稿",
-        "必须转换成与目标风格等价的正向画面状态",
     ):
         assert required_rule in template
 
-    for removed_role_bias in (
-        "实体角色",
-        "场景观察者",
-        "视觉身份自然存在于场景中同样成立",
-        "最终只选择一种最自然的表现方式",
-        "不要预设表现类型",
-        "采用实体角色或物体时",
-    ):
-        assert removed_role_bias not in template
+    assert "斑点狗" not in template
 
 
 def test_fusion_template_defines_method_specific_visible_boundaries():
@@ -624,11 +601,11 @@ def test_fusion_template_defines_method_specific_visible_boundaries():
     ).read_text(encoding="utf-8")
 
     for required_relation in (
-        "表面融合的印刷、压印或浅浮雕全部收在明确表面区域内",
+        "印刷、压印或浅浮雕全部收在明确表面区域内",
         "载体外轮廓、类别与功能保持不变",
-        "材质融合的纹理、刺绣或雕刻延续载体原有材质和受光，不形成独立体积",
+        "纹理、刺绣或雕刻延续载体原有材质，不形成独立体积",
         "结构融合只改造仍能保持载体原类别和正常功能的局部部件",
-        "根据实际物体只选择一种最成立的关系",
+        "实际实体则必须具有明确的地面、座椅、桌面、花盆、墙面支架或其他物理接触",
     ):
         assert required_relation in template
     for removed_scene_specific_example in (
@@ -641,7 +618,7 @@ def test_fusion_template_defines_method_specific_visible_boundaries():
         assert removed_scene_specific_example not in template
 
 
-def test_fusion_template_keeps_one_signature_without_role_or_placement_biases():
+def test_fusion_template_keeps_one_signature_without_fixed_placement_biases():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
@@ -649,9 +626,10 @@ def test_fusion_template_keeps_one_signature_without_role_or_placement_biases():
 
     for required_rule in (
         "整幅画只出现一个可识别实例",
-        "只有内容画面确实没有任何通过独立成像检验、删除检验和承载能力检验的候选时",
-        "必须以实际载体为语法主体",
-        "身份名称只能作为图案、纹样、徽记或局部结构的内容",
+        "只有内容画面没有任何有效的现有群体位置、场景实体、功能物品或表面载体时",
+        "写环境实体时",
+        "写表面标记时，以实际载体为语法主体",
+        "不能为了展示身份而新增",
     ):
         assert required_rule in template
     for removed_bias in (
@@ -672,7 +650,7 @@ def test_fusion_template_keeps_one_signature_without_role_or_placement_biases():
     assert "服务端会按" not in template
 
 
-def test_finalization_template_rejects_non_renderable_and_high_interaction_carriers():
+def test_finalization_template_rejects_type_errors_and_attention_competition():
     template = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates/visual_anchor_finalization_stage.md"
@@ -685,18 +663,20 @@ def test_finalization_template_rejects_non_renderable_and_high_interaction_carri
         "next_frame_summary 只确定结束边界",
         "第二次输出是加入身份细节后的融合草稿",
         "fusion_stage_output.raw_prompt 只有通过下面全部审核时才是有效创作基础",
-        "任一硬性条件失败都必须放弃其载体选择或融合写法",
-        "载体独立成像是硬性条件",
-        "完全删除全部身份词语后",
-        "只剩“产品模型”“设备”“装饰品”“物件”等泛称",
-        "人物正在手持、指向、注视或展示的核心物证属于主体互动区",
-        "位于主体互动区的方案无效",
-        "身份特征改变载体整体轮廓、把载体变成身份造型物",
-        "最近三镜已有两次位于主体互动区",
-        "最近两镜重复同一载体种类和空间层级",
+        "任一硬性条件失败都必须放弃其表现方式、位置或写法",
+        "identity_profile.scene_adaptation 中 semantic_type_hint 只是类型提示",
+        "identity_conditioning_mode 只代表文字或参考图片来源，不代表身份属于角色、物品或标志",
+        "标志和符号被赋予身体、表情、跑跳或注视",
+        "人物或动物只有在内容本来存在开放数量的观众、路人、工作人员或同类群体时",
+        "删除该实例后，原画面仍能完整表达文案",
+        "第一眼注意力审核是硬门槛",
+        "身份位于画面中心轴、主角旁的视觉热点",
+        "成为面积最大、对比最强、颜色最独特、轮廓最完整、细节最密集的次要元素",
+        "当前方案无效",
+        "不得连续重复同一表现家族、载体种类、空间层级、画面方位和姿态",
         "任一方案出现以下情况即为无效",
-        "回到 fusion_stage_input.content_stage_output.raw_prompt 重新盘点已有物体并重写完整构图",
-        "只有不存在任何有效候选时才新增一个本来就同时服务文案、场景用途和构图的物体",
+        "回到 fusion_stage_input.content_stage_output.raw_prompt 重新盘点已有群体、环境实体、功能物品和表面载体",
+        "只有不存在任何有效候选时才新增一个去掉身份特征后仍同时服务文案、场景用途或构图的低显著性元素",
         "直接作为图片正向提示词",
     ):
         assert required_rule in template
@@ -714,33 +694,32 @@ def test_finalization_template_enforces_visible_fusion_and_unifies_scene_style()
         "required_final_prompt_fragments 必须落实并保留",
         "required_negative_prompt_fragments 必须转换成等价的正向画面状态",
         "core_identity_traits、supporting_identity_traits 和 fixed_color_traits 的实际内容",
-        "它只能成为有独立用途物体上的局部图形、材质纹样或功能结构",
-        "人物动作与情绪互动仍由原分镜主体承担",
-        "全部固定身份特征必须能收在一个最小可识别图形中",
-        "完整保留特征不等于生成完整身体、独立姿态或完整角色",
-        "表面融合的图案必须全部收在明确表面区域内",
+        "人物或动物可以是低显著性的环境参与者",
+        "植物只能按植物的生长与陈设逻辑出现",
+        "标志图形只能是局部平面或材质标记",
+        "身份只能在继续观察相应局部后被发现",
+        "最终文本必须具体写明身份所在的前景、中景或背景位置",
+        "表面图案必须全部收在明确表面区域内",
         "载体外轮廓、类别与功能保持不变",
-        "融合句必须以实际载体为语法主体",
-        "先独立写清没有身份特征时也成立的载体本体、用途、空间层级、自然位置和明确区域",
-        "使用“紧密融合”“不可拆分”“自然融入”“和谐共存”“不干扰主体”“大小适中”“清晰可见”等结论代替具体可见关系时",
+        "实际实体必须具有明确地面、座椅、桌面、花盆、墙面支架或其他物理接触",
+        "不能用“大小适中”“自然融入”“不抢戏”“不起眼”“清晰可见”等结论替代可见事实",
         "整幅画只保留一个可识别实例",
-        "只提高限定区域内的线条完整度和对比",
-        "不能改变载体面积、位置、朝向、外轮廓、遮挡关系或视觉中心",
+        "只提高实例内部固定特征的线条完整度和局部辨识度",
+        "不能改变面积、位置、朝向、外轮廓、遮挡关系、周围对比或视觉中心",
         "直接作为图片正向提示词",
         "只输出最终图片提示词原文",
         "事实与内容审核",
         "风格与文字审核",
-        "角色职责审核",
+        "场景适配审核",
+        "类型审核",
         "跨镜审核",
-        "当前分镜事实、内容主体与核心事件、载体独立成像、固定身份事实、物理融合边界、目标风格、跨镜自然变化",
+        "当前分镜事实、内容主体与核心事件、固定身份事实、语义类型与适配边界、第一眼注意力",
     ):
         assert required_rule in template
     assert "visual_signature_style" not in template
     assert "视觉身份独立风格" not in template
     assert "当前分镜事实、固定身份事实、目标风格、内容主体" not in template
     for forbidden_rule_or_output in (
-        "实体角色",
-        "场景观察者",
         "输出通过结论",
         "输出失败结论",
         "服务端会检查",
@@ -761,15 +740,15 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "不形成独立角色、完整摆拍对象",
-        "人物动作与情绪互动仍由原分镜主体承担",
-        "内容主体和核心事件仍然最先被看见",
+        "不承担核心动作",
+        "不得位于画面中心轴、主角旁的视觉热点",
+        "观众第一眼必须先看到内容主体和核心事件",
     ):
         assert required_rule in fusion_template
     for required_rule in (
-        "不形成独立角色、完整摆拍对象",
-        "人物动作与情绪互动仍由原分镜主体承担",
-        "内容主体始终最先被看见",
+        "不得承担核心动作",
+        "第一眼注意力审核是硬门槛",
+        "内容主体和核心事件必须先被看见",
     ):
         assert required_rule in finalization_template
     for template in (fusion_template, finalization_template):

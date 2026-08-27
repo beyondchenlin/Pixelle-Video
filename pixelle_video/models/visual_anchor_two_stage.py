@@ -6,14 +6,18 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from pixelle_video.models.series_visual_signature import (
+    MAX_SCENE_ADAPTATION_ITEM_CHARS,
+    MAX_SCENE_ADAPTATION_ITEMS,
+    MAX_SCENE_ADAPTATION_TOTAL_CHARS,
+    SCENE_ADAPTATION_PROFILE_VERSION,
     series_visual_signature_identity_content_sha256,
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v27"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v43"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v24"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v15"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v44"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v25"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v16"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -88,6 +92,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v40",
     "visual_anchor_fusion_stage.v41",
     "visual_anchor_fusion_stage.v42",
+    "visual_anchor_fusion_stage.v43",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -114,6 +119,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v21",
     "visual_anchor_finalization_stage.v22",
     "visual_anchor_finalization_stage.v23",
+    "visual_anchor_finalization_stage.v24",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -125,6 +131,7 @@ GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v12",
     "visual_anchor_generation_request.v13",
     "visual_anchor_generation_request.v14",
+    "visual_anchor_generation_request.v15",
     GENERATION_REQUEST_VERSION,
 ]
 
@@ -134,6 +141,7 @@ _IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS = frozenset(
         "visual_anchor_fusion_stage.v40",
         "visual_anchor_fusion_stage.v41",
         "visual_anchor_fusion_stage.v42",
+        "visual_anchor_fusion_stage.v43",
         FUSION_STAGE_PROMPT_VERSION,
     }
 )
@@ -141,6 +149,7 @@ _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS = frozenset(
     {
         "visual_anchor_generation_request.v13",
         "visual_anchor_generation_request.v14",
+        "visual_anchor_generation_request.v15",
         GENERATION_REQUEST_VERSION,
     }
 )
@@ -148,6 +157,7 @@ _RAW_THREE_STAGE_GENERATION_REQUEST_VERSIONS = frozenset(
     {
         "visual_anchor_generation_request.v13",
         "visual_anchor_generation_request.v14",
+        "visual_anchor_generation_request.v15",
         GENERATION_REQUEST_VERSION,
     }
 )
@@ -176,6 +186,19 @@ _STYLE_DATA_INJECTION_MARKERS = (
     "开发者消息",
     "覆盖指令",
     "越狱",
+)
+_SCENE_ADAPTATION_DATA_INJECTION_MARKERS = (
+    *_STYLE_DATA_INJECTION_MARKERS,
+    "follow these instructions",
+    "follow my instructions",
+    "must render",
+    "must show",
+    "must include",
+    "遵循这些指令",
+    "遵循我的指令",
+    "必须渲染",
+    "必须显示",
+    "必须包含",
 )
 
 
@@ -255,6 +278,25 @@ def _validate_visual_style_data_text(value: str, field_name: str) -> str:
         raise ValueError(
             f"{field_name} must contain visual data, not prompt-control instructions"
         )
+    return value
+
+
+def _validate_scene_adaptation_data_text(value: str, field_name: str) -> str:
+    if len(value) > MAX_SCENE_ADAPTATION_ITEM_CHARS:
+        raise ValueError(
+            f"{field_name} values must not exceed "
+            f"{MAX_SCENE_ADAPTATION_ITEM_CHARS} characters"
+        )
+    normalized = value.casefold()
+    if any(
+        marker.casefold() in normalized
+        for marker in _SCENE_ADAPTATION_DATA_INJECTION_MARKERS
+    ):
+        raise ValueError(
+            f"{field_name} must contain scene-adaptation data, not instructions"
+        )
+    if "\n" in value or "\r" in value or ";" in value or "；" in value:
+        raise ValueError(f"{field_name} values must be single phrases")
     return value
 
 
@@ -834,6 +876,97 @@ ReadableContentStageInput = (
 )
 
 
+class VisualAnchorSceneAdaptationProfile(BaseModel):
+    """Trusted scene-varying affordances, separate from immutable identity facts."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    contract_version: Literal[SCENE_ADAPTATION_PROFILE_VERSION] = (
+        SCENE_ADAPTATION_PROFILE_VERSION
+    )
+    semantic_type_hint: str = Field(default="", max_length=MAX_SCENE_ADAPTATION_ITEM_CHARS)
+    variable_slots: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_SCENE_ADAPTATION_ITEMS,
+    )
+    role_presets: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_SCENE_ADAPTATION_ITEMS,
+    )
+    presence_spectrum: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_SCENE_ADAPTATION_ITEMS,
+    )
+    adaptable_slots: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_SCENE_ADAPTATION_ITEMS,
+    )
+    default_slot_preference: str = Field(
+        default="prefer_supporting",
+        max_length=MAX_SCENE_ADAPTATION_ITEM_CHARS,
+    )
+    missing_type_policy: Literal["infer_from_identity_facts_in_fusion_stage"] = (
+        "infer_from_identity_facts_in_fusion_stage"
+    )
+
+    @field_validator(
+        "semantic_type_hint",
+        "default_slot_preference",
+        mode="before",
+    )
+    @classmethod
+    def _validate_single_values(cls, value: object, info) -> str:
+        if isinstance(value, str) and any(
+            marker in value for marker in ("\n", "\r", ";", "；")
+        ):
+            raise ValueError(f"{info.field_name} must be one phrase")
+        normalized = _optional_text(value, info.field_name)
+        if info.field_name == "default_slot_preference" and not normalized:
+            normalized = "prefer_supporting"
+        if normalized:
+            _validate_scene_adaptation_data_text(normalized, info.field_name)
+        return normalized
+
+    @field_validator(
+        "variable_slots",
+        "role_presets",
+        "presence_spectrum",
+        "adaptable_slots",
+    )
+    @classmethod
+    def _validate_lists(cls, value: list[str], info) -> list[str]:
+        raw_values = list(value)
+        if any(
+            isinstance(item, str)
+            and any(marker in item for marker in ("\n", "\r", ";", "；"))
+            for item in raw_values
+        ):
+            raise ValueError(f"{info.field_name} values must be single phrases")
+        normalized = _text_list(raw_values, info.field_name)
+        if len(normalized) != len(raw_values):
+            raise ValueError(f"{info.field_name} must not contain blanks or duplicates")
+        for item in normalized:
+            _validate_scene_adaptation_data_text(item, info.field_name)
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_total_text(self) -> "VisualAnchorSceneAdaptationProfile":
+        total_chars = sum(
+            len(value)
+            for value in (
+                self.semantic_type_hint,
+                self.default_slot_preference,
+                *self.variable_slots,
+                *self.role_presets,
+                *self.presence_spectrum,
+                *self.adaptable_slots,
+            )
+        )
+        if total_chars > MAX_SCENE_ADAPTATION_TOTAL_CHARS:
+            raise ValueError("scene adaptation profile exceeds total text limit")
+        return self
+
+
 class VisualAnchorIdentityProfile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -846,6 +979,9 @@ class VisualAnchorIdentityProfile(BaseModel):
     authorized_text_style_traits: list[str] = Field(default_factory=list)
     forbidden_traits: list[str] = Field(default_factory=list)
     source_asset_ids: list[str] = Field(default_factory=list)
+    scene_adaptation: VisualAnchorSceneAdaptationProfile = Field(
+        default_factory=VisualAnchorSceneAdaptationProfile
+    )
     identity_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     identity_resource_version: str
     name_rendering_policy: Literal["metadata_only"] = "metadata_only"
@@ -1579,6 +1715,9 @@ class VisualAnchorImageGenerationRequest(BaseModel):
     identity_scene_adaptation_policy: Literal[
         "preserve_identity_invariants_follow_scene_rendering"
     ] = "preserve_identity_invariants_follow_scene_rendering"
+    identity_scene_adaptation: VisualAnchorSceneAdaptationProfile = Field(
+        default_factory=VisualAnchorSceneAdaptationProfile
+    )
     identity_resource_version: str
     identity_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     identity_conditioning_mode: Literal["text_profile", "reference_image"]

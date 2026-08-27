@@ -62,6 +62,10 @@ FORBIDDEN_TEXT_CHARACTER_ROLES = frozenset(
 
 MAX_TRAIT_CHARS = 64
 MAX_CANONICAL_IDENTITY_CHARS = 400
+MAX_SCENE_ADAPTATION_ITEMS = 16
+MAX_SCENE_ADAPTATION_ITEM_CHARS = 240
+MAX_SCENE_ADAPTATION_TOTAL_CHARS = 3000
+SCENE_ADAPTATION_PROFILE_VERSION = "visual_signature_scene_adaptation.v1"
 SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION = "v4_expression"
 SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION = "v4_2_identity_contract"
 MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION = (
@@ -495,6 +499,98 @@ class SeriesVisualSignatureRequest:
 
 
 @dataclass(frozen=True)
+class VisualSignatureSceneAdaptationSnapshot:
+    """Scene-varying affordances kept separate from immutable identity facts."""
+
+    semantic_type_hint: str = ""
+    variable_slots: Sequence[str] = field(default_factory=tuple)
+    role_presets: Sequence[str] = field(default_factory=tuple)
+    presence_spectrum: Sequence[str] = field(default_factory=tuple)
+    adaptable_slots: Sequence[str] = field(default_factory=tuple)
+    default_slot_preference: str = "prefer_supporting"
+    contract_version: str = SCENE_ADAPTATION_PROFILE_VERSION
+
+    def __post_init__(self) -> None:
+        if self.contract_version != SCENE_ADAPTATION_PROFILE_VERSION:
+            raise ValueError("unsupported visual signature scene adaptation version")
+        object.__setattr__(
+            self,
+            "semantic_type_hint",
+            _adaptation_text(
+                "semantic_type_hint",
+                self.semantic_type_hint,
+                allow_empty=True,
+            ),
+        )
+        for field_name in (
+            "variable_slots",
+            "role_presets",
+            "presence_spectrum",
+            "adaptable_slots",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _adaptation_tuple(field_name, getattr(self, field_name)),
+            )
+        object.__setattr__(
+            self,
+            "default_slot_preference",
+            _adaptation_text(
+                "default_slot_preference",
+                self.default_slot_preference or "prefer_supporting",
+                allow_empty=False,
+            ),
+        )
+        total_chars = sum(
+            len(value)
+            for value in (
+                self.semantic_type_hint,
+                self.default_slot_preference,
+                *self.variable_slots,
+                *self.role_presets,
+                *self.presence_spectrum,
+                *self.adaptable_slots,
+            )
+        )
+        if total_chars > MAX_SCENE_ADAPTATION_TOTAL_CHARS:
+            raise ValueError(
+                "visual signature scene adaptation profile exceeds total text limit"
+            )
+
+    @classmethod
+    def from_mapping(
+        cls,
+        source: Mapping[str, Any] | None,
+    ) -> "VisualSignatureSceneAdaptationSnapshot":
+        data = dict(source or {})
+        return cls(
+            semantic_type_hint=data.get("semantic_type_hint", data.get("ip_type", "")),
+            variable_slots=data.get("variable_slots") or (),
+            role_presets=data.get("role_presets") or (),
+            presence_spectrum=data.get("presence_spectrum") or (),
+            adaptable_slots=data.get("adaptable_slots") or (),
+            default_slot_preference=(
+                data.get("default_slot_preference") or "prefer_supporting"
+            ),
+            contract_version=(
+                data.get("contract_version") or SCENE_ADAPTATION_PROFILE_VERSION
+            ),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "contract_version": self.contract_version,
+            "semantic_type_hint": self.semantic_type_hint,
+            "variable_slots": list(self.variable_slots),
+            "role_presets": list(self.role_presets),
+            "presence_spectrum": list(self.presence_spectrum),
+            "adaptable_slots": list(self.adaptable_slots),
+            "default_slot_preference": self.default_slot_preference,
+        }
+
+
+@dataclass(frozen=True)
 class VisualSignatureProfileSnapshot:
     profile_id: str
     display_name: str
@@ -509,6 +605,9 @@ class VisualSignatureProfileSnapshot:
     authorized_text_style_traits: Sequence[str] = field(default_factory=tuple)
     canonical_identity_clause: str = ""
     identity_content_sha256: str = ""
+    scene_adaptation: VisualSignatureSceneAdaptationSnapshot = field(
+        default_factory=VisualSignatureSceneAdaptationSnapshot
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "profile_id", _require_text("profile_id", self.profile_id))
@@ -592,6 +691,16 @@ class VisualSignatureProfileSnapshot:
         )
         object.__setattr__(self, "forbidden_traits", tuple(forbidden_traits))
         object.__setattr__(self, "source_asset_ids", _text_tuple("source_asset_ids", self.source_asset_ids, allow_empty=True))
+        scene_adaptation = self.scene_adaptation
+        if isinstance(scene_adaptation, Mapping):
+            scene_adaptation = VisualSignatureSceneAdaptationSnapshot.from_mapping(
+                scene_adaptation
+            )
+        if not isinstance(scene_adaptation, VisualSignatureSceneAdaptationSnapshot):
+            raise ValueError(
+                "scene_adaptation must be a VisualSignatureSceneAdaptationSnapshot"
+            )
+        object.__setattr__(self, "scene_adaptation", scene_adaptation)
         canonical_clause = canonical_series_visual_signature_identity_clause(
             display_name=self.display_name,
             core_identity_traits=core_traits,
@@ -646,6 +755,19 @@ class VisualSignatureProfileSnapshot:
             ),
             canonical_identity_clause=data.get("canonical_identity_clause") or "",
             identity_content_sha256=data.get("identity_content_sha256") or "",
+            scene_adaptation=VisualSignatureSceneAdaptationSnapshot.from_mapping(
+                data.get("scene_adaptation")
+                or {
+                    "ip_type": data.get("ip_type") or "",
+                    "variable_slots": data.get("variable_slots") or (),
+                    "role_presets": data.get("role_presets") or (),
+                    "presence_spectrum": data.get("presence_spectrum") or (),
+                    "adaptable_slots": data.get("adaptable_slots") or (),
+                    "default_slot_preference": (
+                        data.get("default_slot_preference") or "prefer_supporting"
+                    ),
+                }
+            ),
         )
 
     @classmethod
@@ -669,6 +791,7 @@ class VisualSignatureProfileSnapshot:
             "style_safe_traits": list(self.style_safe_traits),
             "forbidden_traits": list(self.forbidden_traits),
             "source_asset_ids": list(self.source_asset_ids),
+            "scene_adaptation": self.scene_adaptation.to_dict(),
         }
 
 
@@ -1040,6 +1163,60 @@ def _trait_tuple(field_name: str, values: Sequence[Any], *, allow_empty: bool) -
     return result
 
 
+def _adaptation_text(
+    field_name: str,
+    value: Any,
+    *,
+    allow_empty: bool,
+) -> str:
+    if value is None:
+        value = ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    raw = value.strip()
+    if not raw:
+        if allow_empty:
+            return ""
+        raise ValueError(f"{field_name} must not be empty")
+    if "\n" in raw or "\r" in raw or ";" in raw or "；" in raw:
+        raise ValueError(f"{field_name} must be one scene-adaptation phrase")
+    text = unicodedata.normalize("NFC", " ".join(raw.split()))
+    if len(text) > MAX_SCENE_ADAPTATION_ITEM_CHARS:
+        raise ValueError(
+            f"{field_name} exceeds {MAX_SCENE_ADAPTATION_ITEM_CHARS} characters"
+        )
+    lowered = text.casefold()
+    if any(
+        term.casefold() in lowered
+        for term in _FORBIDDEN_NEGATIVE_TRAIT_INSTRUCTION_TERMS
+    ):
+        raise ValueError(
+            f"{field_name} must contain scene-adaptation data, not instructions"
+        )
+    return text
+
+
+def _adaptation_tuple(field_name: str, values: Sequence[Any]) -> tuple[str, ...]:
+    if values is None:
+        values = ()
+    if isinstance(values, str) or not isinstance(values, Sequence):
+        raise ValueError(f"{field_name} must be a sequence of strings")
+    if len(values) > MAX_SCENE_ADAPTATION_ITEMS:
+        raise ValueError(
+            f"{field_name} must contain at most {MAX_SCENE_ADAPTATION_ITEMS} items"
+        )
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = _adaptation_text(field_name, value, allow_empty=False)
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return tuple(result)
+
+
 def _negative_trait_tuple(
     field_name: str,
     values: Sequence[Any],
@@ -1113,8 +1290,12 @@ __all__ = [
     "ALLOWED_TEXT_CHARACTER_ROLES",
     "FORBIDDEN_TEXT_CHARACTER_ROLES",
     "MAX_CANONICAL_IDENTITY_CHARS",
+    "MAX_SCENE_ADAPTATION_ITEMS",
+    "MAX_SCENE_ADAPTATION_ITEM_CHARS",
+    "MAX_SCENE_ADAPTATION_TOTAL_CHARS",
     "MANDATORY_CONTENT_BOUND_ANCHOR_CONTRACT_VERSION",
     "MAX_TRAIT_CHARS",
+    "SCENE_ADAPTATION_PROFILE_VERSION",
     "SERIES_VISUAL_SIGNATURE_LEGACY_PIPELINE_VERSION",
     "SERIES_VISUAL_SIGNATURE_PIPELINE_VERSION",
     "SUPPORTED_SERIES_VISUAL_SIGNATURE_PIPELINE_VERSIONS",
@@ -1123,6 +1304,7 @@ __all__ = [
     "SeriesVisualSignatureRole",
     "SignatureReplacementPolicy",
     "VisualSignatureProfileSnapshot",
+    "VisualSignatureSceneAdaptationSnapshot",
     "canonical_series_visual_signature_identity_clause",
     "is_supported_series_visual_signature_pipeline_version",
     "relative_size_from_max_area_ratio",
