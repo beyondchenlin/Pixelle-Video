@@ -501,24 +501,41 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "内容判断顺序固定为",
         "original_storyboard_text 是当前画面的事实边界",
         "本帧唯一必须表达的内容核心",
-        "article_context 只用于确认身份、指代、主题、因果和理解当前句所必需的背景",
-        "previous_frame_summary 只用于确认已经呈现的内容",
-        "next_frame_summary 只用于确定当前句的结束边界",
-        "target_visual_style 只决定表现方式，不得反过来改变内容事实",
+        "article_context、previous_frame_summary 和 next_frame_summary 只用于理解当前句",
+        "不得把其他输入中的独立事件搬入画面",
+        "构图前在内部确定当前事件的实体关系",
+        "代词或省略主语先在当前句内解析",
+        "不得默认绑定全文最重要的人物",
+        "next_frame_summary 只确认当前句边界和人物切换",
+        "区分被提及的实体与画面必须呈现的实体",
+        "当前句讨论某人的经历、选择、状态或故事时，该人物属于内容核心",
+        "只表示所有权、来源、比较或背景",
+        "“我们、人们、用户、观众、团队”等群体保持原本语义",
+        "允许没有人物",
+        "同一指代链在画面中对应同一个实例",
+        "具名实体默认只出现一次",
+        "当前事件存在多个人物时",
+        "不得只保留全文最重要的人物",
+        "最终提示词写明画面内只有一位该人物",
+        "用姓名引入一次",
+        "target_visual_style 只决定表现方式，不得改变内容事实",
         "观众必须从这一帧看懂的唯一内容主张",
         "可见动作、物证、人物关系、空间状态、选择、冲突、阻力、代价或结果",
-        "不能用与当前内容没有决定性关系的通用姿态、表情或装饰代替视觉证据",
+        "不能用无决定性关系的通用姿态、表情或装饰代替视觉证据",
         "观众只看画面、不依靠字幕或解释",
         "围绕一个视觉中心设计主体、决定性动作、核心物证、环境、景别、视角",
         "核心物证必须具有可独立成像的具体类别、基础轮廓、正常用途、相对尺度、姿态和接触关系",
-        "不得只写“产品模型”“设备”“装饰品”“物件”等无法确定外形的泛称",
-        "只用中性几何形态和实际功能补足成像信息，不新增品牌或剧情",
+        "不得只写“产品模型”“设备”“装饰品”“物件”等泛称",
+        "只用中性几何形态和实际功能补足，不新增品牌或剧情",
         "不能连续复用实质相同的画面方案",
+        "连续场景同时保持地点和关键物品",
         "逐项核对双手、视线、持有物、接触面、遮挡、朝向和前后关系",
-        "旁白、观点、引号中的句子和分镜原文本身都不自动成为画面文字",
+        "具名人物不得改写成无身份的普通人物",
+        "年龄变化时保留姓名和阶段相符的外观",
+        "简化面部仍须保留足以区分人物的发型、眼镜、胡须、服装或脸部轮廓特征",
+        "旁白、观点、引号和分镜原文不自动成为画面文字",
         "内容事实和视觉证据确定后，target_visual_style 统一作用",
         "统一画面语言、主体与决定性动作、核心物证、环境与空间关系、景别与视角、材质光影与色彩、文字边界",
         "不加入、暗示或预留视觉身份、频道标记和额外记忆符号",
@@ -531,6 +548,33 @@ def test_content_template_enforces_general_renderability_and_source_fidelity():
         "series_final_prompt_history",
     ):
         assert out_of_scope_input not in template
+
+
+def test_content_template_does_not_install_a_global_protagonist_policy():
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates/visual_anchor_content_stage.md"
+    ).read_text(encoding="utf-8")
+
+    assert "当前句明确写出的实体直接采用" in template
+    assert "数量、性别、时间阶段、事件角色和语义关系" in template
+    assert "先在当前句内解析" in template
+    assert "经历、选择、状态或故事" in template
+    assert "群体保持原本语义" in template
+    assert "当前事件存在多个人物时" in template
+    assert "不得默认绑定全文最重要的人物" in template
+    assert "所有代词都绑定" not in template
+    assert "全文主角必须出现" not in template
+
+
+def test_content_template_stays_within_a_compact_instruction_budget():
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates/visual_anchor_content_stage.md"
+    ).read_text(encoding="utf-8")
+
+    assert len(template) <= 2400
+    assert template.count("要求：") == 1
 
 
 def test_fusion_template_requests_only_raw_draft_text():

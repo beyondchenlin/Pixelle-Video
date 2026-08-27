@@ -502,7 +502,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v18"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v19"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -1477,6 +1477,38 @@ async def test_v17_chain_without_manifestation_preference_remains_readable():
     )
     assert restored.generation_request.request_version == (
         "visual_anchor_generation_request.v17"
+    )
+
+
+@pytest.mark.asyncio
+async def test_v18_chain_with_previous_content_prompt_remains_readable():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+
+    payload["content_stage_input"]["prompt_version"] = (
+        "visual_anchor_content_stage.v27"
+    )
+    finalization_input = payload["finalization_stage_input"]
+    finalization_input["content_stage_input"]["prompt_version"] = (
+        "visual_anchor_content_stage.v27"
+    )
+    request = payload["generation_request"]
+    request["request_version"] = "visual_anchor_generation_request.v18"
+    request["content_stage_prompt_version"] = (
+        "visual_anchor_content_stage.v27"
+    )
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.content_stage_input.prompt_version == (
+        "visual_anchor_content_stage.v27"
+    )
+    assert restored.finalization_stage_input is not None
+    assert restored.finalization_stage_input.content_stage_input.prompt_version == (
+        "visual_anchor_content_stage.v27"
+    )
+    assert restored.generation_request.request_version == (
+        "visual_anchor_generation_request.v18"
     )
 
 

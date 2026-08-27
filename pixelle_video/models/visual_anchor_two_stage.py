@@ -14,10 +14,10 @@ from pixelle_video.models.series_visual_signature import (
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v27"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v28"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v46"
 FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v27"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v18"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v19"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -44,6 +44,7 @@ HistoricalContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v24",
     "visual_anchor_content_stage.v25",
     "visual_anchor_content_stage.v26",
+    "visual_anchor_content_stage.v27",
 ]
 ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v15",
@@ -138,6 +139,7 @@ GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v15",
     "visual_anchor_generation_request.v16",
     "visual_anchor_generation_request.v17",
+    "visual_anchor_generation_request.v18",
     GENERATION_REQUEST_VERSION,
 ]
 
@@ -160,6 +162,7 @@ _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS = frozenset(
         "visual_anchor_generation_request.v15",
         "visual_anchor_generation_request.v16",
         "visual_anchor_generation_request.v17",
+        "visual_anchor_generation_request.v18",
         GENERATION_REQUEST_VERSION,
     }
 )
@@ -170,6 +173,7 @@ _RAW_THREE_STAGE_GENERATION_REQUEST_VERSIONS = frozenset(
         "visual_anchor_generation_request.v15",
         "visual_anchor_generation_request.v16",
         "visual_anchor_generation_request.v17",
+        "visual_anchor_generation_request.v18",
         GENERATION_REQUEST_VERSION,
     }
 )

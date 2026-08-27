@@ -139,7 +139,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v18",
+            "schema_version": "visual_anchor_two_stage_batch.v19",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
