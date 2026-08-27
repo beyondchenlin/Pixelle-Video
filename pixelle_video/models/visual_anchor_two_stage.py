@@ -15,9 +15,9 @@ from pixelle_video.models.series_visual_signature import (
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v27"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v44"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v25"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v16"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v45"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v26"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v17"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -93,6 +93,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v41",
     "visual_anchor_fusion_stage.v42",
     "visual_anchor_fusion_stage.v43",
+    "visual_anchor_fusion_stage.v44",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -120,6 +121,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v22",
     "visual_anchor_finalization_stage.v23",
     "visual_anchor_finalization_stage.v24",
+    "visual_anchor_finalization_stage.v25",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -132,6 +134,7 @@ GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v13",
     "visual_anchor_generation_request.v14",
     "visual_anchor_generation_request.v15",
+    "visual_anchor_generation_request.v16",
     GENERATION_REQUEST_VERSION,
 ]
 
@@ -142,6 +145,7 @@ _IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS = frozenset(
         "visual_anchor_fusion_stage.v41",
         "visual_anchor_fusion_stage.v42",
         "visual_anchor_fusion_stage.v43",
+        "visual_anchor_fusion_stage.v44",
         FUSION_STAGE_PROMPT_VERSION,
     }
 )
@@ -150,6 +154,7 @@ _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS = frozenset(
         "visual_anchor_generation_request.v13",
         "visual_anchor_generation_request.v14",
         "visual_anchor_generation_request.v15",
+        "visual_anchor_generation_request.v16",
         GENERATION_REQUEST_VERSION,
     }
 )
@@ -158,6 +163,7 @@ _RAW_THREE_STAGE_GENERATION_REQUEST_VERSIONS = frozenset(
         "visual_anchor_generation_request.v13",
         "visual_anchor_generation_request.v14",
         "visual_anchor_generation_request.v15",
+        "visual_anchor_generation_request.v16",
         GENERATION_REQUEST_VERSION,
     }
 )
@@ -1255,6 +1261,10 @@ class FusionStageInput(BaseModel):
                 raise ValueError(
                     "current fusion input requires explicit final prompt history"
                 )
+            if len(self.series_final_prompt_history) > 1:
+                raise ValueError(
+                    "current fusion input accepts only the previous final prompt"
+                )
             if self.series_fusion_history:
                 raise ValueError(
                     "current fusion input cannot use legacy fusion history"
@@ -1593,6 +1603,13 @@ class FinalizationStageInput(BaseModel):
         ):
             raise ValueError(
                 "current finalization input requires explicit final prompt history"
+            )
+        if (
+            self.prompt_version == FINALIZATION_STAGE_PROMPT_VERSION
+            and len(self.series_final_prompt_history) > 1
+        ):
+            raise ValueError(
+                "current finalization input accepts only the previous final prompt"
             )
         if (
             self.prompt_version == FINALIZATION_STAGE_PROMPT_VERSION

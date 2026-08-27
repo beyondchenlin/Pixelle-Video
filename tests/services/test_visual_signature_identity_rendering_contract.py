@@ -144,19 +144,20 @@ def test_current_prompt_keeps_identity_facts_but_follows_scene_rendering() -> No
     assert "PIXELLE" in rendered.text
     assert "独立彩色扁平吉祥物风格" not in rendered.text
     assert '"visual_signature_style"' not in rendered.text
-    assert "display_name 只是身份元数据" in rendered.text
-    assert "authorized_visible_texts 是整幅画唯一允许出现的可读文字" in (
+    assert "display_name 只用于识别类型，不是画面文字" in rendered.text
+    assert "authorized_visible_texts 是唯一允许出现的可读文字" in (
         rendered.text
     )
-    assert '"series_final_prompt_history": []' in rendered.text
+    assert "authorized_text_style_traits 只约束这些授权文字" in rendered.text
+    assert '"previous_final_prompt": null' in rendered.text
+    assert '"series_final_prompt_history"' not in rendered.text
     assert '"series_fusion_history"' not in rendered.text
     assert '"semantic_type_hint": "cartoon_animal"' in rendered.text
     assert '"role_presets": [' in rendered.text
     assert '"普通观众"' in rendered.text
     assert '"远处路人"' in rendered.text
-    assert "字段为空时，在本次调用内部根据身份名称、固定特征和参考条件判断类型" in (
-        rendered.text
-    )
+    assert '"non_story_default_manifestation": ' in rendered.text
+    assert "没有这种现成群体时，禁止生成完整活体" in rendered.text
 
 
 def test_authorized_text_is_allowed_without_blanket_text_ban() -> None:

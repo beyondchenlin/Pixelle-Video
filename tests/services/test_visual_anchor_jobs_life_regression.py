@@ -447,10 +447,10 @@ def test_fusion_template_allows_required_style_and_text_prohibitions():
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "target_visual_style 是整幅画唯一的表现规则" in template
+    assert "target_visual_style 统一作用于主体、环境和身份细节" in template
     assert "visible_text_policy" in template
-    assert "只输出完整融合提示词草稿原文" in template
-    assert "不输出标题、分析、解释、候选、字段" in template
+    assert "只输出一个连续段落的完整融合提示词原文" in template
+    assert "不输出标题、分析、检查过程、候选、字段" in template
 
 
 def test_content_template_requests_no_proof_or_self_check_fields():
@@ -539,9 +539,9 @@ def test_fusion_template_requests_only_raw_draft_text():
         / "pixelle_video/prompts/templates/visual_anchor_fusion_stage.md"
     ).read_text(encoding="utf-8")
 
-    assert "根据当前画面，从构图源头重新创作一段完整、可直接成像的融合提示词" in template
-    assert "不得把身份形象作为附加对象追加到原内容提示词末尾" in template
-    assert "只输出完整融合提示词草稿原文" in template
+    assert "从头重写一段完整、可直接生图的融合提示词" in template
+    assert "不能在内容写完后另起一段追加" in template
+    assert "只输出一个连续段落的完整融合提示词原文" in template
     for removed_field in (
         "selected_fusion_method",
         "final_manifestation",
@@ -560,34 +560,27 @@ def test_fusion_template_selects_type_aware_low_salience_manifestations():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "original_storyboard_text 是画面主旨和事实边界",
-        "identity_profile.scene_adaptation 只描述场景适配能力",
-        "字段为空时，在本次调用内部根据身份名称、固定特征和参考条件判断类型与安全变化范围",
-        "identity_conditioning_mode 只说明身份来自文字档案还是参考图片，不代表语义类型",
+        "以 original_storyboard_text 为事实边界",
+        "以 content_prompt 为内容和构图基础",
+        "non_story_default_manifestation 是未进入原文时的默认策略",
+        "优先级高于 default_slot_preference",
         "人物、动物、植物、功能物品、标志图形或抽象符号",
-        "人物或动物可在本来就存在且允许普通成员的观众、路人、工作人员、动物群体中成为一个普通环境成员",
-        "植物可成为环境中一株有自然生长位置的普通植物",
-        "功能物品可成为场景中保持正常用途的实际物品",
-        "标志图形只能成为现有物体上的小型印刷、压印、刺绣、雕刻或界面标记",
-        "抽象符号只能成为局部纹样、结构节奏或界面符号",
-        "删除该实例后原画面仍完整成立",
-        "以上只说明选择方法，不是固定位置清单",
-        "存在三个及以上有效候选时至少比较三个",
-        "选择顺序固定为：对内容主体和核心动作的注意力干扰最低、语义类型与存在方式最匹配",
-        "内容相关性只决定候选是否合法",
-        "低显著性是硬性构图条件",
-        "不得位于画面中心轴、主角旁的视觉热点",
-        "不得成为画面中面积最大、对比最强、颜色最独特、轮廓最完整或细节最密集的次要元素",
-        "可以被合理遮挡或裁切，但仍保留最小识别条件",
-        "观众第一眼必须先看到内容主体和核心事件，继续观察局部时才发现该身份",
-        "人物和动物可变化安静且符合邻近群体的姿态",
-        "植物可变化枝叶朝向、疏密、舒展程度",
-        "标志图形和抽象符号只能变化载体、材质、透视、局部位置",
-        "不得连续重复同一表现家族、载体种类、空间层级、画面方位和姿态",
-        "整幅画只出现一个可识别实例",
-        "enhanced 也必须满足第一眼不抢戏",
-        "target_visual_style 是整幅画唯一的表现规则",
-        "required_negative_prompt_fragments 只表示禁止出现的视觉状态",
+        "只有 content_prompt 已经明确存在开放数量的观众、人群、工作人员、路人或动物群体时",
+        "没有这种现成群体时，禁止生成完整活体",
+        "植物：只有当前环境存在自然生长或陈设位置时",
+        "功能物品：只有当前场景确实需要其正常用途时",
+        "标志图形或抽象符号：只能成为现有次要物体表面的",
+        "载体必须在去掉身份特征后仍有明确类别、正常用途、自然位置和物理支撑",
+        "禁止新增展示台、专属座位、雕塑、玩偶、立牌或孤立空地",
+        "身份位于中景边缘或背景局部",
+        "至少存在一种自然遮挡、裁切、低对比、较少细节或较弱线条",
+        "不处在中心轴、主角身旁、手部和视线交汇处",
+        "观众先看见内容主体和核心事件，继续观察局部才发现身份",
+        "previous_final_prompt 只用于避免独立场景重复，不能作为当前画面的范例",
+        "整幅画只保留一个可识别实例",
+        "为 enhanced 时只增加固定身份特征内部的完整度",
+        "target_visual_style 统一作用于主体、环境和身份细节",
+        "把 required_negative_prompt_fragments 转成相应的正向视觉状态",
     ):
         assert required_rule in template
 
@@ -601,11 +594,11 @@ def test_fusion_template_defines_method_specific_visible_boundaries():
     ).read_text(encoding="utf-8")
 
     for required_relation in (
-        "印刷、压印或浅浮雕全部收在明确表面区域内",
-        "载体外轮廓、类别与功能保持不变",
-        "纹理、刺绣或雕刻延续载体原有材质，不形成独立体积",
-        "结构融合只改造仍能保持载体原类别和正常功能的局部部件",
-        "实际实体则必须具有明确的地面、座椅、桌面、花盆、墙面支架或其他物理接触",
+        "图形全部收在载体的次要表面内",
+        "随表面透视、遮挡和受光变化",
+        "不改变载体外轮廓和功能",
+        "现有次要物体表面的小型印刷、压印、刺绣、雕刻、纹样或界面标记",
+        "自然位置和物理支撑",
     ):
         assert required_relation in template
     for removed_scene_specific_example in (
@@ -625,11 +618,11 @@ def test_fusion_template_keeps_one_signature_without_fixed_placement_biases():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "整幅画只出现一个可识别实例",
-        "只有内容画面没有任何有效的现有群体位置、场景实体、功能物品或表面载体时",
-        "写环境实体时",
-        "写表面标记时，以实际载体为语法主体",
-        "不能为了展示身份而新增",
+        "整幅画只保留一个可识别实例",
+        "若没有可用载体，只能新增一个即使去掉身份图形也服务当前场景用途的次要物体",
+        "视觉身份未进入原文时，只能选择以下一个分支",
+        "没有这种现成群体时，禁止生成完整活体",
+        "不能在内容写完后另起一段追加",
     ):
         assert required_rule in template
     for removed_bias in (
@@ -657,26 +650,18 @@ def test_finalization_template_rejects_type_errors_and_attention_competition():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "original_storyboard_text 是当前画面的事实边界",
-        "article_context 只用于核对身份、指代、主题、因果和理解当前句所必需的背景",
-        "previous_frame_summary 只核对承接点",
-        "next_frame_summary 只确定结束边界",
-        "第二次输出是加入身份细节后的融合草稿",
-        "fusion_stage_output.raw_prompt 只有通过下面全部审核时才是有效创作基础",
-        "任一硬性条件失败都必须放弃其表现方式、位置或写法",
-        "identity_profile.scene_adaptation 中 semantic_type_hint 只是类型提示",
-        "identity_conditioning_mode 只代表文字或参考图片来源，不代表身份属于角色、物品或标志",
-        "标志和符号被赋予身体、表情、跑跳或注视",
-        "人物或动物只有在内容本来存在开放数量的观众、路人、工作人员或同类群体时",
-        "删除该实例后，原画面仍能完整表达文案",
-        "第一眼注意力审核是硬门槛",
-        "身份位于画面中心轴、主角旁的视觉热点",
-        "成为面积最大、对比最强、颜色最独特、轮廓最完整、细节最密集的次要元素",
-        "当前方案无效",
-        "不得连续重复同一表现家族、载体种类、空间层级、画面方位和姿态",
-        "任一方案出现以下情况即为无效",
-        "回到 fusion_stage_input.content_stage_output.raw_prompt 重新盘点已有群体、环境实体、功能物品和表面载体",
-        "只有不存在任何有效候选时才新增一个去掉身份特征后仍同时服务文案、场景用途或构图的低显著性元素",
+        "以 original_storyboard_text 和 content_prompt 为事实基础",
+        "以下任意一项成立",
+        "视觉身份方案立即无效",
+        "从 content_prompt 重新融合",
+        "追加失败",
+        "角色失败",
+        "层级失败",
+        "重复失败",
+        "content_prompt 没有现成的开放群体",
+        "主角身旁、手部和视线交汇处",
+        "previous_final_prompt 已经使用相同的表现分支",
+        "没有现成群体时禁止完整活体",
         "直接作为图片正向提示词",
     ):
         assert required_rule in template
@@ -689,31 +674,23 @@ def test_finalization_template_enforces_visible_fusion_and_unifies_scene_style()
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "target_visual_style 是整幅画唯一的表现规则",
-        "统一决定人物、物体、环境以及身份细节",
-        "required_final_prompt_fragments 必须落实并保留",
-        "required_negative_prompt_fragments 必须转换成等价的正向画面状态",
-        "core_identity_traits、supporting_identity_traits 和 fixed_color_traits 的实际内容",
-        "人物或动物可以是低显著性的环境参与者",
-        "植物只能按植物的生长与陈设逻辑出现",
-        "标志图形只能是局部平面或材质标记",
-        "身份只能在继续观察相应局部后被发现",
-        "最终文本必须具体写明身份所在的前景、中景或背景位置",
-        "表面图案必须全部收在明确表面区域内",
-        "载体外轮廓、类别与功能保持不变",
-        "实际实体必须具有明确地面、座椅、桌面、花盆、墙面支架或其他物理接触",
-        "不能用“大小适中”“自然融入”“不抢戏”“不起眼”“清晰可见”等结论替代可见事实",
-        "整幅画只保留一个可识别实例",
-        "只提高实例内部固定特征的线条完整度和局部辨识度",
-        "不能改变面积、位置、朝向、外轮廓、遮挡关系、周围对比或视觉中心",
+        "target_visual_style 统一决定整幅画的媒介、线条、色彩、材质、透视和光影",
+        "保留 required_final_prompt_fragments",
+        "把 required_negative_prompt_fragments 转成正向视觉状态",
+        "固定身份特征和禁止变化项",
+        "未进入原文的人物或动物",
+        "植物必须遵守自然生长和陈设逻辑",
+        "标志和抽象符号只能成为局部平面或材质标记",
+        "位于中景边缘或背景局部",
+        "表面图形全部收在明确载体的次要表面内",
+        "载体外轮廓和正常用途保持不变",
+        "小于主要人物和核心物证",
+        "身份保持单实例",
+        "enhanced 时只提高固定特征内部完整度",
+        "不能放大、移近、去除遮挡或提高周围对比",
         "直接作为图片正向提示词",
-        "只输出最终图片提示词原文",
-        "事实与内容审核",
-        "风格与文字审核",
-        "场景适配审核",
-        "类型审核",
-        "跨镜审核",
-        "当前分镜事实、内容主体与核心事件、固定身份事实、语义类型与适配边界、第一眼注意力",
+        "只输出一个连续段落的最终图片提示词原文",
+        "不得使用“和谐统一”“清晰可见”“不突出”“不干扰主体”",
     ):
         assert required_rule in template
     assert "visual_signature_style" not in template
@@ -740,15 +717,15 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "不承担核心动作",
-        "不得位于画面中心轴、主角旁的视觉热点",
-        "观众第一眼必须先看到内容主体和核心事件",
+        "不得承担核心动作",
+        "不处在中心轴、主角身旁",
+        "观众先看见内容主体和核心事件",
     ):
         assert required_rule in fusion_template
     for required_rule in (
-        "不得承担核心动作",
-        "第一眼注意力审核是硬门槛",
-        "内容主体和核心事件必须先被看见",
+        "没有把视觉身份写成事件主体",
+        "主角身旁、前景或孤立留白中的完整人物或动物",
+        "位于中景边缘或背景局部",
     ):
         assert required_rule in finalization_template
     for template in (fusion_template, finalization_template):
@@ -974,13 +951,14 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert "黑色墨镜" not in call["prompt"]
         assert "identity_profile" not in call["prompt"]
     for call in fusion_calls:
-        assert '"content_stage_output"' in call["prompt"]
+        assert '"content_prompt"' in call["prompt"]
         assert '"identity_profile"' in call["prompt"]
         assert '"continuous_scene_context"' in call["prompt"]
         assert '"target_visual_style"' in call["prompt"]
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
         assert '"negative_prompt_supported": false' in call["prompt"]
-        assert '"series_final_prompt_history"' in call["prompt"]
+        assert '"previous_final_prompt"' in call["prompt"]
+        assert '"series_final_prompt_history"' not in call["prompt"]
         assert '"series_fusion_history"' not in call["prompt"]
         assert '"visual_signature_style"' not in call["prompt"]
     assert sum(
@@ -992,15 +970,18 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         for call in fusion_calls
     ) == len(plan.frames) - 1
     for call in finalization_calls:
-        assert '"content_stage_input"' in call["prompt"]
-        assert '"article_context"' in call["prompt"]
-        assert '"previous_frame_summary"' in call["prompt"]
-        assert '"next_frame_summary"' in call["prompt"]
-        assert '"fusion_stage_input"' in call["prompt"]
-        assert '"fusion_stage_output"' in call["prompt"]
-        assert '"series_final_prompt_history"' in call["prompt"]
+        assert '"content_prompt"' in call["prompt"]
+        assert '"fusion_draft"' in call["prompt"]
+        assert '"identity_profile"' in call["prompt"]
+        assert '"continuous_scene_context"' in call["prompt"]
+        assert '"target_visual_style"' in call["prompt"]
+        assert '"previous_final_prompt"' in call["prompt"]
+        assert '"content_stage_input"' not in call["prompt"]
+        assert '"article_context"' not in call["prompt"]
+        assert '"fusion_stage_input"' not in call["prompt"]
+        assert '"fusion_stage_output"' not in call["prompt"]
+        assert '"series_final_prompt_history"' not in call["prompt"]
         assert '"series_fusion_history"' not in call["prompt"]
-        assert call["prompt"].count('"series_final_prompt_history"') == 1
         assert '"visual_signature_style"' not in call["prompt"]
     assert sum(
         '"visual_signature_emphasis": "enhanced"' in call["prompt"]

@@ -54,6 +54,10 @@ class VisualAnchorTwoStageError(RuntimeError):
 
 _FRAME_SOURCE_MAX_CHARS = 6000
 _ARTICLE_CONTEXT_MAX_CHARS = 6000
+_SERIES_FINAL_PROMPT_HISTORY_LIMIT = 1
+_NON_STORY_DEFAULT_MANIFESTATION = (
+    "prefer_embedded_unless_current_content_admits_a_scene_native_entity"
+)
 
 
 def _content_stage_visual_style(
@@ -126,7 +130,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v16",
+            "schema_version": "visual_anchor_two_stage_batch.v17",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -337,7 +341,9 @@ class VisualAnchorTwoStageService:
                 frame_index=index,
                 scene_id=scene_ids[index],
                 existing_fusion_decision=decisions_by_scene.get(scene_ids[index]),
-                series_final_prompt_history=list(series_final_prompt_history[-3:]),
+                series_final_prompt_history=list(
+                    series_final_prompt_history[-_SERIES_FINAL_PROMPT_HISTORY_LIMIT:]
+                ),
                 identity_profile=identity_profile,
                 identity_reference_condition=identity_reference_condition,
                 identity_conditioning_mode=resolved_identity_conditioning_mode,
@@ -766,18 +772,17 @@ def _render_stage_prompt(
         raise VisualAnchorTwoStageError(
             f"stage input version mismatch for {prompt_id}"
         )
-    input_payload = stage_input.model_dump(mode="json")
     if isinstance(stage_input, ContentStageInput):
+        input_payload = stage_input.model_dump(mode="json")
         input_payload.pop("prompt_version", None)
     elif isinstance(stage_input, FusionStageInput):
-        input_payload.pop("visual_signature_style", None)
-        input_payload.pop("series_fusion_history", None)
+        input_payload = _fusion_prompt_payload(stage_input)
     elif isinstance(stage_input, FinalizationStageInput):
-        fusion_input_payload = input_payload.get("fusion_stage_input")
-        if isinstance(fusion_input_payload, dict):
-            fusion_input_payload.pop("visual_signature_style", None)
-            fusion_input_payload.pop("series_fusion_history", None)
-            fusion_input_payload.pop("series_final_prompt_history", None)
+        input_payload = _finalization_prompt_payload(stage_input)
+    else:
+        raise VisualAnchorTwoStageError(
+            f"unsupported stage input for {prompt_id}"
+        )
     rendered = render_prompt_template(
         prompt_id,
         {
@@ -793,6 +798,144 @@ def _render_stage_prompt(
             f"prompt template version mismatch for {prompt_id}"
         )
     return rendered
+
+
+def _compact_identity_profile(
+    identity_profile: VisualAnchorIdentityProfile,
+) -> dict[str, Any]:
+    scene_adaptation = identity_profile.scene_adaptation.model_dump(mode="json")
+    scene_adaptation["non_story_default_manifestation"] = (
+        _NON_STORY_DEFAULT_MANIFESTATION
+    )
+    return {
+        "profile_id": identity_profile.profile_id,
+        "display_name": identity_profile.display_name,
+        "core_identity_traits": list(identity_profile.core_identity_traits),
+        "supporting_identity_traits": list(
+            identity_profile.supporting_identity_traits
+        ),
+        "fixed_color_traits": list(identity_profile.fixed_color_traits),
+        "authorized_visible_texts": list(
+            identity_profile.authorized_visible_texts
+        ),
+        "authorized_text_style_traits": list(
+            identity_profile.authorized_text_style_traits
+        ),
+        "forbidden_traits": list(identity_profile.forbidden_traits),
+        "scene_adaptation": scene_adaptation,
+        "name_rendering_policy": identity_profile.name_rendering_policy,
+    }
+
+
+def _compact_target_visual_style(
+    target_visual_style: TargetVisualStyle,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "required_final_prompt_fragments": list(
+            target_visual_style.required_final_prompt_fragments
+        ),
+        "required_negative_prompt_fragments": list(
+            target_visual_style.required_negative_prompt_fragments
+        ),
+    }
+    if not target_visual_style.required_final_prompt_fragments:
+        payload["description"] = target_visual_style.description
+    return payload
+
+
+def _compact_continuous_scene_context(
+    context: ContinuousSceneContext,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "scene_id": context.scene_id,
+        "previous_frame_summary": context.previous_frame_summary,
+        "next_frame_summary": context.next_frame_summary,
+        "continuity_anchors": list(context.continuity_anchors),
+    }
+    if context.existing_fusion_decision and not context.existing_fusion_decision.startswith(
+        "无既有融合结果"
+    ):
+        payload["existing_fusion_decision"] = context.existing_fusion_decision
+    return payload
+
+
+def _previous_final_prompt(history: Sequence[str]) -> str | None:
+    return history[-1] if history else None
+
+
+def _nonduplicated_previous_final_prompt(
+    *,
+    history: Sequence[str],
+    continuous_scene_context: Mapping[str, Any],
+) -> str | None:
+    previous_prompt = _previous_final_prompt(history)
+    if previous_prompt == continuous_scene_context.get("existing_fusion_decision"):
+        return None
+    return previous_prompt
+
+
+def _fusion_prompt_payload(stage_input: FusionStageInput) -> dict[str, Any]:
+    continuous_scene_context = _compact_continuous_scene_context(
+        stage_input.continuous_scene_context
+    )
+    payload: dict[str, Any] = {
+        "frame_id": stage_input.frame_id,
+        "original_storyboard_text": stage_input.original_storyboard_text,
+        "content_prompt": stage_input.content_stage_output.raw_prompt,
+        "identity_profile": _compact_identity_profile(stage_input.identity_profile),
+        "identity_conditioning_mode": stage_input.identity_conditioning_mode,
+        "workflow_identity_condition_summary": (
+            stage_input.workflow_identity_condition_summary
+        ),
+        "visual_signature_emphasis": stage_input.visual_signature_emphasis.value,
+        "continuous_scene_context": continuous_scene_context,
+        "previous_final_prompt": _nonduplicated_previous_final_prompt(
+            history=stage_input.series_final_prompt_history,
+            continuous_scene_context=continuous_scene_context,
+        ),
+        "target_visual_style": _compact_target_visual_style(
+            stage_input.target_visual_style
+        ),
+        "visible_text_policy": stage_input.visible_text_policy.model_dump(mode="json"),
+        "negative_prompt_supported": stage_input.negative_prompt_supported,
+        "target_image_prompt_language": stage_input.target_image_prompt_language,
+    }
+    if stage_input.identity_reference_condition is not None:
+        payload["identity_reference_condition"] = (
+            stage_input.identity_reference_condition.model_dump(mode="json")
+        )
+    return payload
+
+
+def _finalization_prompt_payload(
+    stage_input: FinalizationStageInput,
+) -> dict[str, Any]:
+    fusion_input = stage_input.fusion_stage_input
+    continuous_scene_context = _compact_continuous_scene_context(
+        fusion_input.continuous_scene_context
+    )
+    return {
+        "frame_id": stage_input.frame_id,
+        "original_storyboard_text": stage_input.original_storyboard_text,
+        "content_prompt": fusion_input.content_stage_output.raw_prompt,
+        "fusion_draft": stage_input.fusion_stage_output.raw_prompt,
+        "identity_profile": _compact_identity_profile(fusion_input.identity_profile),
+        "identity_conditioning_mode": fusion_input.identity_conditioning_mode,
+        "workflow_identity_condition_summary": (
+            fusion_input.workflow_identity_condition_summary
+        ),
+        "visual_signature_emphasis": fusion_input.visual_signature_emphasis.value,
+        "continuous_scene_context": continuous_scene_context,
+        "previous_final_prompt": _nonduplicated_previous_final_prompt(
+            history=stage_input.series_final_prompt_history,
+            continuous_scene_context=continuous_scene_context,
+        ),
+        "target_visual_style": _compact_target_visual_style(
+            fusion_input.target_visual_style
+        ),
+        "visible_text_policy": fusion_input.visible_text_policy.model_dump(mode="json"),
+        "target_image_prompt_language": fusion_input.target_image_prompt_language,
+    }
 
 
 def _emit_stage(callback, *, stage: str, event: str, **fields: Any) -> None:

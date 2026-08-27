@@ -502,7 +502,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v16"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v17"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -568,14 +568,19 @@ async def test_selected_style_reaches_all_three_stage_prompts():
     assert "画面中的彩色元素" in llm.calls[1]["prompt"]
     assert "画面中的彩色元素" in llm.calls[2]["prompt"]
     assert "输出一段完整的当前分镜图片提示词原文" in llm.calls[0]["prompt"]
-    assert "只输出完整融合提示词草稿原文" in llm.calls[1]["prompt"]
-    assert "只输出最终图片提示词原文" in llm.calls[2]["prompt"]
+    assert "只输出一个连续段落的完整融合提示词原文" in llm.calls[1]["prompt"]
+    assert "只输出一个连续段落的最终图片提示词原文" in llm.calls[2]["prompt"]
     assert '"visual_signature_style"' not in llm.calls[1]["prompt"]
     assert '"visual_signature_style"' not in llm.calls[2]["prompt"]
-    assert "整幅画唯一的表现规则" in llm.calls[1]["prompt"]
-    assert "统一决定人物、物体、环境以及身份细节" in (
+    assert "统一作用于主体、环境和身份细节" in llm.calls[1]["prompt"]
+    assert "统一决定整幅画的媒介、线条、色彩、材质、透视和光影" in (
         llm.calls[2]["prompt"]
     )
+    assert '"article_context"' not in llm.calls[1]["prompt"]
+    assert '"article_context"' not in llm.calls[2]["prompt"]
+    assert '"fusion_stage_input"' not in llm.calls[2]["prompt"]
+    assert '"previous_final_prompt": null' in llm.calls[1]["prompt"]
+    assert '"previous_final_prompt": null' in llm.calls[2]["prompt"]
 
 
 @pytest.mark.asyncio
@@ -592,6 +597,28 @@ async def test_scene_adaptation_reaches_only_fusion_and_finalization_stages():
     assert result.frames[0].generation_request.identity_scene_adaptation == (
         result.frames[0].fusion_stage_input.identity_profile.scene_adaptation
     )
+
+
+@pytest.mark.asyncio
+async def test_fusion_and_finalization_prompts_use_compact_nonduplicated_inputs():
+    _, llm = await _run(_plan())
+
+    fusion_prompt = llm.calls[1]["prompt"]
+    finalization_prompt = llm.calls[2]["prompt"]
+
+    assert len(fusion_prompt) < 8000
+    assert len(finalization_prompt) < 8000
+    assert '"content_prompt"' in fusion_prompt
+    assert '"fusion_draft"' in finalization_prompt
+    assert '"previous_final_prompt"' in fusion_prompt
+    assert '"previous_final_prompt"' in finalization_prompt
+    for removed_duplicate in (
+        '"article_context"',
+        '"content_stage_input"',
+        '"fusion_stage_input"',
+        '"series_final_prompt_history"',
+    ):
+        assert removed_duplicate not in finalization_prompt
 
 
 @pytest.mark.asyncio
@@ -703,7 +730,9 @@ async def test_source_context_preserves_paragraph_boundaries_through_finalizatio
     assert finalization_input is not None
     assert finalization_input.original_storyboard_text == first_text
     assert finalization_input.content_stage_input == first_frame.content_stage_input
-    assert json.dumps(source_text, ensure_ascii=False) in llm.calls[2]["prompt"]
+    assert json.dumps(first_text, ensure_ascii=False) in llm.calls[2]["prompt"]
+    assert json.dumps(source_text, ensure_ascii=False) not in llm.calls[2]["prompt"]
+    assert '"article_context"' not in llm.calls[2]["prompt"]
 
 
 @pytest.mark.asyncio
@@ -978,7 +1007,7 @@ async def test_unstructured_model_content_is_forwarded_without_validation():
 async def test_continuous_scene_passes_the_previous_raw_prompt_as_context():
     fusions = [_fusion("frame-a"), _fusion("frame-b", inherited=True)]
     finalizations = ["第一镜最终提示词", "第二镜最终提示词"]
-    result, _ = await _run(
+    result, llm = await _run(
         _plan(continuous=True),
         fusions=fusions,
         finalizations=finalizations,
@@ -987,10 +1016,13 @@ async def test_continuous_scene_passes_the_previous_raw_prompt_as_context():
     assert second_input.existing_fusion_decision == finalizations[0]
     assert second_input.existing_selected_fusion_method is None
     assert result.frames[1].generation_request.final_positive_prompt == finalizations[1]
+    previous_prompt_json = json.dumps(finalizations[0], ensure_ascii=False)
+    assert llm.calls[4]["prompt"].count(previous_prompt_json) == 1
+    assert llm.calls[5]["prompt"].count(previous_prompt_json) == 1
 
 
 @pytest.mark.asyncio
-async def test_fusion_and_finalization_receive_the_last_three_final_prompts():
+async def test_fusion_and_finalization_receive_only_the_previous_final_prompt():
     plan = _independent_plan()
     fusions = [f"  原始融合结果::{frame.frame_id}\n" for frame in plan.frames]
     finalizations = [
@@ -1010,9 +1042,9 @@ async def test_fusion_and_finalization_receive_the_last_three_final_prompts():
     expected_histories = [
         [],
         [finalizations[0]],
-        finalizations[:2],
-        finalizations[:3],
-        finalizations[1:4],
+        [finalizations[1]],
+        [finalizations[2]],
+        [finalizations[3]],
     ]
     assert fusion_histories == expected_histories
     assert [
@@ -1343,6 +1375,42 @@ async def test_v15_chain_without_scene_adaptation_remains_readable():
 
 
 @pytest.mark.asyncio
+async def test_immediately_previous_three_stage_chain_remains_readable():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+
+    payload["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v44"
+    )
+    finalization_input = payload["finalization_stage_input"]
+    finalization_input["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v44"
+    )
+    finalization_input["prompt_version"] = (
+        "visual_anchor_finalization_stage.v25"
+    )
+    request = payload["generation_request"]
+    request["request_version"] = "visual_anchor_generation_request.v16"
+    request["fusion_stage_prompt_version"] = "visual_anchor_fusion_stage.v44"
+    request["finalization_stage_prompt_version"] = (
+        "visual_anchor_finalization_stage.v25"
+    )
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.fusion_stage_input.prompt_version == (
+        "visual_anchor_fusion_stage.v44"
+    )
+    assert restored.finalization_stage_input is not None
+    assert restored.finalization_stage_input.prompt_version == (
+        "visual_anchor_finalization_stage.v25"
+    )
+    assert restored.generation_request.request_version == (
+        "visual_anchor_generation_request.v16"
+    )
+
+
+@pytest.mark.asyncio
 async def test_local_style_exclusions_stay_scoped_and_global_negative_remains_empty():
     target_style = TargetVisualStyle(
         description="叙事场景采用黑白线稿",
@@ -1426,6 +1494,28 @@ async def test_current_fusion_input_requires_explicit_final_prompt_history():
 
     with pytest.raises(ValidationError, match="explicit final prompt history"):
         FusionStageInput.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_current_inputs_accept_only_one_previous_final_prompt():
+    batch, _ = await _run(_plan())
+    fusion_payload = batch.frames[0].fusion_stage_input.model_dump(mode="json")
+    fusion_payload["series_final_prompt_history"] = ["上一帧", "上上帧"]
+
+    with pytest.raises(ValidationError, match="only the previous final prompt"):
+        FusionStageInput.model_validate(fusion_payload)
+
+    finalization_payload = (
+        batch.frames[0].finalization_stage_input.model_dump(mode="json")
+    )
+    finalization_payload["series_final_prompt_history"] = ["上一帧", "上上帧"]
+    finalization_payload["fusion_stage_input"]["series_final_prompt_history"] = [
+        "上一帧",
+        "上上帧",
+    ]
+
+    with pytest.raises(ValidationError, match="only the previous final prompt"):
+        FinalizationStageInput.model_validate(finalization_payload)
 
 
 @pytest.mark.asyncio
