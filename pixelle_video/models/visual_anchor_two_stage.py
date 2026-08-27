@@ -15,9 +15,9 @@ from pixelle_video.models.series_visual_signature import (
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v27"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v45"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v26"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v17"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v46"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v27"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v18"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -94,6 +94,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v42",
     "visual_anchor_fusion_stage.v43",
     "visual_anchor_fusion_stage.v44",
+    "visual_anchor_fusion_stage.v45",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -122,6 +123,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v23",
     "visual_anchor_finalization_stage.v24",
     "visual_anchor_finalization_stage.v25",
+    "visual_anchor_finalization_stage.v26",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -135,6 +137,7 @@ GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v14",
     "visual_anchor_generation_request.v15",
     "visual_anchor_generation_request.v16",
+    "visual_anchor_generation_request.v17",
     GENERATION_REQUEST_VERSION,
 ]
 
@@ -146,6 +149,7 @@ _IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS = frozenset(
         "visual_anchor_fusion_stage.v42",
         "visual_anchor_fusion_stage.v43",
         "visual_anchor_fusion_stage.v44",
+        "visual_anchor_fusion_stage.v45",
         FUSION_STAGE_PROMPT_VERSION,
     }
 )
@@ -155,6 +159,7 @@ _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS = frozenset(
         "visual_anchor_generation_request.v14",
         "visual_anchor_generation_request.v15",
         "visual_anchor_generation_request.v16",
+        "visual_anchor_generation_request.v17",
         GENERATION_REQUEST_VERSION,
     }
 )
@@ -164,9 +169,19 @@ _RAW_THREE_STAGE_GENERATION_REQUEST_VERSIONS = frozenset(
         "visual_anchor_generation_request.v14",
         "visual_anchor_generation_request.v15",
         "visual_anchor_generation_request.v16",
+        "visual_anchor_generation_request.v17",
         GENERATION_REQUEST_VERSION,
     }
 )
+
+ManifestationFamilyPreference = Literal[
+    "scene_native_entity",
+    "flat_print_or_watermark",
+    "material_engraving_or_embossing",
+    "textile_embroidery_or_woven_pattern",
+    "interface_or_signage_mark",
+    "cropped_surface_motif",
+]
 
 MAX_VISUAL_STYLE_FRAGMENT_COUNT = 32
 MAX_VISUAL_STYLE_BOUNDARY_COUNT = 16
@@ -1205,6 +1220,9 @@ class FusionStageInput(BaseModel):
     visual_signature_emphasis: VisualSignatureEmphasis = (
         VisualSignatureEmphasis.STANDARD
     )
+    manifestation_family_preference: ManifestationFamilyPreference = (
+        "flat_print_or_watermark"
+    )
     continuous_scene_context: ContinuousSceneContext
     # Historical artifact compatibility only. New requests use
     # series_final_prompt_history so the field name reflects its actual values.
@@ -1257,6 +1275,11 @@ class FusionStageInput(BaseModel):
                 "current fusion input requires an explicit visual signature emphasis"
             )
         if self.prompt_version == FUSION_STAGE_PROMPT_VERSION:
+            if "manifestation_family_preference" not in self.model_fields_set:
+                raise ValueError(
+                    "current fusion input requires an explicit manifestation family "
+                    "preference"
+                )
             if "series_final_prompt_history" not in self.model_fields_set:
                 raise ValueError(
                     "current fusion input requires explicit final prompt history"

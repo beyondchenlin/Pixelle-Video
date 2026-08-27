@@ -502,7 +502,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v17"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v18"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -612,6 +612,8 @@ async def test_fusion_and_finalization_prompts_use_compact_nonduplicated_inputs(
     assert '"fusion_draft"' in finalization_prompt
     assert '"previous_final_prompt"' in fusion_prompt
     assert '"previous_final_prompt"' in finalization_prompt
+    assert '"manifestation_family_preference"' in fusion_prompt
+    assert '"manifestation_family_preference"' in finalization_prompt
     for removed_duplicate in (
         '"article_context"',
         '"content_stage_input"',
@@ -1065,6 +1067,36 @@ async def test_fusion_and_finalization_receive_only_the_previous_final_prompt():
 
 
 @pytest.mark.asyncio
+async def test_manifestation_family_preference_rotates_across_independent_frames():
+    result, llm = await _run(_independent_plan(frame_count=7))
+
+    expected_preferences = [
+        "scene_native_entity",
+        "flat_print_or_watermark",
+        "material_engraving_or_embossing",
+        "textile_embroidery_or_woven_pattern",
+        "interface_or_signage_mark",
+        "cropped_surface_motif",
+        "scene_native_entity",
+    ]
+    assert [
+        frame.fusion_stage_input.manifestation_family_preference
+        for frame in result.frames
+    ] == expected_preferences
+
+    fusion_prompts = llm.calls[1::3]
+    finalization_prompts = llm.calls[2::3]
+    for preference, fusion_call, finalization_call in zip(
+        expected_preferences,
+        fusion_prompts,
+        finalization_prompts,
+    ):
+        preference_json = json.dumps(preference)
+        assert preference_json in fusion_call["prompt"]
+        assert preference_json in finalization_call["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_finalization_failure_emits_one_failure_without_retry():
     plan = _plan()
     llm = _QueuedLLM(
@@ -1375,7 +1407,7 @@ async def test_v15_chain_without_scene_adaptation_remains_readable():
 
 
 @pytest.mark.asyncio
-async def test_immediately_previous_three_stage_chain_remains_readable():
+async def test_v16_three_stage_chain_remains_readable():
     batch, _ = await _run(_plan())
     payload = batch.frames[0].model_dump(mode="json")
 
@@ -1407,6 +1439,44 @@ async def test_immediately_previous_three_stage_chain_remains_readable():
     )
     assert restored.generation_request.request_version == (
         "visual_anchor_generation_request.v16"
+    )
+
+
+@pytest.mark.asyncio
+async def test_v17_chain_without_manifestation_preference_remains_readable():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+
+    fusion_input = payload["fusion_stage_input"]
+    fusion_input.pop("manifestation_family_preference")
+    fusion_input["prompt_version"] = "visual_anchor_fusion_stage.v45"
+    finalization_input = payload["finalization_stage_input"]
+    finalization_input["fusion_stage_input"].pop(
+        "manifestation_family_preference"
+    )
+    finalization_input["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v45"
+    )
+    finalization_input["prompt_version"] = (
+        "visual_anchor_finalization_stage.v26"
+    )
+    request = payload["generation_request"]
+    request["request_version"] = "visual_anchor_generation_request.v17"
+    request["fusion_stage_prompt_version"] = "visual_anchor_fusion_stage.v45"
+    request["finalization_stage_prompt_version"] = (
+        "visual_anchor_finalization_stage.v26"
+    )
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.fusion_stage_input.prompt_version == (
+        "visual_anchor_fusion_stage.v45"
+    )
+    assert restored.fusion_stage_input.manifestation_family_preference == (
+        "flat_print_or_watermark"
+    )
+    assert restored.generation_request.request_version == (
+        "visual_anchor_generation_request.v17"
     )
 
 
@@ -1483,6 +1553,19 @@ async def test_current_fusion_input_requires_explicit_emphasis_assignment():
     payload.pop("visual_signature_emphasis")
 
     with pytest.raises(ValidationError, match="explicit visual signature emphasis"):
+        FusionStageInput.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_current_fusion_input_requires_explicit_manifestation_preference():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].fusion_stage_input.model_dump(mode="json")
+    payload.pop("manifestation_family_preference")
+
+    with pytest.raises(
+        ValidationError,
+        match="explicit manifestation family preference",
+    ):
         FusionStageInput.model_validate(payload)
 
 

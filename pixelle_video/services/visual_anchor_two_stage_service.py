@@ -30,6 +30,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FusionStagePromptPassthrough,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
+    ManifestationFamilyPreference,
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
@@ -57,6 +58,14 @@ _ARTICLE_CONTEXT_MAX_CHARS = 6000
 _SERIES_FINAL_PROMPT_HISTORY_LIMIT = 1
 _NON_STORY_DEFAULT_MANIFESTATION = (
     "prefer_embedded_unless_current_content_admits_a_scene_native_entity"
+)
+_MANIFESTATION_FAMILY_ROTATION: tuple[ManifestationFamilyPreference, ...] = (
+    "scene_native_entity",
+    "flat_print_or_watermark",
+    "material_engraving_or_embossing",
+    "textile_embroidery_or_woven_pattern",
+    "interface_or_signage_mark",
+    "cropped_surface_motif",
 )
 
 
@@ -130,7 +139,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v17",
+            "schema_version": "visual_anchor_two_stage_batch.v18",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -484,6 +493,9 @@ class VisualAnchorTwoStageService:
             identity_reference_condition=identity_reference_condition,
             workflow_identity_condition_summary=workflow_identity_condition_summary,
             visual_signature_emphasis=visual_signature_emphasis,
+            manifestation_family_preference=(
+                _manifestation_family_preference(frame_index)
+            ),
             continuous_scene_context=continuity_context,
             series_final_prompt_history=series_final_prompt_history,
             target_visual_style=target_visual_style,
@@ -863,6 +875,16 @@ def _previous_final_prompt(history: Sequence[str]) -> str | None:
     return history[-1] if history else None
 
 
+def _manifestation_family_preference(
+    frame_index: int,
+) -> ManifestationFamilyPreference:
+    if frame_index < 0:
+        raise ValueError("frame_index must be non-negative")
+    return _MANIFESTATION_FAMILY_ROTATION[
+        frame_index % len(_MANIFESTATION_FAMILY_ROTATION)
+    ]
+
+
 def _nonduplicated_previous_final_prompt(
     *,
     history: Sequence[str],
@@ -888,6 +910,9 @@ def _fusion_prompt_payload(stage_input: FusionStageInput) -> dict[str, Any]:
             stage_input.workflow_identity_condition_summary
         ),
         "visual_signature_emphasis": stage_input.visual_signature_emphasis.value,
+        "manifestation_family_preference": (
+            stage_input.manifestation_family_preference
+        ),
         "continuous_scene_context": continuous_scene_context,
         "previous_final_prompt": _nonduplicated_previous_final_prompt(
             history=stage_input.series_final_prompt_history,
@@ -925,6 +950,9 @@ def _finalization_prompt_payload(
             fusion_input.workflow_identity_condition_summary
         ),
         "visual_signature_emphasis": fusion_input.visual_signature_emphasis.value,
+        "manifestation_family_preference": (
+            fusion_input.manifestation_family_preference
+        ),
         "continuous_scene_context": continuous_scene_context,
         "previous_final_prompt": _nonduplicated_previous_final_prompt(
             history=stage_input.series_final_prompt_history,

@@ -540,7 +540,7 @@ def test_fusion_template_requests_only_raw_draft_text():
     ).read_text(encoding="utf-8")
 
     assert "从头重写一段完整、可直接生图的融合提示词" in template
-    assert "不能在内容写完后另起一段追加" in template
+    assert "不能在内容写完后追加同一种吉祥物、摆件或角落图案" in template
     assert "只输出一个连续段落的完整融合提示词原文" in template
     for removed_field in (
         "selected_fusion_method",
@@ -562,23 +562,24 @@ def test_fusion_template_selects_type_aware_low_salience_manifestations():
     for required_rule in (
         "以 original_storyboard_text 为事实边界",
         "以 content_prompt 为内容和构图基础",
-        "non_story_default_manifestation 是未进入原文时的默认策略",
-        "优先级高于 default_slot_preference",
+        "non_story_default_manifestation 的优先级高于 default_slot_preference",
         "人物、动物、植物、功能物品、标志图形或抽象符号",
-        "只有 content_prompt 已经明确存在开放数量的观众、人群、工作人员、路人或动物群体时",
-        "没有这种现成群体时，禁止生成完整活体",
-        "植物：只有当前环境存在自然生长或陈设位置时",
-        "功能物品：只有当前场景确实需要其正常用途时",
-        "标志图形或抽象符号：只能成为现有次要物体表面的",
-        "载体必须在去掉身份特征后仍有明确类别、正常用途、自然位置和物理支撑",
-        "禁止新增展示台、专属座位、雕塑、玩偶、立牌或孤立空地",
+        "人物需要现成的开放人群、普通岗位或公共空间角色",
+        "动物需要街道、公园、家庭、动物活动区、开放观众群或其他自然生态位置",
+        "植物需要自然生长或正常陈设位置",
+        "功能物品需要当前场景确实使用其功能",
+        "标志图形和抽象符号永远不能变成活体",
+        "实体准入失败时，必须选择后面的材质融合形态",
+        "manifestation_family_preference 只决定本帧从哪个形态家族开始比较",
+        "不得因为桌面、纸张最容易描述就跳过其他合法载体",
         "身份位于中景边缘或背景局部",
-        "至少存在一种自然遮挡、裁切、低对比、较少细节或较弱线条",
+        "至少具有自然遮挡、载体边缘裁切、低对比、较少细节、较弱线条或较浅景深之一",
         "不处在中心轴、主角身旁、手部和视线交汇处",
         "观众先看见内容主体和核心事件，继续观察局部才发现身份",
-        "previous_final_prompt 只用于避免独立场景重复，不能作为当前画面的范例",
+        "独立场景读取 previous_final_prompt",
+        "不得重复上一帧的形态家族、载体类别、材质工艺和空间方位",
         "整幅画只保留一个可识别实例",
-        "为 enhanced 时只增加固定身份特征内部的完整度",
+        "为 enhanced 时只提高固定特征内部完整度",
         "target_visual_style 统一作用于主体、环境和身份细节",
         "把 required_negative_prompt_fragments 转成相应的正向视觉状态",
     ):
@@ -594,11 +595,17 @@ def test_fusion_template_defines_method_specific_visible_boundaries():
     ).read_text(encoding="utf-8")
 
     for required_relation in (
-        "图形全部收在载体的次要表面内",
-        "随表面透视、遮挡和受光变化",
-        "不改变载体外轮廓和功能",
-        "现有次要物体表面的小型印刷、压印、刺绣、雕刻、纹样或界面标记",
-        "自然位置和物理支撑",
+        "载体的具体类别与正常用途",
+        "身份所在的具体表面",
+        "印刷或材质工艺",
+        "与载体共面且被载体边界收住的几何关系",
+        "身份特征是图形内部的轮廓、色块或纹理",
+        "描述句必须以载体为主语",
+        "禁止用“一位、一只、一个＋身份名称”作为平面形态的主语",
+        "遮挡只能来自压在表面上的另一个物体或载体边缘裁切",
+        "禁止写成桌面、地面或载体自身遮挡自己的图案",
+        "只有当前画面没有任何合法实体位置或现有载体时",
+        "禁止新增展示台、雕塑、玩偶、立牌和纯装饰摆件",
     ):
         assert required_relation in template
     for removed_scene_specific_example in (
@@ -611,6 +618,40 @@ def test_fusion_template_defines_method_specific_visible_boundaries():
         assert removed_scene_specific_example not in template
 
 
+def test_fusion_and_finalization_define_all_rotating_manifestation_families():
+    template_root = (
+        Path(__file__).resolve().parents[2]
+        / "pixelle_video/prompts/templates"
+    )
+    templates = (
+        (template_root / "visual_anchor_fusion_stage.md").read_text(
+            encoding="utf-8"
+        ),
+        (template_root / "visual_anchor_finalization_stage.md").read_text(
+            encoding="utf-8"
+        ),
+    )
+
+    for template in templates:
+        for family in (
+            "scene_native_entity",
+            "flat_print_or_watermark",
+            "material_engraving_or_embossing",
+            "textile_embroidery_or_woven_pattern",
+            "interface_or_signage_mark",
+            "cropped_surface_motif",
+        ):
+            assert family in template
+    assert "不得因为桌面、纸张最容易描述就跳过其他合法载体" in templates[0]
+    assert "连续多帧都退化为桌角、桌面或纸张上的同类图案" in templates[1]
+    assert "使用“戴着、拿着、站着”描述平面图形" in templates[1]
+    assert "平面形态必须以载体为句子主语" in templates[1]
+    assert "场景原生实体、平面印刷或水印、材质刻线或压印" in templates[1]
+    assert "去掉身份特征后仍服务环境用途或空间表达" in templates[1]
+    for template in templates:
+        assert "连续性优先于 manifestation_family_preference" in template
+
+
 def test_fusion_template_keeps_one_signature_without_fixed_placement_biases():
     template = (
         Path(__file__).resolve().parents[2]
@@ -619,10 +660,11 @@ def test_fusion_template_keeps_one_signature_without_fixed_placement_biases():
 
     for required_rule in (
         "整幅画只保留一个可识别实例",
-        "若没有可用载体，只能新增一个即使去掉身份图形也服务当前场景用途的次要物体",
-        "视觉身份未进入原文时，只能选择以下一个分支",
-        "没有这种现成群体时，禁止生成完整活体",
-        "不能在内容写完后另起一段追加",
+        "六个家族按以下循环顺序排列",
+        "存在三个合法家族时，内部至少比较三个不同家族",
+        "存在两个时至少比较两个",
+        "不能每帧固定站立",
+        "不能在内容写完后追加同一种吉祥物、摆件或角落图案",
     ):
         assert required_rule in template
     for removed_bias in (
@@ -652,16 +694,18 @@ def test_finalization_template_rejects_type_errors_and_attention_competition():
     for required_rule in (
         "以 original_storyboard_text 和 content_prompt 为事实基础",
         "以下任意一项成立",
-        "视觉身份方案立即无效",
+        "融合方案立即无效",
         "从 content_prompt 重新融合",
-        "追加失败",
-        "角色失败",
-        "层级失败",
-        "重复失败",
-        "content_prompt 没有现成的开放群体",
-        "主角身旁、手部和视线交汇处",
-        "previous_final_prompt 已经使用相同的表现分支",
-        "没有现成群体时禁止完整活体",
+        "内容或角色失败",
+        "场景准入失败",
+        "形态选择失败",
+        "表面描述失败",
+        "二维拓扑失败",
+        "视觉层级失败",
+        "连续多帧都退化为桌角、桌面或纸张上的同类图案",
+        "使用“戴着、拿着、站着”描述平面图形",
+        "遮挡只能由另一个前景物体覆盖表面",
+        "manifestation_family_preference",
         "直接作为图片正向提示词",
     ):
         assert required_rule in template
@@ -677,16 +721,14 @@ def test_finalization_template_enforces_visible_fusion_and_unifies_scene_style()
         "target_visual_style 统一决定整幅画的媒介、线条、色彩、材质、透视和光影",
         "保留 required_final_prompt_fragments",
         "把 required_negative_prompt_fragments 转成正向视觉状态",
-        "固定身份特征和禁止变化项",
-        "未进入原文的人物或动物",
-        "植物必须遵守自然生长和陈设逻辑",
-        "标志和抽象符号只能成为局部平面或材质标记",
+        "core_identity_traits、supporting_identity_traits、fixed_color_traits 和 forbidden_traits",
+        "人物、动物和植物遵守自然社会、生态、生长与陈设逻辑",
+        "标志图形和抽象符号只作为局部平面或材质标记",
         "位于中景边缘或背景局部",
-        "表面图形全部收在明确载体的次要表面内",
-        "载体外轮廓和正常用途保持不变",
+        "写清载体、材质工艺、共面、边界裁切",
         "小于主要人物和核心物证",
         "身份保持单实例",
-        "enhanced 时只提高固定特征内部完整度",
+        "enhanced 时只增加固定特征内部完整度",
         "不能放大、移近、去除遮挡或提高周围对比",
         "直接作为图片正向提示词",
         "只输出一个连续段落的最终图片提示词原文",
@@ -723,8 +765,8 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
     ):
         assert required_rule in fusion_template
     for required_rule in (
-        "没有把视觉身份写成事件主体",
-        "主角身旁、前景或孤立留白中的完整人物或动物",
+        "未进入原文的身份承担核心动作",
+        "身份位于中心轴、主角身旁、前景或孤立留白区",
         "位于中景边缘或背景局部",
     ):
         assert required_rule in finalization_template
@@ -958,6 +1000,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
         assert '"negative_prompt_supported": false' in call["prompt"]
         assert '"previous_final_prompt"' in call["prompt"]
+        assert '"manifestation_family_preference"' in call["prompt"]
         assert '"series_final_prompt_history"' not in call["prompt"]
         assert '"series_fusion_history"' not in call["prompt"]
         assert '"visual_signature_style"' not in call["prompt"]
@@ -976,6 +1019,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"continuous_scene_context"' in call["prompt"]
         assert '"target_visual_style"' in call["prompt"]
         assert '"previous_final_prompt"' in call["prompt"]
+        assert '"manifestation_family_preference"' in call["prompt"]
         assert '"content_stage_input"' not in call["prompt"]
         assert '"article_context"' not in call["prompt"]
         assert '"fusion_stage_input"' not in call["prompt"]

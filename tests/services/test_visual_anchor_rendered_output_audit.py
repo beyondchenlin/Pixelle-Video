@@ -174,6 +174,7 @@ def _frame_result(tmp_path):
         identity_reference_condition=reference,
         workflow_identity_condition_summary="当前工作流使用真实参考图绑定身份",
         visual_signature_emphasis="standard",
+        manifestation_family_preference="scene_native_entity",
         continuous_scene_context=continuity,
         series_final_prompt_history=[],
         target_visual_style=target_style,

@@ -84,6 +84,7 @@ def _fusion_input(*, scene_style: str = "真实电影感") -> FusionStageInput:
         identity_conditioning_mode="text_profile",
         workflow_identity_condition_summary="使用固定身份档案保持视觉身份",
         visual_signature_emphasis="standard",
+        manifestation_family_preference="material_engraving_or_embossing",
         continuous_scene_context=ContinuousSceneContext(
             scene_id="independent:frame-1",
             previous_frame_summary="首镜，无前一镜",
@@ -157,7 +158,9 @@ def test_current_prompt_keeps_identity_facts_but_follows_scene_rendering() -> No
     assert '"普通观众"' in rendered.text
     assert '"远处路人"' in rendered.text
     assert '"non_story_default_manifestation": ' in rendered.text
-    assert "没有这种现成群体时，禁止生成完整活体" in rendered.text
+    assert '"manifestation_family_preference": ' in rendered.text
+    assert '"material_engraving_or_embossing"' in rendered.text
+    assert "实体准入失败时，必须选择后面的材质融合形态" in rendered.text
 
 
 def test_authorized_text_is_allowed_without_blanket_text_ban() -> None:
