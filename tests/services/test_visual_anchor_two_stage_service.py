@@ -40,6 +40,7 @@ from pixelle_video.models.visual_anchor_two_stage import (
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
     VisualAnchorImageGenerationRequest,
+    VisualAnchorSceneAdaptationProfile,
     VisualAnchorTwoStageFrameResult,
     visual_signature_style_binding_payload,
 )
@@ -179,6 +180,13 @@ def _identity():
         supporting_identity_traits=["橙色围巾"],
         forbidden_traits=["改变脸型"],
         source_asset_ids=["reference-image:" + "a" * 64],
+        scene_adaptation=VisualAnchorSceneAdaptationProfile(
+            semantic_type_hint="cartoon_animal",
+            variable_slots=["动作", "朝向"],
+            role_presets=["普通观众", "远处路人"],
+            presence_spectrum=["中景边缘", "背景局部"],
+            adaptable_slots=["安静姿态", "轻微遮挡"],
+        ),
         identity_content_sha256=digest,
         identity_resource_version=f"identity:profile-pixelle:{digest}",
     )
@@ -494,7 +502,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v15"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v16"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -522,6 +530,10 @@ async def test_raw_finalization_response_flows_directly_to_generation():
         == FINALIZATION_STAGE_PROMPT_VERSION
     )
     assert frame.generation_request.prompt_assembly_trace is None
+    assert (
+        frame.generation_request.identity_scene_adaptation
+        == frame.fusion_stage_input.identity_profile.scene_adaptation
+    )
     assert frame.generation_request.final_negative_prompt == ""
     assert len(llm.calls) == 3
     assert all(call["response_type"] is None for call in llm.calls)
@@ -563,6 +575,22 @@ async def test_selected_style_reaches_all_three_stage_prompts():
     assert "整幅画唯一的表现规则" in llm.calls[1]["prompt"]
     assert "统一决定人物、物体、环境以及身份细节" in (
         llm.calls[2]["prompt"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_scene_adaptation_reaches_only_fusion_and_finalization_stages():
+    result, llm = await _run(_plan())
+
+    assert "cartoon_animal" not in llm.calls[0]["prompt"]
+    assert "普通观众" not in llm.calls[0]["prompt"]
+    for call in llm.calls[1:]:
+        assert '"semantic_type_hint": "cartoon_animal"' in call["prompt"]
+        assert '"普通观众"' in call["prompt"]
+        assert '"安静姿态"' in call["prompt"]
+    assert len(llm.calls) == 3
+    assert result.frames[0].generation_request.identity_scene_adaptation == (
+        result.frames[0].fusion_stage_input.identity_profile.scene_adaptation
     )
 
 
@@ -1273,6 +1301,44 @@ async def test_v14_three_stage_chain_remains_readable_after_version_bump():
     assert restored.finalization_stage_input is not None
     assert restored.finalization_stage_input.prompt_version == (
         "visual_anchor_finalization_stage.v23"
+    )
+
+
+@pytest.mark.asyncio
+async def test_v15_chain_without_scene_adaptation_remains_readable():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+
+    payload["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v43"
+    )
+    payload["fusion_stage_input"]["identity_profile"].pop("scene_adaptation")
+    finalization_input = payload["finalization_stage_input"]
+    finalization_input["fusion_stage_input"]["prompt_version"] = (
+        "visual_anchor_fusion_stage.v43"
+    )
+    finalization_input["fusion_stage_input"]["identity_profile"].pop(
+        "scene_adaptation"
+    )
+    finalization_input["prompt_version"] = "visual_anchor_finalization_stage.v24"
+    request = payload["generation_request"]
+    request["request_version"] = "visual_anchor_generation_request.v15"
+    request["fusion_stage_prompt_version"] = "visual_anchor_fusion_stage.v43"
+    request["finalization_stage_prompt_version"] = (
+        "visual_anchor_finalization_stage.v24"
+    )
+    request.pop("identity_scene_adaptation")
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.generation_request.request_version == (
+        "visual_anchor_generation_request.v15"
+    )
+    assert restored.fusion_stage_input.identity_profile.scene_adaptation == (
+        VisualAnchorSceneAdaptationProfile()
+    )
+    assert restored.generation_request.identity_scene_adaptation == (
+        VisualAnchorSceneAdaptationProfile()
     )
 
 

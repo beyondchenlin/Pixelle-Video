@@ -276,7 +276,7 @@ def _first_generation_binding_audit_payload(
     actual_binding: Mapping[str, Any],
 ) -> dict[str, Any]:
     payload = {
-        "schema_version": "visual_anchor_first_generation_binding_audit.v9",
+        "schema_version": "visual_anchor_first_generation_binding_audit.v10",
         "request_version": request.request_version,
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "status": status,
@@ -305,6 +305,9 @@ def _first_generation_binding_audit_payload(
         "identity_name_rendering_policy": request.identity_name_rendering_policy,
         "identity_scene_adaptation_policy": (
             request.identity_scene_adaptation_policy
+        ),
+        "identity_scene_adaptation": request.identity_scene_adaptation.model_dump(
+            mode="json"
         ),
         "identity_resource_version": request.identity_resource_version,
         "identity_content_sha256": request.identity_content_sha256,

@@ -7,6 +7,7 @@ from pixelle_video.models.series_visual_signature import (
     MAX_TRAIT_CHARS,
     SeriesVisualSignatureRequest,
     VisualSignatureProfileSnapshot,
+    VisualSignatureSceneAdaptationSnapshot,
 )
 from pixelle_video.models.series_visual_signature_profile import SeriesVisualSignatureProfile
 
@@ -129,6 +130,19 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             )
         )
         source_asset_ids = _source_asset_ids(_read_field(ip_profile, "metadata"))
+        scene_adaptation = VisualSignatureSceneAdaptationSnapshot(
+            semantic_type_hint=_read_field(ip_profile, "ip_type") or "",
+            variable_slots=_sequence(_read_field(ip_profile, "variable_slots")),
+            role_presets=_sequence(_read_field(ip_profile, "role_presets")),
+            presence_spectrum=_sequence(
+                _read_field(ip_profile, "presence_spectrum")
+            ),
+            adaptable_slots=_sequence(_read_field(ip_profile, "adaptable_slots")),
+            default_slot_preference=(
+                _read_field(ip_profile, "default_slot_preference")
+                or "prefer_supporting"
+            ),
+        )
         snapshot = VisualSignatureProfileSnapshot(
             profile_id=profile_id,
             display_name=display_name,
@@ -141,6 +155,7 @@ class SeriesVisualSignatureProfileSnapshotBuilder:
             style_safe_traits=(),
             forbidden_traits=forbidden_traits,
             source_asset_ids=source_asset_ids,
+            scene_adaptation=scene_adaptation,
         )
         return validate_series_visual_signature_profile_snapshot(
             snapshot,
@@ -229,6 +244,7 @@ def validate_series_visual_signature_profile_snapshot(
         style_safe_traits=tuple(snapshot.style_safe_traits),
         forbidden_traits=tuple(snapshot.forbidden_traits),
         source_asset_ids=tuple(snapshot.source_asset_ids),
+        scene_adaptation=snapshot.scene_adaptation,
     )
     if snapshot.canonical_identity_clause != normalized.canonical_identity_clause:
         raise ValueError(

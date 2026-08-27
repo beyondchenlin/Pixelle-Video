@@ -93,6 +93,11 @@ def _identity_binding_comparisons(
             == request.identity_scene_adaptation_policy,
         ),
         (
+            "identity_scene_adaptation_preserved",
+            binding.get("identity_scene_adaptation")
+            == request.identity_scene_adaptation.model_dump(mode="json"),
+        ),
+        (
             "identity_resource_version_preserved",
             binding.get("identity_resource_version")
             == request.identity_resource_version,
