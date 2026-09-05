@@ -13,6 +13,8 @@ param(
     [int]$Port = 0,
     [ValidateSet('', 'auto', 'memory_safe', 'performance')]
     [string]$ResourcePolicy = '',
+    [ValidateSet('', 'normal', 'high')]
+    [string]$VramMode = '',
     [double]$MinimumFreeCommitGB = -1,
     [ValidateSet('', 'all', 'allowlist', 'none')]
     [string]$CustomNodeLoading = '',
@@ -41,6 +43,7 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -HostAddress $HostAddress `
     -Port $Port `
     -ResourcePolicy $ResourcePolicy `
+    -VramMode $VramMode `
     -MinimumFreeCommitGB $MinimumFreeCommitGB `
     -CustomNodeLoading $CustomNodeLoading `
     -AllowedCustomNodeFoldersBase64 $AllowedCustomNodeFoldersBase64 `

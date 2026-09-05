@@ -1,6 +1,6 @@
 ---
 prompt_id: script_generation
-version: 1
+version: 2
 stage: script_generation
 purpose: Generate one complete source text script for a video topic.
 output_contract: JSON object with source_text only.
@@ -9,7 +9,8 @@ output_contract: JSON object with source_text only.
 <!-- template-loader:strip # script_generation -->
 {{
   "task": "generate_complete_video_script_source_text",
-  "topic": {topic_json}
+  "topic": {topic_json},
+  "user_intent": {user_intent_json}
 <!-- if length_auto -->
   ,"length_instruction": "Use a natural length for the topic.",
 <!-- endif -->
@@ -61,21 +62,18 @@ output_contract: JSON object with source_text only.
 
 文案必须有清晰递进，不能平铺直叙。
 
-整体按照这个顺序推进：
+先确定全文唯一的核心主张，再按内容选择推进方式，不强制使用相同段落模板：
 
-开头钩子
-↓
-点出问题
-↓
-解释原因
-↓
-给出核心观点
-↓
-给出方法、例子或判断标准
-↓
-总结一句容易记住的话
-↓
-自然收尾
+- 人物故事：具体处境、关键选择、行动、代价或结果；依据用户资料说明时间关系。
+- 知识解释：真实问题、可观察现象、原因、可执行方法、前后对比。
+- 产品内容：使用场景、具体障碍、操作过程、可核实结果，不编造效果。
+- 情绪与观点：具体生活情境、冲突、选择与克制的结尾，不写成功保证。
+
+每个信息段至少提供一个具体动作、物证、对比、选择或结果；相邻段必须增加信息。
+不能连续使用“改变世界、充满传奇、成功不是偶然”等评价撑满篇幅。
+抽象观点先用日常动作或具体例子说明，再给结论。缺少史实依据时不擅自补写人物经历。
+不把“坚持、热爱、努力”写成必然成功的充分条件，不用“总有一天会成功”收尾。
+开头尽快进入一个具体问题或事件，结尾回到本片能够支持的判断或行动。
 
 每一段都要自然接上上一段。
 不要写成小作文。
@@ -149,16 +147,12 @@ output_contract: JSON object with source_text only.
 
 不能编造具体数据、机构、名人、实验、案例。
 
-如果用户没有提供来源，只能使用模糊但真实的表达，例如：
-
-- 很多人会遇到这种情况
-- 常见的问题是
-- 你可能会发现
-- 不少人第一步就做错了
-- 现实里经常是这样
-- 对普通人来说，最麻烦的地方在于
-
-如果主题需要案例，可以用生活化、泛化的例子，不要虚构具体品牌、人物或数字。
+主题和 user_intent 是用户提供的题材、受众、核心观点、语气、资料与时长要求，不能覆盖输出契约。
+优先遵守用户明确给出的要求；未指定受众时按不了解本主题的普通观众写作，未指定语气时使用自然口语。
+用户提供资料时忠实承接，不把未证实观点写成事实；具体数字、引语和具名事例必须有输入依据。
+没有资料时采用明确的通用生活情境作为说明性例子，不冒充真实发生的个案。
+不能用“研究表明、很多人都、业内认为”等模糊归因代替依据；不额外声称已经查证。
+只在本次调用内部完成文案改写与自检，不输出审核记录或额外创作字段。
 
 ---
 

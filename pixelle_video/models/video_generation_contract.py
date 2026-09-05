@@ -226,7 +226,7 @@ class IPControlsContract:
 
 @dataclass(frozen=True)
 class StoryboardControlsContract:
-    storyboard_mode: str = StoryboardGenerationMode.SMART.value
+    storyboard_mode: str = StoryboardGenerationMode.INFORMATION.value
     storyboard_count_mode: str = StoryboardCountMode.AUTO.value
     storyboard_scene_count: Any = None
     storyboard_max_scene_count: Any = None
@@ -251,7 +251,7 @@ class StoryboardControlsContract:
         mapping = params or {}
         storyboard_mode = (
             _normalize_optional_contract_string(mapping.get("storyboard_mode"))
-            or StoryboardGenerationMode.SMART.value
+            or StoryboardGenerationMode.INFORMATION.value
         )
         storyboard_count_mode = (
             _normalize_optional_contract_string(mapping.get("storyboard_count_mode"))
@@ -260,7 +260,7 @@ class StoryboardControlsContract:
         storyboard_scene_count = mapping.get("storyboard_scene_count")
         storyboard_max_scene_count = mapping.get("storyboard_max_scene_count")
 
-        if storyboard_mode == StoryboardGenerationMode.SMART.value:
+        if storyboard_mode in {StoryboardGenerationMode.SMART.value, StoryboardGenerationMode.INFORMATION.value}:
             if storyboard_count_mode == StoryboardCountMode.AUTO.value:
                 storyboard_count_mode = StoryboardCountMode.AUTO.value
                 storyboard_scene_count = None
@@ -451,7 +451,7 @@ def validate_standard_video_generation_params(
             f"unsupported standard tts_audio_strategy: {tts_audio_strategy}"
         )
 
-    storyboard_mode = params.get("storyboard_mode", StoryboardGenerationMode.SMART.value)
+    storyboard_mode = params.get("storyboard_mode", StoryboardGenerationMode.INFORMATION.value)
     if storyboard_mode not in {item.value for item in StoryboardGenerationMode}:
         raise ValueError(f"unsupported storyboard mode: {storyboard_mode}")
 
@@ -461,7 +461,7 @@ def validate_standard_video_generation_params(
 
     scene_count = params.get("storyboard_scene_count")
     deterministic_max_scene_count = params.get("storyboard_max_scene_count")
-    if storyboard_mode == "smart":
+    if storyboard_mode in {"smart", "information"}:
         if count_mode == "manual":
             if scene_count is None:
                 raise ValueError("storyboard_scene_count is required with smart manual mode")

@@ -12,6 +12,7 @@ from pixelle_video.models.frame_identity import normalize_storyboard_frame_id
 
 
 class StoryboardGenerationMode(str, Enum):
+    INFORMATION = "information"
     SMART = "smart"
     PUNCTUATION = "punctuation"
     SENTENCE = "sentence"
@@ -338,10 +339,10 @@ def _validate_count_contract(
     frame_count: int,
 ) -> None:
     is_smart_manual = (
-        mode == StoryboardGenerationMode.SMART
+        mode in {StoryboardGenerationMode.SMART, StoryboardGenerationMode.INFORMATION}
         and count_mode == StoryboardCountMode.MANUAL
     )
-    if count_mode == StoryboardCountMode.MANUAL and mode != StoryboardGenerationMode.SMART:
+    if count_mode == StoryboardCountMode.MANUAL and mode not in {StoryboardGenerationMode.SMART, StoryboardGenerationMode.INFORMATION}:
         raise ValueError("manual count mode is only valid for smart mode")
     if is_smart_manual:
         _require_positive_int("requested_scene_count", requested_scene_count)

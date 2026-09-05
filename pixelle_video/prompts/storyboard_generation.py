@@ -102,6 +102,7 @@ def render_smart_storyboard_prompt(
     min_scene_count: int,
     max_scene_count: int,
     prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
+    information_design: bool = False,
 ) -> RenderedPrompt:
     sentences = _split_into_sentences(source_text)
     sentence_list = [
@@ -134,6 +135,7 @@ def render_smart_storyboard_prompt(
         {
             "prompt_language_json": json.dumps(resolved_prompt_language, ensure_ascii=False),
             "source_text_json": json.dumps(source_text, ensure_ascii=False),
+        "information_design": information_design,
             "sentences_json": json.dumps(sentence_list, ensure_ascii=False, indent=2),
             "manual_count_mode": count_mode == "manual",
             "auto_count_mode": count_mode != "manual",

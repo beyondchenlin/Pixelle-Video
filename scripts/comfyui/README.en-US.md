@@ -34,6 +34,12 @@ The Desktop shell and ComfyUI core service are separate lifecycle layers. On-dem
 management controls the complete core service. Its browser interface is available while
 the service runs and exits with the service.
 
+## GPU residency
+
+A backend profile accepts `vram_mode: normal` (default) or `vram_mode: high`. High mode keeps models on the GPU to reduce host-memory transfers; enable it only after measuring that the configured workflow fits available VRAM. It does not change image models, dimensions, sampling, or creative prompts. Other profiles can retain normal mode.
+
+The start/check/stop scripts accept `-VramMode normal|high` and include the mode in process ownership checks. Let the current batch finish and stop before switching. There is no automatic mode fallback or regeneration. Full process exit remains the cleanup boundary after a batch.
+
 ## Windows Double-Click Entry Points
 
 Double-clicking `.ps1` files on Windows usually opens an editor or Notepad. That is the default Windows safety behavior, and changing the file association is not recommended.

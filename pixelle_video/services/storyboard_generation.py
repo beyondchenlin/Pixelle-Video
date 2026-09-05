@@ -266,8 +266,9 @@ class StoryboardGenerationService:
                 max_scene_count=storyboard_max_scene_count,
                 prompt_language=prompt_language,
             )
-        if storyboard_mode == "smart":
+        if storyboard_mode in {"smart", "information"}:
             return await self._generate_smart(
+                storyboard_mode=storyboard_mode,
                 llm_service=llm_service,
                 source_text=source_text,
                 count_mode=storyboard_count_mode,
@@ -282,6 +283,7 @@ class StoryboardGenerationService:
         self,
         *,
         llm_service,
+        storyboard_mode: str = "smart",
         source_text: str,
         count_mode: str,
         requested_scene_count: int | None,
@@ -317,6 +319,7 @@ class StoryboardGenerationService:
         )
 
         rendered_prompt = render_smart_storyboard_prompt(
+            information_design=storyboard_mode == "information",
             source_text=normalized_source,
             count_mode=count_mode,
             requested_scene_count=requested_scene_count,
@@ -326,6 +329,7 @@ class StoryboardGenerationService:
         )
         try:
             frames = await self._generate_smart_frames_with_repair(
+                information_design=storyboard_mode == "information",
                 llm_service=llm_service,
                 rendered_prompt=rendered_prompt,
                 source_text=normalized_source,
@@ -337,7 +341,7 @@ class StoryboardGenerationService:
                 trace_recorder=trace_recorder,
             )
         except ValueError as exc:
-            if count_mode != "auto":
+            if count_mode != "auto" or storyboard_mode == "information":
                 raise
             fallback_segments = _coalesce_segments_to_count(
                 _sentence_segments(normalized_source),
@@ -345,7 +349,7 @@ class StoryboardGenerationService:
                 source_text=normalized_source,
             )
             return self._plan_from_segments(
-                mode="smart",
+                mode=storyboard_mode,
                 count_mode=count_mode,
                 requested_scene_count=requested_scene_count,
                 source_text=normalized_source,
@@ -363,13 +367,13 @@ class StoryboardGenerationService:
             )
 
         return StoryboardPlan.build(
-            mode="smart",
+            mode=storyboard_mode,
             count_mode=count_mode,
             requested_scene_count=requested_scene_count,
             source_text=normalized_source,
             frames=frames,
             diagnostics={
-                "strategy": "smart",
+                "strategy": storyboard_mode,
                 "requested_scene_count": requested_scene_count,
                 "max_scene_count": max_scene_count,
                 "auto_max_scene_count": (
@@ -384,6 +388,7 @@ class StoryboardGenerationService:
         self,
         *,
         llm_service,
+        information_design: bool = False,
         rendered_prompt,
         source_text: str,
         count_mode: str,
@@ -414,6 +419,7 @@ class StoryboardGenerationService:
                     else None
                 )
                 response = await llm_service(
+                    **({"single_request": True} if information_design else {}),
                     prompt=current_rendered_prompt.text,
                     response_type=SmartStoryboardPlanResponse,
                     temperature=temperature,
@@ -443,7 +449,7 @@ class StoryboardGenerationService:
                 )
                 return frames
             except ValueError as exc:
-                if repair_used:
+                if repair_used or information_design:
                     raise
                 current_rendered_prompt = render_storyboard_repair_prompt(
                     original_prompt=rendered_prompt.text,

@@ -123,6 +123,7 @@ def _plan(*, continuous=False):
             visual_goal="表现两人在车库创业",
             prompt_intent="车库工作台场景",
             continuity_anchors=("同一车库",) if continuous else (),
+            metadata={"continuous_scene_id": "garage"} if continuous else {},
         )
     ]
     if continuous:
@@ -134,6 +135,7 @@ def _plan(*, continuous=False):
                 visual_goal="延续测试动作",
                 prompt_intent="同一车库连续镜头",
                 continuity_anchors=("同一车库",),
+                metadata={"continuous_scene_id": "garage"},
             )
         )
     return StoryboardPlan.build(
@@ -282,6 +284,9 @@ async def _run_service(
     negative_prompt_supported=False,
     target_visual_style="真实电影感",
     visible_text_policy=None,
+    world_context=None,
+    frame_contexts_by_id=None,
+    identity_profile=None,
 ):
     reference_condition = identity_reference_condition
     if reference_condition is _DEFAULT_REFERENCE:
@@ -301,7 +306,7 @@ async def _run_service(
     return await VisualAnchorTwoStageService().run_batch(
         llm_service=llm,
         storyboard_plan=plan,
-        identity_profile=_identity(),
+        identity_profile=identity_profile if identity_profile is not None else _identity(),
         identity_reference_condition=reference_condition,
         identity_conditioning_mode=identity_conditioning_mode,
         workflow_identity_condition_summary=(
@@ -319,6 +324,8 @@ async def _run_service(
         random_seeds_by_frame=seeds,
         negative_prompt_supported=negative_prompt_supported,
         stage_callback=stage_callback,
+        world_context=world_context,
+        frame_contexts_by_id=frame_contexts_by_id,
     )
 
 
@@ -502,7 +509,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v19"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v20"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -579,8 +586,8 @@ async def test_selected_style_reaches_all_three_stage_prompts():
     assert '"article_context"' not in llm.calls[1]["prompt"]
     assert '"article_context"' not in llm.calls[2]["prompt"]
     assert '"fusion_stage_input"' not in llm.calls[2]["prompt"]
-    assert '"previous_final_prompt": null' in llm.calls[1]["prompt"]
-    assert '"previous_final_prompt": null' in llm.calls[2]["prompt"]
+    assert '"previous_final_prompt"' not in llm.calls[1]["prompt"]
+    assert '"previous_final_prompt"' not in llm.calls[2]["prompt"]
 
 
 @pytest.mark.asyncio
@@ -593,10 +600,60 @@ async def test_scene_adaptation_reaches_only_fusion_and_finalization_stages():
         assert '"semantic_type_hint": "cartoon_animal"' in call["prompt"]
         assert '"普通观众"' in call["prompt"]
         assert '"安静姿态"' in call["prompt"]
+        assert "non_story_default_manifestation" not in call["prompt"]
+        assert "prefer_embedded_unless_current_content_admits_a_scene_native_entity" not in call["prompt"]
     assert len(llm.calls) == 3
     assert result.frames[0].generation_request.identity_scene_adaptation == (
         result.frames[0].fusion_stage_input.identity_profile.scene_adaptation
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("name", "semantic_type", "traits"),
+    [
+        ("栏目讲述者", "person", ["方框眼镜", "短卷发"]),
+        ("栏目飞鸟", "animal", ["弯曲长喙", "红色翼尖"]),
+        ("栏目树木", "plant", ["扇形叶片", "分叉树干"]),
+        ("栏目计时器", "functional_object", ["六边形外壳", "红色指针"]),
+        ("栏目标志", "graphic_symbol", ["双环轮廓", "方形缺口"]),
+        ("栏目符号", "abstract_symbol", ["交错折线", "三个圆点"]),
+    ],
+)
+async def test_identity_types_share_the_same_raw_three_stage_path(name, semantic_type, traits):
+    digest = series_visual_signature_identity_content_sha256(
+        display_name=name,
+        core_identity_traits=traits,
+        supporting_identity_traits=[],
+        forbidden_traits=[],
+    )
+    identity = VisualAnchorIdentityProfile(
+        profile_id="generic-identity",
+        display_name=name,
+        core_identity_traits=traits,
+        scene_adaptation=VisualAnchorSceneAdaptationProfile(semantic_type_hint=semantic_type),
+        identity_content_sha256=digest,
+        identity_resource_version=f"identity:generic-identity:{digest}",
+    )
+    final_raw = f"\n  为{name}生成的模型原始文本，不作本地重写。  \n"
+    llm = _QueuedLLM({
+        ContentStageModelOutput: ["原始内容画面"],
+        FusionStageModelOutput: ["原始融合草稿"],
+        FinalizationStagePromptPassthrough: [final_raw],
+    })
+    result = await _run_service(
+        _plan(), llm, identity_profile=identity, identity_conditioning_mode="text_profile",
+    )
+    assert len(llm.calls) == 3
+    assert name not in llm.calls[0]["prompt"]
+    for call in llm.calls[1:]:
+        assert name in call["prompt"]
+        assert f'"semantic_type_hint": "{semantic_type}"' in call["prompt"]
+        assert all(trait in call["prompt"] for trait in traits)
+    request = result.frames[0].generation_request
+    assert request.identity_display_name == name
+    assert request.identity_core_traits == traits
+    assert request.final_positive_prompt == final_raw
 
 
 @pytest.mark.asyncio
@@ -610,8 +667,8 @@ async def test_fusion_and_finalization_prompts_use_compact_nonduplicated_inputs(
     assert len(finalization_prompt) < 8000
     assert '"content_prompt"' in fusion_prompt
     assert '"fusion_draft"' in finalization_prompt
-    assert '"previous_final_prompt"' in fusion_prompt
-    assert '"previous_final_prompt"' in finalization_prompt
+    assert '"previous_final_prompt"' not in fusion_prompt
+    assert '"previous_final_prompt"' not in finalization_prompt
     assert '"manifestation_family_preference"' in fusion_prompt
     assert '"manifestation_family_preference"' in finalization_prompt
     for removed_duplicate in (
@@ -1024,7 +1081,7 @@ async def test_continuous_scene_passes_the_previous_raw_prompt_as_context():
 
 
 @pytest.mark.asyncio
-async def test_fusion_and_finalization_receive_only_the_previous_final_prompt():
+async def test_independent_scenes_keep_history_for_records_but_not_model_inputs():
     plan = _independent_plan()
     fusions = [f"  原始融合结果::{frame.frame_id}\n" for frame in plan.frames]
     finalizations = [
@@ -1064,21 +1121,18 @@ async def test_fusion_and_finalization_receive_only_the_previous_final_prompt():
     assert [
         frame.finalization_stage_output.raw_prompt for frame in result.frames
     ] == finalizations
+    for index in range(1, len(plan.frames)):
+        for call in llm.calls[index * 3 + 1:index * 3 + 3]:
+            for earlier_prompt in finalizations[:index]:
+                assert json.dumps(earlier_prompt, ensure_ascii=False) not in call["prompt"]
+            assert '"previous_final_prompt"' not in call["prompt"]
 
 
 @pytest.mark.asyncio
-async def test_manifestation_family_preference_rotates_across_independent_frames():
+async def test_manifestation_selection_is_scene_adaptive_for_every_frame():
     result, llm = await _run(_independent_plan(frame_count=7))
 
-    expected_preferences = [
-        "scene_native_entity",
-        "flat_print_or_watermark",
-        "material_engraving_or_embossing",
-        "textile_embroidery_or_woven_pattern",
-        "interface_or_signage_mark",
-        "cropped_surface_motif",
-        "scene_native_entity",
-    ]
+    expected_preferences = ["scene_adaptive"] * 7
     assert [
         frame.fusion_stage_input.manifestation_family_preference
         for frame in result.frames
@@ -1510,6 +1564,37 @@ async def test_v18_chain_with_previous_content_prompt_remains_readable():
     assert restored.generation_request.request_version == (
         "visual_anchor_generation_request.v18"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("request_version", "stage_versions"),
+    [(19, (28, 46, 27)), (20, (30, 50, 31)), (21, (30, 51, 32)), (22, (30, 52, 33)), (23, (30, 53, 34)), (24, (30, 54, 35))],
+)
+async def test_complete_previous_prompt_chain_remains_readable(request_version, stage_versions):
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+    request = payload["generation_request"]
+    request["request_version"] = f"visual_anchor_generation_request.v{request_version}"
+    for stage, version in zip(("content", "fusion", "finalization"), stage_versions):
+        prompt_version = f"visual_anchor_{stage}_stage.v{version}"
+        payload[f"{stage}_stage_input"]["prompt_version"] = prompt_version
+        request[f"{stage}_stage_prompt_version"] = prompt_version
+        if stage != "finalization":
+            payload["finalization_stage_input"][f"{stage}_stage_input"]["prompt_version"] = prompt_version
+    for stage_input in (
+        payload["content_stage_input"], payload["fusion_stage_input"],
+        payload["finalization_stage_input"]["content_stage_input"],
+        payload["finalization_stage_input"]["fusion_stage_input"],
+    ):
+        stage_input.pop("scene_context", None)
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.generation_request.request_version == request["request_version"]
+    assert restored.content_stage_input.scene_context == {}
+    assert restored.generation_request.final_positive_prompt == request["final_positive_prompt"]
+    assert restored.finalization_stage_output.raw_prompt == request["final_positive_prompt"]
 
 
 @pytest.mark.asyncio
@@ -2064,3 +2149,29 @@ async def test_regeneration_rejects_tampered_raw_contract_before_normalization(
             prompt_plan=prompt_plan,
             task_id="regenerated-task",
         )
+
+
+@pytest.mark.asyncio
+async def test_scene_inputs_reach_all_stages_without_identity_leakage():
+    plan = _plan()
+    llm = _QueuedLLM({None: ["内容原文", "融合原文", " 最终原文\n"]})
+    result = await _run_service(
+        plan, llm,
+        world_context={"generation_world_hint": "二十世纪车库，禁止现代手机"},
+        frame_contexts_by_id={"frame-a": {"shot_purpose": "展示测试结果", "shot_type": "近景"}},
+    )
+    assert len(llm.calls) == 3
+    for call in llm.calls:
+        assert "二十世纪车库，禁止现代手机" in call["prompt"]
+        assert "展示测试结果" in call["prompt"]
+        assert '"shot_type": "近景"' in call["prompt"]
+    assert "圆形白色脸" not in llm.calls[0]["prompt"]
+    assert result.frames[0].generation_request.final_positive_prompt == " 最终原文\n"
+
+
+def test_shared_identity_does_not_merge_different_scenes():
+    from dataclasses import replace
+
+    from pixelle_video.services.visual_anchor_two_stage_service import _continuous_scene_ids
+    frames = [replace(f, continuity_anchors=("同一个人",), metadata={}) for f in _independent_plan(2).frames]
+    assert len(set(_continuous_scene_ids(frames))) == 2

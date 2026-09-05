@@ -11,6 +11,7 @@ from pixelle_video.utils.bool_parsing import coerce_bool
 FORMAL_CONTENT_IP_WORLD_FIELDS = frozenset(
     {
         "series_visual_signature_enabled",
+        "identity_reference_required",
         "series_visual_signature_asset_bible_id",
         "series_visual_signature_profile_id",
         "generation_world_hint",
@@ -66,6 +67,8 @@ def build_formal_content_ip_world_payload(source: Mapping[str, Any] | None) -> d
                 values
             ).to_generation_dict()
         )
+    if payload["series_visual_signature_enabled"] and coerce_bool(values.get("identity_reference_required"), default=False):
+        payload["identity_reference_required"] = True
     world_hint = _first_text(values.get("generation_world_hint"))
     if world_hint:
         payload["generation_world_hint"] = world_hint

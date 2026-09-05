@@ -30,7 +30,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FusionStagePromptPassthrough,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
-    ManifestationFamilyPreference,
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
@@ -56,18 +55,6 @@ class VisualAnchorTwoStageError(RuntimeError):
 _FRAME_SOURCE_MAX_CHARS = 6000
 _ARTICLE_CONTEXT_MAX_CHARS = 6000
 _SERIES_FINAL_PROMPT_HISTORY_LIMIT = 1
-_NON_STORY_DEFAULT_MANIFESTATION = (
-    "prefer_embedded_unless_current_content_admits_a_scene_native_entity"
-)
-_MANIFESTATION_FAMILY_ROTATION: tuple[ManifestationFamilyPreference, ...] = (
-    "scene_native_entity",
-    "flat_print_or_watermark",
-    "material_engraving_or_embossing",
-    "textile_embroidery_or_woven_pattern",
-    "interface_or_signage_mark",
-    "cropped_surface_motif",
-)
-
 
 def _content_stage_visual_style(
     target_visual_style: TargetVisualStyle,
@@ -139,7 +126,7 @@ class VisualAnchorTwoStageBatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "visual_anchor_two_stage_batch.v19",
+            "schema_version": "visual_anchor_two_stage_batch.v20",
             "prompt_versions": {
                 "content_stage": CONTENT_STAGE_PROMPT_VERSION,
                 "fusion_stage": FUSION_STAGE_PROMPT_VERSION,
@@ -207,6 +194,8 @@ class VisualAnchorTwoStageService:
         trace_context: LLMTraceContext | None = None,
         trace_recorder=None,
         stage_callback=None,
+        world_context: Mapping[str, Any] | None = None,
+        frame_contexts_by_id: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> VisualAnchorTwoStageBatchResult:
         if not isinstance(storyboard_plan, StoryboardPlan):
             raise TypeError("storyboard_plan must be a StoryboardPlan")
@@ -348,6 +337,9 @@ class VisualAnchorTwoStageService:
                 storyboard_plan=storyboard_plan,
                 frame=frame,
                 frame_index=index,
+                scene_context=_scene_context(
+                    frame, world_context, (frame_contexts_by_id or {}).get(frame.frame_id)
+                ),
                 scene_id=scene_ids[index],
                 existing_fusion_decision=decisions_by_scene.get(scene_ids[index]),
                 series_final_prompt_history=list(
@@ -391,6 +383,7 @@ class VisualAnchorTwoStageService:
         storyboard_plan: StoryboardPlan,
         frame: StoryboardPlanFrame,
         frame_index: int,
+        scene_context: dict[str, Any],
         scene_id: str,
         existing_fusion_decision: FinalizationStagePromptPassthrough | None,
         series_final_prompt_history: list[str],
@@ -423,6 +416,7 @@ class VisualAnchorTwoStageService:
             else "末镜，无后一镜"
         )
         content_input = ContentStageInput(
+            scene_context=scene_context,
             frame_id=frame.frame_id,
             original_storyboard_text=frame.source_text,
             article_context=_relevant_article_context(
@@ -485,6 +479,7 @@ class VisualAnchorTwoStageService:
         )
 
         fusion_input = FusionStageInput(
+            scene_context=scene_context,
             frame_id=frame.frame_id,
             original_storyboard_text=frame.source_text,
             content_stage_output=content_output,
@@ -493,9 +488,7 @@ class VisualAnchorTwoStageService:
             identity_reference_condition=identity_reference_condition,
             workflow_identity_condition_summary=workflow_identity_condition_summary,
             visual_signature_emphasis=visual_signature_emphasis,
-            manifestation_family_preference=(
-                _manifestation_family_preference(frame_index)
-            ),
+            manifestation_family_preference="scene_adaptive",
             continuous_scene_context=continuity_context,
             series_final_prompt_history=series_final_prompt_history,
             target_visual_style=target_visual_style,
@@ -816,9 +809,6 @@ def _compact_identity_profile(
     identity_profile: VisualAnchorIdentityProfile,
 ) -> dict[str, Any]:
     scene_adaptation = identity_profile.scene_adaptation.model_dump(mode="json")
-    scene_adaptation["non_story_default_manifestation"] = (
-        _NON_STORY_DEFAULT_MANIFESTATION
-    )
     return {
         "profile_id": identity_profile.profile_id,
         "display_name": identity_profile.display_name,
@@ -871,31 +861,6 @@ def _compact_continuous_scene_context(
     return payload
 
 
-def _previous_final_prompt(history: Sequence[str]) -> str | None:
-    return history[-1] if history else None
-
-
-def _manifestation_family_preference(
-    frame_index: int,
-) -> ManifestationFamilyPreference:
-    if frame_index < 0:
-        raise ValueError("frame_index must be non-negative")
-    return _MANIFESTATION_FAMILY_ROTATION[
-        frame_index % len(_MANIFESTATION_FAMILY_ROTATION)
-    ]
-
-
-def _nonduplicated_previous_final_prompt(
-    *,
-    history: Sequence[str],
-    continuous_scene_context: Mapping[str, Any],
-) -> str | None:
-    previous_prompt = _previous_final_prompt(history)
-    if previous_prompt == continuous_scene_context.get("existing_fusion_decision"):
-        return None
-    return previous_prompt
-
-
 def _fusion_prompt_payload(stage_input: FusionStageInput) -> dict[str, Any]:
     continuous_scene_context = _compact_continuous_scene_context(
         stage_input.continuous_scene_context
@@ -904,6 +869,7 @@ def _fusion_prompt_payload(stage_input: FusionStageInput) -> dict[str, Any]:
         "frame_id": stage_input.frame_id,
         "original_storyboard_text": stage_input.original_storyboard_text,
         "content_prompt": stage_input.content_stage_output.raw_prompt,
+        "scene_context": stage_input.scene_context,
         "identity_profile": _compact_identity_profile(stage_input.identity_profile),
         "identity_conditioning_mode": stage_input.identity_conditioning_mode,
         "workflow_identity_condition_summary": (
@@ -914,10 +880,6 @@ def _fusion_prompt_payload(stage_input: FusionStageInput) -> dict[str, Any]:
             stage_input.manifestation_family_preference
         ),
         "continuous_scene_context": continuous_scene_context,
-        "previous_final_prompt": _nonduplicated_previous_final_prompt(
-            history=stage_input.series_final_prompt_history,
-            continuous_scene_context=continuous_scene_context,
-        ),
         "target_visual_style": _compact_target_visual_style(
             stage_input.target_visual_style
         ),
@@ -944,6 +906,7 @@ def _finalization_prompt_payload(
         "original_storyboard_text": stage_input.original_storyboard_text,
         "content_prompt": fusion_input.content_stage_output.raw_prompt,
         "fusion_draft": stage_input.fusion_stage_output.raw_prompt,
+        "scene_context": fusion_input.scene_context,
         "identity_profile": _compact_identity_profile(fusion_input.identity_profile),
         "identity_conditioning_mode": fusion_input.identity_conditioning_mode,
         "workflow_identity_condition_summary": (
@@ -954,10 +917,6 @@ def _finalization_prompt_payload(
             fusion_input.manifestation_family_preference
         ),
         "continuous_scene_context": continuous_scene_context,
-        "previous_final_prompt": _nonduplicated_previous_final_prompt(
-            history=stage_input.series_final_prompt_history,
-            continuous_scene_context=continuous_scene_context,
-        ),
         "target_visual_style": _compact_target_visual_style(
             fusion_input.target_visual_style
         ),
@@ -977,31 +936,33 @@ def _emit_stage(callback, *, stage: str, event: str, **fields: Any) -> None:
     )
 
 
+_CONTENT_CONTEXT_FIELDS = (
+    "visual_goal", "prompt_intent", "primary_subject", "secondary_subjects",
+    "shot_type", "shot_purpose", "world_elements", "continuity_anchors", "focus_detail",
+)
+
+
+def _scene_context(frame, world_context, frame_context):
+    """Project existing input fields only; never inspect generated creative text."""
+    source = frame.to_dict()
+    overrides = frame_context or {}
+    return {
+        "world": dict(world_context or {}),
+        "shot": {key: overrides.get(key, source.get(key)) for key in _CONTENT_CONTEXT_FIELDS},
+        "continuous_scene_id": frame.metadata.get("continuous_scene_id"),
+    }
+
+
 def _continuous_scene_ids(
     frames: Sequence[StoryboardPlanFrame],
 ) -> tuple[str, ...]:
-    result: list[str] = []
-    previous_anchors: frozenset[str] = frozenset()
-    current_derived_scene = ""
-    for frame in frames:
-        explicit = str(frame.metadata.get("continuous_scene_id") or "").strip()
-        anchors = frozenset(
-            _normalized_text(anchor).casefold()
-            for anchor in frame.continuity_anchors
-            if _normalized_text(anchor)
-        )
-        if explicit:
-            scene_id = explicit
-        elif anchors and previous_anchors and anchors.intersection(previous_anchors):
-            scene_id = current_derived_scene
-        elif anchors:
-            scene_id = f"continuity:{frame.frame_id}"
-        else:
-            scene_id = f"independent:{frame.frame_id}"
-        result.append(scene_id)
-        current_derived_scene = scene_id
-        previous_anchors = anchors
-    return tuple(result)
+    # Only explicit input scene ids establish a shared scene. Anchor text remains
+    # model context; a shared person's name does not establish time or location.
+    return tuple(
+        str(frame.metadata.get("continuous_scene_id") or "").strip()
+        or f"independent:{frame.frame_id}"
+        for frame in frames
+    )
 
 
 def _relevant_article_context(

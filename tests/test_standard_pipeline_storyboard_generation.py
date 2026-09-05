@@ -622,7 +622,7 @@ def test_strict_signature_single_pass_does_not_require_vision_model(
 
 
 @pytest.mark.asyncio
-async def test_generate_content_fixed_defaults_to_smart_storyboard(monkeypatch):
+async def test_generate_content_fixed_defaults_to_information_storyboard(monkeypatch):
     captured = {}
     plan = _plan()
 
@@ -655,7 +655,7 @@ async def test_generate_content_fixed_defaults_to_smart_storyboard(monkeypatch):
         "第二句。",
     ]
     assert captured["source_text"] == "第一句。第二句。"
-    assert captured["storyboard_mode"] == "smart"
+    assert captured["storyboard_mode"] == "information"
     assert captured["storyboard_count_mode"] == "auto"
     assert captured["storyboard_scene_count"] is None
     assert ctx.llm_trace_refs[0]["stage"] == "smart_storyboard_generation"
@@ -1750,3 +1750,22 @@ async def test_initialize_storyboard_rejects_template_canvas_orientation_mismatc
 
     with pytest.raises(ValueError, match="Template orientation"):
         await StandardPipeline(_DummyCore()).initialize_storyboard(ctx)
+
+
+@pytest.mark.asyncio
+async def test_required_reference_identity_rejects_text_workflow_before_planning():
+    repository = _RecordingAssetBibleRepository()
+    core = _DummyCore()
+    core.asset_bible_repository = repository
+    ctx = PipelineContext(input_text="topic", params={
+        "frame_template": "1080x1920/image_default.html",
+        "media_workflow": "selfhost/image_custom.json",
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_asset_bible_id": "bible_demo",
+        "series_visual_signature_profile_id": "ip_main",
+        "identity_reference_required": True,
+    })
+    with pytest.raises(ValueError, match="所选工作流不支持参考图"):
+        await StandardPipeline(core)._preflight_series_visual_signature(ctx)
+    assert ctx.storyboard_plan is None
+    assert not repository.load_calls

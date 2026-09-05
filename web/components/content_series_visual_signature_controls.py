@@ -79,6 +79,18 @@ def render_content_series_visual_signature_controls(
             label_key_prefix="content.ip_world",
         )
 
+        if ip_payload.get("series_visual_signature_enabled"):
+            identity_requirement = ui.selectbox(
+                "身份生成条件", options=["workflow", "reference_required"], index=0,
+                key="content_identity_condition_requirement",
+                format_func=lambda value: {
+                    "workflow": "按工作流能力生成",
+                    "reference_required": "必须使用参考图",
+                }[value],
+            )
+            ip_payload["identity_reference_required"] = identity_requirement == "reference_required"
+            ui.caption("文字模式按身份描述生成；参考图模式还需参考资源真实接入。两种模式都需要人工验收画面。")
+
         ip_default_world_hint = (
             first_text(ip_payload.get("ip_profile_world_hint"))
             if ip_payload.get("series_visual_signature_enabled")

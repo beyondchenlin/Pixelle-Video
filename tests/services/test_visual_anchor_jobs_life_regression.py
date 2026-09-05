@@ -606,24 +606,24 @@ def test_fusion_template_selects_type_aware_low_salience_manifestations():
     for required_rule in (
         "以 original_storyboard_text 为事实边界",
         "以 content_prompt 为内容和构图基础",
-        "non_story_default_manifestation 的优先级高于 default_slot_preference",
+        "档案中的形态和位置偏好不得改变原文职责",
         "人物、动物、植物、功能物品、标志图形或抽象符号",
-        "人物需要现成的开放人群、普通岗位或公共空间角色",
-        "动物需要街道、公园、家庭、动物活动区、开放观众群或其他自然生态位置",
-        "植物需要自然生长或正常陈设位置",
-        "功能物品需要当前场景确实使用其功能",
-        "标志图形和抽象符号永远不能变成活体",
-        "实体准入失败时，必须选择后面的材质融合形态",
-        "manifestation_family_preference 只决定本帧从哪个形态家族开始比较",
+        "场所能容纳某种实体，不等于原文要求该实体在场",
+        "完整实体只用于原文需要该实体的情况",
+        "额外身份采用表面或局部结构关系",
+        "不要求沿用草稿原有位置、大小和姿态",
+        "可以调整视角和布局，但人的动作与物体的使用关系须可信",
+        "不能复制内容全文后在末尾追加一段身份说明",
+        "manifestation_family_preference 为 scene_adaptive 时按场景选择",
         "不得因为桌面、纸张最容易描述就跳过其他合法载体",
-        "身份位于中景边缘或背景局部",
-        "至少具有自然遮挡、载体边缘裁切、低对比、较少细节、较弱线条或较浅景深之一",
-        "不处在中心轴、主角身旁、手部和视线交汇处",
-        "观众先看见内容主体和核心事件，继续观察局部才发现身份",
-        "独立场景读取 previous_final_prompt",
-        "不得重复上一帧的形态家族、载体类别、材质工艺和空间方位",
+        "位置、景深和对比依据场景安排",
+        "不强制遮挡或裁切",
+        "不得遮住唯一识别特征",
+        "观众先看见内容主体和核心事件",
+        "独立场景只依据本镜内容选择物体、摆放和姿态",
+        "相同形态、材质和方位可以重复",
         "整幅画只保留一个可识别实例",
-        "为 enhanced 时只提高固定特征内部完整度",
+        "为 enhanced 时加强固定特征的可辨认程度",
         "target_visual_style 统一作用于主体、环境和身份细节",
         "把 required_negative_prompt_fragments 转成相应的正向视觉状态",
     ):
@@ -642,14 +642,14 @@ def test_fusion_template_defines_method_specific_visible_boundaries():
         "载体的具体类别与正常用途",
         "身份所在的具体表面",
         "印刷或材质工艺",
-        "与载体共面且被载体边界收住的几何关系",
+        "与载体曲面或界面坐标一致的几何关系",
         "身份特征是图形内部的轮廓、色块或纹理",
         "描述句必须以载体为主语",
-        "禁止用“一位、一只、一个＋身份名称”作为平面形态的主语",
-        "遮挡只能来自压在表面上的另一个物体或载体边缘裁切",
-        "禁止写成桌面、地面或载体自身遮挡自己的图案",
-        "只有当前画面没有任何合法实体位置或现有载体时",
-        "禁止新增展示台、雕塑、玩偶、立牌和纯装饰摆件",
+        "平面印刷不能被描述成独立实体",
+        "遮挡和裁切必须来自真实的物体前后关系或载体边界",
+        "完整图形、局部图形与边缘裁切按识别需要选择",
+        "现有载体与新增设计细节都按融合后的视觉关系判断",
+        "不能成为脱离场景的单独陈列",
     ):
         assert required_relation in template
     for removed_scene_specific_example in (
@@ -662,7 +662,7 @@ def test_fusion_template_defines_method_specific_visible_boundaries():
         assert removed_scene_specific_example not in template
 
 
-def test_fusion_and_finalization_define_all_rotating_manifestation_families():
+def test_fusion_and_finalization_define_scene_adaptive_manifestation_candidates():
     template_root = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates"
@@ -687,11 +687,11 @@ def test_fusion_and_finalization_define_all_rotating_manifestation_families():
         ):
             assert family in template
     assert "不得因为桌面、纸张最容易描述就跳过其他合法载体" in templates[0]
-    assert "连续多帧都退化为桌角、桌面或纸张上的同类图案" in templates[1]
-    assert "使用“戴着、拿着、站着”描述平面图形" in templates[1]
+    assert "相同合法形态重复本身不是失败" in templates[1]
+    assert "完整人物或动物图形本身不是错误" in templates[1]
     assert "平面形态必须以载体为句子主语" in templates[1]
     assert "场景原生实体、平面印刷或水印、材质刻线或压印" in templates[1]
-    assert "去掉身份特征后仍服务环境用途或空间表达" in templates[1]
+    assert "装饰本身不是错误" in templates[1]
     for template in templates:
         assert "连续性优先于 manifestation_family_preference" in template
 
@@ -704,9 +704,9 @@ def test_fusion_template_keeps_one_signature_without_fixed_placement_biases():
 
     for required_rule in (
         "整幅画只保留一个可识别实例",
-        "六个家族按以下循环顺序排列",
-        "存在三个合法家族时，内部至少比较三个不同家族",
-        "存在两个时至少比较两个",
+        "六个家族仅是候选知识，没有固定顺序",
+        "根据场景、身份特征与材料兼容性选择唯一合法方案",
+        "不得为了轮换凭空更换实体或载体",
         "不能每帧固定站立",
         "不能在内容写完后追加同一种吉祥物、摆件或角落图案",
     ):
@@ -736,18 +736,18 @@ def test_finalization_template_rejects_type_errors_and_attention_competition():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "以 original_storyboard_text 和 content_prompt 为事实基础",
-        "以下任意一项成立",
-        "融合方案立即无效",
-        "从 content_prompt 重新融合",
+        "以 original_storyboard_text 和 scene_context 中的原始输入为事实边界",
+        "以下各项在本次输出内部纠正",
+        "不要求恢复内容草稿的原有构图",
+        "先修正内容草稿已经存在的实体指代、数量和动作错误",
         "内容或角色失败",
         "场景准入失败",
         "形态选择失败",
         "表面描述失败",
         "二维拓扑失败",
         "视觉层级失败",
-        "连续多帧都退化为桌角、桌面或纸张上的同类图案",
-        "使用“戴着、拿着、站着”描述平面图形",
+        "相同合法形态重复本身不是失败",
+        "完整人物或动物图形本身不是错误",
         "遮挡只能由另一个前景物体覆盖表面",
         "manifestation_family_preference",
         "直接作为图片正向提示词",
@@ -765,15 +765,16 @@ def test_finalization_template_enforces_visible_fusion_and_unifies_scene_style()
         "target_visual_style 统一决定整幅画的媒介、线条、色彩、材质、透视和光影",
         "保留 required_final_prompt_fragments",
         "把 required_negative_prompt_fragments 转成正向视觉状态",
-        "core_identity_traits、supporting_identity_traits、fixed_color_traits 和 forbidden_traits",
+        "保护 core_identity_traits、fixed_color_traits 和 forbidden_traits",
+        "supporting_identity_traits 仅在不违反档案允许变化",
         "人物、动物和植物遵守自然社会、生态、生长与陈设逻辑",
         "标志图形和抽象符号只作为局部平面或材质标记",
-        "位于中景边缘或背景局部",
-        "写清载体、材质工艺、共面、边界裁切",
-        "小于主要人物和核心物证",
+        "不强制背景位置、遮挡或裁切",
+        "写清载体、材质工艺、承载几何关系",
+        "原文主体身份保留核心动作与主体位置",
         "身份保持单实例",
-        "enhanced 时只增加固定特征内部完整度",
-        "不能放大、移近、去除遮挡或提高周围对比",
+        "enhanced 时加强可辨认程度",
+        "不改变内容主次",
         "直接作为图片正向提示词",
         "只输出一个连续段落的最终图片提示词原文",
         "不得使用“和谐统一”“清晰可见”“不突出”“不干扰主体”",
@@ -804,17 +805,26 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
 
     for required_rule in (
         "不得承担核心动作",
-        "不处在中心轴、主角身旁",
+        "非原文主体身份保持次级",
         "观众先看见内容主体和核心事件",
     ):
         assert required_rule in fusion_template
     for required_rule in (
         "未进入原文的身份承担核心动作",
-        "身份位于中心轴、主角身旁、前景或孤立留白区",
-        "位于中景边缘或背景局部",
+        "以动作可信、承载成立、主次协调为判断依据",
+        "不能用缩小或移角落补救不成立的承载关系",
+        "不强制背景位置、遮挡或裁切",
     ):
         assert required_rule in finalization_template
     for template in (fusion_template, finalization_template):
+        assert "以融合后的整幅画为判断对象，不把移除身份后的画面作为验收门槛" in template
+        assert "不要求身份直接参与文案事件，也不要求它不可替代" in template
+        assert "没有这个身份，当前镜头还会以同样位置" not in template
+        assert "删除身份后，该物体仍须以同样的位置" not in template
+        assert "位置由场景关系推导" in template
+        assert "完整图形、局部图形与边缘裁切按识别需要选择" in template
+        assert "教学板或展板" not in template
+        assert "四周保留载体底色" not in template
         for forbidden_ratio in ("2%", "5%", "8%", "百分比"):
             assert forbidden_ratio not in template
 
@@ -1043,7 +1053,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"target_visual_style"' in call["prompt"]
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
         assert '"negative_prompt_supported": false' in call["prompt"]
-        assert '"previous_final_prompt"' in call["prompt"]
+        assert '"previous_final_prompt"' not in call["prompt"]
         assert '"manifestation_family_preference"' in call["prompt"]
         assert '"series_final_prompt_history"' not in call["prompt"]
         assert '"series_fusion_history"' not in call["prompt"]
@@ -1062,7 +1072,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"identity_profile"' in call["prompt"]
         assert '"continuous_scene_context"' in call["prompt"]
         assert '"target_visual_style"' in call["prompt"]
-        assert '"previous_final_prompt"' in call["prompt"]
+        assert '"previous_final_prompt"' not in call["prompt"]
         assert '"manifestation_family_preference"' in call["prompt"]
         assert '"content_stage_input"' not in call["prompt"]
         assert '"article_context"' not in call["prompt"]
@@ -1165,3 +1175,20 @@ async def test_jobs_life_model_fusion_generates_each_frame_exactly_once(
         call["_visual_anchor_generation_request"]["generation_attempt"] == 1
         for call in media_calls
     )
+
+
+def test_story_subject_identity_is_not_demoted_to_background():
+    root = Path(__file__).resolve().parents[2] / "pixelle_video/prompts/templates"
+    for name in ("visual_anchor_fusion_stage.md", "visual_anchor_finalization_stage.md"):
+        template = (root / name).read_text(encoding="utf-8")
+        assert "身份是否就是原文明示的内容主体" in template
+        assert "单实例" in template or "只保留一个可识别实例" in template
+        assert "不强制" in template
+
+
+def test_final_review_repairs_errors_within_its_single_response():
+    root = Path(__file__).resolve().parents[2] / "pixelle_video/prompts/templates"
+    template = (root / "visual_anchor_finalization_stage.md").read_text(encoding="utf-8")
+    for rule in ("本次唯一调用", "content_prompt 是草稿", "保留正确", "工艺与载体材质、固定颜色不相容", "具名人物单实例", "本次重写中删除"):
+        assert rule in template
+    assert "必须放弃其形态和位置" not in template

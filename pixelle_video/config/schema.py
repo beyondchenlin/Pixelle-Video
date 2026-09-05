@@ -557,6 +557,14 @@ class ComfyUIBackendProfile(BaseModel):
             "'performance' keeps all ComfyUI defaults."
         ),
     )
+    vram_mode: Literal["normal", "high"] = Field(
+        default="normal",
+        description=(
+            "Managed backend model residency. 'normal' retains ComfyUI offloading; "
+            "'high' keeps models on the GPU to reduce host-memory transfers. Use high "
+            "only after measuring that the configured workflow fits available VRAM."
+        ),
+    )
     minimum_free_commit_gb: Optional[float] = Field(
         default=None,
         ge=0,

@@ -1668,6 +1668,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "role_locking_strength": "strong",
             "shot_strategy": "strict",
             "series_visual_signature_enabled": False,
+            "identity_reference_required": False,
             "series_visual_signature_asset_bible_id": None,
             "series_visual_signature_profile_id": None,
             "article_understanding_mode": "auto",

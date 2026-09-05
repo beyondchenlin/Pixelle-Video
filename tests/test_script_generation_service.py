@@ -156,3 +156,16 @@ async def test_script_generation_preserves_plain_text_without_semantic_section_f
     )
 
     assert source_text == "【完整口播文案】这个短语本身就在被讨论。"
+
+
+@pytest.mark.asyncio
+async def test_user_brief_reaches_existing_script_call():
+    import json
+    llm = ScriptFakeLLM("用户要求的原文")
+    result = await ScriptGenerationService().generate(
+        llm_service=llm, topic="桌面整理",
+        user_intent_hint="受众是学生；说明收纳距离；以实际动作解释，不保证结果",
+    )
+    assert len(llm.calls) == 1
+    assert json.loads(llm.calls[0]["prompt"])["user_intent"].startswith("受众是学生")
+    assert result == "用户要求的原文"
