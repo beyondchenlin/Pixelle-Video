@@ -611,8 +611,8 @@ def test_fusion_template_selects_type_aware_low_salience_manifestations():
         "场所能容纳某种实体，不等于原文要求该实体在场",
         "完整实体只用于原文需要该实体的情况",
         "额外身份采用表面或局部结构关系",
-        "没有这个身份，当前镜头还会以同样位置、大小和姿态画出这个物体吗",
-        "不把物体转向镜头、竖起、放大、挪近主角或移入留白来展示身份",
+        "不要求沿用草稿原有位置、大小和姿态",
+        "可以调整视角和布局，但人的动作与物体的使用关系须可信",
         "不能复制内容全文后在末尾追加一段身份说明",
         "manifestation_family_preference 为 scene_adaptive 时按场景选择",
         "不得因为桌面、纸张最容易描述就跳过其他合法载体",
@@ -648,8 +648,8 @@ def test_fusion_template_defines_method_specific_visible_boundaries():
         "平面印刷不能被描述成独立实体",
         "遮挡和裁切必须来自真实的物体前后关系或载体边界",
         "完整图形、局部图形与边缘裁切按识别需要选择",
-        "只有当前画面没有任何合法实体位置或现有载体时",
-        "不能仅为展示身份而存在",
+        "现有载体与新增设计细节都按融合后的视觉关系判断",
+        "不能成为脱离场景的单独陈列",
     ):
         assert required_relation in template
     for removed_scene_specific_example in (
@@ -691,7 +691,7 @@ def test_fusion_and_finalization_define_scene_adaptive_manifestation_candidates(
     assert "完整人物或动物图形本身不是错误" in templates[1]
     assert "平面形态必须以载体为句子主语" in templates[1]
     assert "场景原生实体、平面印刷或水印、材质刻线或压印" in templates[1]
-    assert "去掉身份特征后仍服务环境用途或空间表达" in templates[1]
+    assert "装饰本身不是错误" in templates[1]
     for template in templates:
         assert "连续性优先于 manifestation_family_preference" in template
 
@@ -738,7 +738,7 @@ def test_finalization_template_rejects_type_errors_and_attention_competition():
     for required_rule in (
         "以 original_storyboard_text 和 scene_context 中的原始输入为事实边界",
         "以下各项在本次输出内部纠正",
-        "只在错误影响方案成立时重建相关部分",
+        "不要求恢复内容草稿的原有构图",
         "先修正内容草稿已经存在的实体指代、数量和动作错误",
         "内容或角色失败",
         "场景准入失败",
@@ -811,12 +811,16 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
         assert required_rule in fusion_template
     for required_rule in (
         "未进入原文的身份承担核心动作",
-        "删除身份后，该物体仍须以同样的位置、大小和姿态参与当前画面",
+        "以动作可信、承载成立、主次协调为判断依据",
         "不能用缩小或移角落补救不成立的承载关系",
         "不强制背景位置、遮挡或裁切",
     ):
         assert required_rule in finalization_template
     for template in (fusion_template, finalization_template):
+        assert "以融合后的整幅画为判断对象，不把移除身份后的画面作为验收门槛" in template
+        assert "不要求身份直接参与文案事件，也不要求它不可替代" in template
+        assert "没有这个身份，当前镜头还会以同样位置" not in template
+        assert "删除身份后，该物体仍须以同样的位置" not in template
         assert "位置由场景关系推导" in template
         assert "完整图形、局部图形与边缘裁切按识别需要选择" in template
         assert "教学板或展板" not in template

@@ -1569,7 +1569,7 @@ async def test_v18_chain_with_previous_content_prompt_remains_readable():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("request_version", "stage_versions"),
-    [(19, (28, 46, 27)), (20, (30, 50, 31)), (21, (30, 51, 32)), (22, (30, 52, 33)), (23, (30, 53, 34))],
+    [(19, (28, 46, 27)), (20, (30, 50, 31)), (21, (30, 51, 32)), (22, (30, 52, 33)), (23, (30, 53, 34)), (24, (30, 54, 35))],
 )
 async def test_complete_previous_prompt_chain_remains_readable(request_version, stage_versions):
     batch, _ = await _run(_plan())
