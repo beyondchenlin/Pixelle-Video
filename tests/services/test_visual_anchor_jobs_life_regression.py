@@ -616,14 +616,14 @@ def test_fusion_template_selects_type_aware_low_salience_manifestations():
         "实体准入失败时，必须选择后面的材质融合形态",
         "manifestation_family_preference 为 scene_adaptive 时按场景选择",
         "不得因为桌面、纸张最容易描述就跳过其他合法载体",
-        "身份位于中景边缘或背景局部",
-        "至少具有自然遮挡、载体边缘裁切、低对比、较少细节、较弱线条或较浅景深之一",
-        "不处在中心轴、主角身旁、手部和视线交汇处",
-        "观众先看见内容主体和核心事件，继续观察局部才发现身份",
+        "位置、尺度、景深与对比依据场景安排",
+        "不强制遮挡或裁切",
+        "不得遮住唯一识别特征",
+        "观众先看见内容主体和核心事件",
         "独立场景读取 previous_final_prompt",
         "相同形态、材质和方位可以重复",
         "整幅画只保留一个可识别实例",
-        "为 enhanced 时只提高固定特征内部完整度",
+        "为 enhanced 时加强固定特征的可辨认程度",
         "target_visual_style 统一作用于主体、环境和身份细节",
         "把 required_negative_prompt_fragments 转成相应的正向视觉状态",
     ):
@@ -765,15 +765,16 @@ def test_finalization_template_enforces_visible_fusion_and_unifies_scene_style()
         "target_visual_style 统一决定整幅画的媒介、线条、色彩、材质、透视和光影",
         "保留 required_final_prompt_fragments",
         "把 required_negative_prompt_fragments 转成正向视觉状态",
-        "core_identity_traits、supporting_identity_traits、fixed_color_traits 和 forbidden_traits",
+        "保护 core_identity_traits、fixed_color_traits 和 forbidden_traits",
+        "supporting_identity_traits 仅在不违反档案允许变化",
         "人物、动物和植物遵守自然社会、生态、生长与陈设逻辑",
         "标志图形和抽象符号只作为局部平面或材质标记",
-        "位于中景边缘或背景局部",
+        "不强制背景位置、遮挡或裁切",
         "写清载体、材质工艺、共面、边界裁切",
-        "小于主要人物和核心物证",
+        "原文主体身份保留核心动作与主体位置",
         "身份保持单实例",
-        "enhanced 时只增加固定特征内部完整度",
-        "不能放大、移近、去除遮挡或提高周围对比",
+        "enhanced 时加强可辨认程度",
+        "不改变内容主次",
         "直接作为图片正向提示词",
         "只输出一个连续段落的最终图片提示词原文",
         "不得使用“和谐统一”“清晰可见”“不突出”“不干扰主体”",
@@ -804,14 +805,14 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
 
     for required_rule in (
         "不得承担核心动作",
-        "不处在中心轴、主角身旁",
+        "非原文主体身份保持次级",
         "观众先看见内容主体和核心事件",
     ):
         assert required_rule in fusion_template
     for required_rule in (
         "未进入原文的身份承担核心动作",
-        "身份位于中心轴、主角身旁、前景或孤立留白区",
-        "位于中景边缘或背景局部",
+        "前景、中心、主角身旁本身不是失败依据",
+        "不强制背景位置、遮挡或裁切",
     ):
         assert required_rule in finalization_template
     for template in (fusion_template, finalization_template):
@@ -1165,3 +1166,12 @@ async def test_jobs_life_model_fusion_generates_each_frame_exactly_once(
         call["_visual_anchor_generation_request"]["generation_attempt"] == 1
         for call in media_calls
     )
+
+
+def test_story_subject_identity_is_not_demoted_to_background():
+    root = Path(__file__).resolve().parents[2] / "pixelle_video/prompts/templates"
+    for name in ("visual_anchor_fusion_stage.md", "visual_anchor_finalization_stage.md"):
+        template = (root / name).read_text(encoding="utf-8")
+        assert "身份是否就是原文明示的内容主体" in template
+        assert "单实例" in template or "只保留一个可识别实例" in template
+        assert "不强制" in template
