@@ -244,6 +244,7 @@ def _build_single_video_result_summary(result, *, total_generation_time: float):
 
 def _render_single_video_result_summary(summary) -> None:
     st.success(tr("status.video_generated", path=summary["video_path"]))
+    st.caption("生成完成不代表交付验收通过。请在历史记录详情中完成原图和成片人工验收。")
     st.markdown("---")
     info_text = (
         f"{tr('info.generation_time')} {summary['generation_time_sec']:.1f}s   "

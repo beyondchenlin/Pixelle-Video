@@ -49,6 +49,7 @@ from pixelle_video.utils.os_util import get_task_path
 from pixelle_video.utils.secret_redaction import redact_credentials_in_text
 from web.components.header import render_header
 from web.components.style_config import resolve_storyboard_preset_label
+from web.components.video_manual_acceptance import render_video_manual_acceptance
 from web.i18n import tr
 from web.state.session import get_pixelle_video, init_i18n, init_session_state
 from web.utils.async_helpers import run_async
@@ -1039,6 +1040,8 @@ def render_grid_task_card(task: dict, pixelle_video):
         
         # Title + Status (compact) - show actual title from task
         st.markdown(f"**{status_icon} {truncate_text(title, 50)}**")
+        if status == "completed":
+            st.caption("生成已完成；交付验收状态请打开详情查看。")
         
         # Input content (very short)
         if input_text:
@@ -1213,6 +1216,8 @@ def render_task_detail_modal(task_id: str, pixelle_video):
                 with st.expander(f"{tr('history.detail.frame')} {frame.index + 1}", expanded=False):
                     st.markdown(f"**{tr('history.detail.narration')}:**")
                     st.caption(frame.narration)
+                    if frame.duration and frame.duration > 8:
+                        st.caption(f"本镜停留 {frame.duration:.2f} 秒，请人工确认节奏；不会自动切镜或补图。")
                     
                     if frame.image_prompt:
                         st.markdown(f"**{tr('history.detail.image_prompt')}:**")
@@ -1272,6 +1277,9 @@ def render_task_detail_modal(task_id: str, pixelle_video):
             )
         else:
             st.warning("Video file not found")
+
+    if metadata.get("status") == "completed" and video_path:
+        render_video_manual_acceptance(task_dir=get_task_path(task_id), video_path=video_path)
 
     render_visual_anchor_two_stage_evidence(
         task_id=task_id,
