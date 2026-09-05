@@ -689,6 +689,7 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.source_text = await ScriptGenerationService().generate(
                 llm_service=self.llm,
                 topic=text,
+                user_intent_hint=ctx.params.get("user_intent_hint"),
                 script_length_mode=ctx.params.get("script_length_mode", "auto"),
                 script_target_words=ctx.params.get("script_target_words"),
                 trace_context=self._llm_trace_context(ctx, operation="script_generation"),

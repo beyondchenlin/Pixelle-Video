@@ -35,6 +35,7 @@ class ScriptGenerationService:
         topic: str,
         script_length_mode: ScriptLengthMode | str = ScriptLengthMode.AUTO,
         script_target_words: int | None = None,
+        user_intent_hint: str | None = None,
         trace_context: LLMTraceContext | None = None,
         trace_recorder: LLMInteractionRecorder | None = None,
     ) -> str:
@@ -52,6 +53,7 @@ class ScriptGenerationService:
         )
         rendered_prompt = render_script_generation_prompt(
             topic=normalized_topic,
+            user_intent_hint=user_intent_hint,
             length_mode=length_mode.value,
             target_words=target_words,
         )
