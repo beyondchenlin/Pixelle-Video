@@ -1428,3 +1428,28 @@ async def test_smart_auto_fallback_preserves_whitespace_inside_coalesced_source_
     assert plan.source_texts() == ["开头完整表达。 结尾完整表达。"]
     frame = plan.frames[0]
     assert plan.source_text[frame.source_start : frame.source_end] == frame.source_text
+
+
+@pytest.mark.asyncio
+async def test_information_mode_uses_information_design_and_keeps_source():
+    llm = SmartFakeLLM()
+    plan = await StoryboardGenerationService().generate(
+        source_text="开头完整表达。结尾完整表达。", llm_service=llm,
+        storyboard_mode="information", storyboard_count_mode="auto", storyboard_scene_count=None,
+    )
+    assert plan.mode.value == "information"
+    assert len(llm.calls) == 1
+    assert "按信息设计镜头" in llm.calls[0]["prompt"]
+    assert "".join(f.source_text for f in plan.frames) == plan.source_text
+    assert plan.frames[0].prompt_intent == "A calm opening visual."
+
+
+@pytest.mark.asyncio
+async def test_information_mode_never_silently_falls_back_to_sentence_split():
+    llm = SequencedSmartFakeLLM([[]])
+    with pytest.raises(ValueError):
+        await StoryboardGenerationService().generate(
+            source_text="开头完整表达。结尾完整表达。", llm_service=llm,
+            storyboard_mode="information", storyboard_count_mode="auto", storyboard_scene_count=None,
+        )
+    assert len(llm.calls) == 1

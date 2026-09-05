@@ -126,13 +126,10 @@ def test_storyboard_generation_explanation_has_locale_entries():
     zh = _load_translations("zh_CN")
 
     assert en["storyboard.generation.explanation.title"] == "Settings guide"
-    assert "max_tokens" in en["storyboard.generation.explanation.body"]
-    assert "not the storyboard frame count" in en["storyboard.generation.explanation.body"]
-    assert "deployment cap" in en["storyboard.generation.explanation.body"]
-    assert "up to 200 to avoid errors" not in en["storyboard.generation.explanation.body"]
-    assert "max_tokens" in zh["storyboard.generation.explanation.body"]
-    assert "不是分镜数量" in zh["storyboard.generation.explanation.body"]
+    assert "Information-led shots (default)" in en["storyboard.generation.explanation.body"]
+    assert "按信息设计镜头（默认）" in zh["storyboard.generation.explanation.body"]
     assert "部署" in zh["storyboard.generation.explanation.body"]
+    assert "max_tokens" not in zh["storyboard.generation.explanation.body"]
 
 
 def test_storyboard_generation_controls_are_collapsed_with_nested_explanation(monkeypatch):
@@ -150,11 +147,11 @@ def test_storyboard_generation_controls_are_collapsed_with_nested_explanation(mo
         {"label": "设置说明", "expanded": False, "parent": "🧭 分镜规划"},
     ]
     assert any(
-        "max_tokens" in call["body"] and "不是分镜数量" in call["body"]
+        "按信息设计镜头" in call["body"]
         for call in fake_st.markdowns
     )
     assert payload == {
-        "storyboard_mode": "smart",
+        "storyboard_mode": "information",
         "storyboard_count_mode": "auto",
         "storyboard_scene_count": None,
         "storyboard_max_scene_count": None,

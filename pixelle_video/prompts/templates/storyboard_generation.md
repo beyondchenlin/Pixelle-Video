@@ -1,6 +1,6 @@
 ---
 prompt_id: storyboard_generation
-version: 2
+version: 3
 stage: storyboard_generation
 purpose: Create a storyboard plan from complete source text.
 output_contract: JSON storyboard plan payload with visible subject fields.
@@ -23,6 +23,13 @@ output_contract: JSON storyboard plan payload with visible subject fields.
 <!-- endif -->
   ,"requirements": [
     "Understand the complete source_text before creating frames.",
+<!-- if information_design -->
+    "按信息设计镜头：先明确整段的核心主张，再按背景、动作、物证、对比、因果与结果的变化划分信息单元；不要机械地一句配一张图。",
+    "连续表达同一主张的句子可以合为一镜；出现新的动作、阶段、决定性物证或因果结果时再切镜，完整保持原文顺序与覆盖。",
+    "visual_goal 写清这一镜新增的信息及观众应当看懂的事实；prompt_intent 用自然文本说明一个可见静止瞬间、景别视角、主体关系和与相邻镜头的承接或变化。",
+    "不同镜头不能只重复人物站立、思考或观看电脑等通用姿态。没有事实依据时不得为了变化虚构事件。",
+    "同一场景保持人物、地点和关键物品，跨时间或地点明确改变环境；不为镜头强行添加系列吉祥物。",
+<!-- endif -->
     "The returned frames must cover the entire source_text in source order.",
     "Do not omit meaningful source_text; only whitespace-only gaps between frames are allowed.",
     "Maintain continuity of style, subjects, and visual logic across all frames.",

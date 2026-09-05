@@ -622,7 +622,7 @@ def test_strict_signature_single_pass_does_not_require_vision_model(
 
 
 @pytest.mark.asyncio
-async def test_generate_content_fixed_defaults_to_smart_storyboard(monkeypatch):
+async def test_generate_content_fixed_defaults_to_information_storyboard(monkeypatch):
     captured = {}
     plan = _plan()
 
@@ -655,7 +655,7 @@ async def test_generate_content_fixed_defaults_to_smart_storyboard(monkeypatch):
         "第二句。",
     ]
     assert captured["source_text"] == "第一句。第二句。"
-    assert captured["storyboard_mode"] == "smart"
+    assert captured["storyboard_mode"] == "information"
     assert captured["storyboard_count_mode"] == "auto"
     assert captured["storyboard_scene_count"] is None
     assert ctx.llm_trace_refs[0]["stage"] == "smart_storyboard_generation"

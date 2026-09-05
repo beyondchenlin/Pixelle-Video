@@ -705,7 +705,7 @@ class StandardPipeline(LinearVideoPipeline):
         self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_STORYBOARD_PLAN, 0.08)
         storyboard_trace_collector = (
             LLMTraceCollector(self._llm_trace_recorder(ctx))
-            if storyboard_contract.storyboard_mode == "smart"
+            if storyboard_contract.storyboard_mode in {"smart", "information"}
             else None
         )
         ctx.storyboard_plan = await StoryboardGenerationService(

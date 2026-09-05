@@ -224,8 +224,8 @@ class VideoGenerateRequest(BaseModel):
     )
 
     # === Storyboard Generation ===
-    storyboard_mode: Literal["smart", "punctuation", "sentence"] = Field(
-        "smart",
+    storyboard_mode: Literal["information", "smart", "punctuation", "sentence"] = Field(
+        "information",
         description="Storyboard generation mode",
     )
     storyboard_count_mode: Literal["auto", "manual"] = Field(
@@ -437,7 +437,7 @@ class VideoGenerateRequest(BaseModel):
                 self.video_resolution_preset
             )
 
-        if self.storyboard_mode == "smart":
+        if self.storyboard_mode in {"smart", "information"}:
             if self.storyboard_count_mode == "manual":
                 if self.storyboard_scene_count is None:
                     raise ValueError("storyboard_scene_count is required with smart manual mode")

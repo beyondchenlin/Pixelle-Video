@@ -161,15 +161,10 @@ def render_storyboard_generation_explanation() -> None:
             tr(
                 "storyboard.generation.explanation.body",
                 fallback=(
-                    "**Smart**：让 AI 先理解完整脚本，再自动规划每个画面覆盖哪段内容，"
-                    "适合大多数主题。\n\n"
-                    "**按所有标点（中英文）**：遇到逗号、句号、问号等标点就切一段，"
-                    "分镜会更细。\n\n"
-                    "**按句末标点（。.!?！？）**：只按句子结束位置切分，节奏更稳。\n\n"
-                    "**自动**：AI 在 1-30 个分镜里自己选择合适数量；"
-                    "**分镜数**：手动指定要生成多少个分镜。\n\n"
-                    "**max_tokens**：这是模型最多能输出多少 JSON 内容，不是分镜数量；"
-                    "本地会使用 Qwen 能接受的上限，避免请求被 400 拒绝。"
+                    "**按信息设计镜头（默认）**：按新信息、动作、物证和结果组织镜头，连续句子可以共用一镜。\n\n"
+                    "**智能分镜**：按完整文案规划文字覆盖。\n\n"
+                    "**标点拆分**：按标点切分，不设计完整的信息推进。\n\n"
+                    "前两种方式支持自动或指定镜头数量；标点拆分的最大分镜按当前部署配置显示。"
                 ),
             )
         )
@@ -186,13 +181,14 @@ def render_storyboard_generation_controls(
         expanded=False,
     ):
         storyboard_mode = st.radio(
-            "Storyboard Mode",
-            ["smart", "punctuation", "sentence"],
+            tr("storyboard.mode_label", fallback="镜头设计方式"),
+            ["information", "smart", "punctuation", "sentence"],
             index=0,
             horizontal=True,
             key=f"{key_prefix}_storyboard_mode",
             format_func=lambda value: {
-                "smart": "Smart",
+                "information": tr("storyboard.mode_information", fallback="按信息设计镜头（推荐）"),
+                "smart": tr("storyboard.mode_smart", fallback="智能分镜"),
                 "punctuation": tr("split.mode_punctuation"),
                 "sentence": tr("split.mode_sentence"),
             }[value],
@@ -201,10 +197,10 @@ def render_storyboard_generation_controls(
         storyboard_count_mode = "auto"
         storyboard_scene_count = None
         storyboard_max_scene_count = None
-        if storyboard_mode == "smart":
+        if storyboard_mode in {"smart", "information"}:
             storyboard_limits = get_storyboard_generation_limits()
             storyboard_count_mode = st.radio(
-                "Scene Count",
+                tr("storyboard.count_label", fallback="镜头数量"),
                 ["auto", "manual"],
                 index=0,
                 horizontal=True,
