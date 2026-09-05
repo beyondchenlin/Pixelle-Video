@@ -1511,12 +1511,16 @@ async def test_v18_chain_with_previous_content_prompt_remains_readable():
 
 
 @pytest.mark.asyncio
-async def test_v19_complete_previous_prompt_chain_remains_readable():
+@pytest.mark.parametrize(
+    ("request_version", "stage_versions"),
+    [(19, (28, 46, 27)), (20, (30, 50, 31))],
+)
+async def test_complete_previous_prompt_chain_remains_readable(request_version, stage_versions):
     batch, _ = await _run(_plan())
     payload = batch.frames[0].model_dump(mode="json")
     request = payload["generation_request"]
-    request["request_version"] = "visual_anchor_generation_request.v19"
-    for stage, version in (("content", 28), ("fusion", 46), ("finalization", 27)):
+    request["request_version"] = f"visual_anchor_generation_request.v{request_version}"
+    for stage, version in zip(("content", "fusion", "finalization"), stage_versions):
         prompt_version = f"visual_anchor_{stage}_stage.v{version}"
         payload[f"{stage}_stage_input"]["prompt_version"] = prompt_version
         request[f"{stage}_stage_prompt_version"] = prompt_version
@@ -1531,7 +1535,7 @@ async def test_v19_complete_previous_prompt_chain_remains_readable():
 
     restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
 
-    assert restored.generation_request.request_version == "visual_anchor_generation_request.v19"
+    assert restored.generation_request.request_version == request["request_version"]
     assert restored.content_stage_input.scene_context == {}
     assert restored.generation_request.final_positive_prompt == request["final_positive_prompt"]
     assert restored.finalization_stage_output.raw_prompt == request["final_positive_prompt"]

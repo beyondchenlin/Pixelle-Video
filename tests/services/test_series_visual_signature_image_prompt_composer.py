@@ -524,8 +524,9 @@ async def test_request_audit_never_persists_user_or_world_hint_text(monkeypatch)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("world_preset_id", [None, "neutral_knowledge_storyboard"])
 async def test_default_text_to_image_visual_anchor_uses_three_stage_text_profile_without_reference(
-    monkeypatch,
+    monkeypatch, world_preset_id,
 ) -> None:
     captured_generation = {}
     captured_two_stage = {}
@@ -617,6 +618,8 @@ async def test_default_text_to_image_visual_anchor_uses_three_stage_text_profile
         media_service=_MediaService(),
         workflow="selfhost/image_z_image_turbo_gguf.json",
         task_id="task-text-profile",
+        world_preset_id=world_preset_id,
+        generation_world_hint="保持原文的工厂场景",
         random_seeds_by_frame={"frame-1": 101},
         media_width=768,
         media_height=768,
@@ -624,6 +627,14 @@ async def test_default_text_to_image_visual_anchor_uses_three_stage_text_profile
     )
 
     assert captured_generation == {}
+    world_context = captured_two_stage["world_context"]
+    assert world_context["generation_world_hint"] == "保持原文的工厂场景"
+    if world_preset_id is None:
+        assert world_context["world_preset"] is None
+        assert "clean teaching board" not in str(world_context)
+    else:
+        assert world_context["world_preset"]["preset_id"] == world_preset_id
+        assert "clean teaching board" in world_context["world_preset"]["world_elements"]
     assert captured_two_stage["identity_conditioning_mode"] == "text_profile"
     assert captured_two_stage["identity_reference_condition"] is None
     assert captured_two_stage["negative_prompt_supported"] is False

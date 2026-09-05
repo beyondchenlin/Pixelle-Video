@@ -616,7 +616,7 @@ def test_fusion_template_selects_type_aware_low_salience_manifestations():
         "实体准入失败时，必须选择后面的材质融合形态",
         "manifestation_family_preference 为 scene_adaptive 时按场景选择",
         "不得因为桌面、纸张最容易描述就跳过其他合法载体",
-        "位置、尺度、景深与对比依据场景安排",
+        "位置、景深和对比依据场景安排",
         "不强制遮挡或裁切",
         "不得遮住唯一识别特征",
         "观众先看见内容主体和核心事件",
@@ -811,11 +811,15 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
         assert required_rule in fusion_template
     for required_rule in (
         "未进入原文的身份承担核心动作",
-        "前景、中心、主角身旁本身不是失败依据",
+        "只有原文明示的主体身份可以按剧情处于前景、中心或主角身旁",
         "不强制背景位置、遮挡或裁切",
     ):
         assert required_rule in finalization_template
     for template in (fusion_template, finalization_template):
+        assert "不能为了身份把内容画面改成教学板或展板" in template
+        assert "四周保留载体底色" in template
+        assert "不形成落地站立的轮廓" in template
+        assert "相对载体和" in template
         for forbidden_ratio in ("2%", "5%", "8%", "百分比"):
             assert forbidden_ratio not in template
 

@@ -466,15 +466,25 @@ class VisualPromptComposer:
                     profile_snapshot.authorized_visible_texts
                 ),
             )
-            world_preset = lookup_world_preset(
-                config_manager.get_storyboard_world_preset_library(), world_preset_id
+            # An absent selection means no preset, not the library's classroom
+            # fallback. Explicit world hints and per-shot context still apply.
+            world_preset = (
+                lookup_world_preset(
+                    config_manager.get_storyboard_world_preset_library(), world_preset_id
+                )
+                if world_preset_id
+                else None
             )
             world_context = {
                 "generation_world_hint": generation_world_hint,
-                "world_preset": {
-                    key: world_preset.get(key)
-                    for key in ("preset_id", "world_elements", "knowledge_scene_rules", "negative_rules")
-                },
+                "world_preset": (
+                    {
+                        key: world_preset.get(key)
+                        for key in ("preset_id", "world_elements", "knowledge_scene_rules", "negative_rules")
+                    }
+                    if world_preset is not None
+                    else None
+                ),
                 "shot_preset_id": shot_preset_id,
                 "shot_strategy": shot_strategy,
                 "consistency_strength": consistency_strength,
