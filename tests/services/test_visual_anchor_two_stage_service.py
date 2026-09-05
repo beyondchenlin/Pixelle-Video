@@ -586,8 +586,8 @@ async def test_selected_style_reaches_all_three_stage_prompts():
     assert '"article_context"' not in llm.calls[1]["prompt"]
     assert '"article_context"' not in llm.calls[2]["prompt"]
     assert '"fusion_stage_input"' not in llm.calls[2]["prompt"]
-    assert '"previous_final_prompt": null' in llm.calls[1]["prompt"]
-    assert '"previous_final_prompt": null' in llm.calls[2]["prompt"]
+    assert '"previous_final_prompt"' not in llm.calls[1]["prompt"]
+    assert '"previous_final_prompt"' not in llm.calls[2]["prompt"]
 
 
 @pytest.mark.asyncio
@@ -600,6 +600,8 @@ async def test_scene_adaptation_reaches_only_fusion_and_finalization_stages():
         assert '"semantic_type_hint": "cartoon_animal"' in call["prompt"]
         assert '"普通观众"' in call["prompt"]
         assert '"安静姿态"' in call["prompt"]
+        assert "non_story_default_manifestation" not in call["prompt"]
+        assert "prefer_embedded_unless_current_content_admits_a_scene_native_entity" not in call["prompt"]
     assert len(llm.calls) == 3
     assert result.frames[0].generation_request.identity_scene_adaptation == (
         result.frames[0].fusion_stage_input.identity_profile.scene_adaptation
@@ -665,8 +667,8 @@ async def test_fusion_and_finalization_prompts_use_compact_nonduplicated_inputs(
     assert len(finalization_prompt) < 8000
     assert '"content_prompt"' in fusion_prompt
     assert '"fusion_draft"' in finalization_prompt
-    assert '"previous_final_prompt"' in fusion_prompt
-    assert '"previous_final_prompt"' in finalization_prompt
+    assert '"previous_final_prompt"' not in fusion_prompt
+    assert '"previous_final_prompt"' not in finalization_prompt
     assert '"manifestation_family_preference"' in fusion_prompt
     assert '"manifestation_family_preference"' in finalization_prompt
     for removed_duplicate in (
@@ -1079,7 +1081,7 @@ async def test_continuous_scene_passes_the_previous_raw_prompt_as_context():
 
 
 @pytest.mark.asyncio
-async def test_fusion_and_finalization_receive_only_the_previous_final_prompt():
+async def test_independent_scenes_keep_history_for_records_but_not_model_inputs():
     plan = _independent_plan()
     fusions = [f"  原始融合结果::{frame.frame_id}\n" for frame in plan.frames]
     finalizations = [
@@ -1119,6 +1121,11 @@ async def test_fusion_and_finalization_receive_only_the_previous_final_prompt():
     assert [
         frame.finalization_stage_output.raw_prompt for frame in result.frames
     ] == finalizations
+    for index in range(1, len(plan.frames)):
+        for call in llm.calls[index * 3 + 1:index * 3 + 3]:
+            for earlier_prompt in finalizations[:index]:
+                assert json.dumps(earlier_prompt, ensure_ascii=False) not in call["prompt"]
+            assert '"previous_final_prompt"' not in call["prompt"]
 
 
 @pytest.mark.asyncio
@@ -1562,7 +1569,7 @@ async def test_v18_chain_with_previous_content_prompt_remains_readable():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("request_version", "stage_versions"),
-    [(19, (28, 46, 27)), (20, (30, 50, 31)), (21, (30, 51, 32))],
+    [(19, (28, 46, 27)), (20, (30, 50, 31)), (21, (30, 51, 32)), (22, (30, 52, 33)), (23, (30, 53, 34))],
 )
 async def test_complete_previous_prompt_chain_remains_readable(request_version, stage_versions):
     batch, _ = await _run(_plan())

@@ -55,9 +55,6 @@ class VisualAnchorTwoStageError(RuntimeError):
 _FRAME_SOURCE_MAX_CHARS = 6000
 _ARTICLE_CONTEXT_MAX_CHARS = 6000
 _SERIES_FINAL_PROMPT_HISTORY_LIMIT = 1
-_NON_STORY_DEFAULT_MANIFESTATION = (
-    "prefer_embedded_unless_current_content_admits_a_scene_native_entity"
-)
 
 def _content_stage_visual_style(
     target_visual_style: TargetVisualStyle,
@@ -812,9 +809,6 @@ def _compact_identity_profile(
     identity_profile: VisualAnchorIdentityProfile,
 ) -> dict[str, Any]:
     scene_adaptation = identity_profile.scene_adaptation.model_dump(mode="json")
-    scene_adaptation["non_story_default_manifestation"] = (
-        _NON_STORY_DEFAULT_MANIFESTATION
-    )
     return {
         "profile_id": identity_profile.profile_id,
         "display_name": identity_profile.display_name,
@@ -867,21 +861,6 @@ def _compact_continuous_scene_context(
     return payload
 
 
-def _previous_final_prompt(history: Sequence[str]) -> str | None:
-    return history[-1] if history else None
-
-
-def _nonduplicated_previous_final_prompt(
-    *,
-    history: Sequence[str],
-    continuous_scene_context: Mapping[str, Any],
-) -> str | None:
-    previous_prompt = _previous_final_prompt(history)
-    if previous_prompt == continuous_scene_context.get("existing_fusion_decision"):
-        return None
-    return previous_prompt
-
-
 def _fusion_prompt_payload(stage_input: FusionStageInput) -> dict[str, Any]:
     continuous_scene_context = _compact_continuous_scene_context(
         stage_input.continuous_scene_context
@@ -901,10 +880,6 @@ def _fusion_prompt_payload(stage_input: FusionStageInput) -> dict[str, Any]:
             stage_input.manifestation_family_preference
         ),
         "continuous_scene_context": continuous_scene_context,
-        "previous_final_prompt": _nonduplicated_previous_final_prompt(
-            history=stage_input.series_final_prompt_history,
-            continuous_scene_context=continuous_scene_context,
-        ),
         "target_visual_style": _compact_target_visual_style(
             stage_input.target_visual_style
         ),
@@ -942,10 +917,6 @@ def _finalization_prompt_payload(
             fusion_input.manifestation_family_preference
         ),
         "continuous_scene_context": continuous_scene_context,
-        "previous_final_prompt": _nonduplicated_previous_final_prompt(
-            history=stage_input.series_final_prompt_history,
-            continuous_scene_context=continuous_scene_context,
-        ),
         "target_visual_style": _compact_target_visual_style(
             fusion_input.target_visual_style
         ),

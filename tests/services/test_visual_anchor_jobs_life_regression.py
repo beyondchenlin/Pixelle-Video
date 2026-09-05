@@ -606,21 +606,21 @@ def test_fusion_template_selects_type_aware_low_salience_manifestations():
     for required_rule in (
         "以 original_storyboard_text 为事实边界",
         "以 content_prompt 为内容和构图基础",
-        "non_story_default_manifestation 的优先级高于 default_slot_preference",
+        "档案中的形态和位置偏好不得改变原文职责",
         "人物、动物、植物、功能物品、标志图形或抽象符号",
-        "人物需要现成的开放人群、普通岗位或公共空间角色",
-        "动物需要街道、公园、家庭、动物活动区、开放观众群或其他自然生态位置",
-        "植物需要自然生长或正常陈设位置",
-        "功能物品需要当前场景确实使用其功能",
-        "标志图形和抽象符号永远不能变成活体",
-        "实体准入失败时，必须选择后面的材质融合形态",
+        "场所能容纳某种实体，不等于原文要求该实体在场",
+        "完整实体只用于原文需要该实体的情况",
+        "额外身份采用表面或局部结构关系",
+        "没有这个身份，当前镜头还会以同样位置、大小和姿态画出这个物体吗",
+        "不把物体转向镜头、竖起、放大、挪近主角或移入留白来展示身份",
+        "不能复制内容全文后在末尾追加一段身份说明",
         "manifestation_family_preference 为 scene_adaptive 时按场景选择",
         "不得因为桌面、纸张最容易描述就跳过其他合法载体",
         "位置、景深和对比依据场景安排",
         "不强制遮挡或裁切",
         "不得遮住唯一识别特征",
         "观众先看见内容主体和核心事件",
-        "独立场景读取 previous_final_prompt",
+        "独立场景只依据本镜内容选择物体、摆放和姿态",
         "相同形态、材质和方位可以重复",
         "整幅画只保留一个可识别实例",
         "为 enhanced 时加强固定特征的可辨认程度",
@@ -811,7 +811,8 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
         assert required_rule in fusion_template
     for required_rule in (
         "未进入原文的身份承担核心动作",
-        "前景、中心、主体身旁均不是单独的通过或否决依据",
+        "删除身份后，该物体仍须以同样的位置、大小和姿态参与当前画面",
+        "不能用缩小或移角落补救不成立的承载关系",
         "不强制背景位置、遮挡或裁切",
     ):
         assert required_rule in finalization_template
@@ -1048,7 +1049,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"target_visual_style"' in call["prompt"]
         assert '"identity_conditioning_mode": "text_profile"' in call["prompt"]
         assert '"negative_prompt_supported": false' in call["prompt"]
-        assert '"previous_final_prompt"' in call["prompt"]
+        assert '"previous_final_prompt"' not in call["prompt"]
         assert '"manifestation_family_preference"' in call["prompt"]
         assert '"series_final_prompt_history"' not in call["prompt"]
         assert '"series_fusion_history"' not in call["prompt"]
@@ -1067,7 +1068,7 @@ async def test_jobs_life_three_stage_contract_preserves_subjects_style_and_text_
         assert '"identity_profile"' in call["prompt"]
         assert '"continuous_scene_context"' in call["prompt"]
         assert '"target_visual_style"' in call["prompt"]
-        assert '"previous_final_prompt"' in call["prompt"]
+        assert '"previous_final_prompt"' not in call["prompt"]
         assert '"manifestation_family_preference"' in call["prompt"]
         assert '"content_stage_input"' not in call["prompt"]
         assert '"article_context"' not in call["prompt"]
