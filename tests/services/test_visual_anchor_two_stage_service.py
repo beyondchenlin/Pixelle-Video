@@ -282,6 +282,8 @@ async def _run_service(
     negative_prompt_supported=False,
     target_visual_style="真实电影感",
     visible_text_policy=None,
+    world_context=None,
+    frame_contexts_by_id=None,
 ):
     reference_condition = identity_reference_condition
     if reference_condition is _DEFAULT_REFERENCE:
@@ -319,6 +321,8 @@ async def _run_service(
         random_seeds_by_frame=seeds,
         negative_prompt_supported=negative_prompt_supported,
         stage_callback=stage_callback,
+        world_context=world_context,
+        frame_contexts_by_id=frame_contexts_by_id,
     )
 
 
@@ -2064,3 +2068,21 @@ async def test_regeneration_rejects_tampered_raw_contract_before_normalization(
             prompt_plan=prompt_plan,
             task_id="regenerated-task",
         )
+
+
+@pytest.mark.asyncio
+async def test_scene_inputs_reach_all_stages_without_identity_leakage():
+    plan = _plan()
+    llm = _QueuedLLM({None: ["内容原文", "融合原文", " 最终原文\n"]})
+    result = await _run_service(
+        plan, llm,
+        world_context={"generation_world_hint": "二十世纪车库，禁止现代手机"},
+        frame_contexts_by_id={"frame-a": {"shot_purpose": "展示测试结果", "shot_type": "近景"}},
+    )
+    assert len(llm.calls) == 3
+    for call in llm.calls:
+        assert "二十世纪车库，禁止现代手机" in call["prompt"]
+        assert "展示测试结果" in call["prompt"]
+        assert '"shot_type": "近景"' in call["prompt"]
+    assert "圆形白色脸" not in llm.calls[0]["prompt"]
+    assert result.frames[0].generation_request.final_positive_prompt == " 最终原文\n"

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 
+from pixelle_video.config import config_manager
+from pixelle_video.config.storyboard_preset_library import lookup_world_preset
 from pixelle_video.models.article_concretization import ArticleConcretizationPlan
 from pixelle_video.models.final_visual_prompt_contract import (
     V44_TRACE_METADATA_KEYS,
@@ -464,7 +466,26 @@ class VisualPromptComposer:
                     profile_snapshot.authorized_visible_texts
                 ),
             )
+            world_preset = lookup_world_preset(
+                config_manager.get_storyboard_world_preset_library(), world_preset_id
+            )
+            world_context = {
+                "generation_world_hint": generation_world_hint,
+                "world_preset": {
+                    key: world_preset.get(key)
+                    for key in ("preset_id", "world_elements", "knowledge_scene_rules", "negative_rules")
+                },
+                "shot_preset_id": shot_preset_id,
+                "shot_strategy": shot_strategy,
+                "consistency_strength": consistency_strength,
+                "content_mode": content_mode,
+                "role_strategy": role_strategy,
+            }
             two_stage_result = await VisualAnchorTwoStageService().run_batch(
+                world_context=world_context,
+                frame_contexts_by_id={
+                    context["frame_id"]: context for context in prompt_contexts.frame_contexts
+                },
                 llm_service=llm_service,
                 storyboard_plan=storyboard_plan,
                 identity_profile=identity_profile,

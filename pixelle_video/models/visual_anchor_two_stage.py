@@ -14,9 +14,9 @@ from pixelle_video.models.series_visual_signature import (
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v28"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v46"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v27"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v29"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v47"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v28"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v19"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
@@ -45,6 +45,7 @@ HistoricalContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v25",
     "visual_anchor_content_stage.v26",
     "visual_anchor_content_stage.v27",
+    "visual_anchor_content_stage.v28",
 ]
 ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v15",
@@ -96,6 +97,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v43",
     "visual_anchor_fusion_stage.v44",
     "visual_anchor_fusion_stage.v45",
+    "visual_anchor_fusion_stage.v46",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -125,6 +127,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v24",
     "visual_anchor_finalization_stage.v25",
     "visual_anchor_finalization_stage.v26",
+    "visual_anchor_finalization_stage.v27",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -152,6 +155,7 @@ _IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS = frozenset(
         "visual_anchor_fusion_stage.v43",
         "visual_anchor_fusion_stage.v44",
         "visual_anchor_fusion_stage.v45",
+    "visual_anchor_fusion_stage.v46",
         FUSION_STAGE_PROMPT_VERSION,
     }
 )
@@ -842,6 +846,15 @@ ReadableContentStageOutput = (
     | LegacyContentStageOutput
 )
 
+def _plain_scene_input(value):
+    """Copy frozen input snapshots without interpreting creative outputs."""
+    if isinstance(value, Mapping):
+        return {key: _plain_scene_input(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_scene_input(item) for item in value]
+    return value
+
+
 class _ContentStageInputCommon(BaseModel):
     """Fields shared by current and historical content-stage inputs."""
 
@@ -853,10 +866,13 @@ class _ContentStageInputCommon(BaseModel):
     previous_frame_summary: str
     next_frame_summary: str
     target_image_prompt_language: str
+    scene_context: dict[str, object] = Field(default_factory=dict)
 
     @field_validator("*", mode="before")
     @classmethod
     def _validate_text(cls, value: object, info):
+        if info.field_name == "scene_context":
+            return _plain_scene_input(value)
         if info.field_name in {"prompt_version", "target_visual_style"}:
             return value
         if info.field_name in {
@@ -1217,6 +1233,7 @@ class FusionStageInput(BaseModel):
     frame_id: str
     original_storyboard_text: str
     content_stage_output: ReadableContentStageOutput
+    scene_context: dict[str, object] = Field(default_factory=dict)
     identity_profile: VisualAnchorIdentityProfile
     identity_conditioning_mode: Literal["text_profile", "reference_image"]
     identity_reference_condition: IdentityReferenceCondition | None = None
@@ -1247,6 +1264,8 @@ class FusionStageInput(BaseModel):
         normalized = dict(value)
         normalized.pop("review_feedback", None)
         normalized.pop("required_single_instance_prompt_fragment", None)
+        if "scene_context" in normalized:
+            normalized["scene_context"] = _plain_scene_input(normalized["scene_context"])
         return normalized
 
     @field_validator(

@@ -207,6 +207,8 @@ class VisualAnchorTwoStageService:
         trace_context: LLMTraceContext | None = None,
         trace_recorder=None,
         stage_callback=None,
+        world_context: Mapping[str, Any] | None = None,
+        frame_contexts_by_id: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> VisualAnchorTwoStageBatchResult:
         if not isinstance(storyboard_plan, StoryboardPlan):
             raise TypeError("storyboard_plan must be a StoryboardPlan")
@@ -348,6 +350,9 @@ class VisualAnchorTwoStageService:
                 storyboard_plan=storyboard_plan,
                 frame=frame,
                 frame_index=index,
+                scene_context=_scene_context(
+                    frame, world_context, (frame_contexts_by_id or {}).get(frame.frame_id)
+                ),
                 scene_id=scene_ids[index],
                 existing_fusion_decision=decisions_by_scene.get(scene_ids[index]),
                 series_final_prompt_history=list(
@@ -391,6 +396,7 @@ class VisualAnchorTwoStageService:
         storyboard_plan: StoryboardPlan,
         frame: StoryboardPlanFrame,
         frame_index: int,
+        scene_context: dict[str, Any],
         scene_id: str,
         existing_fusion_decision: FinalizationStagePromptPassthrough | None,
         series_final_prompt_history: list[str],
@@ -423,6 +429,7 @@ class VisualAnchorTwoStageService:
             else "末镜，无后一镜"
         )
         content_input = ContentStageInput(
+            scene_context=scene_context,
             frame_id=frame.frame_id,
             original_storyboard_text=frame.source_text,
             article_context=_relevant_article_context(
@@ -485,6 +492,7 @@ class VisualAnchorTwoStageService:
         )
 
         fusion_input = FusionStageInput(
+            scene_context=scene_context,
             frame_id=frame.frame_id,
             original_storyboard_text=frame.source_text,
             content_stage_output=content_output,
@@ -904,6 +912,7 @@ def _fusion_prompt_payload(stage_input: FusionStageInput) -> dict[str, Any]:
         "frame_id": stage_input.frame_id,
         "original_storyboard_text": stage_input.original_storyboard_text,
         "content_prompt": stage_input.content_stage_output.raw_prompt,
+        "scene_context": stage_input.scene_context,
         "identity_profile": _compact_identity_profile(stage_input.identity_profile),
         "identity_conditioning_mode": stage_input.identity_conditioning_mode,
         "workflow_identity_condition_summary": (
@@ -944,6 +953,7 @@ def _finalization_prompt_payload(
         "original_storyboard_text": stage_input.original_storyboard_text,
         "content_prompt": fusion_input.content_stage_output.raw_prompt,
         "fusion_draft": stage_input.fusion_stage_output.raw_prompt,
+        "scene_context": fusion_input.scene_context,
         "identity_profile": _compact_identity_profile(fusion_input.identity_profile),
         "identity_conditioning_mode": fusion_input.identity_conditioning_mode,
         "workflow_identity_condition_summary": (
@@ -975,6 +985,23 @@ def _emit_stage(callback, *, stage: str, event: str, **fields: Any) -> None:
         callback=callback,
         **fields,
     )
+
+
+_CONTENT_CONTEXT_FIELDS = (
+    "visual_goal", "prompt_intent", "primary_subject", "secondary_subjects",
+    "shot_type", "shot_purpose", "world_elements", "continuity_anchors", "focus_detail",
+)
+
+
+def _scene_context(frame, world_context, frame_context):
+    """Project existing input fields only; never inspect generated creative text."""
+    source = frame.to_dict()
+    overrides = frame_context or {}
+    return {
+        "world": dict(world_context or {}),
+        "shot": {key: overrides.get(key, source.get(key)) for key in _CONTENT_CONTEXT_FIELDS},
+        "continuous_scene_id": frame.metadata.get("continuous_scene_id"),
+    }
 
 
 def _continuous_scene_ids(
