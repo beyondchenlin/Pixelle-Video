@@ -3041,6 +3041,11 @@ class StandardPipeline(LinearVideoPipeline):
         controls = SeriesVisualSignatureControlsContract.single_pass_from_mapping(
             ctx.params
         )
+        reference_required = ctx.params.get("identity_reference_required", False)
+        if not isinstance(reference_required, bool):
+            raise ValueError("identity_reference_required must be boolean")
+        if reference_required and not controls.enabled:
+            raise ValueError("必须启用系列身份后才能要求参考图身份约束")
         if not controls.enabled:
             ctx.series_visual_signature_profile = None
             ctx.visual_anchor_reference_conditioning_enabled = False
@@ -3051,6 +3056,7 @@ class StandardPipeline(LinearVideoPipeline):
         if (
             isinstance(ctx.series_visual_signature_profile, IPProfile)
             and previous_preflight.get("status") == "passed"
+            and previous_preflight.get("identity_reference_required", False) == reference_required
             and (
                 not require_complete_identity_contract
                 or previous_preflight.get("identity_contract_status")
@@ -3090,6 +3096,8 @@ class StandardPipeline(LinearVideoPipeline):
         else:
             reference_conditioning_enabled = False
 
+        if reference_required and not reference_conditioning_enabled:
+            raise ValueError("本次要求参考图身份约束，但所选工作流不支持参考图；请选择支持参考图的工作流并提供参考图片")
         has_reference_asset = ctx.reference_image_asset is not None
         if reference_conditioning_enabled and not has_reference_asset:
             raise ValueError(
@@ -3132,6 +3140,7 @@ class StandardPipeline(LinearVideoPipeline):
                 else "text_profile"
             ),
             "reference_conditioning_enabled": reference_conditioning_enabled,
+            "identity_reference_required": reference_required,
             "workflow_inspected": workflow_info is not None,
             "profile_id": ip_contract.series_visual_signature_profile_id,
         }

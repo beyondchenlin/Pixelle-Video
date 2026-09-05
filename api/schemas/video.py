@@ -277,6 +277,7 @@ class VideoGenerateRequest(BaseModel):
             "server paths, URLs, and base64 are forbidden."
         ),
     )
+    identity_reference_required: bool = Field(False, description="Require a connected reference image for identity delivery; never fall back to text-only.")
     series_visual_signature_enabled: bool = Field(False, description="Enable IP prompt chain for image prompt generation.")
     series_visual_signature_asset_bible_id: Optional[str] = Field(None, description="Public asset bible resource ID resolved server-side for IP prompt chain.")
     series_visual_signature_profile_id: Optional[str] = Field(None, description="IP profile ID inside the selected asset bible.")
@@ -477,6 +478,8 @@ class VideoGenerateRequest(BaseModel):
         elif self.script_target_words is not None:
             raise ValueError("script_target_words is only valid with custom script length mode")
 
+        if self.identity_reference_required and not self.series_visual_signature_enabled:
+            raise ValueError("必须启用系列身份后才能要求参考图身份约束")
         if self.series_visual_signature_enabled:
             if self.series_visual_signature_asset_bible_id is None:
                 raise ValueError("series_visual_signature_asset_bible_id is required when series_visual_signature_enabled=True")

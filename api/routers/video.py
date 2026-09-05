@@ -152,6 +152,7 @@ def build_video_generation_params(
         "shot_strategy": request_body.shot_strategy,
         "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
         "series_visual_signature_enabled": request_body.series_visual_signature_enabled,
+        "identity_reference_required": request_body.identity_reference_required,
         "series_visual_signature_asset_bible_id": request_body.series_visual_signature_asset_bible_id,
         "series_visual_signature_profile_id": request_body.series_visual_signature_profile_id,
         "article_understanding_mode": request_body.article_understanding_mode,

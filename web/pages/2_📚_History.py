@@ -723,6 +723,11 @@ def render_visual_anchor_two_stage_evidence(
         ):
             image_column, evidence_column = st.columns([1, 1.35])
             with image_column:
+                condition_label = {
+                    "reference_image": "参考图与文字身份",
+                    "text_profile": "仅文字身份",
+                }.get(generation_request.get("identity_conditioning_mode"), "身份条件未记录")
+                st.caption(f"本镜实际生成条件：{condition_label}；接线通过不等于视觉验收通过。")
                 st.markdown("**未经修改的首次生成原图**")
                 if generated_image is None:
                     st.error("首次生成原图不存在")

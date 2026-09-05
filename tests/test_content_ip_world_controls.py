@@ -530,3 +530,15 @@ def test_content_series_visual_signature_controls_uses_shared_default_prompt_lan
         ]
         == CHINESE_PROMPT_LANGUAGE
     )
+
+
+def test_reference_requirement_survives_public_payload_projection():
+    payload = content_series_visual_signature_controls.build_content_ip_world_payload(ip_payload={
+        "series_visual_signature_enabled": True,
+        "series_visual_signature_asset_bible_id": "bible_demo",
+        "series_visual_signature_profile_id": "ip_main",
+        "identity_reference_required": True,
+    })
+    from api.schemas.video import VideoGenerateRequest
+    request = VideoGenerateRequest(text="主题", **{key: value for key, value in payload.items() if key in VideoGenerateRequest.model_fields})
+    assert request.identity_reference_required is True
