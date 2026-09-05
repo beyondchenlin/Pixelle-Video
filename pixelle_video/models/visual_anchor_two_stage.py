@@ -15,9 +15,9 @@ from pixelle_video.models.series_visual_signature import (
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v30"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v51"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v32"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v21"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v52"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v33"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v22"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -103,6 +103,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v48",
     "visual_anchor_fusion_stage.v49",
     "visual_anchor_fusion_stage.v50",
+    "visual_anchor_fusion_stage.v51",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -137,6 +138,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v29",
     "visual_anchor_finalization_stage.v30",
     "visual_anchor_finalization_stage.v31",
+    "visual_anchor_finalization_stage.v32",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -154,6 +156,7 @@ GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v18",
     "visual_anchor_generation_request.v19",
     "visual_anchor_generation_request.v20",
+    "visual_anchor_generation_request.v21",
     GENERATION_REQUEST_VERSION,
 ]
 
@@ -171,6 +174,7 @@ _IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS = frozenset(
         "visual_anchor_fusion_stage.v48",
         "visual_anchor_fusion_stage.v49",
         "visual_anchor_fusion_stage.v50",
+        "visual_anchor_fusion_stage.v51",
         FUSION_STAGE_PROMPT_VERSION,
     }
 )
@@ -184,6 +188,7 @@ _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS = frozenset(
         "visual_anchor_generation_request.v18",
         "visual_anchor_generation_request.v19",
         "visual_anchor_generation_request.v20",
+        "visual_anchor_generation_request.v21",
         GENERATION_REQUEST_VERSION,
     }
 )
@@ -197,6 +202,7 @@ _RAW_THREE_STAGE_GENERATION_REQUEST_VERSIONS = frozenset(
         "visual_anchor_generation_request.v18",
         "visual_anchor_generation_request.v19",
         "visual_anchor_generation_request.v20",
+        "visual_anchor_generation_request.v21",
         GENERATION_REQUEST_VERSION,
     }
 )

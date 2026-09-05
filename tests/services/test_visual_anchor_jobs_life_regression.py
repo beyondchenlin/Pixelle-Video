@@ -642,14 +642,14 @@ def test_fusion_template_defines_method_specific_visible_boundaries():
         "载体的具体类别与正常用途",
         "身份所在的具体表面",
         "印刷或材质工艺",
-        "与载体共面且被载体边界收住的几何关系",
+        "与载体曲面或界面坐标一致的几何关系",
         "身份特征是图形内部的轮廓、色块或纹理",
         "描述句必须以载体为主语",
-        "禁止用“一位、一只、一个＋身份名称”作为平面形态的主语",
-        "遮挡只能来自压在表面上的另一个物体或载体边缘裁切",
-        "禁止写成桌面、地面或载体自身遮挡自己的图案",
+        "平面印刷不能被描述成独立实体",
+        "遮挡和裁切必须来自真实的物体前后关系或载体边界",
+        "完整图形、局部图形与边缘裁切按识别需要选择",
         "只有当前画面没有任何合法实体位置或现有载体时",
-        "禁止新增展示台、雕塑、玩偶、立牌和纯装饰摆件",
+        "不能仅为展示身份而存在",
     ):
         assert required_relation in template
     for removed_scene_specific_example in (
@@ -688,7 +688,7 @@ def test_fusion_and_finalization_define_scene_adaptive_manifestation_candidates(
             assert family in template
     assert "不得因为桌面、纸张最容易描述就跳过其他合法载体" in templates[0]
     assert "相同合法形态重复本身不是失败" in templates[1]
-    assert "使用“戴着、拿着、站着”描述平面图形" in templates[1]
+    assert "完整人物或动物图形本身不是错误" in templates[1]
     assert "平面形态必须以载体为句子主语" in templates[1]
     assert "场景原生实体、平面印刷或水印、材质刻线或压印" in templates[1]
     assert "去掉身份特征后仍服务环境用途或空间表达" in templates[1]
@@ -747,7 +747,7 @@ def test_finalization_template_rejects_type_errors_and_attention_competition():
         "二维拓扑失败",
         "视觉层级失败",
         "相同合法形态重复本身不是失败",
-        "使用“戴着、拿着、站着”描述平面图形",
+        "完整人物或动物图形本身不是错误",
         "遮挡只能由另一个前景物体覆盖表面",
         "manifestation_family_preference",
         "直接作为图片正向提示词",
@@ -770,7 +770,7 @@ def test_finalization_template_enforces_visible_fusion_and_unifies_scene_style()
         "人物、动物和植物遵守自然社会、生态、生长与陈设逻辑",
         "标志图形和抽象符号只作为局部平面或材质标记",
         "不强制背景位置、遮挡或裁切",
-        "写清载体、材质工艺、共面、边界裁切",
+        "写清载体、材质工艺、承载几何关系",
         "原文主体身份保留核心动作与主体位置",
         "身份保持单实例",
         "enhanced 时加强可辨认程度",
@@ -811,15 +811,15 @@ def test_fusion_and_finalization_keep_visual_signature_secondary_without_ratios(
         assert required_rule in fusion_template
     for required_rule in (
         "未进入原文的身份承担核心动作",
-        "只有原文明示的主体身份可以按剧情处于前景、中心或主角身旁",
+        "前景、中心、主体身旁均不是单独的通过或否决依据",
         "不强制背景位置、遮挡或裁切",
     ):
         assert required_rule in finalization_template
     for template in (fusion_template, finalization_template):
-        assert "不能为了身份把内容画面改成教学板或展板" in template
-        assert "四周保留载体底色" in template
-        assert "不形成落地站立的轮廓" in template
-        assert "相对载体和" in template
+        assert "位置由场景关系推导" in template
+        assert "完整图形、局部图形与边缘裁切按识别需要选择" in template
+        assert "教学板或展板" not in template
+        assert "四周保留载体底色" not in template
         for forbidden_ratio in ("2%", "5%", "8%", "百分比"):
             assert forbidden_ratio not in template
 
@@ -1184,6 +1184,6 @@ def test_story_subject_identity_is_not_demoted_to_background():
 def test_final_review_repairs_errors_within_its_single_response():
     root = Path(__file__).resolve().parents[2] / "pixelle_video/prompts/templates"
     template = (root / "visual_anchor_finalization_stage.md").read_text(encoding="utf-8")
-    for rule in ("本次唯一调用", "content_prompt 是草稿", "保留正确", "载体工艺不相容", "具名人物单实例", "本次重写中删除"):
+    for rule in ("本次唯一调用", "content_prompt 是草稿", "保留正确", "工艺与载体材质、固定颜色不相容", "具名人物单实例", "本次重写中删除"):
         assert rule in template
     assert "必须放弃其形态和位置" not in template

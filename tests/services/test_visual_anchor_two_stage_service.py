@@ -286,6 +286,7 @@ async def _run_service(
     visible_text_policy=None,
     world_context=None,
     frame_contexts_by_id=None,
+    identity_profile=None,
 ):
     reference_condition = identity_reference_condition
     if reference_condition is _DEFAULT_REFERENCE:
@@ -305,7 +306,7 @@ async def _run_service(
     return await VisualAnchorTwoStageService().run_batch(
         llm_service=llm,
         storyboard_plan=plan,
-        identity_profile=_identity(),
+        identity_profile=identity_profile if identity_profile is not None else _identity(),
         identity_reference_condition=reference_condition,
         identity_conditioning_mode=identity_conditioning_mode,
         workflow_identity_condition_summary=(
@@ -603,6 +604,54 @@ async def test_scene_adaptation_reaches_only_fusion_and_finalization_stages():
     assert result.frames[0].generation_request.identity_scene_adaptation == (
         result.frames[0].fusion_stage_input.identity_profile.scene_adaptation
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("name", "semantic_type", "traits"),
+    [
+        ("栏目讲述者", "person", ["方框眼镜", "短卷发"]),
+        ("栏目飞鸟", "animal", ["弯曲长喙", "红色翼尖"]),
+        ("栏目树木", "plant", ["扇形叶片", "分叉树干"]),
+        ("栏目计时器", "functional_object", ["六边形外壳", "红色指针"]),
+        ("栏目标志", "graphic_symbol", ["双环轮廓", "方形缺口"]),
+        ("栏目符号", "abstract_symbol", ["交错折线", "三个圆点"]),
+    ],
+)
+async def test_identity_types_share_the_same_raw_three_stage_path(name, semantic_type, traits):
+    digest = series_visual_signature_identity_content_sha256(
+        display_name=name,
+        core_identity_traits=traits,
+        supporting_identity_traits=[],
+        forbidden_traits=[],
+    )
+    identity = VisualAnchorIdentityProfile(
+        profile_id="generic-identity",
+        display_name=name,
+        core_identity_traits=traits,
+        scene_adaptation=VisualAnchorSceneAdaptationProfile(semantic_type_hint=semantic_type),
+        identity_content_sha256=digest,
+        identity_resource_version=f"identity:generic-identity:{digest}",
+    )
+    final_raw = f"\n  为{name}生成的模型原始文本，不作本地重写。  \n"
+    llm = _QueuedLLM({
+        ContentStageModelOutput: ["原始内容画面"],
+        FusionStageModelOutput: ["原始融合草稿"],
+        FinalizationStagePromptPassthrough: [final_raw],
+    })
+    result = await _run_service(
+        _plan(), llm, identity_profile=identity, identity_conditioning_mode="text_profile",
+    )
+    assert len(llm.calls) == 3
+    assert name not in llm.calls[0]["prompt"]
+    for call in llm.calls[1:]:
+        assert name in call["prompt"]
+        assert f'"semantic_type_hint": "{semantic_type}"' in call["prompt"]
+        assert all(trait in call["prompt"] for trait in traits)
+    request = result.frames[0].generation_request
+    assert request.identity_display_name == name
+    assert request.identity_core_traits == traits
+    assert request.final_positive_prompt == final_raw
 
 
 @pytest.mark.asyncio
@@ -1513,7 +1562,7 @@ async def test_v18_chain_with_previous_content_prompt_remains_readable():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("request_version", "stage_versions"),
-    [(19, (28, 46, 27)), (20, (30, 50, 31))],
+    [(19, (28, 46, 27)), (20, (30, 50, 31)), (21, (30, 51, 32))],
 )
 async def test_complete_previous_prompt_chain_remains_readable(request_version, stage_versions):
     batch, _ = await _run(_plan())
