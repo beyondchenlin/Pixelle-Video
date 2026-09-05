@@ -736,10 +736,10 @@ def test_finalization_template_rejects_type_errors_and_attention_competition():
     ).read_text(encoding="utf-8")
 
     for required_rule in (
-        "以 original_storyboard_text 和 content_prompt 为事实基础",
-        "以下任意一项成立",
-        "融合方案立即无效",
-        "从 content_prompt 重新融合",
+        "以 original_storyboard_text 和 scene_context 中的原始输入为事实边界",
+        "以下各项在本次输出内部纠正",
+        "只在错误影响方案成立时重建相关部分",
+        "先修正内容草稿已经存在的实体指代、数量和动作错误",
         "内容或角色失败",
         "场景准入失败",
         "形态选择失败",
@@ -1175,3 +1175,11 @@ def test_story_subject_identity_is_not_demoted_to_background():
         assert "身份是否就是原文明示的内容主体" in template
         assert "单实例" in template or "只保留一个可识别实例" in template
         assert "不强制" in template
+
+
+def test_final_review_repairs_errors_within_its_single_response():
+    root = Path(__file__).resolve().parents[2] / "pixelle_video/prompts/templates"
+    template = (root / "visual_anchor_finalization_stage.md").read_text(encoding="utf-8")
+    for rule in ("本次唯一调用", "content_prompt 是草稿", "保留正确", "载体工艺不相容", "具名人物单实例", "本次重写中删除"):
+        assert rule in template
+    assert "必须放弃其形态和位置" not in template

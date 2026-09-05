@@ -14,9 +14,9 @@ from pixelle_video.models.series_visual_signature import (
 )
 from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphasis
 
-CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v29"
-FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v49"
-FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v30"
+CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v30"
+FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v50"
+FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v31"
 GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v19"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
@@ -46,6 +46,7 @@ HistoricalContentStagePromptVersion = Literal[
     "visual_anchor_content_stage.v26",
     "visual_anchor_content_stage.v27",
     "visual_anchor_content_stage.v28",
+    "visual_anchor_content_stage.v29",
 ]
 ContentStagePromptVersion = HistoricalContentStagePromptVersion | Literal[
     "visual_anchor_content_stage.v15",
@@ -100,6 +101,7 @@ FusionStagePromptVersion = Literal[
     "visual_anchor_fusion_stage.v46",
     "visual_anchor_fusion_stage.v47",
     "visual_anchor_fusion_stage.v48",
+    "visual_anchor_fusion_stage.v49",
     FUSION_STAGE_PROMPT_VERSION,
 ]
 FinalizationStagePromptVersion = Literal[
@@ -132,6 +134,7 @@ FinalizationStagePromptVersion = Literal[
     "visual_anchor_finalization_stage.v27",
     "visual_anchor_finalization_stage.v28",
     "visual_anchor_finalization_stage.v29",
+    "visual_anchor_finalization_stage.v30",
     FINALIZATION_STAGE_PROMPT_VERSION,
 ]
 GenerationRequestVersion = Literal[
@@ -162,6 +165,7 @@ _IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS = frozenset(
     "visual_anchor_fusion_stage.v46",
     "visual_anchor_fusion_stage.v47",
     "visual_anchor_fusion_stage.v48",
+    "visual_anchor_fusion_stage.v49",
         FUSION_STAGE_PROMPT_VERSION,
     }
 )
