@@ -9,6 +9,7 @@ from pixelle_video.contracts.ip_generation_request import (
 
 def test_formal_field_set_is_narrow():
     assert FORMAL_CONTENT_IP_WORLD_FIELDS == {
+        "identity_reference_required",
         "series_visual_signature_enabled",
         "series_visual_signature_asset_bible_id",
         "series_visual_signature_profile_id",
