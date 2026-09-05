@@ -8,6 +8,8 @@ import time
 import uuid
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_DIR = REPO_ROOT / "scripts" / "comfyui"
 POWERSHELL = "powershell"
@@ -790,8 +792,10 @@ def test_process_with_same_data_root_but_different_port_is_not_managed(
     assert result.stdout.strip() == "unmanaged"
 
 
+@pytest.mark.parametrize("vram_mode", ["normal", "high"])
 def test_managed_process_identity_covers_every_behavioral_launch_argument(
     tmp_path: Path,
+    vram_mode: str,
 ) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     probe_script = tmp_path / "probe-complete-process-identity.ps1"
@@ -808,7 +812,8 @@ $config = Resolve-PixelleComfyUIBackendConfig `
     -ExtraModelsConfig '{ps_single_quote(extra_models_config)}' `
     -RuntimeDir '{ps_single_quote(tmp_path / "runtime")}' `
     -HostAddress '127.0.0.1' `
-    -Port 65510
+    -Port 65510 `
+    -VramMode '{vram_mode}'
 $arguments = @($config.PythonExe) + @(Get-BackendArguments $config)
 $exact = ConvertTo-WindowsCommandLine $arguments
 $resolvedInterpreter = [object[]]$arguments.Clone()
@@ -828,6 +833,9 @@ $wrongDatabase = [object[]]$arguments.Clone()
 $wrongDatabase[($wrongDatabase.IndexOf('--database-url') + 1)] = `
     'sqlite:///D:/other.db'
 $duplicatePort = @($arguments) + @('--port', '65510')
+$wrongVram = [object[]]$arguments.Clone()
+$wrongVram[$wrongVram.IndexOf('--{vram_mode}vram')] = '--{'high' if vram_mode == 'normal' else 'normal'}vram'
+$conflictingVram = @($arguments) + @('--{'high' if vram_mode == 'normal' else 'normal'}vram')
 @{{
     exact = Test-ManagedComfyUICommandLine $config $exact
     resolved_interpreter = Test-ManagedComfyUICommandLine `
@@ -842,6 +850,10 @@ $duplicatePort = @($arguments) + @('--port', '65510')
         $config (ConvertTo-WindowsCommandLine $wrongDatabase)
     duplicate_port = Test-ManagedComfyUICommandLine `
         $config (ConvertTo-WindowsCommandLine $duplicatePort)
+    wrong_vram = Test-ManagedComfyUICommandLine `
+        $config (ConvertTo-WindowsCommandLine $wrongVram)
+    conflicting_vram = Test-ManagedComfyUICommandLine `
+        $config (ConvertTo-WindowsCommandLine $conflictingVram)
 }} | ConvertTo-Json -Compress
 """.strip(),
         encoding="utf-8",
@@ -858,6 +870,8 @@ $duplicatePort = @($arguments) + @('--port', '65510')
         "additional_extra": False,
         "wrong_database": False,
         "duplicate_port": False,
+        "wrong_vram": False,
+        "conflicting_vram": False,
     }
 
 
@@ -1547,8 +1561,10 @@ def test_custom_node_root_resolver_timeout_is_bounded(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize("vram_mode", ["normal", "high"])
 def test_start_backend_memory_safe_policy_preserves_batch_reuse_and_offload(
     tmp_path: Path,
+    vram_mode: str,
 ) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     (comfyui_root / "comfy" / "cli_args.py").write_text(
@@ -1561,6 +1577,8 @@ def test_start_backend_memory_safe_policy_preserves_batch_reuse_and_offload(
         "-Json",
         "-ResourcePolicy",
         "memory_safe",
+        "-VramMode",
+        vram_mode,
         "-PythonExe",
         sys.executable,
         "-ComfyUIRoot",
@@ -1582,6 +1600,9 @@ def test_start_backend_memory_safe_policy_preserves_batch_reuse_and_offload(
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["resource_policy"] == "memory_safe"
+    assert payload["vram_mode"] == vram_mode
+    assert f"--{vram_mode}vram" in payload["arguments"]
+    assert ("--normalvram" in payload["arguments"]) != ("--highvram" in payload["arguments"])
     assert "--disable-pinned-memory" in payload["arguments"]
     assert "--disable-async-offload" not in payload["arguments"]
     assert "--disable-dynamic-vram" not in payload["arguments"]

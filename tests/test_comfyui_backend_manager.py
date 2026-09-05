@@ -976,6 +976,7 @@ async def test_start_command_includes_typed_resource_contract(monkeypatch):
         profile=ComfyUIBackendProfile(
             url="http://127.0.0.1:8000",
             resource_policy="memory_safe",
+            vram_mode="high",
             minimum_free_commit_gb=12.5,
         ),
         lifetime_owner_pid=4321,
@@ -999,6 +1000,7 @@ async def test_start_command_includes_typed_resource_contract(monkeypatch):
     await backend.start(reason="test")
 
     assert script_args[script_args.index("-ResourcePolicy") + 1] == "memory_safe"
+    assert script_args[script_args.index("-VramMode") + 1] == "high"
     assert script_args[script_args.index("-MinimumFreeCommitGB") + 1] == "12.5"
     assert captured["extra_args"] == [
         "-ReadyTimeoutSeconds",

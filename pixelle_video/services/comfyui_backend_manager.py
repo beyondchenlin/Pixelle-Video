@@ -776,6 +776,7 @@ class ComfyUIBackendController:
         self._append_profile_arg(args, "-ExtraModelsConfig", self.profile.extra_models_config)
         self._append_profile_arg(args, "-FrontEndRoot", self.profile.frontend_root)
         args.extend(["-ResourcePolicy", self.profile.resource_policy])
+        args.extend(["-VramMode", self.profile.vram_mode])
         args.extend(["-CustomNodeLoading", self.profile.custom_node_loading])
         if self.profile.custom_node_loading == "allowlist":
             folders_json = json.dumps(

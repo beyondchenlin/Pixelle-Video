@@ -267,6 +267,7 @@ function Resolve-PixelleComfyUIBackendConfig {
         [string]$HostAddress,
         [int]$Port,
         [string]$ResourcePolicy = '',
+        [string]$VramMode = '',
         [double]$MinimumFreeCommitGB = -1,
         [string]$CustomNodeLoading = 'all',
         [string]$AllowedCustomNodeFoldersBase64 = '',
@@ -303,6 +304,10 @@ function Resolve-PixelleComfyUIBackendConfig {
         'auto'
     $resolvedResourcePolicy = Resolve-BackendResourcePolicy `
         $requestedResourcePolicy
+    $resolvedVramMode = (Resolve-BackendValue $VramMode 'PIXELLE_COMFYUI_VRAM_MODE' 'normal').Trim().ToLowerInvariant()
+    if ($resolvedVramMode -notin @('normal', 'high')) {
+        throw "Unsupported ComfyUI model residency: $resolvedVramMode"
+    }
     $resolvedCustomNodeLoading = Resolve-BackendValue `
         $CustomNodeLoading `
         'PIXELLE_COMFYUI_CUSTOM_NODE_LOADING' `
@@ -366,6 +371,7 @@ function Resolve-PixelleComfyUIBackendConfig {
         Port = $resolvedPort
         RequestedResourcePolicy = $requestedResourcePolicy
         ResourcePolicy = $resolvedResourcePolicy
+        VramMode = $resolvedVramMode
         CustomNodeLoading = $resolvedCustomNodeLoading
         AllowedCustomNodeFolders = $resolvedAllowedCustomNodeFolders
         AllowedCustomNodeFoldersBase64 = $resolvedAllowedCustomNodeFoldersBase64
@@ -523,6 +529,7 @@ function Add-BackendProfilePayloadFields {
     $Payload['exit_code_file'] = Get-BackendExitCodeFile $Config
     $Payload['requested_resource_policy'] = $Config.RequestedResourcePolicy
     $Payload['resource_policy'] = $Config.ResourcePolicy
+    $Payload['vram_mode'] = $Config.VramMode
     $Payload['custom_node_loading'] = $Config.CustomNodeLoading
     $Payload['allowed_custom_node_folders'] = @($Config.AllowedCustomNodeFolders)
     $Payload['effective_custom_node_roots'] = @($Config.EffectiveCustomNodeRoots)
@@ -796,7 +803,7 @@ function Get-BackendArguments {
     [void]$arguments.Add($Config.HostAddress)
     [void]$arguments.Add('--port')
     [void]$arguments.Add([string]$Config.Port)
-    [void]$arguments.Add('--normalvram')
+    [void]$arguments.Add(('--{0}vram' -f $Config.VramMode))
     if ($Config.ResourcePolicy -eq 'memory_safe') {
         [void]$arguments.Add('--disable-pinned-memory')
     }
@@ -1160,6 +1167,8 @@ function Test-ManagedComfyUICommandLine {
     else {
         -not (Test-CommandLineContainsToken $CommandLine '--disable-pinned-memory')
     }
+    $expectedVramFlag = '--{0}vram' -f $Config.VramMode
+    $otherVramFlag = if ($Config.VramMode -eq 'high') { '--normalvram' } else { '--highvram' }
     $backendMatches = (
         (Test-CommandLineContainsValueToken $CommandLine $mainPy) -and
         (Test-CommandLineArgumentValue $CommandLine '--user-directory' (Join-Path $Config.DataRoot 'user')) -and
@@ -1171,7 +1180,8 @@ function Test-ManagedComfyUICommandLine {
         $extraModelsMatches -and
         (Test-CommandLineArgumentValue $CommandLine '--listen' $Config.HostAddress) -and
         (Test-CommandLineArgumentValue $CommandLine '--port' ([string]$Config.Port)) -and
-        (Test-CommandLineContainsToken $CommandLine '--normalvram') -and
+        (Test-CommandLineContainsToken $CommandLine $expectedVramFlag) -and
+        (-not (Test-CommandLineContainsToken $CommandLine $otherVramFlag)) -and
         $pinnedMemoryMatches -and
         (Test-BackendCustomNodePolicyCommandLine $Config $CommandLine)
     )
