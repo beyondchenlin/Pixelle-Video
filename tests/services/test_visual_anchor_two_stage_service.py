@@ -508,7 +508,7 @@ def test_legacy_content_subject_import_drops_removed_server_fields():
 async def test_raw_finalization_response_flows_directly_to_generation():
     result, llm = await _run(_plan())
     frame = result.frames[0]
-    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v19"
+    assert result.to_dict()["schema_version"] == "visual_anchor_two_stage_batch.v20"
     assert isinstance(frame.fusion_stage_output, RawFusionStageOutput)
     assert frame.content_stage_output.model_dump(mode="json") == {
         "passthrough_version": CONTENT_PROMPT_PASSTHROUGH_VERSION,
@@ -1508,6 +1508,33 @@ async def test_v18_chain_with_previous_content_prompt_remains_readable():
     assert restored.generation_request.request_version == (
         "visual_anchor_generation_request.v18"
     )
+
+
+@pytest.mark.asyncio
+async def test_v19_complete_previous_prompt_chain_remains_readable():
+    batch, _ = await _run(_plan())
+    payload = batch.frames[0].model_dump(mode="json")
+    request = payload["generation_request"]
+    request["request_version"] = "visual_anchor_generation_request.v19"
+    for stage, version in (("content", 28), ("fusion", 46), ("finalization", 27)):
+        prompt_version = f"visual_anchor_{stage}_stage.v{version}"
+        payload[f"{stage}_stage_input"]["prompt_version"] = prompt_version
+        request[f"{stage}_stage_prompt_version"] = prompt_version
+        if stage != "finalization":
+            payload["finalization_stage_input"][f"{stage}_stage_input"]["prompt_version"] = prompt_version
+    for stage_input in (
+        payload["content_stage_input"], payload["fusion_stage_input"],
+        payload["finalization_stage_input"]["content_stage_input"],
+        payload["finalization_stage_input"]["fusion_stage_input"],
+    ):
+        stage_input.pop("scene_context", None)
+
+    restored = VisualAnchorTwoStageFrameResult.model_validate(payload)
+
+    assert restored.generation_request.request_version == "visual_anchor_generation_request.v19"
+    assert restored.content_stage_input.scene_context == {}
+    assert restored.generation_request.final_positive_prompt == request["final_positive_prompt"]
+    assert restored.finalization_stage_output.raw_prompt == request["final_positive_prompt"]
 
 
 @pytest.mark.asyncio

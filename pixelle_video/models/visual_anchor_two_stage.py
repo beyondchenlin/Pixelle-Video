@@ -17,7 +17,7 @@ from pixelle_video.models.visual_signature_emphasis import VisualSignatureEmphas
 CONTENT_STAGE_PROMPT_VERSION = "visual_anchor_content_stage.v30"
 FUSION_STAGE_PROMPT_VERSION = "visual_anchor_fusion_stage.v50"
 FINALIZATION_STAGE_PROMPT_VERSION = "visual_anchor_finalization_stage.v31"
-GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v19"
+GENERATION_REQUEST_VERSION = "visual_anchor_generation_request.v20"
 CONTENT_PROMPT_ASSEMBLY_VERSION = "visual_anchor_content_prompt_assembly.v1"
 FUSION_PROMPT_ASSEMBLY_VERSION = "visual_anchor_fusion_prompt_assembly.v1"
 RAW_CONTENT_PROMPT_PASSTHROUGH_VERSION = "visual_anchor_content_raw_passthrough.v1"
@@ -150,6 +150,7 @@ GenerationRequestVersion = Literal[
     "visual_anchor_generation_request.v16",
     "visual_anchor_generation_request.v17",
     "visual_anchor_generation_request.v18",
+    "visual_anchor_generation_request.v19",
     GENERATION_REQUEST_VERSION,
 ]
 
@@ -162,10 +163,10 @@ _IDENTITY_PROFILE_FUSION_PROMPT_VERSIONS = frozenset(
         "visual_anchor_fusion_stage.v43",
         "visual_anchor_fusion_stage.v44",
         "visual_anchor_fusion_stage.v45",
-    "visual_anchor_fusion_stage.v46",
-    "visual_anchor_fusion_stage.v47",
-    "visual_anchor_fusion_stage.v48",
-    "visual_anchor_fusion_stage.v49",
+        "visual_anchor_fusion_stage.v46",
+        "visual_anchor_fusion_stage.v47",
+        "visual_anchor_fusion_stage.v48",
+        "visual_anchor_fusion_stage.v49",
         FUSION_STAGE_PROMPT_VERSION,
     }
 )
@@ -177,6 +178,7 @@ _IDENTITY_PROFILE_GENERATION_REQUEST_VERSIONS = frozenset(
         "visual_anchor_generation_request.v16",
         "visual_anchor_generation_request.v17",
         "visual_anchor_generation_request.v18",
+        "visual_anchor_generation_request.v19",
         GENERATION_REQUEST_VERSION,
     }
 )
@@ -188,6 +190,7 @@ _RAW_THREE_STAGE_GENERATION_REQUEST_VERSIONS = frozenset(
         "visual_anchor_generation_request.v16",
         "visual_anchor_generation_request.v17",
         "visual_anchor_generation_request.v18",
+        "visual_anchor_generation_request.v19",
         GENERATION_REQUEST_VERSION,
     }
 )
