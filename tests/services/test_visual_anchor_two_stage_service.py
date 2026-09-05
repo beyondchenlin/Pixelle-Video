@@ -123,6 +123,7 @@ def _plan(*, continuous=False):
             visual_goal="表现两人在车库创业",
             prompt_intent="车库工作台场景",
             continuity_anchors=("同一车库",) if continuous else (),
+            metadata={"continuous_scene_id": "garage"} if continuous else {},
         )
     ]
     if continuous:
@@ -134,6 +135,7 @@ def _plan(*, continuous=False):
                 visual_goal="延续测试动作",
                 prompt_intent="同一车库连续镜头",
                 continuity_anchors=("同一车库",),
+                metadata={"continuous_scene_id": "garage"},
             )
         )
     return StoryboardPlan.build(
@@ -1071,18 +1073,10 @@ async def test_fusion_and_finalization_receive_only_the_previous_final_prompt():
 
 
 @pytest.mark.asyncio
-async def test_manifestation_family_preference_rotates_across_independent_frames():
+async def test_manifestation_selection_is_scene_adaptive_for_every_frame():
     result, llm = await _run(_independent_plan(frame_count=7))
 
-    expected_preferences = [
-        "scene_native_entity",
-        "flat_print_or_watermark",
-        "material_engraving_or_embossing",
-        "textile_embroidery_or_woven_pattern",
-        "interface_or_signage_mark",
-        "cropped_surface_motif",
-        "scene_native_entity",
-    ]
+    expected_preferences = ["scene_adaptive"] * 7
     assert [
         frame.fusion_stage_input.manifestation_family_preference
         for frame in result.frames
@@ -2086,3 +2080,11 @@ async def test_scene_inputs_reach_all_stages_without_identity_leakage():
         assert '"shot_type": "近景"' in call["prompt"]
     assert "圆形白色脸" not in llm.calls[0]["prompt"]
     assert result.frames[0].generation_request.final_positive_prompt == " 最终原文\n"
+
+
+def test_shared_identity_does_not_merge_different_scenes():
+    from dataclasses import replace
+
+    from pixelle_video.services.visual_anchor_two_stage_service import _continuous_scene_ids
+    frames = [replace(f, continuity_anchors=("同一个人",), metadata={}) for f in _independent_plan(2).frames]
+    assert len(set(_continuous_scene_ids(frames))) == 2

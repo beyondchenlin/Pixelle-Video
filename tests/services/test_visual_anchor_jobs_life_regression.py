@@ -614,14 +614,14 @@ def test_fusion_template_selects_type_aware_low_salience_manifestations():
         "功能物品需要当前场景确实使用其功能",
         "标志图形和抽象符号永远不能变成活体",
         "实体准入失败时，必须选择后面的材质融合形态",
-        "manifestation_family_preference 只决定本帧从哪个形态家族开始比较",
+        "manifestation_family_preference 为 scene_adaptive 时按场景选择",
         "不得因为桌面、纸张最容易描述就跳过其他合法载体",
         "身份位于中景边缘或背景局部",
         "至少具有自然遮挡、载体边缘裁切、低对比、较少细节、较弱线条或较浅景深之一",
         "不处在中心轴、主角身旁、手部和视线交汇处",
         "观众先看见内容主体和核心事件，继续观察局部才发现身份",
         "独立场景读取 previous_final_prompt",
-        "不得重复上一帧的形态家族、载体类别、材质工艺和空间方位",
+        "相同形态、材质和方位可以重复",
         "整幅画只保留一个可识别实例",
         "为 enhanced 时只提高固定特征内部完整度",
         "target_visual_style 统一作用于主体、环境和身份细节",
@@ -662,7 +662,7 @@ def test_fusion_template_defines_method_specific_visible_boundaries():
         assert removed_scene_specific_example not in template
 
 
-def test_fusion_and_finalization_define_all_rotating_manifestation_families():
+def test_fusion_and_finalization_define_scene_adaptive_manifestation_candidates():
     template_root = (
         Path(__file__).resolve().parents[2]
         / "pixelle_video/prompts/templates"
@@ -687,7 +687,7 @@ def test_fusion_and_finalization_define_all_rotating_manifestation_families():
         ):
             assert family in template
     assert "不得因为桌面、纸张最容易描述就跳过其他合法载体" in templates[0]
-    assert "连续多帧都退化为桌角、桌面或纸张上的同类图案" in templates[1]
+    assert "相同合法形态重复本身不是失败" in templates[1]
     assert "使用“戴着、拿着、站着”描述平面图形" in templates[1]
     assert "平面形态必须以载体为句子主语" in templates[1]
     assert "场景原生实体、平面印刷或水印、材质刻线或压印" in templates[1]
@@ -704,9 +704,9 @@ def test_fusion_template_keeps_one_signature_without_fixed_placement_biases():
 
     for required_rule in (
         "整幅画只保留一个可识别实例",
-        "六个家族按以下循环顺序排列",
-        "存在三个合法家族时，内部至少比较三个不同家族",
-        "存在两个时至少比较两个",
+        "六个家族仅是候选知识，没有固定顺序",
+        "根据场景、身份特征与材料兼容性选择唯一合法方案",
+        "不得为了轮换凭空更换实体或载体",
         "不能每帧固定站立",
         "不能在内容写完后追加同一种吉祥物、摆件或角落图案",
     ):
@@ -746,7 +746,7 @@ def test_finalization_template_rejects_type_errors_and_attention_competition():
         "表面描述失败",
         "二维拓扑失败",
         "视觉层级失败",
-        "连续多帧都退化为桌角、桌面或纸张上的同类图案",
+        "相同合法形态重复本身不是失败",
         "使用“戴着、拿着、站着”描述平面图形",
         "遮挡只能由另一个前景物体覆盖表面",
         "manifestation_family_preference",

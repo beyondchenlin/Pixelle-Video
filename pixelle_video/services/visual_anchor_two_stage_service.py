@@ -30,7 +30,6 @@ from pixelle_video.models.visual_anchor_two_stage import (
     FusionStagePromptPassthrough,
     IdentityReferenceCondition,
     ImageWorkflowExecutionContract,
-    ManifestationFamilyPreference,
     TargetVisualStyle,
     VisibleTextPolicy,
     VisualAnchorIdentityProfile,
@@ -59,15 +58,6 @@ _SERIES_FINAL_PROMPT_HISTORY_LIMIT = 1
 _NON_STORY_DEFAULT_MANIFESTATION = (
     "prefer_embedded_unless_current_content_admits_a_scene_native_entity"
 )
-_MANIFESTATION_FAMILY_ROTATION: tuple[ManifestationFamilyPreference, ...] = (
-    "scene_native_entity",
-    "flat_print_or_watermark",
-    "material_engraving_or_embossing",
-    "textile_embroidery_or_woven_pattern",
-    "interface_or_signage_mark",
-    "cropped_surface_motif",
-)
-
 
 def _content_stage_visual_style(
     target_visual_style: TargetVisualStyle,
@@ -501,9 +491,7 @@ class VisualAnchorTwoStageService:
             identity_reference_condition=identity_reference_condition,
             workflow_identity_condition_summary=workflow_identity_condition_summary,
             visual_signature_emphasis=visual_signature_emphasis,
-            manifestation_family_preference=(
-                _manifestation_family_preference(frame_index)
-            ),
+            manifestation_family_preference="scene_adaptive",
             continuous_scene_context=continuity_context,
             series_final_prompt_history=series_final_prompt_history,
             target_visual_style=target_visual_style,
@@ -883,16 +871,6 @@ def _previous_final_prompt(history: Sequence[str]) -> str | None:
     return history[-1] if history else None
 
 
-def _manifestation_family_preference(
-    frame_index: int,
-) -> ManifestationFamilyPreference:
-    if frame_index < 0:
-        raise ValueError("frame_index must be non-negative")
-    return _MANIFESTATION_FAMILY_ROTATION[
-        frame_index % len(_MANIFESTATION_FAMILY_ROTATION)
-    ]
-
-
 def _nonduplicated_previous_final_prompt(
     *,
     history: Sequence[str],
@@ -1007,28 +985,13 @@ def _scene_context(frame, world_context, frame_context):
 def _continuous_scene_ids(
     frames: Sequence[StoryboardPlanFrame],
 ) -> tuple[str, ...]:
-    result: list[str] = []
-    previous_anchors: frozenset[str] = frozenset()
-    current_derived_scene = ""
-    for frame in frames:
-        explicit = str(frame.metadata.get("continuous_scene_id") or "").strip()
-        anchors = frozenset(
-            _normalized_text(anchor).casefold()
-            for anchor in frame.continuity_anchors
-            if _normalized_text(anchor)
-        )
-        if explicit:
-            scene_id = explicit
-        elif anchors and previous_anchors and anchors.intersection(previous_anchors):
-            scene_id = current_derived_scene
-        elif anchors:
-            scene_id = f"continuity:{frame.frame_id}"
-        else:
-            scene_id = f"independent:{frame.frame_id}"
-        result.append(scene_id)
-        current_derived_scene = scene_id
-        previous_anchors = anchors
-    return tuple(result)
+    # Only explicit input scene ids establish a shared scene. Anchor text remains
+    # model context; a shared person's name does not establish time or location.
+    return tuple(
+        str(frame.metadata.get("continuous_scene_id") or "").strip()
+        or f"independent:{frame.frame_id}"
+        for frame in frames
+    )
 
 
 def _relevant_article_context(
